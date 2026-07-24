@@ -18,13 +18,28 @@ from app.models.match import (
 )
 from app.models.team import ClubStaff, PlayerTeam, Team, TeamCoach
 from app.models.tla3bny import (
+    Tla3bnyAcademy,
+    Tla3bnyAcademyManager,
     Tla3bnyAgeCategory,
+    Tla3bnyCoach,
+    Tla3bnyCompetition,
+    Tla3bnyCompetitionAdmin,
+    Tla3bnyCompetitionAge,
+    Tla3bnyCompetitionPlayer,
+    Tla3bnyCompetitionTeam,
+    Tla3bnyGroup,
+    Tla3bnyGroupTeam,
     Tla3bnyLineup,
     Tla3bnyLineupSlot,
     Tla3bnyMatch,
     Tla3bnyMatchEvent,
+    Tla3bnyNews,
     Tla3bnyPlayer,
     Tla3bnyPlayerFile,
+    Tla3bnyPlayerTeam,
+    Tla3bnySeason,
+    Tla3bnyStage,
+    Tla3bnyTeam,
     Tla3bnyUser,
 )
 
@@ -60,13 +75,28 @@ __all__ = [
     "AppVersion",
     # auth
     "AdminUser",
-    # tla3bny (LeagueHub subdomain)
+    # tla3bny (youth-academy competitions subdomain)
     "Tla3bnyUser",
+    "Tla3bnyAcademy",
+    "Tla3bnyAcademyManager",
     "Tla3bnyAgeCategory",
+    "Tla3bnyTeam",
+    "Tla3bnyCoach",
     "Tla3bnyPlayer",
     "Tla3bnyPlayerFile",
+    "Tla3bnyPlayerTeam",
+    "Tla3bnySeason",
+    "Tla3bnyCompetition",
+    "Tla3bnyCompetitionAdmin",
+    "Tla3bnyCompetitionAge",
+    "Tla3bnyCompetitionTeam",
+    "Tla3bnyCompetitionPlayer",
+    "Tla3bnyStage",
+    "Tla3bnyGroup",
+    "Tla3bnyGroupTeam",
     "Tla3bnyMatch",
     "Tla3bnyMatchEvent",
     "Tla3bnyLineup",
     "Tla3bnyLineupSlot",
+    "Tla3bnyNews",
 ]

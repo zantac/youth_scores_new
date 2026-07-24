@@ -1,12 +1,17 @@
-"""tla3bny authentication — the LeagueHub subdomain's own login.
+"""tla3bny authentication — the subdomain's own login.
 
 Kept deliberately separate from the youthscores admin auth (`services.auth`):
-the subdomain (tla3bny.youthscores.org) uses *this* login (academy self-register
-+ approval, plus the league super admin), while the main site keeps its own.
-Both happen to use the same signed-token mechanism (itsdangerous + SECRET_KEY),
-so no extra dependency is needed, but the tokens carry a different salt and
-resolve against the `tla3bny_users` table — a youthscores admin token is not
-valid here, and vice versa.
+the subdomain (tla3bny.youthscores.org) uses *this* login, while the main site
+keeps its own. Both happen to use the same signed-token mechanism (itsdangerous
++ SECRET_KEY), so no extra dependency is needed, but the tokens carry a
+different salt and resolve against the `tla3bny_users` table — a youthscores
+admin token is not valid here, and vice versa.
+
+One accounts table serves four roles (see ``codes.TLA3BNY_USER_ROLE``):
+``super_admin`` runs everything; ``competition_admin`` is assigned to specific
+competitions; ``academy`` and ``team`` are the self-service logins that own an
+academy / a single team. The helpers below express the authorisation rules the
+API relies on.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from flask import current_app, g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.extensions import db
-from app.models import Tla3bnyUser
+from app.models import Tla3bnyCompetitionAdmin, Tla3bnyTeam, Tla3bnyUser
 
 TOKEN_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 _SALT = "tla3bny-auth-v1"
@@ -28,9 +33,7 @@ def _serializer() -> URLSafeTimedSerializer:
 
 
 def generate_token(user: Tla3bnyUser) -> str:
-    return _serializer().dumps(
-        {"uid": user.id, "role": user.role, "status": user.status}
-    )
+    return _serializer().dumps({"uid": user.id})
 
 
 def verify_token(token: str) -> Tla3bnyUser | None:
@@ -57,10 +60,7 @@ def current_user() -> Tla3bnyUser | None:
     return g.tla3bny_user
 
 
-def public_user(user: Tla3bnyUser) -> dict:
-    return user.to_dict()
-
-
+# ── decorators ──────────────────────────────────────────────────────────────
 def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -89,18 +89,69 @@ def role_required(*roles: str):
     return decorator
 
 
+def super_admin_required(fn):
+    return role_required("super_admin")(fn)
+
+
 def approved_academy_required(fn):
-    """Require an academy account that has been approved."""
+    """Require an academy account whose academy has been approved."""
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
         user = current_user()
         if not user:
             return jsonify({"error": "unauthorized"}), 401
-        if user.role != "academy":
+        if user.role != "academy" or not user.academy:
             return jsonify({"error": "Academy account required"}), 403
-        if user.status != "approved":
+        if user.academy.status != "approved":
             return jsonify({"error": "Account not approved yet"}), 403
         return fn(*args, **kwargs)
 
     return wrapper
+
+
+# ── authorisation helpers ───────────────────────────────────────────────────
+def is_competition_admin(user: Tla3bnyUser | None, competition_id: int) -> bool:
+    """The super admin, or a competition_admin assigned to this competition."""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    if user.role == "competition_admin":
+        return (
+            db.session.query(Tla3bnyCompetitionAdmin.id)
+            .filter_by(competition_id=competition_id, user_id=user.id)
+            .first()
+            is not None
+        )
+    return False
+
+
+def can_manage_academy(user: Tla3bnyUser | None, academy_id: int) -> bool:
+    """The super admin, or the academy's own (approved) login."""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    if user.role == "academy" and user.academy_id == academy_id:
+        return bool(user.academy and user.academy.status == "approved")
+    return False
+
+
+def can_manage_team(user: Tla3bnyUser | None, team_id: int) -> bool:
+    """The super admin, the owning academy's login, or the team's own login."""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    if user.role == "team":
+        return user.team_id == team_id
+    if user.role == "academy":
+        team = db.session.get(Tla3bnyTeam, team_id)
+        return bool(
+            team
+            and team.academy_id == user.academy_id
+            and user.academy
+            and user.academy.status == "approved"
+        )
+    return False

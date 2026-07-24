@@ -14,7 +14,8 @@ export default function Tla3bnyLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const dest = (u: { role: string }) => (u.role === 'super_admin' ? '/admin' : '/dashboard');
+  const dest = (u: { role: string }) =>
+    (u.role === 'super_admin' || u.role === 'competition_admin' ? '/admin' : '/dashboard');
 
   useEffect(() => { if (!loading && user) router.replace(dest(user)); }, [loading, user, router]);
 

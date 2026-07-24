@@ -11,13 +11,12 @@ function LineupContent() {
   const tt = useTT();
   const params = useSearchParams();
   const router = useRouter();
-  const { user, token, loading, isSuperAdmin } = useTla3bnyAuth();
+  const { user, token, loading, isTeam } = useTla3bnyAuth();
 
   const matchId = Number(params.get('match'));
-  const queryAcademy = Number(params.get('academy'));
-  // An academy may only build its own side; the super admin edits whichever side
-  // the entry link named.
-  const academyId = isSuperAdmin ? queryAcademy : (user?.id ?? 0);
+  // A team login may only build its own side; staff edit whichever side the
+  // link named.
+  const teamId = isTeam ? (user?.team_id ?? 0) : Number(params.get('team'));
 
   useEffect(() => {
     if (loading) return;
@@ -25,20 +24,16 @@ function LineupContent() {
   }, [loading, user, router]);
 
   if (loading || !user || !token) return <Spinner />;
-  if (!matchId || !academyId) return <EmptyState icon="⚠️" text={tt('رابط غير صالح', 'Invalid link')} />;
+  if (!matchId || !teamId) return <EmptyState icon="⚠️" text={tt('رابط غير صالح', 'Invalid link')} />;
 
   return (
     <div className="space-y-4">
-      <Link href={`/match/?id=${matchId}`} className="text-sm text-hint hover:text-aqua">← {tt('الرجوع للمباراة', 'Back to match')}</Link>
-      <LineupBuilder token={token} matchId={matchId} academyId={academyId} />
+      <Link href={`/match?id=${matchId}`} className="text-sm text-hint hover:text-aqua">← {tt('الرجوع للمباراة', 'Back to match')}</Link>
+      <LineupBuilder token={token} matchId={matchId} teamId={teamId} onSaved={() => router.push(`/match?id=${matchId}`)} />
     </div>
   );
 }
 
 export default function LineupPage() {
-  return (
-    <Suspense fallback={<Spinner />}>
-      <LineupContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<Spinner />}><LineupContent /></Suspense>;
 }

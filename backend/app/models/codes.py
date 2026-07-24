@@ -34,12 +34,29 @@ ADMIN_ROLE = ("superadmin", "editor", "clerk")
 # tables; its coded columns keep the original LeagueHub vocabulary rather than
 # the youthscores one (e.g. match status "finished", not "completed").
 
-# Tla3bnyUser.role — one account table serves the league super admin + academies.
-TLA3BNY_USER_ROLE = ("super_admin", "academy")
-# Tla3bnyUser.status — "active" for the super admin; academies move
-# pending -> approved / rejected.
+# Tla3bnyUser.role — one account table serves every actor:
+#   super_admin        — runs the whole subdomain
+#   competition_admin  — assigned to one or more competitions
+#   academy            — an academy's own login (academy_id set)
+#   team               — a per-team coach login (team_id + academy_id set)
+TLA3BNY_USER_ROLE = ("super_admin", "competition_admin", "academy", "team")
+# Tla3bnyUser.status — "active" for staff logins; academies self-register and
+# move pending -> approved / rejected.
 TLA3BNY_USER_STATUS = ("active", "pending", "approved", "rejected")
-# Tla3bnyPlayer.status — verification workflow driven by the super admin.
+# Tla3bnyAcademy.status — approval workflow driven by the super admin.
+TLA3BNY_ACADEMY_STATUS = ("pending", "approved", "rejected")
+# Tla3bnyPlayerTeam.status — a player's dated membership on a team.
+TLA3BNY_MEMBERSHIP_STATUS = ("active", "transferred", "loaned")
+# Tla3bnyCompetition.status
+TLA3BNY_COMPETITION_STATUS = ("draft", "active", "finished")
+# Tla3bnyStage.type — same shape as the youthscores STAGE_TYPE, kept separate so
+# the subsystem stays self-contained.
+TLA3BNY_STAGE_TYPE = ("group", "league", "knockout")
+TLA3BNY_STAGE_TYPE_KNOCKOUT = "knockout"
+# Tla3bnyCompetitionTeam.status — a team's registration in a competition.
+TLA3BNY_ENTRY_STATUS = ("active", "withdrawn")
+# Tla3bnyCompetitionPlayer.status — per-competition roster approval by that
+# competition's admin.
 TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected")
 # Tla3bnyMatch.status
 TLA3BNY_MATCH_STATUS = ("scheduled", "live", "finished")

@@ -1,31 +1,48 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { tAcademies, type TUser } from '@/lib/tla3bnyApi';
+import Link from 'next/link';
+import { tAcademies, type TAcademy } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
-import { EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
 export default function AcademiesPage() {
   const tt = useTT();
-  const [items, setItems] = useState<TUser[]>([]);
+  const [academies, setAcademies] = useState<TAcademy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
 
   useEffect(() => {
-    tAcademies().then(setItems).catch(() => setItems([])).finally(() => setLoading(false));
+    tAcademies().then(setAcademies).catch(() => setAcademies([])).finally(() => setLoading(false));
   }, []);
+
+  const filtered = academies.filter(a => a.name.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-black text-text">{tt('الأكاديميات', 'Academies')}</h1>
-      {loading ? <Spinner /> :
-        items.length === 0 ? <EmptyState icon="🏫" text={tt('لا توجد أكاديميات معتمدة بعد', 'No approved academies yet')} /> :
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {items.map(a => (
-            <div key={a.id} className="flex flex-col items-center gap-2 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 text-center">
-              <LogoAvatar src={a.logo_path} name={a.name} size={56} />
-              <span className="font-bold text-text text-sm line-clamp-2">{a.name}</span>
-            </div>
+      <h1 className="text-xl font-black text-text">{tt('الأكاديميات', 'Academies')}</h1>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder={tt('بحث…', 'Search…')}
+        className="w-full bg-darkBg border border-bdr rounded-xl px-4 py-2.5 text-text text-sm outline-none focus:border-aqua" />
+
+      {loading ? <Spinner /> : filtered.length === 0 ? (
+        <EmptyState icon="🏫" text={tt('لا توجد أكاديميات', 'No academies')} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {filtered.map(a => (
+            <Link key={a.id} href={`/academy?id=${a.id}`}>
+              <Card className="p-3 flex items-center gap-3 hover:border-aqua/50 transition-colors">
+                <LogoAvatar src={a.logo_path} name={a.name} size={48} />
+                <div className="min-w-0">
+                  <div className="font-bold text-text truncate">{a.name}</div>
+                  <div className="text-[11px] text-hint truncate">
+                    {[a.training_place, a.teams ? `${a.teams.length} ${tt('فرق', 'teams')}` : null]
+                      .filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+              </Card>
+            </Link>
           ))}
-        </div>}
+        </div>
+      )}
     </div>
   );
 }

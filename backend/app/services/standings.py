@@ -48,19 +48,29 @@ class _H2H:
         return self.goals_for - self.goals_against
 
 
-def is_eligible(m: Match, stage_filter: int | set[int] | None = None) -> bool:
+def is_eligible(
+    m: Match,
+    stage_filter: int | set[int] | None = None,
+    *,
+    completed_status: str = codes.MATCH_STATUS_COMPLETED,
+    knockout_type: str = codes.STAGE_TYPE_KNOCKOUT,
+) -> bool:
     """Only completed, non-knockout matches with a scoreline count.
 
     `stage_filter` limits the table to certain stages — one id, or the set of
     stages a table accumulates over (see `tables.counted_stage_ids`).
+
+    `completed_status` / `knockout_type` are the vocabulary of the match's
+    subsystem: the defaults are youthscores', and the tla3bny subsystem passes
+    its own ("finished" / "knockout") so this engine can be reused unchanged.
     """
-    if m.stage is not None and m.stage.type == codes.STAGE_TYPE_KNOCKOUT:
+    if m.stage is not None and m.stage.type == knockout_type:
         return False
     if stage_filter is not None:
         allowed = stage_filter if isinstance(stage_filter, set) else {stage_filter}
         if m.stage_id not in allowed:
             return False
-    if m.status != codes.MATCH_STATUS_COMPLETED:
+    if m.status != completed_status:
         return False
     return m.home_score is not None and m.away_score is not None
 
@@ -72,6 +82,8 @@ def calculate(
     team_ids: set[int] | None = None,
     stage_filter: int | None = None,
     deductions: dict[int, int] | None = None,
+    completed_status: str = codes.MATCH_STATUS_COMPLETED,
+    knockout_type: str = codes.STAGE_TYPE_KNOCKOUT,
 ) -> list[Standing]:
     """Build the table for `teams` from `matches`.
 
@@ -96,7 +108,16 @@ def calculate(
                 points=-penalty,
             )
 
-    eligible = [m for m in matches if is_eligible(m, stage_filter)]
+    eligible = [
+        m
+        for m in matches
+        if is_eligible(
+            m,
+            stage_filter,
+            completed_status=completed_status,
+            knockout_type=knockout_type,
+        )
+    ]
 
     for m in eligible:
         home = table.get(m.home_team_id)
@@ -211,13 +232,19 @@ def break_tie(tied: list[Standing], eligible: list[Match]) -> list[Standing]:
     )
 
 
-def team_form(team_id: int, matches: list[Match], limit: int = 5) -> list[str]:
+def team_form(
+    team_id: int,
+    matches: list[Match],
+    limit: int = 5,
+    *,
+    completed_status: str = codes.MATCH_STATUS_COMPLETED,
+) -> list[str]:
     """Most recent results first, as W/D/L. Includes knockout matches."""
     played = [
         m
         for m in matches
         if team_id in (m.home_team_id, m.away_team_id)
-        and m.status == codes.MATCH_STATUS_COMPLETED
+        and m.status == completed_status
         and m.home_score is not None
         and m.away_score is not None
     ]

@@ -9,7 +9,10 @@ export default function Tla3bnyRegisterPage() {
   const tt = useTT();
   const { register } = useTla3bnyAuth();
   const router = useRouter();
-  const [f, setF] = useState({ name: '', email: '', password: '', phone: '', address: '' });
+  const [f, setF] = useState({
+    name: '', email: '', password: '', phone: '', address: '',
+    facebook_url: '', training_place: '',
+  });
   const [logo, setLogo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,6 +57,14 @@ export default function Tla3bnyRegisterPage() {
             </Field>
             <Field label={tt('العنوان', 'City / Address')}>
               <input value={f.address} onChange={set('address')} className={inputCls} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={tt('مكان التدريب', 'Training place')}>
+              <input value={f.training_place} onChange={set('training_place')} className={inputCls} />
+            </Field>
+            <Field label={tt('صفحة فيسبوك', 'Facebook page')}>
+              <input value={f.facebook_url} onChange={set('facebook_url')} className={inputCls} />
             </Field>
           </div>
           <Field label={tt('الشعار (اختياري)', 'Logo (optional)')}>

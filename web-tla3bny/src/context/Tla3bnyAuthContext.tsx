@@ -1,6 +1,9 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { tLogin, tMe, tRegister, type TUser } from '@/lib/tla3bnyApi';
+import {
+  tLogin, tMe, tRegister,
+  type TUser, type TAcademy, type TTeam, type TCompetition,
+} from '@/lib/tla3bnyApi';
 
 // Kept separate from the youthscores admin session (ys_admin_token): this is the
 // subdomain's own login, so the two never collide in localStorage.
@@ -9,13 +12,21 @@ const TOKEN_KEY = 'tla3bny_token';
 interface Ctx {
   token: string | null;
   user: TUser | null;
+  academy: TAcademy | null;
+  team: TTeam | null;
+  competitions: TCompetition[];
   loading: boolean;
   login: (email: string, password: string) => Promise<TUser>;
-  register: (fd: { name: string; email: string; password: string; phone?: string; address?: string; logo?: File | null }) => Promise<TUser>;
+  register: (fd: Parameters<typeof tRegister>[0]) => Promise<TUser>;
   logout: () => void;
   refresh: () => Promise<void>;
   isSuperAdmin: boolean;
+  isCompetitionAdmin: boolean;
+  isAcademy: boolean;
   isApprovedAcademy: boolean;
+  isTeam: boolean;
+  /** Super admin, or a competition admin assigned to this competition. */
+  canAdminCompetition: (compId: number) => boolean;
 }
 
 const AuthCtx = createContext<Ctx | null>(null);
@@ -29,51 +40,78 @@ export function useTla3bnyAuth() {
 export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<TUser | null>(null);
+  const [academy, setAcademy] = useState<TAcademy | null>(null);
+  const [team, setTeam] = useState<TTeam | null>(null);
+  const [competitions, setCompetitions] = useState<TCompetition[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const applyMe = useCallback((me: Awaited<ReturnType<typeof tMe>>) => {
+    if (!me) return false;
+    setUser(me.user);
+    setAcademy(me.academy ?? null);
+    setTeam(me.team ?? null);
+    setCompetitions(me.competitions ?? []);
+    return true;
+  }, []);
 
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
     if (!saved) { setLoading(false); return; }
     setToken(saved);
     tMe(saved)
-      .then(u => { if (u) setUser(u); else { localStorage.removeItem(TOKEN_KEY); setToken(null); } })
+      .then(me => { if (!applyMe(me)) { localStorage.removeItem(TOKEN_KEY); setToken(null); } })
       .finally(() => setLoading(false));
-  }, []);
+  }, [applyMe]);
 
-  const persist = useCallback((t: string, u: TUser) => {
+  const afterAuth = useCallback(async (t: string, u: TUser) => {
     localStorage.setItem(TOKEN_KEY, t);
     setToken(t);
     setUser(u);
+    const me = await tMe(t);
+    applyMe(me);
     return u;
-  }, []);
+  }, [applyMe]);
 
   const login = useCallback(async (email: string, password: string) => {
     const { token: t, user: u } = await tLogin(email, password);
-    return persist(t, u);
-  }, [persist]);
+    return afterAuth(t, u);
+  }, [afterAuth]);
 
-  const register = useCallback(async (fd: Parameters<Ctx['register']>[0]) => {
+  const register = useCallback(async (fd: Parameters<typeof tRegister>[0]) => {
     const { token: t, user: u } = await tRegister(fd);
-    return persist(t, u);
-  }, [persist]);
+    return afterAuth(t, u);
+  }, [afterAuth]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    setAcademy(null);
+    setTeam(null);
+    setCompetitions([]);
   }, []);
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const u = await tMe(token);
-    if (u) setUser(u);
-  }, [token]);
+    applyMe(await tMe(token));
+  }, [token, applyMe]);
+
+  const canAdminCompetition = useCallback(
+    (compId: number) =>
+      user?.role === 'super_admin' || competitions.some(c => c.id === compId),
+    [user, competitions],
+  );
 
   return (
     <AuthCtx.Provider value={{
-      token, user, loading, login, register, logout, refresh,
+      token, user, academy, team, competitions, loading,
+      login, register, logout, refresh,
       isSuperAdmin: user?.role === 'super_admin',
-      isApprovedAcademy: user?.role === 'academy' && user?.status === 'approved',
+      isCompetitionAdmin: user?.role === 'competition_admin',
+      isAcademy: user?.role === 'academy',
+      isApprovedAcademy: user?.role === 'academy' && academy?.status === 'approved',
+      isTeam: user?.role === 'team',
+      canAdminCompetition,
     }}>
       {children}
     </AuthCtx.Provider>

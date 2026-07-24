@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  tMatch, tPlayers, tMatchLineups, tSaveLineup,
-  type TMatch, type TPlayer,
+  tMatch, tCompTeams, tRoster, tMatchLineups, tSaveLineup,
+  type TMatch, type TCompPlayer,
 } from '@/lib/tla3bnyApi';
 import { FORMATIONS, FORMATION_NAMES, slotBase } from '@/lib/tla3bnyFormations';
 import Spinner from '@/components/ui/Spinner';
@@ -12,23 +12,21 @@ import { Card, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT } from '.
 interface Picker { slot: string | null; forSub: boolean }
 
 export default function LineupBuilder({
-  token, matchId, academyId, onSaved,
+  token, matchId, teamId, onSaved,
 }: {
-  token: string; matchId: number; academyId: number; onSaved?: () => void;
+  token: string; matchId: number; teamId: number; onSaved?: () => void;
 }) {
   const tt = useTT();
   const [match, setMatch] = useState<TMatch | null>(null);
-  const [players, setPlayers] = useState<TPlayer[]>([]);
+  const [players, setPlayers] = useState<TCompPlayer[]>([]);
   const [formation, setFormation] = useState('4-3-3');
-  const [assign, setAssign] = useState<Record<string, number>>({}); // slot -> playerId
+  const [assign, setAssign] = useState<Record<string, number>>({});
   const [subs, setSubs] = useState<number[]>([]);
   const [picker, setPicker] = useState<Picker | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-
-  const slotOrder = FORMATIONS[formation] ?? [];
 
   useEffect(() => {
     let alive = true;
@@ -38,12 +36,17 @@ export default function LineupBuilder({
         const m = await tMatch(matchId);
         if (!alive) return;
         setMatch(m);
-        const roster = await tPlayers({ academy_id: academyId, age_category_id: m.age_category_id });
-        if (!alive) return;
-        setPlayers(roster);
+        // Approved roster for this team in this competition.
+        const entries = await tCompTeams(m.competition_id, m.age_category_id);
+        const entry = entries.find(e => e.team_id === teamId);
+        if (entry) {
+          const full = await tRoster(entry.id);
+          if (!alive) return;
+          setPlayers((full.roster ?? []).filter(p => p.status === 'approved'));
+        }
         const lineups = await tMatchLineups(matchId).catch(() => []);
         if (!alive) return;
-        const mine = lineups.find(l => l.academy_id === academyId);
+        const mine = lineups.find(l => l.team_id === teamId);
         if (mine) {
           if (mine.formation && FORMATIONS[mine.formation]) setFormation(mine.formation);
           const a: Record<string, number> = {};
@@ -63,20 +66,19 @@ export default function LineupBuilder({
       }
     })();
     return () => { alive = false; };
-  }, [matchId, academyId]);
+  }, [matchId, teamId]);
 
-  const playerById = useCallback((id: number) => players.find(p => p.id === id), [players]);
+  const playerById = useCallback((id: number) => players.find(p => p.player_id === id), [players]);
   const usedIds = useMemo(() => new Set<number>([...Object.values(assign), ...subs]), [assign, subs]);
 
   const filled: Record<string, SlotView> = {};
   for (const [slot, pid] of Object.entries(assign)) {
     const p = playerById(pid);
-    if (p) filled[slot] = { playerId: p.id, playerName: p.name, jerseyNumber: p.jersey_number, photoPath: p.photo_path };
+    if (p) filled[slot] = { playerId: p.player_id, playerName: p.player_name, photoPath: p.photo_path };
   }
 
   const changeFormation = (f: string) => {
     setFormation(f);
-    // Drop assignments whose slot no longer exists in the new formation.
     setAssign(prev => {
       const order = FORMATIONS[f] ?? [];
       const next: Record<string, number> = {};
@@ -97,7 +99,6 @@ export default function LineupBuilder({
       setSubs(s => s.filter(id => id !== playerId));
       setAssign(a => {
         const n = { ...a };
-        // remove the player from any other slot first
         if (playerId != null) for (const k of Object.keys(n)) if (n[k] === playerId) delete n[k];
         if (playerId == null) delete n[slot]; else n[slot] = playerId;
         return n;
@@ -113,7 +114,7 @@ export default function LineupBuilder({
         ...Object.entries(assign).map(([slot, pid]) => ({ position_slot: slot, player_id: pid, is_substitute: false })),
         ...subs.map(pid => ({ position_slot: 'SUB', player_id: pid, is_substitute: true })),
       ];
-      await tSaveLineup(token, matchId, academyId, { formation, slots });
+      await tSaveLineup(token, matchId, teamId, { formation, slots });
       setSaved(true);
       onSaved?.();
     } catch (e) {
@@ -124,18 +125,28 @@ export default function LineupBuilder({
   if (loading) return <Spinner />;
   if (!match) return <EmptyState icon="🔍" text={tt('المباراة غير موجودة', 'Match not found')} />;
 
-  const teamName = academyId === match.home_academy_id ? match.home_academy_name : match.away_academy_name;
+  const teamName = teamId === match.home_team_id ? match.home_team_name : match.away_team_name;
   const currentPickId = picker && !picker.forSub && picker.slot ? assign[picker.slot] : undefined;
+  const rules = match.rules;
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-black text-text">{tt('التشكيلة', 'Lineup')} · {teamName}</h2>
 
+      {rules && (
+        <p className="text-[11px] text-hint">
+          {tt(
+            `أساسيون: ${rules.players_on_pitch} · بدلاء: حتى ${rules.max_substitutes} · إجمالي: ${rules.lineup_size}`,
+            `Starters: ${rules.players_on_pitch} · Subs: up to ${rules.max_substitutes} · Total: ${rules.lineup_size}`,
+          )}
+        </p>
+      )}
+
       {players.length === 0 && (
         <Card className="p-4">
           <p className="text-sm text-hint">
-            {tt(`لا يوجد لاعبون معتمدون لهذه الأكاديمية في فئة U${match.age_category}.`,
-              `This academy has no approved players in the U${match.age_category} age group.`)}
+            {tt('لا يوجد لاعبون معتمدون لهذا الفريق في هذه البطولة.',
+              'This team has no approved players in this competition.')}
           </p>
         </Card>
       )}
@@ -153,7 +164,6 @@ export default function LineupBuilder({
         <PitchView formation={formation} filled={filled} onTapSlot={s => setPicker({ slot: s, forSub: false })} />
       </div>
 
-      {/* substitutes */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-bold text-text">{tt('البدلاء', 'Substitutes')}</h3>
@@ -168,8 +178,8 @@ export default function LineupBuilder({
               const p = playerById(id);
               return (
                 <span key={id} className="flex items-center gap-1.5 bg-cardBg2 border border-bdr rounded-full ps-1 pe-2 py-0.5">
-                  <LogoAvatar src={p?.photo_path} name={p?.name} size={22} />
-                  <span className="text-xs font-bold text-text">{p?.name}</span>
+                  <LogoAvatar src={p?.photo_path} name={p?.player_name} size={22} />
+                  <span className="text-xs font-bold text-text">{p?.player_name}</span>
                   <button onClick={() => setSubs(s => s.filter(x => x !== id))} className="text-hint hover:text-loss text-sm leading-none">×</button>
                 </span>
               );
@@ -204,7 +214,7 @@ export default function LineupBuilder({
 function PlayerPicker({
   players, usedIds, currentId, slotHint, title, onPick, onClose,
 }: {
-  players: TPlayer[];
+  players: TCompPlayer[];
   usedIds: Set<number>;
   currentId?: number;
   slotHint: string | null;
@@ -213,11 +223,10 @@ function PlayerPicker({
   onClose: () => void;
 }) {
   const tt = useTT();
-  // Preferred position first (by sub_position matching the slot base), then rest.
   const sorted = useMemo(() => {
-    const score = (p: TPlayer) => {
+    const score = (p: TCompPlayer) => {
       if (!slotHint) return 1;
-      const sp = (p.sub_position ?? '').toUpperCase();
+      const sp = (p.position ?? '').toUpperCase();
       if (slotHint === 'GK') return sp === 'GK' ? 0 : 1;
       return sp.startsWith(slotHint) ? 0 : 1;
     };
@@ -238,18 +247,18 @@ function PlayerPicker({
             </button>
           )}
           {sorted.map(p => {
-            const used = usedIds.has(p.id) && p.id !== currentId;
+            const used = usedIds.has(p.player_id) && p.player_id !== currentId;
             return (
-              <button key={p.id} disabled={used} onClick={() => onPick(p.id)}
+              <button key={p.player_id} disabled={used} onClick={() => onPick(p.player_id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start ${used ? 'opacity-40' : 'hover:bg-cardBg2'}`}>
-                <LogoAvatar src={p.photo_path} name={p.name} size={36} />
+                <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-text text-sm truncate">{p.name}</div>
+                  <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
                   <div className="text-[11px] text-hint truncate">
-                    {[p.jersey_number != null ? `#${p.jersey_number}` : null, p.sub_position, used ? tt('مختار بالفعل', 'already selected') : null].filter(Boolean).join(' · ')}
+                    {[p.position, used ? tt('مختار بالفعل', 'already selected') : null].filter(Boolean).join(' · ')}
                   </div>
                 </div>
-                {p.id === currentId && <span className="text-aqua">✓</span>}
+                {p.player_id === currentId && <span className="text-aqua">✓</span>}
               </button>
             );
           })}

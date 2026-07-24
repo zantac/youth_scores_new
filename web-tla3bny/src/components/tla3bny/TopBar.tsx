@@ -21,20 +21,26 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
 export default function TopBar() {
   const tt = useTT();
   const { locale, toggleLocale, isDark, toggleTheme } = useApp();
-  const { user, isSuperAdmin, isApprovedAcademy, logout } = useTla3bnyAuth();
+  const { user, isSuperAdmin, isCompetitionAdmin, logout } = useTla3bnyAuth();
   const pathname = usePathname();
   const router = useRouter();
 
-  const is = (p: string) => (p === '/' ? pathname === '/' || pathname === '/' : pathname.startsWith(p));
+  const is = (p: string) => (p === '/' ? pathname === '/' : pathname.startsWith(p));
 
   const nav = [
-    { href: '/', label: tt('المباريات', 'Matches') },
-    { href: '/standings', label: tt('الترتيب', 'Standings') },
-    { href: '/stats', label: tt('الإحصائيات', 'Stats') },
+    { href: '/', label: tt('الرئيسية', 'Home') },
+    { href: '/competitions', label: tt('البطولات', 'Competitions') },
     { href: '/academies', label: tt('الأكاديميات', 'Academies') },
+    { href: '/news', label: tt('الأخبار', 'News') },
   ];
 
-  const accountHref = isSuperAdmin ? '/admin' : '/dashboard';
+  const isStaff = isSuperAdmin || isCompetitionAdmin;
+  const accountHref = isStaff ? '/admin' : '/dashboard';
+  const accountLabel = isSuperAdmin
+    ? tt('الإدارة', 'Admin')
+    : isCompetitionAdmin
+      ? tt('بطولاتي', 'My Competitions')
+      : tt('حسابي', 'My Account');
 
   return (
     <header className="sticky top-0 z-20 bg-darkBg/90 backdrop-blur border-b border-bdr">
@@ -62,12 +68,10 @@ export default function TopBar() {
             </button>
             {user ? (
               <div className="flex items-center gap-1">
-                {(isSuperAdmin || isApprovedAcademy || user.role === 'academy') && (
-                  <Link href={accountHref}
-                    className="px-3 py-1.5 rounded-lg text-sm font-bold bg-cardBg2 border border-bdr text-text hover:border-aqua transition-colors">
-                    {isSuperAdmin ? tt('الإدارة', 'Admin') : tt('حسابي', 'My Academy')}
-                  </Link>
-                )}
+                <Link href={accountHref}
+                  className="px-3 py-1.5 rounded-lg text-sm font-bold bg-cardBg2 border border-bdr text-text hover:border-aqua transition-colors">
+                  {accountLabel}
+                </Link>
                 <button onClick={() => { logout(); router.push('/'); }}
                   className="w-9 h-9 grid place-items-center rounded-lg text-hint hover:text-loss" title={tt('خروج', 'Logout')}>
                   ⏻

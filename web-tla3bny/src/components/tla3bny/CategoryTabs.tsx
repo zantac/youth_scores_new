@@ -23,7 +23,7 @@ export default function CategoryTabs({
       )}
       {categories.map(c => (
         <button key={c.id} className={chip(selected === c.id)} onClick={() => onSelect(c.id)}>
-          U{c.label}
+          {c.label}
         </button>
       ))}
     </div>
