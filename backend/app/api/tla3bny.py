@@ -692,6 +692,38 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
     return merged, sources
 
 
+@tla3bny_bp.get("/teams/<int:team_id>/competition-entries")
+@auth.login_required
+def team_competition_entries(team_id: int):
+    """The competitions this team is registered in, with their player quota.
+
+    Used by the academy dashboard to gate and display player registration.
+    Only the owning academy / team login (or super admin) may call this.
+    """
+    if not auth.can_manage_team(auth.current_user(), team_id):
+        return _forbid()
+    entries = TCompetitionTeam.query.filter_by(team_id=team_id, status="active").all()
+    result = []
+    for entry in entries:
+        comp = entry.competition
+        cage = TCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id,
+            age_category_id=entry.age_category_id,
+        ).first()
+        count = TCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id
+        ).count()
+        result.append({
+            "entry_id": entry.id,
+            "competition_id": entry.competition_id,
+            "competition_name": comp.name if comp else None,
+            "registration_open": comp.registration_open if comp else False,
+            "max_players": cage.max_players_per_team if cage else None,
+            "player_count": count,
+        })
+    return jsonify(result)
+
+
 @tla3bny_bp.get("/teams/<int:team_id>/required-documents")
 def team_required_documents(team_id: int):
     """The labelled upload slots to show for this team's players."""
@@ -811,10 +843,50 @@ def player_registrations(player_id: int):
 @tla3bny_bp.post("/teams/<int:team_id>/players")
 @auth.login_required
 def create_player(team_id: int):
-    """Create a player person and their active membership on this team."""
+    """Create a player and enqueue them as pending in the team's competitions.
+
+    Registration is gated: the team must be in at least one competition with
+    open registration and an available slot (max_players_per_team not reached).
+    """
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
     Tla3bnyTeam.query.get_or_404(team_id)
+
+    # Gate: team must be registered in at least one competition.
+    comp_entries = TCompetitionTeam.query.filter_by(
+        team_id=team_id, status="active"
+    ).all()
+    if not comp_entries:
+        return _err(
+            "الفريق لم يُضَف لأي بطولة بعد — تواصل مع المنظّم لإضافته أولًا", 403
+        )
+
+    # Gate: at least one open competition must still have room.
+    has_room = False
+    for entry in comp_entries:
+        comp = entry.competition
+        if not comp or not comp.registration_open:
+            continue
+        cage = TCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id,
+            age_category_id=entry.age_category_id,
+        ).first()
+        cap = cage.max_players_per_team if cage else None
+        if cap is None:
+            has_room = True
+            break
+        count = TCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id
+        ).count()
+        if count < cap:
+            has_room = True
+            break
+    if not has_room:
+        return _err(
+            "وصل الفريق للحد الأقصى من اللاعبين أو أُغلق التسجيل في جميع البطولات",
+            409,
+        )
+
     data, files = _read_payload()
     name = (data.get("name") or "").strip()
     if not name:
@@ -850,6 +922,23 @@ def create_player(team_id: int):
             status="active",
         )
     )
+    # Auto-enqueue the new player as "pending" in every active competition this
+    # team is registered in — the organiser's Approvals tab shows them at once.
+    for entry in TCompetitionTeam.query.filter_by(team_id=team_id, status="active"):
+        comp = entry.competition
+        if not comp or not comp.registration_open:
+            continue
+        cage = TCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id, age_category_id=entry.age_category_id
+        ).first()
+        cap = cage.max_players_per_team if cage else None
+        if cap is not None and TCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id
+        ).count() >= cap:
+            continue
+        db.session.add(TCompetitionPlayer(
+            competition_team_id=entry.id, player_id=player.id, status="pending"
+        ))
     db.session.commit()
     return jsonify(player.to_dict(with_files=True)), 201
 
@@ -1454,14 +1543,15 @@ def register_team(comp_id: int):
     """A competition admin registers a team (its age must run in this comp)."""
     if not auth.is_competition_admin(auth.current_user(), comp_id):
         return _forbid()
-    Tla3bnyCompetition.query.get_or_404(comp_id)
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
     team = Tla3bnyTeam.query.get(team_id) if team_id else None
     if team is None:
         return _err("valid team_id is required")
-    if not Tla3bnyCompetitionAge.query.filter_by(
+    cage = Tla3bnyCompetitionAge.query.filter_by(
         competition_id=comp_id, age_category_id=team.age_category_id
-    ).first():
+    ).first()
+    if not cage:
         return _err("This competition does not run the team's age", 409)
     if Tla3bnyCompetitionTeam.query.filter_by(
         competition_id=comp_id, team_id=team_id
@@ -1471,6 +1561,20 @@ def register_team(comp_id: int):
         competition_id=comp_id, team_id=team_id, age_category_id=team.age_category_id
     )
     db.session.add(entry)
+    db.session.flush()  # get entry.id before auto-enqueue
+    # Auto-enqueue all existing active players as pending for the organiser to approve.
+    if comp.registration_open:
+        cap = cage.max_players_per_team if cage else None
+        count = 0
+        for mem in Tla3bnyPlayerTeam.query.filter_by(
+            team_id=team_id, end_date=None, status="active"
+        ):
+            if cap is not None and count >= cap:
+                break
+            db.session.add(TCompetitionPlayer(
+                competition_team_id=entry.id, player_id=mem.player_id, status="pending"
+            ))
+            count += 1
     db.session.commit()
     return jsonify(entry.to_dict()), 201
 

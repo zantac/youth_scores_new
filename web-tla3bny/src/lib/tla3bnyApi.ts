@@ -555,6 +555,18 @@ export const tTeamAccount = (token: string, teamId: number) =>
     `/teams/${teamId}/account`, token,
   );
 
+export interface TTeamCompEntry {
+  entry_id: number;
+  competition_id: number;
+  competition_name: string | null;
+  registration_open: boolean;
+  max_players: number | null;
+  player_count: number;
+}
+/** Competitions this team is registered in, with player quota — for the academy dashboard. */
+export const tTeamCompetitionEntries = (token: string, teamId: number) =>
+  get<TTeamCompEntry[]>(`/teams/${teamId}/competition-entries`, token);
+
 // ── coaches ─────────────────────────────────────────────────────────────────
 export function tAddCoach(token: string, teamId: number, fd: Record<string, string | undefined>, photo?: File | null) {
   const body = new FormData();

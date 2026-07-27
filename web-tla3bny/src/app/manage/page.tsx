@@ -151,7 +151,10 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
       {entries.length === 0 && <EmptyState icon="⚽" text={tt('لا فرق مسجلة', 'No teams registered')} />}
       {entries.map(e => (
         <Card key={e.id} className="p-3 flex items-center justify-between">
-          <div><div className="font-bold text-text text-sm">{e.team_name}</div><div className="text-[11px] text-hint">{e.academy_name}</div></div>
+          <Link href={`/team?id=${e.team_id}`} className="min-w-0">
+            <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{e.team_name}</div>
+            <div className="text-[11px] text-hint">{e.academy_name}</div>
+          </Link>
           <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
         </Card>
       ))}
