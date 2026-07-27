@@ -44,19 +44,29 @@ class Tla3bnyUser(TimestampMixin, db.Model):
     * ``competition_admin`` — assigned to one or more competitions; approves
       that competition's registered players and enters its results/news.
     * ``academy`` — an academy's own login; ``academy_id`` set. Self-registers
-      (``status`` pending) and is approved by the super admin.
+      and is active immediately — no approval step.
     * ``team`` — a per-team (coach) login; ``team_id`` + ``academy_id`` set.
 
     ``name`` is a display name for the super admin / competition admins; academy
     and team accounts take their name from the linked academy/team.
+
+    An account signs in with either a ``username`` or an ``email``, whichever it
+    has. Competition organisers, academy owners and team managers are handed a
+    username + password by whoever creates the account, so most of them never
+    have an email on file; ``email`` therefore stays optional.
     """
 
     __tablename__ = "tla3bny_users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    email: Mapped[str] = mapped_column(
-        sa.String(255), nullable=False, unique=True, index=True
+    # Stored lower-cased so a login is case-insensitive (the DB's own
+    # collation is not relied on — MySQL and SQLite disagree about it).
+    username: Mapped[str | None] = mapped_column(
+        sa.String(120), unique=True, index=True
+    )
+    email: Mapped[str | None] = mapped_column(
+        sa.String(255), unique=True, index=True
     )
     password_hash: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     role: Mapped[str] = mapped_column(
@@ -80,6 +90,23 @@ class Tla3bnyUser(TimestampMixin, db.Model):
     team: Mapped["Tla3bnyTeam | None"] = relationship(foreign_keys=[team_id])
 
     # -- password helpers ---------------------------------------------------
+    @staticmethod
+    def normalize_login(raw: str | None) -> str | None:
+        """The stored form of a username/email: trimmed and lower-cased."""
+        value = (raw or "").strip().lower()
+        return value or None
+
+    @classmethod
+    def by_login(cls, raw: str | None) -> "Tla3bnyUser | None":
+        """Find the account for what was typed in the single 'login' box —
+        a username or an email, either case."""
+        value = cls.normalize_login(raw)
+        if not value:
+            return None
+        return cls.query.filter(
+            sa.or_(cls.username == value, cls.email == value)
+        ).first()
+
     def set_password(self, raw: str) -> None:
         self.password_hash = generate_password_hash(raw)
 
@@ -97,7 +124,9 @@ class Tla3bnyUser(TimestampMixin, db.Model):
     def to_dict(self) -> dict:
         return {
             "id": self.id,
+            "username": self.username,
             "email": self.email,
+            "login": self.username or self.email,
             "role": self.role,
             "status": self.status,
             "name": self.display_name(),
@@ -107,7 +136,7 @@ class Tla3bnyUser(TimestampMixin, db.Model):
         }
 
     def __repr__(self) -> str:
-        return f"<Tla3bnyUser {self.id} {self.role} {self.email}>"
+        return f"<Tla3bnyUser {self.id} {self.role} {self.username or self.email}>"
 
 
 # ── master data: academies, teams, coaches, players ─────────────────────────
@@ -115,8 +144,9 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
     """An academy (the tla3bny equivalent of a youthscores club).
 
     Durable master data: it owns teams/players and is never deleted by removing
-    a season or competition. Self-registers via an academy account and is
-    approved by the super admin before it appears publicly.
+    a season or competition. Any academy may self-register and is live at once —
+    there is no approval queue. The only thing an organiser vets is the players
+    a team enters into their competition (see Tla3bnyCompetitionPlayer).
     """
 
     __tablename__ = "tla3bny_academies"
@@ -125,17 +155,18 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     logo_path: Mapped[str | None] = mapped_column(sa.String(512))
 
-    # Public profile.
+    # Public profile. A phone number is required at registration — it is how an
+    # organiser reaches the academy about its entries.
     phone: Mapped[str | None] = mapped_column(sa.String(50))
     facebook_url: Mapped[str | None] = mapped_column(sa.String(512))
     training_place: Mapped[str | None] = mapped_column(sa.String(255))
     address: Mapped[str | None] = mapped_column(sa.String(255))
     description: Mapped[str | None] = mapped_column(sa.Text)
 
-    # Approval workflow (mirrors the account status; the super admin approves
-    # the academy, which flips both).
+    # Registration is open, so an academy starts "approved". The status is kept
+    # so the super admin can still suspend one that misbehaves.
     status: Mapped[str] = mapped_column(
-        code_enum(*codes.TLA3BNY_ACADEMY_STATUS), nullable=False, default="pending"
+        code_enum(*codes.TLA3BNY_ACADEMY_STATUS), nullable=False, default="approved"
     )
     rejection_reason: Mapped[str | None] = mapped_column(sa.String(512))
 
@@ -209,15 +240,23 @@ class Tla3bnyAgeCategory(TimestampMixin, db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     label: Mapped[str] = mapped_column(sa.String(50), nullable=False, unique=True)
-    # How many document files each player registered in this category must upload.
-    required_files: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    # The baseline registration papers a player in this age must upload (e.g.
+    # birth certificate, school letter, national id, health certificate). Null
+    # falls back to codes.TLA3BNY_DEFAULT_PLAYER_DOCS. Each competition the
+    # team enters adds its own list on top (Tla3bnyCompetition.documents).
+    required_documents: Mapped[list | None] = mapped_column(sa.JSON)
     sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    @property
+    def documents(self) -> list[str]:
+        return self.required_documents or list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "label": self.label,
-            "required_files": self.required_files,
+            "required_documents": self.documents,
+            "required_files": len(self.documents),
             "sort_order": self.sort_order,
         }
 
@@ -367,7 +406,10 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
                 return m
         return None
 
-    def to_dict(self, with_files: bool = True) -> dict:
+    def to_dict(self, with_files: bool = False) -> dict:
+        """Public shape by default. The registration papers are private — pass
+        ``with_files=True`` only for a caller the API has authorised (the owning
+        academy/team, or an admin of a competition the player is entered in)."""
         cur = self.current_membership()
         data = {
             "id": self.id,
@@ -376,7 +418,6 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
             "position": self.position,
             "sub_position": self.sub_position,
             "photo_path": self.photo_path,
-            "papers_path": self.papers_path,
             "current_team_id": cur.team_id if cur else None,
             "current_academy_id": (
                 cur.team.academy_id if cur and cur.team else None
@@ -384,6 +425,7 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
             "jersey_number": cur.jersey_number if cur else None,
         }
         if with_files:
+            data["papers_path"] = self.papers_path
             data["files"] = [f.to_dict() for f in self.files]
             data["file_count"] = len(self.files)
         return data
@@ -403,6 +445,9 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
     )
     file_path: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     original_name: Mapped[str | None] = mapped_column(sa.String(255))
+    # Which required paper this file is (e.g. "شهادة الميلاد"); null for a
+    # generic/legacy upload.
+    label: Mapped[str | None] = mapped_column(sa.String(120))
 
     player: Mapped["Tla3bnyPlayer"] = relationship(back_populates="files")
 
@@ -412,6 +457,7 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
             "player_id": self.player_id,
             "file_path": self.file_path,
             "original_name": self.original_name,
+            "label": self.label,
         }
 
 
@@ -509,6 +555,31 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
         nullable=False,
         default="draft",
     )
+    # The registration papers this competition's admin demands for every player
+    # entered into it — a free list, as long as they need (birth certificate,
+    # school letter, national id, health certificate, ...). Null falls back to
+    # codes.TLA3BNY_DEFAULT_PLAYER_DOCS. Each name becomes a labelled upload
+    # slot on the player, and the uploads are visible to admins only.
+    required_documents: Mapped[list | None] = mapped_column(sa.JSON)
+
+    # ── the public "about this competition" page ────────────────────────────
+    # ``description`` above is the one-line blurb shown on cards; ``info`` is
+    # the long text of the info page (format, rules, fees, how to enter).
+    info: Mapped[str | None] = mapped_column(sa.Text)
+    organizer_name: Mapped[str | None] = mapped_column(sa.String(255))
+    contact_phone: Mapped[str | None] = mapped_column(sa.String(50))
+    # Digits only, international form (e.g. 201234567890). The frontend turns it
+    # into a wa.me link; storing the number rather than a URL keeps the two ways
+    # of reaching the organiser (call / chat) from drifting apart.
+    whatsapp_number: Mapped[str | None] = mapped_column(sa.String(50))
+    # A group/community invite (chat.whatsapp.com/...), when the organiser runs
+    # one. Shown next to the direct-chat button.
+    whatsapp_group_url: Mapped[str | None] = mapped_column(sa.String(512))
+    facebook_url: Mapped[str | None] = mapped_column(sa.String(512))
+    location_url: Mapped[str | None] = mapped_column(sa.String(1024))
+    registration_open: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=True
+    )
 
     season: Mapped["Tla3bnySeason"] = relationship(back_populates="competitions")
     admins: Mapped[list["Tla3bnyCompetitionAdmin"]] = relationship(
@@ -524,6 +595,10 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
         back_populates="competition", cascade="all, delete-orphan"
     )
 
+    @property
+    def documents(self) -> list[str]:
+        return self.required_documents or list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
+
     def to_dict(self, with_ages: bool = False) -> dict:
         data = {
             "id": self.id,
@@ -536,6 +611,15 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "status": self.status,
+            "required_documents": self.documents,
+            "info": self.info,
+            "organizer_name": self.organizer_name,
+            "contact_phone": self.contact_phone,
+            "whatsapp_number": self.whatsapp_number,
+            "whatsapp_group_url": self.whatsapp_group_url,
+            "facebook_url": self.facebook_url,
+            "location_url": self.location_url,
+            "registration_open": self.registration_open,
         }
         if with_ages:
             data["ages"] = [a.to_dict() for a in self.ages]
@@ -575,6 +659,8 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
             "id": self.id,
             "competition_id": self.competition_id,
             "user_id": self.user_id,
+            "user_username": self.user.username if self.user else None,
+            "user_login": (self.user.username or self.user.email) if self.user else None,
             "user_email": self.user.email if self.user else None,
             "user_name": self.user.name if self.user else None,
         }
@@ -814,7 +900,7 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
         ),
     )
 
-    def to_dict(self, with_roster: bool = False) -> dict:
+    def to_dict(self, with_roster: bool = False, with_files: bool = False) -> dict:
         data = {
             "id": self.id,
             "competition_id": self.competition_id,
@@ -834,7 +920,7 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
             "point_deduction": self.point_deduction,
         }
         if with_roster:
-            data["roster"] = [r.to_dict() for r in self.roster]
+            data["roster"] = [r.to_dict(with_files=with_files) for r in self.roster]
         return data
 
 
@@ -869,18 +955,33 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
         ),
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self, with_files: bool = False) -> dict:
+        """The player's papers are private: ``with_files=True`` is for this
+        competition's admin only, never the public roster."""
         p = self.player
-        return {
+        data = {
             "id": self.id,
             "competition_team_id": self.competition_team_id,
             "player_id": self.player_id,
             "player_name": p.name if p else None,
             "photo_path": p.photo_path if p else None,
             "position": p.position if p else None,
+            "dob": p.dob.isoformat() if p and p.dob else None,
             "status": self.status,
             "rejection_reason": self.rejection_reason,
         }
+        if with_files:
+            files = list(p.files) if p else []
+            required = (
+                self.entry.competition.documents
+                if self.entry and self.entry.competition
+                else []
+            )
+            supplied = {f.label for f in files if f.label}
+            data["files"] = [f.to_dict() for f in files]
+            data["required_documents"] = required
+            data["missing_documents"] = [d for d in required if d not in supplied]
+        return data
 
 
 # ── event data: matches, events, lineups, news ──────────────────────────────
@@ -1113,19 +1214,33 @@ class Tla3bnyLineupSlot(TimestampMixin, db.Model):
 
 
 class Tla3bnyNews(TimestampMixin, db.Model):
-    """A news item for a competition. The tla3bny home page shows the combined
-    feed across all competitions; each competition also has its own page."""
+    """A news item, shaped like a youthscores one: a headline, a body, a date, a
+    gallery of images and a published flag.
+
+    ``competition_id`` is optional — a super admin posts site-wide news with it
+    empty, while a competition admin posts to their own competition. The home
+    page shows the combined feed; a competition's page filters to its own.
+    """
 
     __tablename__ = "tla3bny_news"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    competition_id: Mapped[int] = mapped_column(
-        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"),
-        nullable=False,
+    competition_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE")
     )
     title: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(sa.Text)
+    # The cover image — kept as its own column (rather than images[0]) because
+    # every list view reads it and the gallery is optional.
     image_path: Mapped[str | None] = mapped_column(sa.String(512))
+    # The rest of the gallery, uploaded paths or absolute URLs, cover first.
+    images: Mapped[list | None] = mapped_column(sa.JSON)
+    # The date the item is *about*, which the editor sets; published_at is when
+    # it was written. Youthscores sorts and shows the former.
+    news_date: Mapped[date | None] = mapped_column(sa.Date)
+    is_published: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=True
+    )
     published_at: Mapped[datetime] = mapped_column(
         sa.DateTime, nullable=False, default=datetime.utcnow
     )
@@ -1133,7 +1248,15 @@ class Tla3bnyNews(TimestampMixin, db.Model):
         sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
     )
 
-    competition: Mapped["Tla3bnyCompetition"] = relationship(back_populates="news")
+    competition: Mapped["Tla3bnyCompetition | None"] = relationship(
+        back_populates="news"
+    )
+
+    @property
+    def gallery(self) -> list[str]:
+        """Every image, cover first, with no duplicate of the cover."""
+        rest = [i for i in (self.images or []) if i and i != self.image_path]
+        return ([self.image_path] if self.image_path else []) + rest
 
     def to_dict(self) -> dict:
         return {
@@ -1143,6 +1266,9 @@ class Tla3bnyNews(TimestampMixin, db.Model):
             "title": self.title,
             "body": self.body,
             "image_path": self.image_path,
+            "images": self.gallery,
+            "date": self.news_date.isoformat() if self.news_date else None,
+            "is_published": self.is_published,
             "published_at": (
                 self.published_at.isoformat() if self.published_at else None
             ),

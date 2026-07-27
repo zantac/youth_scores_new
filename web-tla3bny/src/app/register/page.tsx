@@ -10,7 +10,7 @@ export default function Tla3bnyRegisterPage() {
   const { register } = useTla3bnyAuth();
   const router = useRouter();
   const [f, setF] = useState({
-    name: '', email: '', password: '', phone: '', address: '',
+    name: '', username: '', password: '', phone: '', email: '', address: '',
     facebook_url: '', training_place: '',
   });
   const [logo, setLogo] = useState<File | null>(null);
@@ -18,11 +18,18 @@ export default function Tla3bnyRegisterPage() {
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
+  // Registration is open — the academy is live the moment this succeeds, so it
+  // lands straight on its own dashboard.
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null); setBusy(true);
     try {
-      await register({ ...f, email: f.email.trim().toLowerCase(), logo });
+      await register({
+        ...f,
+        username: f.username.trim().toLowerCase(),
+        email: f.email.trim().toLowerCase(),
+        logo,
+      });
       router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : tt('تعذّر التسجيل', 'Registration failed'));
@@ -35,7 +42,10 @@ export default function Tla3bnyRegisterPage() {
         <div className="flex flex-col items-center mb-6">
           <div className="w-14 h-14 rounded-2xl grid place-items-center font-black text-2xl text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_12px_30px_-8px_rgb(var(--accent-rgb))]">ت</div>
           <h1 className="text-text font-extrabold text-xl mt-4">{tt('تسجيل أكاديمية', 'Register academy')}</h1>
-          <p className="text-hint text-xs mt-1 text-center">{tt('يراجع المسؤول طلبك قبل التفعيل', 'An admin reviews your request before activation')}</p>
+          <p className="text-hint text-xs mt-1 text-center">
+            {tt('التسجيل متاح لأي أكاديمية — حسابك يشتغل فورًا',
+                'Open to any academy — your account works right away')}
+          </p>
         </div>
 
         <form onSubmit={submit}
@@ -44,36 +54,48 @@ export default function Tla3bnyRegisterPage() {
             <input value={f.name} autoFocus onChange={set('name')} className={inputCls} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={tt('البريد الإلكتروني', 'Email')}>
-              <input type="email" value={f.email} onChange={set('email')} className={inputCls} />
+            <Field label={tt('اسم المستخدم', 'Username')}>
+              <input value={f.username} onChange={set('username')} dir="ltr" autoComplete="username" className={inputCls} />
             </Field>
             <Field label={tt('كلمة المرور', 'Password')}>
-              <input type="password" value={f.password} onChange={set('password')} className={inputCls} />
+              <input type="password" value={f.password} onChange={set('password')} autoComplete="new-password" className={inputCls} />
             </Field>
           </div>
+          <p className="text-hint text-[11px] -mt-1">
+            {tt('اسم المستخدم ده اللي هتدخل بيه — احفظه.', 'This username is what you sign in with — keep it.')}
+          </p>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={tt('الهاتف', 'Phone')}>
-              <input value={f.phone} onChange={set('phone')} className={inputCls} />
+            <Field label={tt('الهاتف *', 'Phone *')}>
+              <input value={f.phone} onChange={set('phone')} dir="ltr" inputMode="tel" className={inputCls} />
             </Field>
             <Field label={tt('العنوان', 'City / Address')}>
               <input value={f.address} onChange={set('address')} className={inputCls} />
             </Field>
           </div>
+          <p className="text-hint text-[11px] -mt-1">
+            {tt('الهاتف مطلوب — منظم البطولة بيتواصل بيه معاك.',
+                'The phone number is required — it is how an organizer reaches you.')}
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label={tt('مكان التدريب', 'Training place')}>
               <input value={f.training_place} onChange={set('training_place')} className={inputCls} />
             </Field>
             <Field label={tt('صفحة فيسبوك', 'Facebook page')}>
-              <input value={f.facebook_url} onChange={set('facebook_url')} className={inputCls} />
+              <input value={f.facebook_url} onChange={set('facebook_url')} dir="ltr" className={inputCls} />
             </Field>
           </div>
+          <Field label={tt('البريد الإلكتروني (اختياري)', 'Email (optional)')}>
+            <input type="email" value={f.email} onChange={set('email')} dir="ltr" className={inputCls} />
+          </Field>
           <Field label={tt('الشعار (اختياري)', 'Logo (optional)')}>
             <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)}
               className="w-full text-xs text-hint file:me-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal file:font-bold" />
           </Field>
           <ErrorNote>{error}</ErrorNote>
-          <PrimaryButton type="submit" disabled={busy || !f.name || !f.email || !f.password} className="w-full">
-            {busy ? tt('جارٍ الإرسال…', 'Submitting…') : tt('إرسال الطلب', 'Submit')}
+          <PrimaryButton type="submit"
+            disabled={busy || !f.name.trim() || !f.username.trim() || !f.password || !f.phone.trim()}
+            className="w-full">
+            {busy ? tt('جارٍ التسجيل…', 'Creating…') : tt('إنشاء الحساب', 'Create account')}
           </PrimaryButton>
         </form>
 

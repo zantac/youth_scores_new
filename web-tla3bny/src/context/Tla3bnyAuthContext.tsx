@@ -16,14 +16,17 @@ interface Ctx {
   team: TTeam | null;
   competitions: TCompetition[];
   loading: boolean;
-  login: (email: string, password: string) => Promise<TUser>;
+  /** `login` is a username or an email — accounts may carry either. */
+  login: (login: string, password: string) => Promise<TUser>;
   register: (fd: Parameters<typeof tRegister>[0]) => Promise<TUser>;
   logout: () => void;
   refresh: () => Promise<void>;
   isSuperAdmin: boolean;
   isCompetitionAdmin: boolean;
   isAcademy: boolean;
-  isApprovedAcademy: boolean;
+  /** An academy account that has not been suspended. Registration is open, so
+   *  this is true from the moment it signs up. */
+  isActiveAcademy: boolean;
   isTeam: boolean;
   /** Super admin, or a competition admin assigned to this competition. */
   canAdminCompetition: (compId: number) => boolean;
@@ -72,8 +75,8 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     return u;
   }, [applyMe]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { token: t, user: u } = await tLogin(email, password);
+  const login = useCallback(async (loginId: string, password: string) => {
+    const { token: t, user: u } = await tLogin(loginId, password);
     return afterAuth(t, u);
   }, [afterAuth]);
 
@@ -109,7 +112,9 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
       isSuperAdmin: user?.role === 'super_admin',
       isCompetitionAdmin: user?.role === 'competition_admin',
       isAcademy: user?.role === 'academy',
-      isApprovedAcademy: user?.role === 'academy' && academy?.status === 'approved',
+      isActiveAcademy:
+        user?.role === 'academy' &&
+        academy?.status !== 'suspended' && academy?.status !== 'rejected',
       isTeam: user?.role === 'team',
       canAdminCompetition,
     }}>

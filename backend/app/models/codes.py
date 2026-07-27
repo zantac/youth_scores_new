@@ -40,11 +40,20 @@ ADMIN_ROLE = ("superadmin", "editor", "clerk")
 #   academy            — an academy's own login (academy_id set)
 #   team               — a per-team coach login (team_id + academy_id set)
 TLA3BNY_USER_ROLE = ("super_admin", "competition_admin", "academy", "team")
-# Tla3bnyUser.status — "active" for staff logins; academies self-register and
-# move pending -> approved / rejected.
-TLA3BNY_USER_STATUS = ("active", "pending", "approved", "rejected")
-# Tla3bnyAcademy.status — approval workflow driven by the super admin.
-TLA3BNY_ACADEMY_STATUS = ("pending", "approved", "rejected")
+# Tla3bnyUser.status — every account is "active" on creation; academy
+# registration is open. "suspended" is the super admin's off switch. The old
+# pending/approved/rejected values stay in the vocabulary so rows written before
+# registration was opened still validate.
+TLA3BNY_USER_STATUS = (
+    "active",
+    "suspended",
+    "pending",
+    "approved",
+    "rejected",
+)
+# Tla3bnyAcademy.status — an academy is "approved" the moment it registers;
+# "suspended"/"rejected" are the super admin's way of taking one off the site.
+TLA3BNY_ACADEMY_STATUS = ("approved", "suspended", "pending", "rejected")
 # Tla3bnyPlayerTeam.status — a player's dated membership on a team.
 TLA3BNY_MEMBERSHIP_STATUS = ("active", "transferred", "loaned")
 # Tla3bnyCompetition.status
@@ -61,6 +70,16 @@ TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected")
 # Tla3bnyMatch.status
 TLA3BNY_MATCH_STATUS = ("scheduled", "live", "finished")
 TLA3BNY_MATCH_STATUS_FINISHED = "finished"
+# The player registration papers required by default. A competition's admin sets
+# its own list (Tla3bnyCompetition.required_documents) and the super admin can
+# set a per-age list (Tla3bnyAgeCategory.required_documents); this is the
+# fallback when neither has a custom list.
+TLA3BNY_DEFAULT_PLAYER_DOCS = (
+    "شهادة الميلاد",
+    "خطاب من المدرسة",
+    "الرقم القومي للاعب",
+    "الشهادة الصحية",
+)
 # Tla3bnyMatchEvent.event_type
 TLA3BNY_EVENT_TYPE = (
     "goal",

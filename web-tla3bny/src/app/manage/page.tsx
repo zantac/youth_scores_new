@@ -9,15 +9,18 @@ import {
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tAddGroupTeam,
-  tNews, tCreateNews, tDeleteNews,
+  tUpdateCompetition, whatsappLink, mediaUrl,
   type TCompetition, type TCompAge, type TCategory, type TAcademy, type TTeam,
-  type TCompTeam, type TCompPlayer, type TMatch, type TNews,
+  type TCompTeam, type TCompPlayer, type TMatch,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, useTT } from '@/components/tla3bny/kit';
+import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
+import NewsAdmin from '@/components/tla3bny/NewsAdmin';
+import { PapersReview } from '@/components/tla3bny/PlayerPapers';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT } from '@/components/tla3bny/kit';
 
-type Tab = 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
+type Tab = 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
 
 function ManageContent() {
   const tt = useTT();
@@ -36,7 +39,7 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['ages', 'teams', 'approvals', 'matches', 'stages', 'news'];
+  const tabs: Tab[] = ['info', 'ages', 'teams', 'approvals', 'matches', 'stages', 'news'];
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-hint hover:text-aqua">← {tt('الإدارة', 'Admin')}</Link>
@@ -45,17 +48,18 @@ function ManageContent() {
         {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap ${tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
-            {tt({ ages: 'الفئات', teams: 'الفرق', approvals: 'الاعتمادات', matches: 'المباريات', stages: 'الأدوار', news: 'الأخبار' }[t],
-              { ages: 'Ages', teams: 'Teams', approvals: 'Approvals', matches: 'Matches', stages: 'Stages', news: 'News' }[t])}
+            {tt({ info: 'صفحة البطولة', ages: 'القواعد', teams: 'الفرق', approvals: 'الاعتمادات', matches: 'المباريات', stages: 'الأدوار', news: '📰 الأخبار' }[t],
+              { info: 'Page', ages: 'Rules', teams: 'Teams', approvals: 'Approvals', matches: 'Matches', stages: 'Stages', news: '📰 News' }[t])}
           </button>
         ))}
       </div>
+      {tab === 'info' && <InfoTab token={token} comp={comp} reload={reload} />}
       {tab === 'ages' && <AgesTab token={token} comp={comp} reload={reload} />}
       {tab === 'teams' && <TeamsTab token={token} comp={comp} />}
       {tab === 'approvals' && <ApprovalsTab token={token} comp={comp} />}
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
-      {tab === 'news' && <NewsTab token={token} comp={comp} />}
+      {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
     </div>
   );
 }
@@ -78,6 +82,10 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const used = new Set((comp.ages ?? []).map(a => a.age_category_id));
   return (
     <div className="space-y-3">
+      {/* A competition rule like any other: which papers every player must file. */}
+      <Card className="p-3">
+        <CompDocsEditor token={token} comp={comp} reload={reload} />
+      </Card>
       {(comp.ages ?? []).map(a => <AgeRuleCard key={a.id} token={token} age={a} reload={reload} />)}
       <Card className="p-3 flex items-end gap-2">
         <Field label={tt('إضافة فئة', 'Add age')}>
@@ -172,9 +180,10 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
   const [entries, setEntries] = useState<TCompTeam[]>([]);
-  const reload = useCallback(() => { tCompTeams(comp.id, undefined, true).then(setEntries).catch(() => setEntries([])); }, [comp.id]);
+  // The token is what makes the API hand over the players' papers — they are
+  // withheld from unauthenticated (public) roster reads.
+  const reload = useCallback(() => { tCompTeams(comp.id, undefined, true, token).then(setEntries).catch(() => setEntries([])); }, [comp.id, token]);
   useEffect(reload, [reload]);
-  const act = async (fn: Promise<unknown>) => { await fn; reload(); };
   return (
     <div className="space-y-3">
       {entries.length === 0 && <EmptyState icon="✅" text={tt('لا فرق', 'No teams')} />}
@@ -182,21 +191,90 @@ function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
         <Card key={e.id} className="p-3">
           <div className="font-bold text-text text-sm mb-2">{e.team_name} <span className="text-[11px] text-hint">· {e.academy_name}</span></div>
           {(e.roster ?? []).length === 0 ? <p className="text-xs text-hint">{tt('لا لاعبين في القائمة', 'No roster players')}</p> : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {(e.roster ?? []).map((p: TCompPlayer) => (
-                <div key={p.id} className="flex items-center justify-between">
-                  <span className="text-text text-sm">{p.player_name} <span className="text-[11px] text-hint">{p.position}</span></span>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={p.status} />
-                    {p.status !== 'approved' && <button onClick={() => act(tApproveRosterPlayer(token, p.id))} className="text-xs font-bold text-win hover:underline">{tt('اعتماد', 'Approve')}</button>}
-                    {p.status !== 'rejected' && <button onClick={() => act(tRejectRosterPlayer(token, p.id, prompt(tt('السبب', 'Reason')) || undefined))} className="text-xs font-bold text-loss hover:underline">{tt('رفض', 'Reject')}</button>}
-                  </div>
-                </div>
+                <RosterPlayerRow key={p.id} token={token} p={p} onDone={reload} />
               ))}
             </div>
           )}
         </Card>
       ))}
+    </div>
+  );
+}
+
+/**
+ * One player awaiting a decision: their papers open in a new tab for checking,
+ * then approve — or reject with a written reason the academy will read on the
+ * player's profile, so they know exactly what to fix.
+ */
+function RosterPlayerRow({ token, p, onDone }: { token: string; p: TCompPlayer; onDone: () => void }) {
+  const tt = useTT();
+  const [reason, setReason] = useState(p.rejection_reason ?? '');
+  const [rejecting, setRejecting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async (fn: Promise<unknown>) => {
+    setErr(null); setBusy(true);
+    try { await fn; setRejecting(false); onDone(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  };
+  const missing = p.missing_documents ?? [];
+
+  return (
+    <div className="border-t border-bdr pt-2 first:border-t-0 first:pt-0">
+      <div className="flex items-center justify-between gap-2">
+        <Link href={`/player?id=${p.player_id}`} className="text-text text-sm font-bold hover:text-aqua truncate">
+          {p.player_name} <span className="text-[11px] text-hint font-normal">{p.position}</span>
+        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <StatusBadge status={p.status} label={{
+            pending: tt('قيد المراجعة', 'Under review'),
+            approved: tt('مقبول', 'Approved'),
+            rejected: tt('مرفوض', 'Rejected'),
+          }[p.status]} />
+          {p.status !== 'approved' && (
+            <button onClick={() => run(tApproveRosterPlayer(token, p.id))} disabled={busy}
+              className="text-xs font-bold text-win hover:underline disabled:opacity-50">{tt('اعتماد', 'Approve')}</button>
+          )}
+          {p.status !== 'rejected' && (
+            <button onClick={() => setRejecting(r => !r)} disabled={busy}
+              className="text-xs font-bold text-loss hover:underline disabled:opacity-50">{tt('رفض', 'Reject')}</button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-1">
+        <PapersReview files={p.files} required={p.required_documents} missing={missing} />
+      </div>
+
+      {p.status === 'rejected' && p.rejection_reason && !rejecting && (
+        <p className="text-loss text-[11px] mt-1">{tt('سبب الرفض', 'Reason')}: {p.rejection_reason}</p>
+      )}
+
+      {rejecting && (
+        <div className="mt-2 space-y-1.5">
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} className={inputCls}
+            placeholder={tt('اكتب سبب الرفض — مثال: شهادة الميلاد غير واضحة، أعد رفعها',
+                            'Write why — e.g. the birth certificate is unreadable, please re-upload')} />
+          {missing.length > 0 && (
+            <button onClick={() => setReason(tt(`أوراق ناقصة: ${missing.join('، ')}`, `Missing papers: ${missing.join(', ')}`))}
+              className="text-[11px] font-bold text-aqua hover:underline">
+              + {tt('استخدم قائمة الأوراق الناقصة', 'Use the missing-papers list')}
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <button onClick={() => run(tRejectRosterPlayer(token, p.id, reason.trim() || undefined))}
+              disabled={busy || !reason.trim()}
+              className="text-xs font-bold text-on-accent bg-loss rounded-lg px-3 py-1.5 disabled:opacity-50">
+              {tt('تأكيد الرفض', 'Confirm rejection')}
+            </button>
+            <button onClick={() => setRejecting(false)} className="text-xs text-hint">{tt('إلغاء', 'Cancel')}</button>
+          </div>
+        </div>
+      )}
+      {err && <p className="text-loss text-[11px] mt-1">{err}</p>}
     </div>
   );
 }
@@ -390,28 +468,114 @@ function GroupsEditor({ token, stageId, groups, comp, reload }: {
   );
 }
 
-function NewsTab({ token, comp }: { token: string; comp: TCompetition }) {
+/**
+ * The public info page's content, edited by the competition's own organizer:
+ * the long "about" text, who to contact, and the WhatsApp number the chat
+ * button on that page dials.
+ */
+function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
   const tt = useTT();
-  const [items, setItems] = useState<TNews[]>([]);
-  const [f, setF] = useState({ title: '', body: '' });
-  const [img, setImg] = useState<File | null>(null);
-  const reload = useCallback(() => { tNews(comp.id, 100).then(setItems).catch(() => setItems([])); }, [comp.id]);
-  useEffect(reload, [reload]);
-  const create = async () => { if (!f.title) return; await tCreateNews(token, comp.id, f, img); setF({ title: '', body: '' }); setImg(null); reload(); };
+  const [f, setF] = useState({
+    name: comp.name,
+    description: comp.description ?? '',
+    info: comp.info ?? '',
+    location: comp.location ?? '',
+    location_url: comp.location_url ?? '',
+    organizer_name: comp.organizer_name ?? '',
+    contact_phone: comp.contact_phone ?? '',
+    whatsapp_number: comp.whatsapp_number ?? '',
+    whatsapp_group_url: comp.whatsapp_group_url ?? '',
+    facebook_url: comp.facebook_url ?? '',
+    start_date: comp.start_date ?? '',
+    end_date: comp.end_date ?? '',
+  });
+  const [registrationOpen, setRegistrationOpen] = useState(comp.registration_open);
+  const [logo, setLogo] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [ok, setOk] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setF({ ...f, [k]: e.target.value });
+
+  const save = async () => {
+    setBusy(true); setOk(false); setErr(null);
+    try {
+      await tUpdateCompetition(
+        token, comp.id,
+        { ...f, registration_open: registrationOpen ? 'true' : 'false' },
+        logo,
+      );
+      setOk(true); setLogo(null); reload();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+
+  const waPreview = whatsappLink(f.whatsapp_number);
+
   return (
     <div className="space-y-3">
-      {items.map(n => (
-        <Card key={n.id} className="p-3 flex items-start justify-between gap-2">
-          <div><div className="font-bold text-text text-sm">{n.title}</div>{n.body && <p className="text-xs text-hint line-clamp-2">{n.body}</p>}</div>
-          <button onClick={async () => { await tDeleteNews(token, n.id); reload(); }} className="text-hint hover:text-loss shrink-0">🗑</button>
-        </Card>
-      ))}
-      <Card className="p-3 space-y-2">
-        <Field label={tt('العنوان', 'Title')}><input value={f.title} onChange={e => setF({ ...f, title: e.target.value })} className={inputCls} /></Field>
-        <Field label={tt('النص', 'Body')}><textarea value={f.body} onChange={e => setF({ ...f, body: e.target.value })} rows={3} className={inputCls} /></Field>
+      <Card className="p-4 space-y-3">
+        <h2 className="font-black text-text">{tt('صفحة البطولة', 'Competition page')}</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={set('name')} className={inputCls} /></Field>
+          <Field label={tt('المنظم', 'Organizer')}><input value={f.organizer_name} onChange={set('organizer_name')} className={inputCls} /></Field>
+        </div>
+        <Field label={tt('وصف مختصر (يظهر على الكارت)', 'Short blurb (shown on cards)')}>
+          <input value={f.description} onChange={set('description')} className={inputCls} />
+        </Field>
+        <Field label={tt('التفاصيل الكاملة (النظام، اللوائح، الاشتراك…)', 'Full details (format, rules, fees…)')}>
+          <textarea value={f.info} onChange={set('info')} rows={6} className={inputCls} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={tt('البداية', 'Starts')}><input type="date" value={f.start_date} onChange={set('start_date')} className={inputCls} /></Field>
+          <Field label={tt('النهاية', 'Ends')}><input type="date" value={f.end_date} onChange={set('end_date')} className={inputCls} /></Field>
+          <Field label={tt('المكان', 'Location')}><input value={f.location} onChange={set('location')} className={inputCls} /></Field>
+          <Field label={tt('رابط الخريطة', 'Map link')}><input value={f.location_url} dir="ltr" onChange={set('location_url')} className={inputCls} /></Field>
+        </div>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h2 className="font-black text-text">{tt('التواصل', 'Contact')}</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={tt('💬 رقم واتساب (دولي)', '💬 WhatsApp number (international)')}>
+            <input value={f.whatsapp_number} dir="ltr" placeholder="201001234567" onChange={set('whatsapp_number')} className={inputCls} />
+          </Field>
+          <Field label={tt('📞 رقم للتواصل', '📞 Phone')}>
+            <input value={f.contact_phone} dir="ltr" onChange={set('contact_phone')} className={inputCls} />
+          </Field>
+          <Field label={tt('👥 رابط جروب واتساب', '👥 WhatsApp group link')}>
+            <input value={f.whatsapp_group_url} dir="ltr" placeholder="https://chat.whatsapp.com/…" onChange={set('whatsapp_group_url')} className={inputCls} />
+          </Field>
+          <Field label={tt('📘 صفحة فيسبوك', '📘 Facebook page')}>
+            <input value={f.facebook_url} dir="ltr" onChange={set('facebook_url')} className={inputCls} />
+          </Field>
+        </div>
+        <p className="text-hint text-[11px]">
+          {waPreview
+            ? tt(`زر المحادثة هيفتح: ${waPreview.split('?')[0]}`, `The chat button will open: ${waPreview.split('?')[0]}`)
+            : tt('من غير رقم واتساب مش هيظهر زر المحادثة في صفحة البطولة.',
+                 'Without a WhatsApp number the chat button does not appear on the competition page.')}
+        </p>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <label className="flex items-center gap-2 text-teal text-sm font-bold">
+          <input type="checkbox" checked={registrationOpen} onChange={e => setRegistrationOpen(e.target.checked)} />
+          {tt('التسجيل مفتوح', 'Registration is open')}
+        </label>
+        <Field label={tt('الشعار', 'Logo')}>
+          <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)}
+            className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+        </Field>
+        <ErrorNote>{err}</ErrorNote>
         <div className="flex items-center gap-3">
-          <input type="file" accept="image/*" onChange={e => setImg(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
-          <PrimaryButton onClick={create} disabled={!f.title}>{tt('نشر', 'Publish')}</PrimaryButton>
+          <PrimaryButton onClick={save} disabled={busy || !f.name.trim()}>
+            {busy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ', 'Save')}
+          </PrimaryButton>
+          {ok && <span className="text-win text-sm font-bold">✓ {tt('تم الحفظ', 'Saved')}</span>}
+          <Link href={`/competitions?comp=${comp.id}`} className="text-xs text-aqua font-bold hover:underline">
+            {tt('معاينة الصفحة →', 'Preview page →')}
+          </Link>
         </div>
       </Card>
     </div>

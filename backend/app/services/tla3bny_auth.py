@@ -12,6 +12,11 @@ One accounts table serves four roles (see ``codes.TLA3BNY_USER_ROLE``):
 competitions; ``academy`` and ``team`` are the self-service logins that own an
 academy / a single team. The helpers below express the authorisation rules the
 API relies on.
+
+Academy registration is open — an academy is live the moment it signs up, so
+these checks only ever turn one away when the super admin has *suspended* it.
+The one thing that is still vetted is a player entered into a competition, and
+that is the competition admin's call (see the roster-approval routes).
 """
 
 from __future__ import annotations
@@ -93,8 +98,12 @@ def super_admin_required(fn):
     return role_required("super_admin")(fn)
 
 
+def _is_suspended(academy) -> bool:
+    return bool(academy) and academy.status in ("suspended", "rejected")
+
+
 def approved_academy_required(fn):
-    """Require an academy account whose academy has been approved."""
+    """Require an academy account that has not been suspended."""
 
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -103,8 +112,8 @@ def approved_academy_required(fn):
             return jsonify({"error": "unauthorized"}), 401
         if user.role != "academy" or not user.academy:
             return jsonify({"error": "Academy account required"}), 403
-        if user.academy.status != "approved":
-            return jsonify({"error": "Account not approved yet"}), 403
+        if _is_suspended(user.academy):
+            return jsonify({"error": "This account is suspended"}), 403
         return fn(*args, **kwargs)
 
     return wrapper
@@ -128,13 +137,13 @@ def is_competition_admin(user: Tla3bnyUser | None, competition_id: int) -> bool:
 
 
 def can_manage_academy(user: Tla3bnyUser | None, academy_id: int) -> bool:
-    """The super admin, or the academy's own (approved) login."""
+    """The super admin, or the academy's own login (unless suspended)."""
     if not user:
         return False
     if user.role == "super_admin":
         return True
     if user.role == "academy" and user.academy_id == academy_id:
-        return bool(user.academy and user.academy.status == "approved")
+        return not _is_suspended(user.academy)
     return False
 
 
@@ -151,7 +160,6 @@ def can_manage_team(user: Tla3bnyUser | None, team_id: int) -> bool:
         return bool(
             team
             and team.academy_id == user.academy_id
-            and user.academy
-            and user.academy.status == "approved"
+            and not _is_suspended(user.academy)
         )
     return False

@@ -9,7 +9,9 @@ export default function Tla3bnyLoginPage() {
   const tt = useTT();
   const { login, user, loading } = useTla3bnyAuth();
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  // One box for whichever the account has: organisers, academy owners and team
+  // managers sign in with a username, older accounts with their email.
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +25,7 @@ export default function Tla3bnyLoginPage() {
     e.preventDefault();
     setError(null); setBusy(true);
     try {
-      const u = await login(email.trim().toLowerCase(), password);
+      const u = await login(loginId.trim().toLowerCase(), password);
       router.replace(dest(u));
     } catch (err) {
       setError(err instanceof Error ? err.message : tt('تعذّر تسجيل الدخول', 'Login failed'));
@@ -41,14 +43,16 @@ export default function Tla3bnyLoginPage() {
 
         <form onSubmit={submit}
           className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-5 space-y-4 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.7)]">
-          <Field label={tt('البريد الإلكتروني', 'Email')}>
-            <input type="email" value={email} autoFocus onChange={e => setEmail(e.target.value)} className={inputCls} />
+          <Field label={tt('اسم المستخدم أو البريد', 'Username or email')}>
+            <input value={loginId} autoFocus dir="ltr" autoComplete="username"
+              onChange={e => setLoginId(e.target.value)} className={inputCls} />
           </Field>
           <Field label={tt('كلمة المرور', 'Password')}>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={inputCls} />
+            <input type="password" value={password} autoComplete="current-password"
+              onChange={e => setPassword(e.target.value)} className={inputCls} />
           </Field>
           <ErrorNote>{error}</ErrorNote>
-          <PrimaryButton type="submit" disabled={busy || !email || !password} className="w-full">
+          <PrimaryButton type="submit" disabled={busy || !loginId || !password} className="w-full">
             {busy ? tt('جارٍ الدخول…', 'Signing in…') : tt('دخول', 'Sign in')}
           </PrimaryButton>
         </form>

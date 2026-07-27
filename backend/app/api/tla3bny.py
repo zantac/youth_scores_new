@@ -108,6 +108,40 @@ def _int(value, default=None):
         return default
 
 
+def _bool(value, default=False):
+    """A checkbox from either body shape: JSON sends a real bool, a multipart
+    form sends the string "true"/"1"/"on"."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _clean_docs(value):
+    """A list of non-empty document-type labels, or None to use the default."""
+    if not isinstance(value, list):
+        return None
+    cleaned = [str(x).strip() for x in value if str(x).strip()]
+    # De-duplicate, keeping the admin's order.
+    return list(dict.fromkeys(cleaned)) or None
+
+
+def _docs_field(data):
+    """Read a ``required_documents`` list from a JSON or multipart body.
+
+    Multipart senders repeat the field once per document; JSON senders send a
+    list. Returns (present, cleaned_list_or_None).
+    """
+    if hasattr(data, "getlist"):
+        if "required_documents" not in data:
+            return False, None
+        return True, _clean_docs(data.getlist("required_documents"))
+    if "required_documents" not in data:
+        return False, None
+    return True, _clean_docs(data.get("required_documents"))
+
+
 def _err(msg: str, code: int = 400):
     return jsonify({"error": msg}), code
 
@@ -117,20 +151,56 @@ def _forbid():
 
 
 # ── auth ────────────────────────────────────────────────────────────────────
+def _credentials(data):
+    """The username/email + password a caller supplied, normalised.
+
+    Accounts sign in with a username or an email, so every screen posts the
+    typed identifier as ``login``; ``username``/``email`` are accepted too so a
+    form that knows which one it is can say so.
+    """
+    raw = data.get("login") or data.get("username") or data.get("email") or ""
+    return Tla3bnyUser.normalize_login(raw), (data.get("password") or "")
+
+
+def _claim_login(username: str | None, email: str | None, exclude_id: int | None = None):
+    """Check a username/email pair is free. Returns an error response or None."""
+    for field, value in (("username", username), ("email", email)):
+        if not value:
+            continue
+        q = Tla3bnyUser.query.filter(getattr(Tla3bnyUser, field) == value)
+        if exclude_id is not None:
+            q = q.filter(Tla3bnyUser.id != exclude_id)
+        if q.first():
+            return _err(f"This {field} is already taken", 409)
+    return None
+
+
 @tla3bny_bp.post("/auth/register")
 def register():
-    """Register a new academy (multipart for a logo, or JSON). Creates the
-    academy (pending) and its academy login."""
+    """Register a new academy (multipart for a logo, or JSON).
+
+    Registration is open: the academy and its login are live immediately, with
+    no approval queue. A phone number is required — it is how an organiser
+    reaches the academy about its entries.
+    """
     data, files = _read_payload()
     logo = files.get("logo") if files is not None else None
 
     name = (data.get("name") or "").strip()
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-    if not name or not email or not password:
-        return _err("name, email and password are required")
-    if Tla3bnyUser.query.filter_by(email=email).first():
-        return _err("Email already registered", 409)
+    username, password = _credentials(data)
+    email = Tla3bnyUser.normalize_login(data.get("email"))
+    # A registrant may type an email into the single login box; keep it as both.
+    if username and "@" in username and not email:
+        email = username
+    phone = (data.get("phone") or "").strip()
+
+    if not name or not username or not password:
+        return _err("name, username and password are required")
+    if not phone:
+        return _err("phone is required")
+    taken = _claim_login(username, email)
+    if taken:
+        return taken
 
     logo_path = None
     if logo is not None:
@@ -142,17 +212,23 @@ def register():
     academy = Tla3bnyAcademy(
         name=name,
         logo_path=logo_path,
-        phone=(data.get("phone") or "").strip() or None,
+        phone=phone,
         facebook_url=(data.get("facebook_url") or "").strip() or None,
         training_place=(data.get("training_place") or "").strip() or None,
         address=(data.get("address") or "").strip() or None,
         description=(data.get("description") or "").strip() or None,
-        status="pending",
+        status="approved",
     )
     db.session.add(academy)
     db.session.flush()
 
-    user = Tla3bnyUser(email=email, role="academy", status="active", academy_id=academy.id)
+    user = Tla3bnyUser(
+        username=username,
+        email=email,
+        role="academy",
+        status="active",
+        academy_id=academy.id,
+    )
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
@@ -160,9 +236,10 @@ def register():
     return (
         jsonify(
             {
-                "message": "Registration submitted. Awaiting admin approval.",
+                "message": "Registration complete.",
                 "token": auth.generate_token(user),
                 "user": user.to_dict(),
+                "academy": academy.to_dict(),
             }
         ),
         201,
@@ -172,13 +249,46 @@ def register():
 @tla3bny_bp.post("/auth/login")
 def login():
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    login_id, password = _credentials(data)
 
-    user = Tla3bnyUser.query.filter_by(email=email).first()
+    user = Tla3bnyUser.by_login(login_id)
     if not user or not user.check_password(password):
-        return _err("Invalid email or password", 401)
+        return _err("Invalid username or password", 401)
+    if user.status == "suspended":
+        return _err("This account is suspended", 403)
     return jsonify({"token": auth.generate_token(user), "user": user.to_dict()})
+
+
+@tla3bny_bp.put("/auth/credentials")
+@auth.login_required
+def update_own_credentials():
+    """Change your own username / email / password."""
+    user = auth.current_user()
+    data = request.get_json(silent=True) or {}
+
+    new_username = Tla3bnyUser.normalize_login(data.get("username"))
+    new_email = Tla3bnyUser.normalize_login(data.get("email"))
+    taken = _claim_login(
+        new_username if "username" in data else None,
+        new_email if "email" in data else None,
+        exclude_id=user.id,
+    )
+    if taken:
+        return taken
+
+    if "username" in data:
+        if not new_username and not (new_email or user.email):
+            return _err("An account needs a username or an email")
+        user.username = new_username
+    if "email" in data:
+        user.email = new_email
+    password = data.get("password") or ""
+    if password:
+        if len(password) < 4:
+            return _err("Password is too short")
+        user.set_password(password)
+    db.session.commit()
+    return jsonify(user.to_dict())
 
 
 @tla3bny_bp.get("/auth/me")
@@ -202,8 +312,12 @@ def me():
 # ── academies ───────────────────────────────────────────────────────────────
 @tla3bny_bp.get("/academies")
 def list_academies():
+    """Every academy that is not suspended — registration is open, so a new one
+    is listed as soon as it signs up."""
     academies = (
-        Tla3bnyAcademy.query.filter_by(status="approved")
+        Tla3bnyAcademy.query.filter(
+            Tla3bnyAcademy.status.notin_(("suspended", "rejected"))
+        )
         .order_by(Tla3bnyAcademy.name.asc())
         .all()
     )
@@ -228,9 +342,13 @@ def get_academy(academy_id: int):
 
 
 def _set_academy_status(academy_id: int, status: str, reason: str | None = None):
+    """Flip an academy on or off, and its logins with it — a suspended academy
+    must not be able to keep entering teams."""
     academy = Tla3bnyAcademy.query.get_or_404(academy_id)
     academy.status = status
     academy.rejection_reason = reason
+    for user in Tla3bnyUser.query.filter_by(academy_id=academy.id).all():
+        user.status = "suspended" if status in ("suspended", "rejected") else "active"
     db.session.commit()
     return jsonify(academy.to_dict())
 
@@ -238,20 +356,42 @@ def _set_academy_status(academy_id: int, status: str, reason: str | None = None)
 @tla3bny_bp.post("/academies/<int:academy_id>/approve")
 @auth.super_admin_required
 def approve_academy(academy_id: int):
+    """Restore a suspended academy. (Nothing waits for approval any more; this
+    is kept as the un-suspend action.)"""
     return _set_academy_status(academy_id, "approved")
-
-
-@tla3bny_bp.post("/academies/<int:academy_id>/reject")
-@auth.super_admin_required
-def reject_academy(academy_id: int):
-    reason = (request.get_json(silent=True) or {}).get("reason") or None
-    return _set_academy_status(academy_id, "rejected", reason)
 
 
 @tla3bny_bp.post("/academies/<int:academy_id>/suspend")
 @auth.super_admin_required
 def suspend_academy(academy_id: int):
-    return _set_academy_status(academy_id, "pending")
+    reason = (request.get_json(silent=True) or {}).get("reason") or None
+    return _set_academy_status(academy_id, "suspended", reason)
+
+
+@tla3bny_bp.post("/academies/<int:academy_id>/account")
+@auth.super_admin_required
+def set_academy_account(academy_id: int):
+    """Create or reset the academy owner's login. Registration hands the owner
+    their own username, so this is the super admin's recovery path."""
+    academy = Tla3bnyAcademy.query.get_or_404(academy_id)
+    data = request.get_json(silent=True) or {}
+    username, password = _credentials(data)
+    if not username or not password:
+        return _err("username and password are required")
+
+    account = Tla3bnyUser.query.filter_by(role="academy", academy_id=academy.id).first()
+    taken = _claim_login(username, None, exclude_id=account.id if account else None)
+    if taken:
+        return taken
+    if account is None:
+        account = Tla3bnyUser(role="academy", status="active", academy_id=academy.id)
+        db.session.add(account)
+    account.username = username
+    if "@" in username:
+        account.email = username
+    account.set_password(password)
+    db.session.commit()
+    return jsonify({"message": "saved", "username": username, "academy_id": academy.id})
 
 
 def _target_academy():
@@ -391,30 +531,55 @@ def delete_team(team_id: int):
 @tla3bny_bp.post("/teams/<int:team_id>/account")
 @auth.login_required
 def set_team_account(team_id: int):
-    """The owning academy (or super admin) creates/resets the team's coach login."""
+    """The owning academy (or super admin) creates/resets the team manager's
+    login — a username and a password they hand to the coach."""
     team = Tla3bnyTeam.query.get_or_404(team_id)
     user = auth.current_user()
     if not auth.can_manage_academy(user, team.academy_id):
         return _forbid()
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
-    if not email or not password:
-        return _err("email and password are required")
+    username, password = _credentials(data)
+    if not username or not password:
+        return _err("username and password are required")
 
     account = Tla3bnyUser.query.filter_by(role="team", team_id=team.id).first()
-    clash = Tla3bnyUser.query.filter_by(email=email).first()
-    if clash and (account is None or clash.id != account.id):
-        return _err("Email already registered", 409)
+    taken = _claim_login(
+        username, None, exclude_id=account.id if account else None
+    )
+    if taken:
+        return taken
     if account is None:
         account = Tla3bnyUser(
             role="team", status="active", team_id=team.id, academy_id=team.academy_id
         )
         db.session.add(account)
-    account.email = email
+    account.username = username
+    if "@" in username:
+        account.email = username
     account.set_password(password)
     db.session.commit()
-    return jsonify({"message": "saved", "email": email, "team_id": team.id}), 201
+    return (
+        jsonify({"message": "saved", "username": username, "team_id": team.id}),
+        201,
+    )
+
+
+@tla3bny_bp.get("/teams/<int:team_id>/account")
+@auth.login_required
+def get_team_account(team_id: int):
+    """Whether this team has a login yet, and under which username. Never the
+    password — a forgotten one is reset, not read back."""
+    team = Tla3bnyTeam.query.get_or_404(team_id)
+    if not auth.can_manage_academy(auth.current_user(), team.academy_id):
+        return _forbid()
+    account = Tla3bnyUser.query.filter_by(role="team", team_id=team.id).first()
+    return jsonify(
+        {
+            "team_id": team.id,
+            "has_account": account is not None,
+            "username": account.username or account.email if account else None,
+        }
+    )
 
 
 # ── coaches ──────────────────────────────────────────────────────────────────
@@ -486,28 +651,161 @@ def delete_coach(coach_id: int):
 
 
 # ── players (person + dated membership) ──────────────────────────────────────
-def _save_documents(player: Tla3bnyPlayer, files) -> None:
+def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
+    """The papers this team's players must upload, and where each demand comes
+    from.
+
+    Every competition the team is entered in states its own list (its admin
+    decides), so a team playing in two competitions must satisfy the union. A
+    team not entered anywhere yet falls back to its age category's baseline
+    list, which itself falls back to ``codes.TLA3BNY_DEFAULT_PLAYER_DOCS``.
+    """
+    entries = (
+        Tla3bnyCompetitionTeam.query.filter_by(team_id=team.id)
+        .join(Tla3bnyCompetitionTeam.competition)
+        .order_by(Tla3bnyCompetition.name.asc())
+        .all()
+    )
+    sources = [
+        {
+            "competition_id": e.competition_id,
+            "competition_name": e.competition.name if e.competition else None,
+            "documents": e.competition.documents if e.competition else [],
+        }
+        for e in entries
+        if e.competition
+    ]
+    if not sources:
+        age = team.age_category
+        sources = [
+            {
+                "competition_id": None,
+                "competition_name": None,
+                "documents": age.documents if age else [],
+            }
+        ]
+    merged: list[str] = []
+    for src in sources:
+        for doc in src["documents"]:
+            if doc not in merged:
+                merged.append(doc)
+    return merged, sources
+
+
+@tla3bny_bp.get("/teams/<int:team_id>/required-documents")
+def team_required_documents(team_id: int):
+    """The labelled upload slots to show for this team's players."""
+    team = Tla3bnyTeam.query.get_or_404(team_id)
+    documents, sources = _team_required_documents(team)
+    return jsonify({"documents": documents, "sources": sources})
+
+
+def _can_view_player_files(player: Tla3bnyPlayer) -> bool:
+    """Registration papers are private: the owning academy/team login, or an
+    admin of a competition this player's team plays in.
+
+    Team membership — not roster entry — is what grants the organiser access.
+    They have to check a player's papers *before* deciding whether to approve
+    the entry, and they are often the one adding players to the roster in the
+    first place, so gating on an approved entry would lock them out of exactly
+    the moment they need it.
+    """
+    user = auth.current_user()
+    if user is None:
+        return False
+    if user.role == "super_admin":
+        return True
+    team_id = _player_team_id(player)
+    if team_id is None:
+        return False
+    if auth.can_manage_team(user, team_id):
+        return True
+    comp_ids = (
+        db.session.query(Tla3bnyCompetitionTeam.competition_id)
+        .filter(Tla3bnyCompetitionTeam.team_id == team_id)
+        .distinct()
+    )
+    return any(auth.is_competition_admin(user, cid) for (cid,) in comp_ids)
+
+
+def _save_documents(player: Tla3bnyPlayer, data, files) -> None:
+    """Save uploaded registration papers, pairing each with its document label.
+
+    The client sends files under 'documents' and a parallel 'document_labels'
+    list (same order) naming which paper each is — birth certificate, school
+    letter, national id, health certificate, etc. A legacy single 'papers'
+    field is still accepted. Re-uploading a paper replaces the one already held
+    under that label, so a player keeps one file per required document.
+    """
     if files is None:
         return
     uploaded = files.getlist("documents") if hasattr(files, "getlist") else []
+    labels = data.getlist("document_labels") if hasattr(data, "getlist") else []
     if files.get("papers"):
         uploaded = list(uploaded) + [files.get("papers")]
-    for f in uploaded:
+    for i, f in enumerate(uploaded):
         if f is None or f.filename == "":
             continue
         path = save_upload(f, kind="document")
-        if path:
-            db.session.add(
-                Tla3bnyPlayerFile(player_id=player.id, file_path=path, original_name=f.filename)
+        if not path:
+            continue
+        label = (labels[i] if i < len(labels) else None) or None
+        if label:
+            for old in [x for x in player.files if x.label == label]:
+                db.session.delete(old)
+        db.session.add(
+            Tla3bnyPlayerFile(
+                player_id=player.id,
+                file_path=path,
+                original_name=f.filename,
+                label=label,
             )
-            if not player.papers_path:
-                player.papers_path = path
+        )
+        player.papers_path = path
 
 
 @tla3bny_bp.get("/players/<int:player_id>")
 def get_player(player_id: int):
+    """Public profile. The registration papers ride along only for a caller
+    allowed to see them (owning academy/team, or a competition admin)."""
     player = Tla3bnyPlayer.query.get_or_404(player_id)
-    return jsonify(player.to_dict())
+    return jsonify(player.to_dict(with_files=_can_view_player_files(player)))
+
+
+@tla3bny_bp.get("/players/<int:player_id>/registrations")
+def player_registrations(player_id: int):
+    """Where this player has been entered, and how each request went.
+
+    The rejection reason is the whole point: it is what tells the academy what
+    to fix and re-upload. Public callers get the status without the reason.
+    """
+    player = Tla3bnyPlayer.query.get_or_404(player_id)
+    detailed = _can_view_player_files(player)
+    rows = (
+        Tla3bnyCompetitionPlayer.query.filter_by(player_id=player_id)
+        .join(Tla3bnyCompetitionPlayer.entry)
+        .join(Tla3bnyCompetitionTeam.competition)
+        .order_by(Tla3bnyCompetition.name.asc())
+        .all()
+    )
+    out = []
+    for cp in rows:
+        comp = cp.entry.competition if cp.entry else None
+        item = {
+            "id": cp.id,
+            "competition_id": comp.id if comp else None,
+            "competition_name": comp.name if comp else None,
+            "status": cp.status,
+        }
+        if detailed:
+            item["rejection_reason"] = cp.rejection_reason
+            item["required_documents"] = comp.documents if comp else []
+            supplied = {f.label for f in player.files if f.label}
+            item["missing_documents"] = [
+                d for d in (comp.documents if comp else []) if d not in supplied
+            ]
+        out.append(item)
+    return jsonify(out)
 
 
 @tla3bny_bp.post("/teams/<int:team_id>/players")
@@ -539,7 +837,7 @@ def create_player(team_id: int):
     db.session.add(player)
     db.session.flush()
     try:
-        _save_documents(player, files)
+        _save_documents(player, data, files)
     except ValueError as e:
         return _err(str(e))
 
@@ -553,7 +851,7 @@ def create_player(team_id: int):
         )
     )
     db.session.commit()
-    return jsonify(player.to_dict()), 201
+    return jsonify(player.to_dict(with_files=True)), 201
 
 
 def _player_team_id(player: Tla3bnyPlayer) -> int | None:
@@ -584,11 +882,11 @@ def update_player(player_id: int):
     try:
         if files is not None and files.get("photo"):
             player.photo_path = save_upload(files.get("photo"), kind="image")
-        _save_documents(player, files)
+        _save_documents(player, data, files)
     except ValueError as e:
         return _err(str(e))
     db.session.commit()
-    return jsonify(player.to_dict())
+    return jsonify(player.to_dict(with_files=True))
 
 
 @tla3bny_bp.post("/players/<int:player_id>/move")
@@ -727,7 +1025,7 @@ def create_category():
         return _err("Category already exists", 409)
     cat = Tla3bnyAgeCategory(
         label=label,
-        required_files=max(0, _int(data.get("required_files"), 1)),
+        required_documents=_clean_docs(data.get("required_documents")),
         sort_order=_int(data.get("sort_order"), 0),
     )
     db.session.add(cat)
@@ -746,8 +1044,8 @@ def update_category(cat_id: int):
         if existing and existing.id != cat_id:
             return _err("Category already exists", 409)
         cat.label = label
-    if "required_files" in data:
-        cat.required_files = max(0, _int(data.get("required_files"), cat.required_files))
+    if "required_documents" in data:
+        cat.required_documents = _clean_docs(data.get("required_documents"))
     if "sort_order" in data:
         cat.sort_order = _int(data.get("sort_order"), cat.sort_order)
     db.session.commit()
@@ -770,6 +1068,32 @@ def delete_category(cat_id: int):
 
 
 # ── competitions ─────────────────────────────────────────────────────────────
+# The free-text fields of a competition's public info page. Kept in one place so
+# create and update always take the same set.
+COMPETITION_TEXT_FIELDS = (
+    "name",
+    "description",
+    "location",
+    "info",
+    "organizer_name",
+    "contact_phone",
+    "whatsapp_number",
+    "whatsapp_group_url",
+    "facebook_url",
+    "location_url",
+)
+
+
+def _digits(value: str | None) -> str | None:
+    """A phone number reduced to digits, the form wa.me needs. A leading '+' is
+    dropped, so '+20 100 123 4567' and '00201001234567' both land somewhere
+    dialable."""
+    if not value:
+        return None
+    kept = "".join(ch for ch in value if ch.isdigit())
+    return kept or None
+
+
 @tla3bny_bp.get("/competitions")
 def list_competitions():
     q = Tla3bnyCompetition.query
@@ -777,7 +1101,14 @@ def list_competitions():
     if season_id:
         q = q.filter_by(season_id=season_id)
     comps = q.order_by(Tla3bnyCompetition.created_at.desc()).all()
-    return jsonify([c.to_dict(with_ages=True) for c in comps])
+    out = [c.to_dict(with_ages=True) for c in comps]
+    # The super admin's panel assigns organisers straight from this list, so it
+    # needs to see who is already on each competition.
+    user = auth.current_user()
+    if user is not None and user.role == "super_admin":
+        for data, comp in zip(out, comps):
+            data["admins"] = [ca.to_dict() for ca in comp.admins]
+    return jsonify(out)
 
 
 @tla3bny_bp.get("/competitions/<int:comp_id>")
@@ -805,19 +1136,33 @@ def create_competition():
             logo = save_upload(files.get("logo"), kind="image")
     except ValueError as e:
         return _err(str(e))
+    _, docs = _docs_field(data)
     comp = Tla3bnyCompetition(
         season_id=season_id,
         name=name,
-        description=(data.get("description") or "").strip() or None,
-        location=(data.get("location") or "").strip() or None,
         logo_path=logo,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
         status=data.get("status") or "draft",
+        required_documents=docs,
     )
+    _apply_competition_text(comp, data)
+    if "registration_open" in data:
+        comp.registration_open = _bool(data.get("registration_open"), True)
     db.session.add(comp)
     db.session.commit()
     return jsonify(comp.to_dict()), 201
+
+
+def _apply_competition_text(comp: Tla3bnyCompetition, data) -> None:
+    """Copy whichever info-page fields the caller sent onto the competition."""
+    for field in COMPETITION_TEXT_FIELDS:
+        if field not in data:
+            continue
+        value = (data.get(field) or "").strip() or None
+        if field == "whatsapp_number":
+            value = _digits(value)
+        setattr(comp, field, value)
 
 
 @tla3bny_bp.put("/competitions/<int:comp_id>")
@@ -827,15 +1172,20 @@ def update_competition(comp_id: int):
         return _forbid()
     comp = Tla3bnyCompetition.query.get_or_404(comp_id)
     data, files = _read_payload()
-    for field in ("name", "description", "location"):
-        if field in data:
-            setattr(comp, field, (data.get(field) or "").strip() or None)
+    _apply_competition_text(comp, data)
+    if not comp.name:
+        return _err("name is required")
     if "status" in data and data.get("status"):
         comp.status = data.get("status")
+    if "registration_open" in data:
+        comp.registration_open = _bool(data.get("registration_open"), comp.registration_open)
     if "start_date" in data:
         comp.start_date = _parse_date(data.get("start_date"))
     if "end_date" in data:
         comp.end_date = _parse_date(data.get("end_date"))
+    present, docs = _docs_field(data)
+    if present:
+        comp.required_documents = docs
     try:
         if files is not None and files.get("logo"):
             comp.logo_path = save_upload(files.get("logo"), kind="image")
@@ -858,27 +1208,36 @@ def delete_competition(comp_id: int):
 @tla3bny_bp.post("/competitions/<int:comp_id>/admins")
 @auth.super_admin_required
 def add_competition_admin(comp_id: int):
-    """Assign a competition_admin. Creates the account if the email is new."""
+    """Assign an organiser to this competition.
+
+    The username may be one that already exists (an organiser running several
+    competitions) or a brand new one, in which case a password creates it.
+    """
     Tla3bnyCompetition.query.get_or_404(comp_id)
     data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    if not email:
-        return _err("email is required")
-    user = Tla3bnyUser.query.filter_by(email=email).first()
+    username, password = _credentials(data)
+    if not username:
+        return _err("username is required")
+    user = Tla3bnyUser.by_login(username)
     if user is None:
-        if not data.get("password"):
-            return _err("password is required for a new admin")
+        if not password:
+            return _err("password is required for a new organizer")
         user = Tla3bnyUser(
-            email=email,
+            username=username,
+            email=username if "@" in username else None,
             role="competition_admin",
             status="active",
             name=(data.get("name") or "").strip() or None,
         )
-        user.set_password(data.get("password"))
+        user.set_password(password)
         db.session.add(user)
         db.session.flush()
     elif user.role not in ("competition_admin", "super_admin"):
         return _err("That account is not a competition admin", 409)
+    elif password:
+        # Re-assigning with a password doubles as "reset their password", which
+        # is the only way an organiser who forgot theirs gets back in.
+        user.set_password(password)
     if not Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user.id
     ).first():
@@ -1079,7 +1438,14 @@ def list_competition_teams(comp_id: int):
         q = q.filter_by(age_category_id=age_id)
     entries = q.all()
     with_roster = request.args.get("roster") == "1"
-    return jsonify([e.to_dict(with_roster=with_roster) for e in entries])
+    # Papers are for this competition's admin panel only, never the public list.
+    with_files = auth.is_competition_admin(auth.current_user(), comp_id)
+    return jsonify(
+        [
+            e.to_dict(with_roster=with_roster, with_files=with_files)
+            for e in entries
+        ]
+    )
 
 
 @tla3bny_bp.post("/competitions/<int:comp_id>/teams")
@@ -1123,7 +1489,11 @@ def unregister_team(entry_id: int):
 @tla3bny_bp.get("/competition-teams/<int:entry_id>/roster")
 def get_roster(entry_id: int):
     entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
-    return jsonify(entry.to_dict(with_roster=True))
+    user = auth.current_user()
+    with_files = auth.is_competition_admin(
+        user, entry.competition_id
+    ) or auth.can_manage_team(user, entry.team_id)
+    return jsonify(entry.to_dict(with_roster=True, with_files=with_files))
 
 
 @tla3bny_bp.post("/competition-teams/<int:entry_id>/players")
@@ -1159,7 +1529,7 @@ def add_roster_player(entry_id: int):
     )
     db.session.add(cp)
     db.session.commit()
-    return jsonify(cp.to_dict()), 201
+    return jsonify(cp.to_dict(with_files=True)), 201
 
 
 @tla3bny_bp.delete("/competition-players/<int:cp_id>")
@@ -1188,7 +1558,7 @@ def approve_roster_player(cp_id: int):
     cp.rejection_reason = None
     cp.approved_by_user_id = auth.current_user().id
     db.session.commit()
-    return jsonify(cp.to_dict())
+    return jsonify(cp.to_dict(with_files=True))
 
 
 @tla3bny_bp.post("/competition-players/<int:cp_id>/reject")
@@ -1201,7 +1571,7 @@ def reject_roster_player(cp_id: int):
     cp.rejection_reason = (request.get_json(silent=True) or {}).get("reason") or None
     cp.approved_by_user_id = auth.current_user().id
     db.session.commit()
-    return jsonify(cp.to_dict())
+    return jsonify(cp.to_dict(with_files=True))
 
 
 # ── matches ──────────────────────────────────────────────────────────────────
@@ -1221,15 +1591,35 @@ def list_matches():
             (Tla3bnyMatch.home_team_id == team_id)
             | (Tla3bnyMatch.away_team_id == team_id)
         )
-    date_str = request.args.get("date")
-    d = _parse_date(date_str)
+    d = _parse_date(request.args.get("date"))
     if d:
         q = q.filter(Tla3bnyMatch.date == d)
-    # date IS NULL sorts TBD fixtures last — MySQL has no NULLS LAST.
-    matches = q.order_by(
-        Tla3bnyMatch.date.is_(None), Tla3bnyMatch.date.desc(), Tla3bnyMatch.time.desc()
-    ).all()
-    return jsonify([m.to_dict() for m in matches])
+    # A date window, so the home feed can pull "today onwards" and "before
+    # today" separately and page outwards from today the way youthscores does.
+    date_from = _parse_date(request.args.get("from"))
+    if date_from:
+        q = q.filter(Tla3bnyMatch.date >= date_from)
+    date_to = _parse_date(request.args.get("to"))
+    if date_to:
+        q = q.filter(Tla3bnyMatch.date <= date_to)
+
+    ascending = request.args.get("order") == "asc"
+    if ascending:
+        # Ascending is only ever asked for by the date-window feed, which wants
+        # the nearest fixture first; a dateless one has no place in that order.
+        q = q.filter(Tla3bnyMatch.date.isnot(None))
+        q = q.order_by(Tla3bnyMatch.date.asc(), Tla3bnyMatch.time.asc())
+    else:
+        # date IS NULL sorts TBD fixtures last — MySQL has no NULLS LAST.
+        q = q.order_by(
+            Tla3bnyMatch.date.is_(None),
+            Tla3bnyMatch.date.desc(),
+            Tla3bnyMatch.time.desc(),
+        )
+    limit = request.args.get("limit", type=int)
+    if limit:
+        q = q.limit(limit)
+    return jsonify([m.to_dict() for m in q.all()])
 
 
 @tla3bny_bp.get("/matches/<int:match_id>")
@@ -1521,21 +1911,142 @@ def analysis():
     )
 
 
+# ── image uploads (news galleries, and anywhere a picker needs a URL) ────────
+@tla3bny_bp.post("/uploads/image")
+@auth.login_required
+def upload_image():
+    """Store one image and hand back its path, so a picker can build a gallery
+    before the item it belongs to exists."""
+    file = request.files.get("image") or request.files.get("file")
+    if file is None or not file.filename:
+        return _err("image is required")
+    try:
+        path = save_upload(file, kind="image")
+    except ValueError as e:
+        return _err(str(e))
+    return jsonify({"path": path, "url": path}), 201
+
+
 # ── news ─────────────────────────────────────────────────────────────────────
+def _news_images(data, files) -> list[str] | None:
+    """The gallery a news form submitted: any number of already-uploaded paths
+    or absolute URLs (``images``) plus freshly attached files (``image`` /
+    ``images[]``). Returns None when the form said nothing about images, so an
+    edit that leaves them alone keeps what is stored."""
+    given: list[str] = []
+    said_something = False
+
+    if hasattr(data, "getlist"):
+        if "images" in data:
+            said_something = True
+            given += [str(v).strip() for v in data.getlist("images") if str(v).strip()]
+    elif "images" in data:
+        said_something = True
+        raw = data.get("images")
+        if isinstance(raw, list):
+            given += [str(v).strip() for v in raw if str(v).strip()]
+
+    if files is not None:
+        attached = files.getlist("images") if hasattr(files, "getlist") else []
+        if files.get("image"):
+            attached = [files.get("image")] + list(attached)
+        for f in attached:
+            if f is None or not f.filename:
+                continue
+            said_something = True
+            path = save_upload(f, kind="image")
+            if path:
+                given.append(path)
+
+    if not said_something:
+        return None
+    return list(dict.fromkeys(given))
+
+
+def _can_edit_news(n: Tla3bnyNews) -> bool:
+    """Site-wide news (no competition) is the super admin's; a competition's
+    news is its admins'."""
+    user = auth.current_user()
+    if n.competition_id is None:
+        return bool(user and user.role == "super_admin")
+    return auth.is_competition_admin(user, n.competition_id)
+
+
 @tla3bny_bp.get("/news")
 def list_news():
+    """Published news, newest first. An editor asks for ``drafts=1`` to see
+    their unpublished ones too."""
     q = Tla3bnyNews.query
     comp_id = request.args.get("competition_id", type=int)
     if comp_id:
         q = q.filter_by(competition_id=comp_id)
+    if request.args.get("scope") == "site":
+        q = q.filter(Tla3bnyNews.competition_id.is_(None))
+
+    user = auth.current_user()
+    wants_drafts = request.args.get("drafts") == "1" and user is not None
+    if not wants_drafts:
+        q = q.filter(Tla3bnyNews.is_published.is_(True))
+
     limit = request.args.get("limit", type=int) or 50
-    items = q.order_by(Tla3bnyNews.published_at.desc()).limit(limit).all()
+    # Newest first by the date the editor set, then by when it was written.
+    # No NULLS LAST here: MySQL rejects it, and both engines already sort NULL
+    # as the smallest value, so a dateless item lands at the bottom of a DESC.
+    items = (
+        q.order_by(Tla3bnyNews.news_date.desc(), Tla3bnyNews.published_at.desc())
+        .limit(limit)
+        .all()
+    )
+    if wants_drafts:
+        items = [n for n in items if n.is_published or _can_edit_news(n)]
     return jsonify([n.to_dict() for n in items])
 
 
 @tla3bny_bp.get("/news/<int:news_id>")
 def get_news(news_id: int):
-    return jsonify(Tla3bnyNews.query.get_or_404(news_id).to_dict())
+    n = Tla3bnyNews.query.get_or_404(news_id)
+    if not n.is_published and not _can_edit_news(n):
+        return _err("Not found", 404)
+    return jsonify(n.to_dict())
+
+
+def _write_news(n: Tla3bnyNews, data, files, creating: bool) -> None:
+    """Apply a submitted news form to the item (shared by create and edit, so
+    the two cannot drift apart)."""
+    if data.get("title"):
+        n.title = data.get("title").strip()
+    if "body" in data:
+        n.body = (data.get("body") or "").strip() or None
+    if "date" in data:
+        n.news_date = _parse_date(data.get("date"))
+    elif creating:
+        n.news_date = datetime.utcnow().date()
+    if "is_published" in data:
+        n.is_published = _bool(data.get("is_published"), True)
+
+    images = _news_images(data, files)
+    if images is not None:
+        n.images = images
+        # The cover is simply the first image, which is what the picker's
+        # "الغلاف" badge tells the editor.
+        n.image_path = images[0] if images else None
+
+
+@tla3bny_bp.post("/news")
+@auth.super_admin_required
+def create_site_news():
+    """Site-wide news, shown on the home feed and not tied to a competition."""
+    data, files = _read_payload()
+    if not (data.get("title") or "").strip():
+        return _err("title is required")
+    n = Tla3bnyNews(title="", author_user_id=auth.current_user().id)
+    try:
+        _write_news(n, data, files, creating=True)
+    except ValueError as e:
+        return _err(str(e))
+    db.session.add(n)
+    db.session.commit()
+    return jsonify(n.to_dict()), 201
 
 
 @tla3bny_bp.post("/competitions/<int:comp_id>/news")
@@ -1545,22 +2056,15 @@ def create_news(comp_id: int):
         return _forbid()
     Tla3bnyCompetition.query.get_or_404(comp_id)
     data, files = _read_payload()
-    title = (data.get("title") or "").strip()
-    if not title:
+    if not (data.get("title") or "").strip():
         return _err("title is required")
-    image = None
+    n = Tla3bnyNews(
+        competition_id=comp_id, title="", author_user_id=auth.current_user().id
+    )
     try:
-        if files is not None and files.get("image"):
-            image = save_upload(files.get("image"), kind="image")
+        _write_news(n, data, files, creating=True)
     except ValueError as e:
         return _err(str(e))
-    n = Tla3bnyNews(
-        competition_id=comp_id,
-        title=title,
-        body=(data.get("body") or "").strip() or None,
-        image_path=image,
-        author_user_id=auth.current_user().id,
-    )
     db.session.add(n)
     db.session.commit()
     return jsonify(n.to_dict()), 201
@@ -1570,16 +2074,11 @@ def create_news(comp_id: int):
 @auth.login_required
 def update_news(news_id: int):
     n = Tla3bnyNews.query.get_or_404(news_id)
-    if not auth.is_competition_admin(auth.current_user(), n.competition_id):
+    if not _can_edit_news(n):
         return _forbid()
     data, files = _read_payload()
-    if data.get("title"):
-        n.title = data.get("title").strip()
-    if "body" in data:
-        n.body = (data.get("body") or "").strip() or None
     try:
-        if files is not None and files.get("image"):
-            n.image_path = save_upload(files.get("image"), kind="image")
+        _write_news(n, data, files, creating=False)
     except ValueError as e:
         return _err(str(e))
     db.session.commit()
@@ -1590,7 +2089,7 @@ def update_news(news_id: int):
 @auth.login_required
 def delete_news(news_id: int):
     n = Tla3bnyNews.query.get_or_404(news_id)
-    if not auth.is_competition_admin(auth.current_user(), n.competition_id):
+    if not _can_edit_news(n):
         return _forbid()
     db.session.delete(n)
     db.session.commit()
@@ -1608,7 +2107,10 @@ def home():
         .all()
     )
     recent_news = (
-        Tla3bnyNews.query.order_by(Tla3bnyNews.published_at.desc()).limit(6).all()
+        Tla3bnyNews.query.filter(Tla3bnyNews.is_published.is_(True))
+        .order_by(Tla3bnyNews.published_at.desc())
+        .limit(6)
+        .all()
     )
     return jsonify(
         {

@@ -2,7 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  tCategories, tCreateTeam, tDeleteTeam, tSetTeamAccount, tUpdateAcademy, tAddManager, tDeleteManager,
+  tCategories, tCreateTeam, tDeleteTeam, tSetTeamAccount, tTeamAccount, tUpdateAcademy,
+  tAddManager, tDeleteManager, tUpdateCredentials,
   type TCategory, type TTeam,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -25,19 +26,22 @@ export default function DashboardPage() {
           <LogoAvatar src={team.academy_logo} name={team.display_name} size={48} />
           <div><h1 className="text-lg font-black text-text">{team.display_name}</h1><p className="text-xs text-teal">{team.age_category}</p></div>
         </Card>
+        <CredentialsEditor token={token} refresh={refresh} />
         <TeamManage token={token} teamId={team.id} />
       </div>
     );
   }
 
   if (isAcademy && academy) {
-    if (academy.status !== 'approved') {
+    // Registration is open, so the only closed door is a suspension.
+    if (academy.status === 'suspended' || academy.status === 'rejected') {
       return (
         <Card className="p-6 text-center">
-          <div className="text-4xl mb-2">⏳</div>
+          <div className="text-4xl mb-2">🚫</div>
           <h1 className="font-black text-text">{academy.name}</h1>
-          <div className="mt-2"><StatusBadge status={academy.status} label={tt('بانتظار الموافقة', 'Awaiting approval')} /></div>
+          <div className="mt-2"><StatusBadge status="rejected" label={tt('الحساب موقوف', 'Account suspended')} /></div>
           {academy.rejection_reason && <p className="text-loss text-sm mt-3">{academy.rejection_reason}</p>}
+          <p className="text-hint text-xs mt-3">{tt('تواصل مع إدارة الموقع.', 'Contact the site administrators.')}</p>
         </Card>
       );
     }
@@ -60,6 +64,7 @@ function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Pr
   return (
     <div className="space-y-5">
       <ProfileEditor token={token} refresh={refresh} />
+      <CredentialsEditor token={token} refresh={refresh} />
       <ManagersEditor token={token} refresh={refresh} />
 
       <section>
@@ -108,6 +113,56 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
         <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
         <PrimaryButton onClick={save} disabled={busy}>{busy ? tt('…', '…') : tt('حفظ', 'Save')}</PrimaryButton>
         {ok && <span className="text-win text-sm font-bold">✓</span>}
+      </div>
+    </Card>
+  );
+}
+
+/** Change your own sign-in details. Every role gets this — the username is what
+ *  an organiser, an academy owner or a team manager logs in with. */
+function CredentialsEditor({ token, refresh }: { token: string; refresh: () => Promise<void> }) {
+  const tt = useTT();
+  const { user } = useTla3bnyAuth();
+  const [username, setUsername] = useState(user?.username ?? '');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const changed = username.trim().toLowerCase() !== (user?.username ?? '') || password.length > 0;
+
+  const save = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      await tUpdateCredentials(token, {
+        username: username.trim().toLowerCase(),
+        ...(password ? { password } : {}),
+      });
+      setPassword('');
+      setMsg(tt('تم الحفظ', 'Saved'));
+      await refresh();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card className="p-4 space-y-3">
+      <h2 className="font-black text-text">{tt('بيانات الدخول', 'Sign-in details')}</h2>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={tt('اسم المستخدم', 'Username')}>
+          <input value={username} dir="ltr" onChange={e => setUsername(e.target.value)} className={inputCls} />
+        </Field>
+        <Field label={tt('كلمة مرور جديدة', 'New password')}>
+          <input type="password" value={password} placeholder={tt('اتركها فارغة لعدم التغيير', 'Leave blank to keep')}
+            onChange={e => setPassword(e.target.value)} className={inputCls} />
+        </Field>
+      </div>
+      <ErrorNote>{err}</ErrorNote>
+      <div className="flex items-center gap-3">
+        <PrimaryButton onClick={save} disabled={busy || !changed || !username.trim()} className="text-sm">
+          {busy ? tt('…', '…') : tt('حفظ', 'Save')}
+        </PrimaryButton>
+        {msg && <span className="text-win text-sm font-bold">✓ {msg}</span>}
       </div>
     </Card>
   );
@@ -166,28 +221,57 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
   team: TTeam; token: string; refresh: () => Promise<void>; open: boolean; onToggle: () => void;
 }) {
   const tt = useTT();
-  const [acc, setAcc] = useState({ email: '', password: '' });
+  const [acc, setAcc] = useState({ username: '', password: '' });
   const [accOpen, setAccOpen] = useState(false);
+  const [existing, setExisting] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Only asked for when the panel is opened — one request per team on every
+  // dashboard load would be a lot of noise for a rarely-used panel.
+  useEffect(() => {
+    if (!accOpen) return;
+    tTeamAccount(token, team.id)
+      .then(r => setExisting(r.username))
+      .catch(() => setExisting(null));
+  }, [accOpen, token, team.id]);
+
   const saveAcc = async () => {
-    try { await tSetTeamAccount(token, team.id, acc); setMsg(tt('تم حفظ حساب الفريق', 'Team login saved')); setAcc({ email: '', password: '' }); }
-    catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
+    try {
+      const r = await tSetTeamAccount(token, team.id, acc);
+      setExisting(r.username);
+      setMsg(tt('تم حفظ حساب مدير الفريق', 'Team manager login saved'));
+      setAcc({ username: '', password: '' });
+    } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
   };
+
   return (
     <Card className="p-3">
       <div className="flex items-center justify-between">
         <button onClick={onToggle} className="font-bold text-text text-sm">{open ? '▾' : '▸'} {team.display_name}</button>
         <div className="flex items-center gap-2">
-          <button onClick={() => setAccOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('حساب المدرب', 'Coach login')}</button>
+          <button onClick={() => setAccOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('حساب مدير الفريق', 'Manager login')}</button>
           <button onClick={async () => { if (confirm(tt('حذف الفريق؟', 'Delete team?'))) { await tDeleteTeam(token, team.id); refresh(); } }} className="text-hint hover:text-loss text-sm">🗑</button>
         </div>
       </div>
       {accOpen && (
-        <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-          <input value={acc.email} onChange={e => setAcc({ ...acc, email: e.target.value })} placeholder={tt('بريد الفريق', 'Team email')} className={inputCls} />
-          <input value={acc.password} type="password" onChange={e => setAcc({ ...acc, password: e.target.value })} placeholder={tt('كلمة المرور', 'Password')} className={inputCls} />
-          <PrimaryButton onClick={saveAcc} disabled={!acc.email || !acc.password} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
-          {msg && <p className="col-span-3 text-[11px] text-hint">{msg}</p>}
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-hint">
+            {existing
+              ? tt(`الحساب الحالي: ${existing} — الحفظ هيغيّر البيانات دي.`,
+                   `Current login: ${existing} — saving replaces it.`)
+              : tt('اعمل اسم مستخدم وكلمة مرور وسلّمهم لمدير الفريق.',
+                   'Create a username and password and hand them to the team manager.')}
+          </p>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
+            <input value={acc.username} dir="ltr" onChange={e => setAcc({ ...acc, username: e.target.value })}
+              placeholder={tt('اسم المستخدم', 'Username')} className={inputCls} />
+            <input value={acc.password} type="password" onChange={e => setAcc({ ...acc, password: e.target.value })}
+              placeholder={tt('كلمة المرور', 'Password')} className={inputCls} />
+            <PrimaryButton onClick={saveAcc} disabled={!acc.username.trim() || !acc.password} className="text-sm">
+              {tt('حفظ', 'Save')}
+            </PrimaryButton>
+          </div>
+          {msg && <p className="text-[11px] text-hint">{msg}</p>}
         </div>
       )}
       {open && <div className="mt-3 border-t border-bdr pt-3"><TeamManage token={token} teamId={team.id} /></div>}

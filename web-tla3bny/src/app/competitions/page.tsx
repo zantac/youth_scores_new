@@ -9,10 +9,15 @@ import {
   type TMatch, type TAnalysis, type TBracketStage, type TNews, type TBoardRow,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
+import { useApp } from '@/context/AppContext';
+import { formatMatchDate } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
+import StandingsTable from '@/components/tla3bny/StandingsTable';
+import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
+import NewsList from '@/components/tla3bny/NewsList';
 import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
-type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news';
+type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news' | 'info';
 
 function CompetitionsContent() {
   const tt = useTT();
@@ -61,7 +66,7 @@ function CompetitionsContent() {
         <button onClick={() => setComp(null)} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
         <Card className="p-4 flex items-center gap-3">
           <LogoAvatar src={comp.logo_path} name={comp.name} size={52} />
-          <div>
+          <div className="min-w-0">
             <h1 className="text-lg font-black text-text">{comp.name}</h1>
             <p className="text-[11px] text-hint">{[comp.season_name, comp.location].filter(Boolean).join(' · ')}</p>
           </div>
@@ -78,25 +83,26 @@ function CompetitionsContent() {
           ))}
         </div>
 
-        {ageId == null ? (
-          <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
-        ) : (
-          <>
-            <div className="flex items-center gap-1 border-b border-bdr">
-              {(['standings', 'matches', 'stats', 'bracket', 'news'] as Tab[]).map(t => (
-                <button key={t} onClick={() => setTab(t)}
-                  className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px transition-colors ${
-                    tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
-                  {tt(
-                    { standings: 'الترتيب', matches: 'المباريات', stats: 'الهدافون', bracket: 'الأدوار', news: 'الأخبار' }[t],
-                    { standings: 'Table', matches: 'Matches', stats: 'Stats', bracket: 'Bracket', news: 'News' }[t],
-                  )}
-                </button>
-              ))}
-            </div>
-            <TabBody comp={comp} ageId={ageId} tab={tab} />
-          </>
-        )}
+        <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
+          {(['standings', 'matches', 'stats', 'bracket', 'news', 'info'] as Tab[]).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
+                tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
+              {tt(
+                { standings: 'الترتيب', matches: 'المباريات', stats: 'الإحصائيات', bracket: 'الأدوار', news: 'الأخبار', info: 'عن البطولة' }[t],
+                { standings: 'Table', matches: 'Matches', stats: 'Stats', bracket: 'Bracket', news: 'News', info: 'About' }[t],
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* The info page and the news feed are about the whole competition, so
+            they do not wait on an age being picked. */}
+        {tab === 'info' ? <CompetitionInfo comp={comp} />
+          : tab === 'news' ? <NewsList compId={comp.id} />
+          : ageId == null
+            ? <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
+            : <TabBody comp={comp} ageId={ageId} tab={tab} />}
       </div>
     );
   }
@@ -141,8 +147,7 @@ function TabBody({ comp, ageId, tab }: { comp: TCompetition; ageId: number; tab:
   if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} />;
   if (tab === 'matches') return <MatchesTab compId={comp.id} ageId={ageId} />;
   if (tab === 'stats') return <StatsTab compId={comp.id} ageId={ageId} />;
-  if (tab === 'bracket') return <BracketTab compId={comp.id} ageId={ageId} />;
-  return <NewsTab compId={comp.id} />;
+  return <BracketTab compId={comp.id} ageId={ageId} />;
 }
 
 function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
@@ -155,93 +160,130 @@ function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
   return (
     <div className="space-y-4">
       {groups.map((g, i) => (
-        <div key={g.group?.id ?? i}>
-          {g.group?.name && <h3 className="font-black text-text mb-1">{g.group.name}</h3>}
-          <Card className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[420px]">
-              <thead>
-                <tr className="text-[11px] text-hint border-b border-bdr">
-                  <th className="text-start p-2">#</th>
-                  <th className="text-start p-2">{tt('الفريق', 'Team')}</th>
-                  <th className="p-2 tnum">{tt('لعب', 'P')}</th>
-                  <th className="p-2 tnum">{tt('ف', 'W')}</th>
-                  <th className="p-2 tnum">{tt('ت', 'D')}</th>
-                  <th className="p-2 tnum">{tt('خ', 'L')}</th>
-                  <th className="p-2 tnum">{tt('+/-', 'GD')}</th>
-                  <th className="p-2 tnum font-black">{tt('نقاط', 'Pts')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.standings.map(r => (
-                  <tr key={r.team_id} className="border-b border-bdr/50">
-                    <td className="p-2 text-hint tnum">{r.rank}</td>
-                    <td className="p-2">
-                      <Link href={`/team?id=${r.team_id}`} className="flex items-center gap-2 hover:text-aqua">
-                        <LogoAvatar src={r.academy_logo} name={r.team_name} size={22} />
-                        <span className="font-bold text-text truncate">{r.team_name}</span>
-                      </Link>
-                    </td>
-                    <td className="p-2 text-center tnum">{r.P}</td>
-                    <td className="p-2 text-center tnum">{r.W}</td>
-                    <td className="p-2 text-center tnum">{r.D}</td>
-                    <td className="p-2 text-center tnum">{r.L}</td>
-                    <td className="p-2 text-center tnum">{r.GD}</td>
-                    <td className="p-2 text-center tnum font-black text-text">{r.Pts}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+        <div key={g.group?.id ?? i} className="space-y-1">
+          {g.group?.name && <h3 className="font-black text-text">{g.group.name}</h3>}
+          <StandingsTable rows={g.standings} />
         </div>
       ))}
     </div>
   );
 }
 
+/** Matches grouped by date, newest block first — the youthscores match list. */
 function MatchesTab({ compId, ageId }: { compId: number; ageId: number }) {
   const tt = useTT();
+  const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
   useEffect(() => { setMatches(null); tMatches({ competition_id: compId, age_category_id: ageId }).then(setMatches).catch(() => setMatches([])); }, [compId, ageId]);
   if (!matches) return <Spinner />;
   if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
-  return <div className="space-y-2">{matches.map(m => <MatchRow key={m.id} m={m} />)}</div>;
+
+  const days: { date: string | null; matches: TMatch[] }[] = [];
+  for (const m of matches) {
+    const last = days[days.length - 1];
+    if (last && last.date === m.date) last.matches.push(m);
+    else days.push({ date: m.date, matches: [m] });
+  }
+
+  return (
+    <div className="space-y-5">
+      {days.map((d, i) => (
+        <div key={d.date ?? `tbd-${i}`} className="space-y-2">
+          <div className="flex items-center gap-2 py-1">
+            <span className="text-aqua">📅</span>
+            <h3 className="font-bold text-sm text-text">
+              {d.date ? formatMatchDate(d.date, locale) : tt('لم تحدد', 'Date TBD')}
+            </h3>
+            <span className="flex-1 h-px bg-bdr" />
+          </div>
+          {d.matches.map(m => <MatchRow key={m.id} m={m} />)}
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function Board({ title, rows }: { title: string; rows: TBoardRow[] }) {
+/** A leaderboard: top three get a medal, the rest a plain rank. */
+function Board({ title, icon, rows, unitClass = 'text-aqua' }: {
+  title: string; icon: string; rows: TBoardRow[]; unitClass?: string;
+}) {
+  const tt = useTT();
   if (rows.length === 0) return null;
+  const medal = ['🥇', '🥈', '🥉'];
   return (
     <div>
-      <h3 className="font-black text-text mb-2">{title}</h3>
+      <h3 className="font-black text-text mb-2 flex items-center gap-2">
+        <span>{icon}</span>{title}
+      </h3>
       <div className="space-y-1.5">
         {rows.slice(0, 10).map((r, i) => (
-          <Card key={r.player_id} className="p-2 flex items-center gap-3">
-            <span className="w-5 text-center text-hint tnum text-sm">{i + 1}</span>
-            <LogoAvatar src={r.photo_path} name={r.player_name} size={32} />
-            <div className="min-w-0 flex-1">
-              <div className="font-bold text-text text-sm truncate">{r.player_name}</div>
-              <div className="text-[11px] text-hint truncate">{r.team_name}</div>
-            </div>
-            <span className="font-black text-teal tnum">{r.count}</span>
-          </Card>
+          <Link key={r.player_id} href={`/player?id=${r.player_id}`} className="block">
+            <Card className={`p-2 flex items-center gap-3 hover:border-aqua/40 transition-colors ${
+              i === 0 ? 'border-gold/40' : ''}`}>
+              <span className="w-6 text-center tnum text-sm">
+                {i < 3 ? medal[i] : <span className="text-hint">{i + 1}</span>}
+              </span>
+              <LogoAvatar src={r.photo_path} name={r.player_name} size={32} />
+              <div className="min-w-0 flex-1">
+                <div className={`font-bold text-sm truncate ${i === 0 ? 'text-gold' : 'text-text'}`}>{r.player_name}</div>
+                <div className="text-[11px] text-hint truncate">{r.team_name}</div>
+              </div>
+              <span className={`font-black tnum text-lg ${unitClass}`}>{r.count}</span>
+            </Card>
+          </Link>
         ))}
       </div>
+      {rows.length > 10 && (
+        <p className="text-hint text-[11px] mt-1.5 text-center">
+          {tt(`و${rows.length - 10} لاعبين آخرين`, `and ${rows.length - 10} more`)}
+        </p>
+      )}
     </div>
+  );
+}
+
+/** One headline number, in the youthscores stat-tile style. */
+function StatTile({ label, value, tone = 'text-aqua' }: { label: string; value: number | string; tone?: string }) {
+  return (
+    <Card className="p-3 text-center">
+      <div className={`text-2xl font-black tnum ${tone}`}>{value}</div>
+      <div className="text-[11px] text-hint mt-0.5">{label}</div>
+    </Card>
   );
 }
 
 function StatsTab({ compId, ageId }: { compId: number; ageId: number }) {
   const tt = useTT();
   const [a, setA] = useState<TAnalysis | null>(null);
-  useEffect(() => { setA(null); tAnalysis(compId, ageId).then(setA).catch(() => setA(null)); }, [compId, ageId]);
-  if (!a) return <Spinner />;
-  const empty = a.top_scorers.length === 0 && a.top_assisters.length === 0;
+  const [matches, setMatches] = useState<TMatch[] | null>(null);
+  useEffect(() => {
+    setA(null); setMatches(null);
+    tAnalysis(compId, ageId).then(setA).catch(() => setA(null));
+    tMatches({ competition_id: compId, age_category_id: ageId }).then(setMatches).catch(() => setMatches([]));
+  }, [compId, ageId]);
+  if (!a || !matches) return <Spinner />;
+
+  const played = matches.filter(m => m.status === 'finished');
+  const goals = played.reduce((sum, m) => sum + (m.home_score ?? 0) + (m.away_score ?? 0), 0);
+  const avg = played.length ? (goals / played.length).toFixed(1) : '0.0';
+  const cards = a.yellow_cards.reduce((s, r) => s + r.count, 0) + a.red_cards.reduce((s, r) => s + r.count, 0);
+  const empty = played.length === 0 && a.top_scorers.length === 0;
   if (empty) return <EmptyState icon="⚽" text={tt('لا إحصائيات بعد', 'No stats yet')} />;
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <Board title={tt('الهدافون', 'Top scorers')} rows={a.top_scorers} />
-      <Board title={tt('صناع الأهداف', 'Top assists')} rows={a.top_assisters} />
-      <Board title={tt('البطاقات الصفراء', 'Yellow cards')} rows={a.yellow_cards} />
-      <Board title={tt('البطاقات الحمراء', 'Red cards')} rows={a.red_cards} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <StatTile label={tt('مباريات لعبت', 'Matches played')} value={played.length} />
+        <StatTile label={tt('أهداف', 'Goals')} value={goals} tone="text-gold" />
+        <StatTile label={tt('معدل الأهداف', 'Goals per match')} value={avg} />
+        <StatTile label={tt('بطاقات', 'Cards')} value={cards} tone="text-loss" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <Board icon="⚽" title={tt('الهدافون', 'Top scorers')} rows={a.top_scorers} unitClass="text-gold" />
+        <Board icon="🅰️" title={tt('صناع الأهداف', 'Top assists')} rows={a.top_assisters} />
+        <Board icon="🟨" title={tt('البطاقات الصفراء', 'Yellow cards')} rows={a.yellow_cards} unitClass="text-gold" />
+        <Board icon="🟥" title={tt('البطاقات الحمراء', 'Red cards')} rows={a.red_cards} unitClass="text-loss" />
+      </div>
     </div>
   );
 }
@@ -264,28 +306,6 @@ function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
             </div>
           ))}
         </div>
-      ))}
-    </div>
-  );
-}
-
-function NewsTab({ compId }: { compId: number }) {
-  const tt = useTT();
-  const [news, setNews] = useState<TNews[] | null>(null);
-  useEffect(() => { setNews(null); tNews(compId).then(setNews).catch(() => setNews([])); }, [compId]);
-  if (!news) return <Spinner />;
-  if (news.length === 0) return <EmptyState icon="📰" text={tt('لا أخبار', 'No news')} />;
-  return (
-    <div className="space-y-2">
-      {news.map(n => (
-        <Card key={n.id} className="p-3">
-          {mediaUrl(n.image_path) && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={mediaUrl(n.image_path)!} alt="" className="w-full h-40 object-cover rounded-xl border border-bdr mb-2" />
-          )}
-          <div className="font-bold text-text">{n.title}</div>
-          {n.body && <p className="text-sm text-hint mt-1 whitespace-pre-line">{n.body}</p>}
-        </Card>
       ))}
     </div>
   );

@@ -1,20 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { tHome, mediaUrl, type THome } from '@/lib/tla3bnyApi';
-import Spinner from '@/components/ui/Spinner';
-import MatchRow from '@/components/tla3bny/MatchRow';
-import { Card, EmptyState, useTT } from '@/components/tla3bny/kit';
+import { tNews, mediaUrl, type TNews } from '@/lib/tla3bnyApi';
+import MatchesFeed from '@/components/tla3bny/MatchesFeed';
+import { Card, useTT } from '@/components/tla3bny/kit';
 
 export default function HomePage() {
   const tt = useTT();
-  const [data, setData] = useState<THome | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    tHome().then(setData).catch(() => setData({ today_matches: [], recent_news: [] }))
-      .finally(() => setLoading(false));
-  }, []);
+  const [news, setNews] = useState<TNews[]>([]);
+  useEffect(() => { tNews({ limit: 4 }).then(setNews).catch(() => setNews([])); }, []);
 
   return (
     <div className="space-y-6">
@@ -35,46 +29,35 @@ export default function HomePage() {
         </div>
       </Card>
 
-      {loading ? <Spinner /> : (
-        <>
-          <section>
-            <h2 className="text-lg font-black text-text mb-2">{tt('مباريات اليوم', 'Today’s Matches')}</h2>
-            {data && data.today_matches.length > 0 ? (
-              <div className="space-y-2">
-                {data.today_matches.map(m => <MatchRow key={m.id} m={m} showComp />)}
-              </div>
-            ) : (
-              <EmptyState icon="📅" text={tt('لا مباريات اليوم', 'No matches today')} />
-            )}
-          </section>
-
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-black text-text">{tt('آخر الأخبار', 'Latest News')}</h2>
-              <Link href="/news" className="text-xs font-bold text-aqua hover:underline">{tt('الكل', 'All')}</Link>
-            </div>
-            {data && data.recent_news.length > 0 ? (
-              <div className="space-y-2">
-                {data.recent_news.map(n => (
-                  <Card key={n.id} className="p-3 flex gap-3 items-center">
-                    {mediaUrl(n.image_path) && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={mediaUrl(n.image_path)!} alt="" className="w-16 h-16 rounded-xl object-cover border border-bdr shrink-0" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-bold text-text text-sm truncate">{n.title}</div>
-                      <div className="text-[11px] text-teal">{n.competition_name}</div>
-                      {n.body && <p className="text-xs text-hint line-clamp-2 mt-0.5">{n.body}</p>}
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <EmptyState icon="📰" text={tt('لا أخبار بعد', 'No news yet')} />
-            )}
-          </section>
-        </>
+      {news.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-black text-text">{tt('آخر الأخبار', 'Latest News')}</h2>
+            <Link href="/news" className="text-xs font-bold text-aqua hover:underline">{tt('الكل', 'All')}</Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+            {news.map(n => (
+              <Link key={n.id} href="/news" className="shrink-0 w-56">
+                <Card className="overflow-hidden h-full hover:border-aqua/40 transition-colors">
+                  {mediaUrl(n.image_path) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={mediaUrl(n.image_path)!} alt="" className="w-full h-24 object-cover" />
+                  )}
+                  <div className="p-2.5">
+                    <div className="font-bold text-text text-sm line-clamp-2 leading-snug">{n.title}</div>
+                    {n.competition_name && <div className="text-[11px] text-teal mt-1 truncate">{n.competition_name}</div>}
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
+
+      <section>
+        <h2 className="text-lg font-black text-text mb-2">{tt('المباريات', 'Matches')}</h2>
+        <MatchesFeed />
+      </section>
     </div>
   );
 }

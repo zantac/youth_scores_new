@@ -35,13 +35,17 @@ def register_commands(app):
         click.echo(f"{action} admin '{username}' with role '{role}'")
 
     @app.cli.command("create-tla3bny-admin")
-    @click.option("--email", required=True)
+    @click.option("--username", help="Login name (or pass --email)")
+    @click.option("--email", help="Email, which also works as the login")
     @click.option("--password", required=True)
     @click.option("--name", default="League Admin", help="Display name (optional)")
-    def create_tla3bny_admin(email, password, name):
+    def create_tla3bny_admin(username, email, password, name):
         """Create/reset the tla3bny (LeagueHub subdomain) super admin account."""
-        email = email.strip().lower()
-        user = Tla3bnyUser.query.filter_by(email=email).first()
+        username = Tla3bnyUser.normalize_login(username or email)
+        email = Tla3bnyUser.normalize_login(email)
+        if not username:
+            raise click.UsageError("give --username or --email")
+        user = Tla3bnyUser.by_login(username)
         if user:
             user.set_password(password)
             user.role = "super_admin"
@@ -51,10 +55,14 @@ def register_commands(app):
             action = "updated"
         else:
             user = Tla3bnyUser(
-                email=email, role="super_admin", status="active", name=name
+                username=username,
+                email=email,
+                role="super_admin",
+                status="active",
+                name=name,
             )
             user.set_password(password)
             db.session.add(user)
             action = "created"
         db.session.commit()
-        click.echo(f"{action} tla3bny super admin '{email}'")
+        click.echo(f"{action} tla3bny super admin '{username}'")
