@@ -15,6 +15,41 @@ flask db upgrade              # builds the schema on SQLite
 
 `FLASK_APP=wsgi.py` is needed for the `flask` commands.
 
+`flask db upgrade` builds the **whole** schema from empty — every table, both
+the youthscores ones and the 23 `tla3bny_*` ones. The database itself is not in
+git (`instance/`, `*.db` are ignored), so a fresh clone starts with no data.
+Import the legacy feed (see *Importing the legacy JSON* below) if you want
+something to look at.
+
+### The two frontends
+
+Each is its own Next app and needs its dependencies installed and a
+`.env.local` pointing at your Flask port:
+
+```bash
+cd web           && npm install && cp .env.local.example .env.local && npm run dev
+cd web-tla3bny   && npm install && cp .env.local.example .env.local && npm run dev
+```
+
+`web/` is youthscores (www.youthscores.org); `web-tla3bny/` is the league app
+(tla3bny.youthscores.org). In production Flask serves both from their own host
+and `NEXT_PUBLIC_CONFIG_URL` is left unset, so the clients call the API on the
+same origin — the env file exists only because the dev servers run on a
+different port from Flask. Note that `next dev` silently moves to the next free
+port if 3000 is taken, and the app calls whatever port the env file names, so
+run Flask on the port the browser is actually asking for.
+
+### The tla3bny super admin
+
+There is no seeded account — create one:
+
+```bash
+flask create-tla3bny-admin --username admin --password <pw>
+```
+
+Academies sign themselves up (no approval needed); this account is for running
+seasons, ages and competitions, and for assigning competition organisers.
+
 ## PythonAnywhere
 
 Create the MySQL database from the **Databases** tab, then confirm its charset —
