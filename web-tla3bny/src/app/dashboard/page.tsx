@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   tCategories, tCreateTeam, tDeleteTeam, tSetTeamAccount, tTeamAccount, tUpdateAcademy,
-  tAddManager, tDeleteManager, tUpdateCredentials,
-  type TCategory, type TTeam,
+  tAddManager, tDeleteManager, tUpdateCredentials, tMatches,
+  type TCategory, type TTeam, type TMatch,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import TeamManage from '@/components/tla3bny/TeamManage';
+import MatchRow from '@/components/tla3bny/MatchRow';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, LogoAvatar, EmptyState, useTT } from '@/components/tla3bny/kit';
 
 export default function DashboardPage() {
   const tt = useTT();
@@ -21,16 +22,7 @@ export default function DashboardPage() {
   if (loading || !user || !token) return <Spinner />;
 
   if (isTeam && team) {
-    return (
-      <div className="space-y-4">
-        <Card className="p-4 flex items-center gap-3">
-          <LogoAvatar src={team.academy_logo} name={team.display_name} size={48} />
-          <div><h1 className="text-lg font-black text-text">{team.display_name}</h1><p className="text-xs text-teal">{team.age_category}</p></div>
-        </Card>
-        <CredentialsEditor token={token} refresh={refresh} />
-        <TeamManage token={token} teamId={team.id} />
-      </div>
-    );
+    return <TeamAdminDashboard token={token} team={team} refresh={refresh} />;
   }
 
   if (isAcademy && academy) {
@@ -50,6 +42,55 @@ export default function DashboardPage() {
   }
 
   return <Spinner />;
+}
+
+function TeamAdminDashboard({ token, team, refresh }: { token: string; team: TTeam; refresh: () => Promise<void> }) {
+  const tt = useTT();
+  const [tab, setTab] = useState<'squad' | 'matches'>('squad');
+  const [matches, setMatches] = useState<TMatch[]>([]);
+
+  useEffect(() => {
+    tMatches({ team_id: team.id }).then(setMatches).catch(() => setMatches([]));
+  }, [team.id]);
+
+  const tabs: { key: 'squad' | 'matches'; ar: string; en: string }[] = [
+    { key: 'squad', ar: 'الجهاز الفني واللاعبون', en: 'Staff & Players' },
+    { key: 'matches', ar: 'المباريات', en: 'Matches' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4 flex items-center gap-4">
+        <LogoAvatar src={team.academy_logo} name={team.display_name} size={48} />
+        <div>
+          <h1 className="text-lg font-black text-text">{team.display_name}</h1>
+          <p className="text-xs text-teal font-bold">{team.age_category}</p>
+        </div>
+      </Card>
+
+      <CredentialsEditor token={token} refresh={refresh} />
+
+      <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${tab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
+            {tt(t.ar, t.en)}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'squad' && <TeamManage token={token} teamId={team.id} />}
+
+      {tab === 'matches' && (
+        <div>
+          {matches.length === 0
+            ? <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />
+            : matches.map(m => <MatchRow key={m.id} m={m} showComp />)
+          }
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Promise<void> }) {

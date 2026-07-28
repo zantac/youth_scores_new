@@ -6,16 +6,18 @@ import {
   tStats, tSeasons, tCreateSeason, tUpdateSeason, tDeleteSeason,
   tCategories, tCreateCategory, tUpdateCategory, tDeleteCategory,
   tManageAcademies, tRestoreAcademy, tSuspendAcademy, tSetAcademyAccount,
-  tCompetitions, tCreateCompetition, tDeleteCompetition, tAddCompAdmin, tRemoveCompAdmin,
-  type TStats, type TSeason, type TCategory, type TAcademy, type TCompetition,
+  tCompetitions, tCompetition, tCreateCompetition, tDeleteCompetition, tAddCompAdmin, tRemoveCompAdmin,
+  tMatches,
+  type TStats, type TSeason, type TCategory, type TAcademy, type TCompetition, type TMatch,
 } from '@/lib/tla3bnyApi';
+import MatchRow from '@/components/tla3bny/MatchRow';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
+type Tab = 'dashboard' | 'matches' | 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
 
 export default function AdminPage() {
   const tt = useTT();
@@ -51,9 +53,10 @@ export default function AdminPage() {
     );
   }
 
-  const tabs: Tab[] = ['dashboard', 'competitions', 'news', 'academies', 'seasons', 'ages'];
+  const tabs: Tab[] = ['dashboard', 'matches', 'competitions', 'news', 'academies', 'seasons', 'ages'];
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Dashboard'],
+    matches: ['المباريات', 'Matches'],
     seasons: ['المواسم', 'Seasons'],
     ages: ['الفئات', 'Ages'],
     academies: ['الأكاديميات', 'Academies'],
@@ -72,6 +75,7 @@ export default function AdminPage() {
         ))}
       </div>
       {tab === 'dashboard' && <Dashboard token={token} user={user} />}
+      {tab === 'matches' && <MatchesAdmin token={token} />}
       {tab === 'seasons' && <Seasons token={token} />}
       {tab === 'ages' && <Ages token={token} />}
       {tab === 'academies' && <Academies token={token} />}
@@ -216,6 +220,105 @@ function Dashboard({ token, user }: { token: string; user: import('@/lib/tla3bny
           }
         </Card>
       </>)}
+    </div>
+  );
+}
+
+// ── Global Matches Admin ──────────────────────────────────────────────────────
+function MatchesAdmin({ token }: { token: string }) {
+  const tt = useTT();
+  const [seasons, setSeasons] = useState<TSeason[]>([]);
+  const [comps, setComps] = useState<TCompetition[]>([]);
+  const [selComp, setSelComp] = useState<TCompetition | null>(null);
+  const [matches, setMatches] = useState<TMatch[]>([]);
+  const [seasonId, setSeasonId] = useState('');
+  const [compId, setCompId] = useState('');
+  const [ageId, setAgeId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('');
+
+  useEffect(() => { tSeasons().then(setSeasons).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!seasonId) { setComps([]); setCompId(''); setSelComp(null); setMatches([]); return; }
+    tCompetitions(Number(seasonId), token).then(setComps).catch(() => setComps([]));
+    setCompId(''); setSelComp(null); setAgeId(null); setMatches([]);
+  }, [seasonId, token]);
+
+  useEffect(() => {
+    if (!compId) { setSelComp(null); setAgeId(null); setMatches([]); return; }
+    tCompetition(Number(compId)).then(c => {
+      setSelComp(c);
+      setAgeId(c.ages?.[0]?.age_category_id ?? null);
+    });
+  }, [compId]);
+
+  useEffect(() => {
+    if (!compId) { setMatches([]); return; }
+    setLoading(true);
+    const params: Parameters<typeof tMatches>[0] = { competition_id: Number(compId) };
+    if (ageId) params.age_category_id = ageId;
+    if (statusFilter) params.status = statusFilter;
+    tMatches(params).then(setMatches).catch(() => setMatches([])).finally(() => setLoading(false));
+  }, [compId, ageId, statusFilter]);
+
+  const ages = selComp?.ages ?? [];
+  const shown = matches;
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={tt('الموسم', 'Season')}>
+          <select value={seasonId} onChange={e => setSeasonId(e.target.value)} className={inputCls}>
+            <option value="">— {tt('اختر موسمًا', 'Choose season')}</option>
+            {seasons.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name}</option>)}
+          </select>
+        </Field>
+        <Field label={tt('البطولة', 'Competition')}>
+          <select value={compId} onChange={e => setCompId(e.target.value)} className={inputCls} disabled={!seasonId}>
+            <option value="">—</option>
+            {comps.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      {ages.length > 1 && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <button onClick={() => setAgeId(null)}
+            className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${!ageId ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+            {tt('الكل', 'All')}
+          </button>
+          {ages.map(a => (
+            <button key={a.id} onClick={() => setAgeId(a.age_category_id)}
+              className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+              {a.age_category}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {compId && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+          {(['', 'scheduled', 'live', 'finished'] as const).map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${statusFilter === s ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+              {tt({ '': 'الكل', scheduled: 'قادمة', live: 'مباشر', finished: 'منتهية' }[s],
+                  { '': 'All', scheduled: 'Upcoming', live: 'Live', finished: 'Finished' }[s])}
+            </button>
+          ))}
+          <span className="text-hint text-xs tabular-nums ms-auto shrink-0">{shown.length} {tt('مباراة', 'matches')}</span>
+        </div>
+      )}
+
+      {loading && <Spinner />}
+      {!loading && !compId && (
+        <p className="text-hint text-sm text-center py-8">{tt('اختر موسمًا وبطولة', 'Select a season and competition')}</p>
+      )}
+      {!loading && compId && shown.length === 0 && (
+        <EmptyState icon="📋" text={tt('لا مباريات', 'No matches')} />
+      )}
+      <div>{shown.map(m => <MatchRow key={m.id} m={m} showComp />)}</div>
     </div>
   );
 }

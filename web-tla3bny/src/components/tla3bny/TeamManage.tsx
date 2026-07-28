@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tPlayer, tCreatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
+  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
   type TTeam, type TTeamCompEntry, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
@@ -61,7 +61,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       : acc;
   }, null);
 
-  // player form
+  // player add form
   const [pf, setPf] = useState({ name: '', position: '', jersey_number: '', dob: '' });
   const [photo, setPhoto] = useState<File | null>(null);
   const [docFiles, setDocFiles] = useState<Record<string, File>>({});
@@ -75,6 +75,45 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setPBusy(false); }
   };
+
+  // player edit state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [ef, setEf] = useState({ name: '', position: '', jersey_number: '', dob: '' });
+  const [editPhoto, setEditPhoto] = useState<File | null>(null);
+  const [editDocFiles, setEditDocFiles] = useState<Record<string, File>>({});
+  const [eBusy, setEBusy] = useState(false);
+
+  const startEdit = (p: TTeam['players'][number]) => {
+    setEditingId(p.player_id);
+    setEf({
+      name: p.player_name ?? '',
+      position: p.position ?? '',
+      jersey_number: p.jersey_number != null ? String(p.jersey_number) : '',
+      dob: '',
+    });
+    setEditPhoto(null); setEditDocFiles({});
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+    setErr(null); setEBusy(true);
+    try {
+      const documents: LabeledDoc[] = Object.entries(editDocFiles).map(([label, file]) => ({ label, file }));
+      await tUpdatePlayer(token, editingId, ef, editPhoto, documents);
+      setEditingId(null);
+      await reload();
+      // refresh comp entries to reflect new pending status
+      tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => {});
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setEBusy(false); }
+  };
+
+  // Build map of rejected player IDs from competition entries
+  const rejectedPlayerIds = new Set(
+    compEntries.flatMap(e => e.rejected_players.map(rp => rp.player_id))
+  );
+  const allRejections = compEntries.flatMap(e =>
+    e.rejected_players.map(rp => ({ ...rp, competition_name: e.competition_name }))
+  );
 
   // coach form
   const [cf, setCf] = useState({ name: '', role_ar: '', phone: '' });
@@ -125,24 +164,101 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           </Card>
         ) : null}
 
+        {/* Rejection alerts */}
+        {allRejections.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {allRejections.map((rp, i) => (
+              <div key={i} className="flex items-start gap-2 bg-loss/10 border border-loss/30 rounded-xl px-3 py-2.5">
+                <span className="text-loss text-base shrink-0">🟥</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-loss text-xs font-bold">
+                    {rp.player_name} · {tt('مرفوض في', 'Rejected in')} {rp.competition_name}
+                  </p>
+                  {rp.rejection_reason && (
+                    <p className="text-loss/80 text-[11px] mt-0.5">{tt('السبب:', 'Reason:')} {rp.rejection_reason}</p>
+                  )}
+                  <p className="text-hint text-[11px] mt-0.5">
+                    {tt('عدّل بيانات اللاعب أو أوراقه لإعادة الطلب للمراجعة.', 'Edit the player\'s data or papers to resubmit for review.')}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-2 mb-3">
           {(team.players ?? []).length === 0 ? (
             <EmptyState icon="⚽" text={tt('لا لاعبون بعد', 'No players yet')} />
           ) : (team.players ?? []).map(p => (
-            <Card key={p.id} className="p-2">
+            <Card key={p.id} className={`p-2 ${rejectedPlayerIds.has(p.player_id) ? 'border-loss/40' : ''}`}>
               <div className="flex items-center gap-3">
                 <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
                   <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
+                {rejectedPlayerIds.has(p.player_id) && (
+                  <span className="text-[10px] font-bold text-loss bg-loss/10 border border-loss/30 rounded-full px-2 py-0.5 shrink-0">
+                    {tt('مرفوض', 'Rejected')}
+                  </span>
+                )}
                 <PapersProgress required={requiredDocs} files={papers[p.player_id] ?? []} />
+                <button onClick={() => editingId === p.player_id ? setEditingId(null) : startEdit(p)}
+                  className={`text-xs font-bold px-1 shrink-0 ${editingId === p.player_id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
+                  {editingId === p.player_id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
+                </button>
                 <Link href={`/player?id=${p.player_id}`} className="text-xs font-bold text-aqua hover:underline px-1 shrink-0">
-                  {tt('الملف والأوراق', 'Profile & papers')}
+                  {tt('الأوراق', 'Papers')}
                 </Link>
                 <button onClick={async () => { if (confirm(tt('حذف اللاعب؟', 'Delete player?'))) { await tDeletePlayer(token, p.player_id); reload(); } }}
-                  className="text-hint hover:text-loss text-sm px-2">🗑</button>
+                  className="text-hint hover:text-loss text-sm px-1">🗑</button>
               </div>
+
+              {/* Inline edit form */}
+              {editingId === p.player_id && (
+                <div className="mt-3 border-t border-bdr/50 pt-3 space-y-3">
+                  <p className="text-teal text-[11px] font-bold">{tt('تعديل بيانات اللاعب', 'Edit player data')}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label={tt('الاسم', 'Name')}>
+                      <input value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })} className={inputCls} />
+                    </Field>
+                    <Field label={tt('المركز', 'Position')}>
+                      <input value={ef.position} onChange={e => setEf({ ...ef, position: e.target.value })} className={inputCls} placeholder="ST / GK …" />
+                    </Field>
+                    <Field label={tt('الرقم', 'Jersey')}>
+                      <input value={ef.jersey_number} onChange={e => setEf({ ...ef, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" />
+                    </Field>
+                    <Field label={tt('تاريخ الميلاد', 'Date of birth')}>
+                      <input type="date" value={ef.dob} onChange={e => setEf({ ...ef, dob: e.target.value })} className={inputCls} />
+                    </Field>
+                  </div>
+                  <Field label={tt('صورة جديدة (اختياري)', 'New photo (optional)')}>
+                    <input type="file" accept="image/*" onChange={e => setEditPhoto(e.target.files?.[0] ?? null)}
+                      className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+                  </Field>
+                  {requiredDocs.length > 0 && (
+                    <div>
+                      <span className="block text-teal text-[10px] font-bold mb-1">{tt('تحديث الأوراق (اختياري)', 'Update papers (optional)')}</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {requiredDocs.map(doc => (
+                          <label key={doc} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                            <span className="text-xs text-text flex-1 min-w-0 truncate">{doc}{editDocFiles[doc] && <span className="text-win"> ✓</span>}</span>
+                            <input type="file" accept="image/*,.pdf"
+                              onChange={e => setEditDocFiles(prev => { const n = { ...prev }; const f = e.target.files?.[0]; if (f) n[doc] = f; else delete n[doc]; return n; })}
+                              className="text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal w-32" />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-hint">
+                    {tt('بعد الحفظ، سيُعاد إرسال اللاعب للاعتماد في جميع البطولات.', 'After saving, the player will be resubmitted for approval in all competitions.')}
+                  </p>
+                  <PrimaryButton onClick={saveEdit} disabled={eBusy || !ef.name.trim()} className="text-sm">
+                    {eBusy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ التعديلات', 'Save changes')}
+                  </PrimaryButton>
+                </div>
+              )}
             </Card>
           ))}
         </div>
