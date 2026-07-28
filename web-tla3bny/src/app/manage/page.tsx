@@ -3,14 +3,14 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  tCompetition, tCategories, tAcademies, tAcademyTeams,
+  tCompetition, tCompDashboard, tCategories, tAcademies, tAcademyTeams,
   tAddCompAge, tUpdateCompAge, tDeleteCompAge,
   tCompTeams, tRegisterTeam, tUnregisterTeam, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
-  tAddStage, tDeleteStage, tAddGroup, tAddGroupTeam,
+  tAddStage, tDeleteStage, tAddGroup, tAddGroupTeam, tRemoveGroupTeam,
   tUpdateCompetition, whatsappLink, mediaUrl,
-  type TCompetition, type TCompAge, type TCategory, type TAcademy, type TTeam,
+  type TCompetition, type TCompAge, type TCompDashboard, type TCategory, type TAcademy, type TTeam,
   type TCompTeam, type TCompPlayer, type TMatch,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -20,7 +20,7 @@ import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT } from '@/components/tla3bny/kit';
 
-type Tab = 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
 
 function ManageContent() {
   const tt = useTT();
@@ -29,7 +29,7 @@ function ManageContent() {
   const compId = Number(params.get('comp'));
   const { user, token, loading, canAdminCompetition } = useTla3bnyAuth();
   const [comp, setComp] = useState<TCompetition | null>(null);
-  const [tab, setTab] = useState<Tab>('ages');
+  const [tab, setTab] = useState<Tab>('dashboard');
 
   const reload = useCallback(() => { if (compId) tCompetition(compId).then(setComp).catch(() => setComp(null)); }, [compId]);
   useEffect(reload, [reload]);
@@ -39,7 +39,17 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['info', 'ages', 'teams', 'approvals', 'matches', 'stages', 'news'];
+  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'news'];
+  const tabLabel: Record<Tab, [string, string]> = {
+    dashboard: ['الرئيسية', 'Overview'],
+    info: ['صفحة البطولة', 'Page'],
+    ages: ['القواعد', 'Rules'],
+    teams: ['الفرق', 'Teams'],
+    approvals: ['الاعتمادات', 'Approvals'],
+    matches: ['المباريات', 'Matches'],
+    stages: ['الأدوار', 'Stages'],
+    news: ['📰 الأخبار', '📰 News'],
+  };
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-hint hover:text-aqua">← {tt('الإدارة', 'Admin')}</Link>
@@ -48,11 +58,11 @@ function ManageContent() {
         {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap ${tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
-            {tt({ info: 'صفحة البطولة', ages: 'القواعد', teams: 'الفرق', approvals: 'الاعتمادات', matches: 'المباريات', stages: 'الأدوار', news: '📰 الأخبار' }[t],
-              { info: 'Page', ages: 'Rules', teams: 'Teams', approvals: 'Approvals', matches: 'Matches', stages: 'Stages', news: '📰 News' }[t])}
+            {tt(tabLabel[t][0], tabLabel[t][1])}
           </button>
         ))}
       </div>
+      {tab === 'dashboard' && <DashboardTab token={token} comp={comp} onNavigate={setTab} />}
       {tab === 'info' && <InfoTab token={token} comp={comp} reload={reload} />}
       {tab === 'ages' && <AgesTab token={token} comp={comp} reload={reload} />}
       {tab === 'teams' && <TeamsTab token={token} comp={comp} />}
@@ -60,6 +70,163 @@ function ManageContent() {
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
+    </div>
+  );
+}
+
+// ── Competition Dashboard ─────────────────────────────────────────────────────
+function DashboardTab({ token, comp, onNavigate }: {
+  token: string; comp: TCompetition; onNavigate: (tab: Tab) => void;
+}) {
+  const tt = useTT();
+  const [d, setD] = useState<TCompDashboard | null>(null);
+
+  useEffect(() => {
+    tCompDashboard(token, comp.id).then(setD).catch(() => setD(null));
+  }, [token, comp.id]);
+
+  if (!d) return <Spinner />;
+
+  const { counts } = d;
+  const matchPct = counts.matches_total
+    ? Math.round((counts.matches_played / counts.matches_total) * 100) : 0;
+  const totalPlayers = counts.players_approved + counts.players_pending + counts.players_rejected;
+
+  return (
+    <div className="space-y-4">
+      {/* Pending approvals alert */}
+      {counts.players_pending > 0 && (
+        <button onClick={() => onNavigate('approvals')}
+          className="w-full flex items-center gap-3 bg-gold/10 border border-gold/40 rounded-2xl px-4 py-3 text-start hover:bg-gold/15 transition-colors">
+          <span className="text-2xl">⏳</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-gold font-bold text-sm">
+              {counts.players_pending} {tt('لاعب بانتظار الاعتماد', 'players awaiting approval')}
+            </p>
+            <p className="text-hint text-[11px]">{tt('اضغط للانتقال لتبويب الاعتمادات', 'Tap to go to Approvals')}</p>
+          </div>
+          <span className="text-gold text-lg">‹</span>
+        </button>
+      )}
+
+      {/* Key stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">⚽ {tt('الفرق', 'Teams')}</p>
+          <p className="text-text font-extrabold text-xl tabular-nums">{counts.teams}</p>
+        </Card>
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">✅ {tt('لاعبون معتمدون', 'Approved players')}</p>
+          <p className="text-win font-extrabold text-xl tabular-nums">{counts.players_approved}</p>
+        </Card>
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">⏳ {tt('قيد المراجعة', 'Pending')}</p>
+          <p className={`${counts.players_pending > 0 ? 'text-gold' : 'text-hint'} font-extrabold text-xl tabular-nums`}>
+            {counts.players_pending}
+          </p>
+        </Card>
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">📋 {tt('المباريات', 'Matches')}</p>
+          <p className="text-text font-extrabold text-xl tabular-nums">{counts.matches_total}</p>
+        </Card>
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">✔ {tt('منتهية', 'Played')}</p>
+          <p className="text-text font-extrabold text-xl tabular-nums">{counts.matches_played}</p>
+        </Card>
+        <Card className="p-3">
+          <p className="text-hint text-[11px]">🥅 {tt('الأهداف', 'Goals')}</p>
+          <p className="text-gold font-extrabold text-xl tabular-nums">{counts.goals}</p>
+        </Card>
+      </div>
+
+      {/* Match progress */}
+      {counts.matches_total > 0 && (
+        <Card className="p-4 space-y-2">
+          <div className="flex items-baseline justify-between">
+            <p className="text-text font-bold text-sm">📋 {tt('إدخال النتائج', 'Result entry')}</p>
+            <p className="text-aqua font-extrabold tabular-nums">{matchPct}%</p>
+          </div>
+          <div className="h-2 bg-darkBg rounded-full overflow-hidden">
+            <div className="h-full bg-aqua rounded-full transition-all" style={{ width: `${matchPct}%` }} />
+          </div>
+          <p className="text-hint text-[11px] tabular-nums">
+            {counts.matches_played} {tt('مكتملة', 'done')} · {counts.matches_total - counts.matches_played} {tt('متبقية', 'remaining')}
+          </p>
+        </Card>
+      )}
+
+      {/* Player approval breakdown */}
+      {totalPlayers > 0 && (
+        <Card className="p-4 space-y-2">
+          <p className="text-text font-bold text-sm">👤 {tt('اللاعبون', 'Players')} ({totalPlayers})</p>
+          <div className="h-2.5 bg-darkBg rounded-full overflow-hidden flex">
+            {counts.players_approved > 0 && (
+              <div className="h-full bg-win" style={{ width: `${(counts.players_approved / totalPlayers) * 100}%` }} />
+            )}
+            {counts.players_pending > 0 && (
+              <div className="h-full bg-gold" style={{ width: `${(counts.players_pending / totalPlayers) * 100}%` }} />
+            )}
+            {counts.players_rejected > 0 && (
+              <div className="h-full bg-loss" style={{ width: `${(counts.players_rejected / totalPlayers) * 100}%` }} />
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-[11px] tabular-nums">
+            <span className="text-win font-bold">✅ {counts.players_approved} {tt('معتمد', 'approved')}</span>
+            <span className="text-gold font-bold">⏳ {counts.players_pending} {tt('قيد المراجعة', 'pending')}</span>
+            <span className="text-loss font-bold">✕ {counts.players_rejected} {tt('مرفوض', 'rejected')}</span>
+          </div>
+        </Card>
+      )}
+
+      {/* Per-age breakdown */}
+      {d.ages.length > 1 && (
+        <Card className="p-4 space-y-3">
+          <p className="text-text font-bold text-sm">🎯 {tt('حسب الفئة', 'By age category')}</p>
+          {d.ages.map(a => {
+            const agePct = a.matches_total ? Math.round((a.matches_played / a.matches_total) * 100) : null;
+            return (
+              <div key={a.age_category} className="border-t border-bdr/50 pt-3 first:border-t-0 first:pt-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-bold text-text text-sm">{a.age_category}</span>
+                  <div className="flex items-center gap-3 text-[11px] tabular-nums">
+                    {a.players_pending > 0 && <span className="text-gold font-bold">⏳ {a.players_pending}</span>}
+                    <span className="text-hint">⚽ {a.teams} {tt('فريق', 'teams')}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-[11px] text-hint tabular-nums">
+                  <span>✅ {a.players_approved} {tt('لاعب', 'players')}</span>
+                  <span>📋 {a.matches_played}/{a.matches_total} {tt('مباراة', 'matches')}</span>
+                  {agePct !== null && (
+                    <div className="flex-1 h-1.5 bg-darkBg rounded-full overflow-hidden">
+                      <div className="h-full bg-aqua/60 rounded-full" style={{ width: `${agePct}%` }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {/* Teams with pending players */}
+      {d.pending_teams.length > 0 && (
+        <Card className="p-4 space-y-2">
+          <p className="text-text font-bold text-sm">⏳ {tt('أكاديميات لديها لاعبون قيد المراجعة', 'Academies with pending players')}</p>
+          {d.pending_teams.map(t => (
+            <div key={t.team_id} className="flex items-center justify-between bg-darkBg/60 border border-bdr rounded-lg px-3 py-2">
+              <div className="min-w-0">
+                <span className="text-text text-xs font-bold truncate block">{t.team_name}</span>
+                <span className="text-hint text-[11px]">{t.academy_name}</span>
+              </div>
+              <span className="text-gold font-extrabold text-sm tabular-nums ms-3">{t.pending}</span>
+            </div>
+          ))}
+          <button onClick={() => onNavigate('approvals')}
+            className="text-xs font-bold text-aqua hover:underline w-full text-center pt-1">
+            {tt('فتح الاعتمادات ←', 'Open Approvals →')}
+          </button>
+        </Card>
+      )}
     </div>
   );
 }
@@ -78,23 +245,46 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const tt = useTT();
   const [cats, setCats] = useState<TCategory[]>([]);
   const [ageId, setAgeId] = useState('');
+  const [newDocs, setNewDocs] = useState('');
   useEffect(() => { tCategories().then(setCats); }, []);
   const used = new Set((comp.ages ?? []).map(a => a.age_category_id));
+
+  // Pre-fill documents when the organizer picks an age category.
+  const handleAgeSelect = (id: string) => {
+    setAgeId(id);
+    const cat = cats.find(c => String(c.id) === id);
+    setNewDocs(cat ? (cat.required_documents ?? []).join('\n') : '');
+  };
+
+  const addAge = async () => {
+    if (!ageId) return;
+    const docs = newDocs.split('\n').map(x => x.trim()).filter(Boolean);
+    await tAddCompAge(token, comp.id, {
+      age_category_id: Number(ageId),
+      ...(docs.length ? { required_documents: docs } : {}),
+    });
+    setAgeId(''); setNewDocs(''); reload();
+  };
+
   return (
     <div className="space-y-3">
-      {/* A competition rule like any other: which papers every player must file. */}
-      <Card className="p-3">
-        <CompDocsEditor token={token} comp={comp} reload={reload} />
-      </Card>
       {(comp.ages ?? []).map(a => <AgeRuleCard key={a.id} token={token} age={a} reload={reload} />)}
-      <Card className="p-3 flex items-end gap-2">
-        <Field label={tt('إضافة فئة', 'Add age')}>
-          <select value={ageId} onChange={e => setAgeId(e.target.value)} className={inputCls}>
+      <Card className="p-3 space-y-2">
+        <Field label={tt('إضافة فئة عمرية', 'Add age category')}>
+          <select value={ageId} onChange={e => handleAgeSelect(e.target.value)} className={inputCls}>
             <option value="">—</option>
-            {cats.filter(c => !used.has(c.id)).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            {cats.filter(c => !used.has(c.id)).map(c => (
+              <option key={c.id} value={c.id}>{c.label_ar || c.label}{c.label_en && c.label_ar ? ` · ${c.label_en}` : ''}</option>
+            ))}
           </select>
         </Field>
-        <PrimaryButton onClick={async () => { if (ageId) { await tAddCompAge(token, comp.id, { age_category_id: Number(ageId) }); setAgeId(''); reload(); } }} disabled={!ageId}>{tt('إضافة', 'Add')}</PrimaryButton>
+        {ageId && (
+          <Field label={tt('أوراق اللاعبين لهذه الفئة (سطر لكل ورقة)', 'Player papers for this age (one per line)')}>
+            <textarea value={newDocs} onChange={e => setNewDocs(e.target.value)} rows={4} className={inputCls}
+              placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
+          </Field>
+        )}
+        <PrimaryButton onClick={addAge} disabled={!ageId}>{tt('إضافة', 'Add')}</PrimaryButton>
       </Card>
     </div>
   );
@@ -104,14 +294,21 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
   const tt = useTT();
   const [f, setF] = useState<Record<string, number>>(() =>
     Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
+  const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [ok, setOk] = useState(false);
-  const save = async () => { await tUpdateCompAge(token, age.id, f); setOk(true); setTimeout(() => setOk(false), 1500); reload(); };
+  const save = async () => {
+    const docList = docs.split('\n').map(x => x.trim()).filter(Boolean);
+    await tUpdateCompAge(token, age.id, { ...f, required_documents: docList });
+    setOk(true); setTimeout(() => setOk(false), 1500); reload();
+  };
   return (
-    <Card className="p-3">
-      <div className="flex items-center justify-between mb-2">
+    <Card className="p-3 space-y-3">
+      <div className="flex items-center justify-between">
         <span className="font-black text-text">{age.age_category}</span>
         <button onClick={async () => { if (confirm(tt('حذف الفئة من البطولة؟', 'Remove age?'))) { await tDeleteCompAge(token, age.id); reload(); } }} className="text-hint hover:text-loss text-sm">🗑</button>
       </div>
+
+      {/* Match rules */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {RULE_FIELDS.map(([k, ar, en]) => (
           <label key={k} className="block">
@@ -121,8 +318,18 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
           </label>
         ))}
       </div>
-      <div className="flex items-center gap-2 mt-2">
-        <PrimaryButton onClick={save} className="text-sm">{tt('حفظ القواعد', 'Save rules')}</PrimaryButton>
+
+      {/* Per-age player papers */}
+      <div>
+        <span className="block text-teal text-[10px] font-bold mb-1">
+          {tt('أوراق اللاعبين لهذه الفئة (سطر لكل ورقة)', 'Player papers for this age (one per line)')}
+        </span>
+        <textarea value={docs} onChange={e => setDocs(e.target.value)} rows={3} className={inputCls}
+          placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <PrimaryButton onClick={save} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
         {ok && <span className="text-win text-sm">✓</span>}
       </div>
     </Card>
@@ -140,38 +347,82 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const reload = useCallback(() => { tCompTeams(comp.id).then(setEntries).catch(() => setEntries([])); }, [comp.id]);
   useEffect(() => { reload(); tAcademies().then(setAcademies); }, [reload]);
   useEffect(() => { if (acadId) tAcademyTeams(Number(acadId)).then(setTeams); else setTeams([]); setTeamId(''); }, [acadId]);
-  const ageIds = new Set((comp.ages ?? []).map(a => a.age_category_id));
+
+  const ages = comp.ages ?? [];
+  const ageIds = new Set(ages.map(a => a.age_category_id));
+  // Quick lookup: age_category_id → label
+  const ageLabel = Object.fromEntries(ages.map(a => [a.age_category_id, a.age_category]));
+
   const register = async () => {
     setErr(null);
     try { await tRegisterTeam(token, comp.id, Number(teamId)); setTeamId(''); reload(); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
   };
+
+  // Which age the currently selected team belongs to
+  const selectedTeam = teams.find(t => String(t.id) === teamId);
+  const selectedAge = selectedTeam ? ageLabel[selectedTeam.age_category_id] : null;
+
+  // Teams eligible for this competition (age must be configured in Rules)
+  const eligibleTeams = teams.filter(t => ageIds.has(t.age_category_id));
+
   return (
     <div className="space-y-3">
       {entries.length === 0 && <EmptyState icon="⚽" text={tt('لا فرق مسجلة', 'No teams registered')} />}
       {entries.map(e => (
         <Card key={e.id} className="p-3 flex items-center justify-between">
-          <div><div className="font-bold text-text text-sm">{e.team_name}</div><div className="text-[11px] text-hint">{e.academy_name}</div></div>
+          <Link href={`/team?id=${e.team_id}`} className="min-w-0">
+            <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{e.team_name}</div>
+            <div className="text-[11px] text-hint">
+              {e.academy_name}
+              {ageLabel[e.age_category_id] && (
+                <span className="ms-1 text-teal font-bold">· {ageLabel[e.age_category_id]}</span>
+              )}
+            </div>
+          </Link>
           <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
         </Card>
       ))}
+
       <Card className="p-3 space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={tt('الأكاديمية', 'Academy')}>
-            <select value={acadId} onChange={e => setAcadId(e.target.value)} className={inputCls}>
-              <option value="">—</option>
-              {academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </Field>
-          <Field label={tt('الفريق', 'Team')}>
-            <select value={teamId} onChange={e => setTeamId(e.target.value)} className={inputCls}>
-              <option value="">—</option>
-              {teams.filter(t => ageIds.has(t.age_category_id)).map(t => <option key={t.id} value={t.id}>{t.display_name}</option>)}
-            </select>
-          </Field>
-        </div>
-        {err && <p className="text-loss text-xs">{err}</p>}
-        <PrimaryButton onClick={register} disabled={!teamId}>{tt('تسجيل الفريق', 'Register team')}</PrimaryButton>
+        {ages.length === 0 ? (
+          <p className="text-hint text-xs text-center py-1">
+            {tt('أضف فئات عمرية في تبويب «القواعد» أولاً قبل إضافة الفرق.',
+                'Add age categories in the Rules tab first before adding teams.')}
+          </p>
+        ) : (<>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={tt('الأكاديمية', 'Academy')}>
+              <select value={acadId} onChange={e => setAcadId(e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+            <Field label={tt('الفريق', 'Team')}>
+              <select value={teamId} onChange={e => setTeamId(e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {eligibleTeams.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.display_name} · {ageLabel[t.age_category_id] ?? t.age_category}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          {selectedAge && (
+            <p className="text-[11px] text-teal">
+              {tt(`سيُسجَّل الفريق في فئة: ${selectedAge}`, `Team will be placed in age: ${selectedAge}`)}
+            </p>
+          )}
+          {acadId && eligibleTeams.length === 0 && (
+            <p className="text-[11px] text-hint">
+              {tt('لا فرق في هذه الأكاديمية تنتمي لفئات البطولة.',
+                  'No teams in this academy match the competition\'s age categories.')}
+            </p>
+          )}
+          {err && <p className="text-loss text-xs">{err}</p>}
+          <PrimaryButton onClick={register} disabled={!teamId}>{tt('تسجيل الفريق', 'Register team')}</PrimaryButton>
+        </>)}
       </Card>
     </div>
   );
@@ -420,7 +671,7 @@ function StagesTab({ token, comp, reload }: { token: string; comp: TCompetition;
             <span className="font-bold text-text text-sm">{s.name || s.type} <span className="text-[11px] text-hint">· {s.type}</span></span>
             <button onClick={async () => { await tDeleteStage(token, s.id); reload(); }} className="text-hint hover:text-loss">🗑</button>
           </div>
-          <GroupsEditor token={token} stageId={s.id} groups={s.groups ?? []} comp={comp} reload={reload} />
+          <GroupsEditor token={token} stageId={s.id} groups={s.groups ?? []} comp={comp} ageCategoryId={cage.age_category_id} reload={reload} />
         </Card>
       ))}
       {cage && (
@@ -438,21 +689,27 @@ function StagesTab({ token, comp, reload }: { token: string; comp: TCompetition;
   );
 }
 
-function GroupsEditor({ token, stageId, groups, comp, reload }: {
+function GroupsEditor({ token, stageId, groups, comp, ageCategoryId, reload }: {
   token: string; stageId: number; groups: NonNullable<TCompAge['stages']>[number]['groups'];
-  comp: TCompetition; reload: () => void;
+  comp: TCompetition; ageCategoryId: number; reload: () => void;
 }) {
   const tt = useTT();
   const [name, setName] = useState('');
   const [entries, setEntries] = useState<TCompTeam[]>([]);
-  useEffect(() => { tCompTeams(comp.id).then(setEntries); }, [comp.id]);
+  useEffect(() => { tCompTeams(comp.id, ageCategoryId).then(setEntries); }, [comp.id, ageCategoryId]);
   return (
     <div className="mt-2 space-y-2">
       {(groups ?? []).map(g => (
         <div key={g.id} className="border-t border-bdr pt-2">
           <div className="text-sm font-bold text-text">{g.name}</div>
           <div className="flex flex-wrap gap-1 mt-1">
-            {g.team_ids.map(id => <span key={id} className="text-[11px] bg-cardBg2 border border-bdr rounded px-1.5 py-0.5">{entries.find(e => e.team_id === id)?.team_name ?? id}</span>)}
+            {g.team_ids.map(id => (
+              <span key={id} className="inline-flex items-center gap-1 text-[11px] bg-cardBg2 border border-bdr rounded px-1.5 py-0.5">
+                {entries.find(e => e.team_id === id)?.team_name ?? id}
+                <button onClick={async () => { await tRemoveGroupTeam(token, g.id, id); reload(); }}
+                  className="text-hint hover:text-loss leading-none">✕</button>
+              </span>
+            ))}
           </div>
           <select onChange={async e => { if (e.target.value) { await tAddGroupTeam(token, g.id, Number(e.target.value)); reload(); } }} className={`${inputCls} mt-1 text-xs`} value="">
             <option value="">+ {tt('أضف فريقًا', 'Add team')}</option>

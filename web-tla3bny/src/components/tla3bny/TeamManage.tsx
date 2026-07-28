@@ -1,9 +1,9 @@
-'use client';
+﻿'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  tTeam, tTeamRequiredDocs, tPlayer, tCreatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
-  type TTeam, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
+  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tPlayer, tCreatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
+  type TTeam, type TTeamCompEntry, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
@@ -15,6 +15,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   const [team, setTeam] = useState<TTeam | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [compEntries, setCompEntries] = useState<TTeamCompEntry[]>([]);
 
   // The papers this team must supply: whatever the competitions it plays in
   // ask for, falling back to its age category's list.
@@ -44,7 +45,21 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   useEffect(() => {
     reload();
     tTeamRequiredDocs(teamId).then(setDocs).catch(() => setDocs({ documents: [], sources: [] }));
-  }, [reload, teamId]);
+    tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => setCompEntries([]));
+  }, [reload, teamId, token]);
+
+  // Derive registration availability from competition entries.
+  const openEntries = compEntries.filter(e => e.registration_open);
+  const canAddPlayers = openEntries.some(e => e.max_players === null || e.player_count < e.max_players);
+  // Show the strictest quota: the open competition with the fewest remaining slots.
+  const quota = openEntries.reduce<{ used: number; max: number | null } | null>((acc, e) => {
+    if (e.max_players === null) return acc ?? { used: e.player_count, max: null };
+    if (!acc || acc.max === null) return { used: e.player_count, max: e.max_players };
+    // Pick the entry with the smallest remaining room (most restrictive).
+    return (e.max_players - e.player_count) < (acc.max - acc.used)
+      ? { used: e.player_count, max: e.max_players }
+      : acc;
+  }, null);
 
   // player form
   const [pf, setPf] = useState({ name: '', position: '', jersey_number: '', dob: '' });
@@ -82,7 +97,34 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
 
       {/* players */}
       <section>
-        <h3 className="font-black text-text mb-2">{tt('اللاعبون', 'Players')}</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-black text-text">{tt('اللاعبون', 'Players')}</h3>
+          {quota && (
+            <span className={`text-xs font-bold tabular-nums ${quota.max !== null && quota.used >= quota.max ? 'text-loss' : 'text-teal'}`}>
+              {quota.used}{quota.max !== null ? ` / ${quota.max}` : ''} {tt('لاعب', 'players')}
+            </span>
+          )}
+        </div>
+
+        {/* Competition context banner */}
+        {compEntries.length === 0 ? (
+          <Card className="p-4 text-center mb-3">
+            <p className="text-sm font-bold text-hint">
+              {tt('فريقك لم يُضَف لأي بطولة بعد', 'Your team has not been added to any competition yet')}
+            </p>
+            <p className="text-[11px] text-hint mt-1">
+              {tt('تواصل مع المنظّم ليضيف فريقك، ثم يمكنك تسجيل اللاعبين.',
+                  'Contact the organiser to add your team, then you can register players.')}
+            </p>
+          </Card>
+        ) : !canAddPlayers ? (
+          <Card className="p-3 mb-3">
+            <p className="text-sm font-bold text-loss text-center">
+              {tt('اكتمل الحد الأقصى للاعبين أو أُغلق التسجيل', 'Player cap reached or registration closed')}
+            </p>
+          </Card>
+        ) : null}
+
         <div className="space-y-2 mb-3">
           {(team.players ?? []).length === 0 ? (
             <EmptyState icon="⚽" text={tt('لا لاعبون بعد', 'No players yet')} />
@@ -95,7 +137,6 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                   <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
                 <PapersProgress required={requiredDocs} files={papers[p.player_id] ?? []} />
-                {/* Papers live on the player's own profile, next to their photo. */}
                 <Link href={`/player?id=${p.player_id}`} className="text-xs font-bold text-aqua hover:underline px-1 shrink-0">
                   {tt('الملف والأوراق', 'Profile & papers')}
                 </Link>
@@ -105,37 +146,40 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
             </Card>
           ))}
         </div>
-        <Card className="p-3 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
-            <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
-            <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
-            <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
-          </div>
-          <Field label={tt('الصورة', 'Photo')}>
-            <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
-          </Field>
-          <div>
-            <span className="block text-teal text-xs font-bold mb-1">{tt('أوراق التسجيل', 'Registration papers')}</span>
-            <p className="text-[10px] text-hint mb-1.5">
-              {requiredDocs.length === 0
-                ? tt('لا أوراق مطلوبة حاليًا', 'No papers required right now')
-                : tt('تظهر للمنظّم فقط. ارفعها الآن، أو لاحقًا من صفحة اللاعب عبر «الملف والأوراق».',
-                     'Visible to the organiser only. Upload now, or later from the player’s page via “Profile & papers”.')}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {requiredDocs.map(doc => (
-                <label key={doc} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
-                  <span className="text-xs text-text flex-1 min-w-0 truncate">{doc}{docFiles[doc] && <span className="text-win"> ✓</span>}</span>
-                  <input type="file" accept="image/*,.pdf"
-                    onChange={e => setDocFiles(prev => { const n = { ...prev }; const f = e.target.files?.[0]; if (f) n[doc] = f; else delete n[doc]; return n; })}
-                    className="text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal w-32" />
-                </label>
-              ))}
+
+        {canAddPlayers && (
+          <Card className="p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
+              <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
+              <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
+              <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
             </div>
-          </div>
-          <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
-        </Card>
+            <Field label={tt('الصورة', 'Photo')}>
+              <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+            </Field>
+            <div>
+              <span className="block text-teal text-xs font-bold mb-1">{tt('أوراق التسجيل', 'Registration papers')}</span>
+              <p className="text-[10px] text-hint mb-1.5">
+                {requiredDocs.length === 0
+                  ? tt('لا أوراق مطلوبة حاليًا', 'No papers required right now')
+                  : tt('تظهر للمنظّم فقط. ارفعها الآن، أو لاحقًا من صفحة اللاعب عبر «الملف والأوراق».',
+                       'Visible to the organiser only. Upload now, or later from the player\'s page via "Profile & papers".')}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {requiredDocs.map(doc => (
+                  <label key={doc} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                    <span className="text-xs text-text flex-1 min-w-0 truncate">{doc}{docFiles[doc] && <span className="text-win"> ✓</span>}</span>
+                    <input type="file" accept="image/*,.pdf"
+                      onChange={e => setDocFiles(prev => { const n = { ...prev }; const f = e.target.files?.[0]; if (f) n[doc] = f; else delete n[doc]; return n; })}
+                      className="text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal w-32" />
+                  </label>
+                ))}
+              </div>
+            </div>
+            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
+          </Card>
+        )}
       </section>
 
       {/* coaches */}

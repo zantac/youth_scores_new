@@ -8,6 +8,7 @@ export default function AdminLoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -46,8 +47,14 @@ export default function AdminLoginPage() {
           </div>
           <div>
             <label className="block text-teal text-xs font-bold mb-1.5">كلمة المرور</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full bg-darkBg border border-bdr rounded-xl px-4 py-2.5 text-text text-sm outline-none focus:border-aqua transition-colors" />
+            <div className="relative">
+              <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                className="w-full bg-darkBg border border-bdr rounded-xl px-4 py-2.5 pe-16 text-text text-sm outline-none focus:border-aqua transition-colors" />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-teal hover:text-aqua">
+                {showPw ? 'إخفاء' : 'إظهار'}
+              </button>
+            </div>
           </div>
 
           {error && (

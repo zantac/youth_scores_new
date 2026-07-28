@@ -13,6 +13,7 @@ export default function Tla3bnyLoginPage() {
   // managers sign in with a username, older accounts with their email.
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -48,8 +49,14 @@ export default function Tla3bnyLoginPage() {
               onChange={e => setLoginId(e.target.value)} className={inputCls} />
           </Field>
           <Field label={tt('كلمة المرور', 'Password')}>
-            <input type="password" value={password} autoComplete="current-password"
-              onChange={e => setPassword(e.target.value)} className={inputCls} />
+            <div className="relative">
+              <input type={showPw ? 'text' : 'password'} value={password} autoComplete="current-password"
+                onChange={e => setPassword(e.target.value)} className={`${inputCls} pe-16`} />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-teal hover:text-aqua">
+                {showPw ? tt('إخفاء', 'Hide') : tt('إظهار', 'Show')}
+              </button>
+            </div>
           </Field>
           <ErrorNote>{error}</ErrorNote>
           <PrimaryButton type="submit" disabled={busy || !loginId || !password} className="w-full">

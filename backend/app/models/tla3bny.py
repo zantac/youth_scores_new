@@ -240,6 +240,10 @@ class Tla3bnyAgeCategory(TimestampMixin, db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     label: Mapped[str] = mapped_column(sa.String(50), nullable=False, unique=True)
+    label_ar: Mapped[str | None] = mapped_column(sa.String(100))
+    label_en: Mapped[str | None] = mapped_column(sa.String(100))
+    # Players born in this year or later are eligible for this age bracket.
+    oldest_birth_year: Mapped[int | None] = mapped_column(sa.SmallInteger)
     # The baseline registration papers a player in this age must upload (e.g.
     # birth certificate, school letter, national id, health certificate). Null
     # falls back to codes.TLA3BNY_DEFAULT_PLAYER_DOCS. Each competition the
@@ -255,6 +259,9 @@ class Tla3bnyAgeCategory(TimestampMixin, db.Model):
         return {
             "id": self.id,
             "label": self.label,
+            "label_ar": self.label_ar,
+            "label_en": self.label_en,
+            "oldest_birth_year": self.oldest_birth_year,
             "required_documents": self.documents,
             "required_files": len(self.documents),
             "sort_order": self.sort_order,
@@ -511,6 +518,8 @@ class Tla3bnySeason(TimestampMixin, db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(120), nullable=False, unique=True)
+    name_ar: Mapped[str | None] = mapped_column(sa.String(120))
+    name_en: Mapped[str | None] = mapped_column(sa.String(120))
     start_date: Mapped[date | None] = mapped_column(sa.Date)
     end_date: Mapped[date | None] = mapped_column(sa.Date)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
@@ -524,6 +533,8 @@ class Tla3bnySeason(TimestampMixin, db.Model):
         return {
             "id": self.id,
             "name": self.name,
+            "name_ar": self.name_ar,
+            "name_en": self.name_en,
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "is_active": self.is_active,
@@ -711,6 +722,9 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     lineup_deadline_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=60
     )
+    # Registration papers required for players in this age within this competition.
+    # Null falls back to the competition's global list, then the age category default.
+    required_documents: Mapped[list | None] = mapped_column(sa.JSON)
 
     competition: Mapped["Tla3bnyCompetition"] = relationship(back_populates="ages")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -726,6 +740,20 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
         ),
     )
 
+    @property
+    def documents(self) -> list[str]:
+        """The papers players in this age must upload for this competition.
+
+        Falls back: per-age → competition global → age-category default → system default.
+        """
+        if self.required_documents:
+            return self.required_documents
+        if self.competition and self.competition.required_documents:
+            return self.competition.required_documents
+        if self.age_category:
+            return self.age_category.documents
+        return list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
+
     def to_dict(self, with_stages: bool = False) -> dict:
         data = {
             "id": self.id,
@@ -734,6 +762,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "age_category": (
                 self.age_category.label if self.age_category else None
             ),
+            "required_documents": self.documents,
             "max_players_per_team": self.max_players_per_team,
             "lineup_size": self.lineup_size,
             "players_on_pitch": self.players_on_pitch,
@@ -972,11 +1001,15 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
         }
         if with_files:
             files = list(p.files) if p else []
-            required = (
-                self.entry.competition.documents
-                if self.entry and self.entry.competition
-                else []
-            )
+            # Per-age documents take precedence over the competition's global list.
+            required = []
+            if self.entry and self.entry.competition:
+                cage = next(
+                    (a for a in self.entry.competition.ages
+                     if a.age_category_id == self.entry.age_category_id),
+                    None,
+                )
+                required = cage.documents if cage else self.entry.competition.documents
             supplied = {f.label for f in files if f.label}
             data["files"] = [f.to_dict() for f in files]
             data["required_documents"] = required
