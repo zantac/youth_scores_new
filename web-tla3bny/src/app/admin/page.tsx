@@ -3,11 +3,11 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  tSeasons, tCreateSeason, tDeleteSeason,
+  tStats, tSeasons, tCreateSeason, tUpdateSeason, tDeleteSeason,
   tCategories, tCreateCategory, tUpdateCategory, tDeleteCategory,
   tManageAcademies, tRestoreAcademy, tSuspendAcademy, tSetAcademyAccount,
   tCompetitions, tCreateCompetition, tDeleteCompetition, tAddCompAdmin, tRemoveCompAdmin,
-  type TSeason, type TCategory, type TAcademy, type TCompetition,
+  type TStats, type TSeason, type TCategory, type TAcademy, type TCompetition,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
@@ -15,13 +15,13 @@ import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
-type Tab = 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
+type Tab = 'dashboard' | 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
 
 export default function AdminPage() {
   const tt = useTT();
   const router = useRouter();
   const { user, token, loading, isSuperAdmin, isCompetitionAdmin, competitions } = useTla3bnyAuth();
-  const [tab, setTab] = useState<Tab>('competitions');
+  const [tab, setTab] = useState<Tab>('dashboard');
 
   useEffect(() => {
     if (loading) return;
@@ -51,7 +51,15 @@ export default function AdminPage() {
     );
   }
 
-  const tabs: Tab[] = ['competitions', 'news', 'academies', 'seasons', 'ages'];
+  const tabs: Tab[] = ['dashboard', 'competitions', 'news', 'academies', 'seasons', 'ages'];
+  const tabLabel: Record<Tab, [string, string]> = {
+    dashboard: ['الرئيسية', 'Dashboard'],
+    seasons: ['المواسم', 'Seasons'],
+    ages: ['الفئات', 'Ages'],
+    academies: ['الأكاديميات', 'Academies'],
+    competitions: ['البطولات', 'Competitions'],
+    news: ['📰 الأخبار', '📰 News'],
+  };
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-black text-text">{tt('الإدارة', 'Admin')}</h1>
@@ -59,40 +67,285 @@ export default function AdminPage() {
         {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap ${tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
-            {tt({ seasons: 'المواسم', ages: 'الفئات', academies: 'الأكاديميات', competitions: 'البطولات', news: '📰 الأخبار' }[t],
-              { seasons: 'Seasons', ages: 'Ages', academies: 'Academies', competitions: 'Competitions', news: '📰 News' }[t])}
+            {tt(tabLabel[t][0], tabLabel[t][1])}
           </button>
         ))}
       </div>
+      {tab === 'dashboard' && <Dashboard token={token} user={user} />}
       {tab === 'seasons' && <Seasons token={token} />}
       {tab === 'ages' && <Ages token={token} />}
       {tab === 'academies' && <Academies token={token} />}
       {tab === 'competitions' && <Competitions token={token} />}
-      {/* compId null = site-wide news, which only the super admin can post. */}
       {tab === 'news' && <NewsAdmin token={token} compId={null} />}
     </div>
   );
 }
 
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function StatCard({ icon, label, value, tone = 'text-text' }: {
+  icon: string; label: string; value: number | string; tone?: string;
+}) {
+  return (
+    <Card className="p-3">
+      <p className="text-hint text-[11px]">{icon} {label}</p>
+      <p className={`${tone} font-extrabold text-xl tabular-nums mt-0.5`}>{value}</p>
+    </Card>
+  );
+}
+
+function Dashboard({ token, user }: { token: string; user: import('@/lib/tla3bnyApi').TUser }) {
+  const tt = useTT();
+  const [s, setS] = useState<TStats | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    tStats(token).then(setS).catch(e => setErr(e instanceof Error ? e.message : tt('خطأ', 'Error')));
+  }, [token]);
+
+  const pct = s && s.matches.total ? Math.round((s.matches.played / s.matches.total) * 100) : 0;
+  const pending = (s?.competitions ?? []).filter(c => c.total_matches > c.played_matches)
+    .sort((a, b) => (b.total_matches - b.played_matches) - (a.total_matches - a.played_matches));
+
+  return (
+    <div className="space-y-4">
+      {/* Welcome */}
+      <div className="bg-gradient-to-l from-aqua/[0.08] to-transparent border border-bdr rounded-2xl p-4">
+        <p className="text-text text-sm">
+          {tt('أهلاً،', 'Welcome,')} <span className="text-aqua font-bold">{user.name || user.username}</span> 👋
+        </p>
+        {s?.active_season && (
+          <p className="text-hint text-xs mt-1">{tt('الموسم الحالي:', 'Active season:')} {s.active_season}</p>
+        )}
+      </div>
+
+      {err && <p className="text-loss text-xs bg-loss/10 border border-loss/30 rounded-lg px-3 py-2">{err}</p>}
+      {!s && !err && <p className="text-hint text-sm text-center py-6">…</p>}
+
+      {s && (<>
+        {/* Pending approvals banner */}
+        {s.pending_approvals > 0 && (
+          <div className="flex items-center gap-3 bg-gold/10 border border-gold/40 rounded-2xl px-4 py-3">
+            <span className="text-2xl">⏳</span>
+            <div>
+              <p className="text-gold font-bold text-sm">
+                {s.pending_approvals} {tt('لاعب بانتظار الاعتماد', 'players awaiting approval')}
+              </p>
+              <p className="text-hint text-[11px]">
+                {tt('افتح تبويب الاعتمادات في البطولة المناسبة.', 'Open the Approvals tab in the relevant competition.')}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Count grid */}
+        <div className="grid grid-cols-3 gap-2">
+          <StatCard icon="🗓️" label={tt('المواسم', 'Seasons')} value={s.counts.seasons} />
+          <StatCard icon="🏆" label={tt('البطولات', 'Competitions')} value={s.counts.competitions} />
+          <StatCard icon="🎯" label={tt('الفئات', 'Age categories')} value={s.counts.age_categories} />
+          <StatCard icon="🏫" label={tt('الأكاديميات', 'Academies')} value={s.counts.academies} />
+          <StatCard icon="⚽" label={tt('الفرق', 'Teams')} value={s.counts.teams} />
+          <StatCard icon="👤" label={tt('اللاعبون', 'Players')} value={s.counts.players} />
+          <StatCard icon="🥅" label={tt('الأهداف', 'Goals')} value={s.counts.goals} tone="text-gold" />
+          <StatCard icon="🧑‍🏫" label={tt('المدربون', 'Coaches')} value={s.counts.coaches} />
+          <StatCard icon="📰" label={tt('الأخبار', 'News')} value={s.counts.news} />
+        </div>
+
+        {/* Match completion */}
+        {s.matches.total > 0 && (
+          <Card className="p-4 space-y-2">
+            <div className="flex items-baseline justify-between">
+              <p className="text-text font-bold text-sm">📋 {tt('إدخال النتائج', 'Result entry')}</p>
+              <p className="text-aqua font-extrabold tabular-nums">{pct}%</p>
+            </div>
+            <div className="h-2 bg-darkBg rounded-full overflow-hidden">
+              <div className="h-full bg-aqua rounded-full transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-hint text-[11px] tabular-nums">
+              {s.matches.played} {tt('مكتملة', 'done')} · {s.matches.remaining} {tt('متبقية', 'remaining')} · {s.matches.total} {tt('إجمالاً', 'total')}
+            </p>
+          </Card>
+        )}
+
+        {/* Averages */}
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard icon="📈" label={tt('هدف / مباراة', 'Goals / match')} value={s.averages.goals_per_match} tone="text-gold" />
+          <StatCard icon="👥" label={tt('لاعب / فريق', 'Players / team')} value={s.averages.players_per_team} />
+        </div>
+
+        {/* Per-competition table */}
+        <Card className="p-4 space-y-3">
+          <p className="text-text font-bold text-sm">🏆 {tt('البطولات', 'Competitions')}</p>
+          {s.competitions.length === 0
+            ? <p className="text-hint text-xs">{tt('لا بطولات بعد', 'No competitions yet')}</p>
+            : s.competitions.map(c => {
+              const compPct = c.total_matches ? Math.round((c.played_matches / c.total_matches) * 100) : null;
+              return (
+                <div key={c.id} className="border-t border-bdr/50 pt-3 first:border-t-0 first:pt-0">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="min-w-0">
+                      <span className="font-bold text-text text-sm truncate block">{c.name}</span>
+                      <span className="text-[11px] text-hint">{c.season_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 text-[11px]">
+                      {c.pending_players > 0 && (
+                        <span className="text-gold font-bold">⏳ {c.pending_players}</span>
+                      )}
+                      <span className={`font-bold px-2 py-0.5 rounded-full ${
+                        c.status === 'active' ? 'bg-win/15 text-win' :
+                        c.status === 'finished' ? 'bg-hint/15 text-hint' : 'bg-aqua/10 text-teal'
+                      }`}>
+                        {tt(
+                          { active: 'نشطة', finished: 'منتهية', draft: 'مسودة' }[c.status],
+                          { active: 'Active', finished: 'Finished', draft: 'Draft' }[c.status],
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-[11px] text-hint tabular-nums">
+                    <span>⚽ {c.teams} {tt('فريق', 'teams')}</span>
+                    <span>📋 {c.played_matches}/{c.total_matches} {tt('مباراة', 'matches')}</span>
+                    {compPct !== null && (
+                      <div className="flex-1 h-1.5 bg-darkBg rounded-full overflow-hidden">
+                        <div className="h-full bg-aqua/60 rounded-full" style={{ width: `${compPct}%` }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          }
+        </Card>
+      </>)}
+    </div>
+  );
+}
+
+const BLANK_SEASON = { name_ar: '', name_en: '', start_date: '', end_date: '', is_active: true };
+
 function Seasons({ token }: { token: string }) {
   const tt = useTT();
   const [items, setItems] = useState<TSeason[]>([]);
-  const [name, setName] = useState('');
+  const [f, setF] = useState(BLANK_SEASON);
+  const [editing, setEditing] = useState<TSeason | null>(null);
+  const [busy, setBusy] = useState(false);
   const reload = useCallback(() => { tSeasons().then(setItems).catch(() => setItems([])); }, []);
   useEffect(reload, [reload]);
+
+  const create = async () => {
+    if (!f.name_ar.trim() && !f.name_en.trim()) return;
+    setBusy(true);
+    try { await tCreateSeason(token, f); setF(BLANK_SEASON); reload(); }
+    finally { setBusy(false); }
+  };
+
+  const toggleActive = async (s: TSeason) => {
+    await tUpdateSeason(token, s.id, { is_active: !s.is_active }); reload();
+  };
+
   return (
-    <div className="space-y-2">
-      {items.map(s => (
-        <Card key={s.id} className="p-3 flex items-center justify-between">
-          <span className="font-bold text-text">{s.name}</span>
-          <button onClick={async () => { if (confirm(tt('حذف؟', 'Delete?'))) { await tDeleteSeason(token, s.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
-        </Card>
-      ))}
-      <Card className="p-3 flex items-end gap-2">
-        <Field label={tt('اسم الموسم', 'Season name')}><input value={name} onChange={e => setName(e.target.value)} className={inputCls} placeholder="2025/26" /></Field>
-        <PrimaryButton onClick={async () => { if (name) { await tCreateSeason(token, { name }); setName(''); reload(); } }} disabled={!name}>{tt('إضافة', 'Add')}</PrimaryButton>
+    <div className="space-y-4">
+      <Card className="p-3 space-y-3">
+        <p className="text-teal text-xs font-bold">➕ {tt('موسم جديد', 'New season')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={tt('الاسم (عربي)', 'Name (Arabic)')}>
+            <input value={f.name_ar} onChange={e => setF({ ...f, name_ar: e.target.value })} placeholder="2025-2026" className={inputCls} />
+          </Field>
+          <Field label={tt('الاسم (إنجليزي)', 'Name (English)')}>
+            <input value={f.name_en} dir="ltr" onChange={e => setF({ ...f, name_en: e.target.value })} placeholder="2025-2026" className={inputCls} />
+          </Field>
+          <Field label={tt('تاريخ البداية', 'Start date')}>
+            <input type="date" value={f.start_date} onChange={e => setF({ ...f, start_date: e.target.value })} className={inputCls} />
+          </Field>
+          <Field label={tt('تاريخ النهاية', 'End date')}>
+            <input type="date" value={f.end_date} onChange={e => setF({ ...f, end_date: e.target.value })} className={inputCls} />
+          </Field>
+        </div>
+        <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
+          <input type="checkbox" checked={f.is_active} onChange={e => setF({ ...f, is_active: e.target.checked })} />
+          {tt('الموسم الحالي (النشط)', 'Current (active) season')}
+        </label>
+        <PrimaryButton onClick={create} disabled={busy || (!f.name_ar.trim() && !f.name_en.trim())}>
+          {tt('إضافة الموسم', 'Add season')}
+        </PrimaryButton>
       </Card>
+
+      <div className="space-y-2">
+        {items.map(s => editing?.id === s.id ? (
+          <SeasonEditRow key={s.id} token={token} season={s}
+            onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+        ) : (
+          <Card key={s.id} className="p-3 flex flex-wrap items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-text text-sm">{s.name_ar || s.name}</p>
+              {s.name_en && <p className="text-hint text-[11px]" dir="ltr">{s.name_en}</p>}
+              {(s.start_date || s.end_date) && (
+                <p className="text-hint text-[11px] tabular-nums">{s.start_date} ← {s.end_date}</p>
+              )}
+            </div>
+            <button onClick={() => setEditing(s)}
+              className="text-[11px] font-bold rounded-lg px-3 py-1.5 border text-aqua border-aqua/40 hover:bg-aqua/10">
+              {tt('تعديل', 'Edit')}
+            </button>
+            <button onClick={() => toggleActive(s)}
+              className={`text-[11px] font-bold rounded-lg px-3 py-1.5 border transition-colors ${s.is_active ? 'text-win border-win/40 bg-win/10' : 'text-hint border-bdr hover:border-teal'}`}>
+              {s.is_active ? tt('● نشط', '● Active') : tt('تفعيل', 'Activate')}
+            </button>
+            <button onClick={async () => { if (confirm(tt('حذف الموسم؟', 'Delete season?'))) { await tDeleteSeason(token, s.id); reload(); } }}
+              className="text-hint hover:text-loss">🗑</button>
+          </Card>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function SeasonEditRow({ token, season, onDone, onCancel }: {
+  token: string; season: TSeason; onDone: () => void; onCancel: () => void;
+}) {
+  const tt = useTT();
+  const [f, setF] = useState({
+    name_ar: season.name_ar ?? '',
+    name_en: season.name_en ?? '',
+    start_date: season.start_date ?? '',
+    end_date: season.end_date ?? '',
+    is_active: season.is_active,
+  });
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try { await tUpdateSeason(token, season.id, f); onDone(); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Card className="p-3 space-y-3 border-aqua/40">
+      <p className="text-teal text-xs font-bold">✏️ {tt('تعديل الموسم', 'Edit season')}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={tt('الاسم (عربي)', 'Name (Arabic)')}>
+          <input value={f.name_ar} onChange={e => setF({ ...f, name_ar: e.target.value })} placeholder="2025-2026" className={inputCls} />
+        </Field>
+        <Field label={tt('الاسم (إنجليزي)', 'Name (English)')}>
+          <input value={f.name_en} dir="ltr" onChange={e => setF({ ...f, name_en: e.target.value })} placeholder="2025-2026" className={inputCls} />
+        </Field>
+        <Field label={tt('تاريخ البداية', 'Start date')}>
+          <input type="date" value={f.start_date} onChange={e => setF({ ...f, start_date: e.target.value })} className={inputCls} />
+        </Field>
+        <Field label={tt('تاريخ النهاية', 'End date')}>
+          <input type="date" value={f.end_date} onChange={e => setF({ ...f, end_date: e.target.value })} className={inputCls} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
+        <input type="checkbox" checked={f.is_active} onChange={e => setF({ ...f, is_active: e.target.checked })} />
+        {tt('الموسم الحالي (النشط)', 'Current (active) season')}
+      </label>
+      <div className="flex items-center gap-2">
+        <PrimaryButton onClick={save} disabled={busy} className="text-sm">
+          {busy ? tt('…', '…') : tt('حفظ', 'Save')}
+        </PrimaryButton>
+        <button onClick={onCancel} className="text-xs text-hint hover:text-text">{tt('إلغاء', 'Cancel')}</button>
+      </div>
+    </Card>
   );
 }
 
@@ -102,47 +355,123 @@ const DEFAULT_DOCS = 'شهادة الميلاد\nخطاب من المدرسة\n�
 
 const toLines = (s: string) => s.split('\n').map(x => x.trim()).filter(Boolean);
 
+const BLANK_AGE = { label_ar: '', label_en: '', oldest_birth_year: '', docs: DEFAULT_DOCS };
+
 function Ages({ token }: { token: string }) {
   const tt = useTT();
   const [items, setItems] = useState<TCategory[]>([]);
-  const [f, setF] = useState({ label: '', docs: DEFAULT_DOCS });
+  const [f, setF] = useState(BLANK_AGE);
+  const [editing, setEditing] = useState<TCategory | null>(null);
   const reload = useCallback(() => { tCategories().then(setItems).catch(() => setItems([])); }, []);
   useEffect(reload, [reload]);
+
+  const create = async () => {
+    const labelEn = f.label_en.trim();
+    const labelAr = f.label_ar.trim();
+    if (!labelEn && !labelAr) return;
+    const label = labelEn || labelAr;
+    await tCreateCategory(token, {
+      label, label_ar: labelAr || undefined, label_en: labelEn || undefined,
+      oldest_birth_year: f.oldest_birth_year ? Number(f.oldest_birth_year) : undefined,
+      required_documents: toLines(f.docs),
+    });
+    setF(BLANK_AGE); reload();
+  };
+
   return (
     <div className="space-y-2">
-      {items.map(c => <AgeRow key={c.id} token={token} cat={c} reload={reload} />)}
+      {items.map(c => editing?.id === c.id
+        ? <AgeEditRow key={c.id} token={token} cat={c} reload={reload} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); reload(); }} />
+        : <AgeRow key={c.id} token={token} cat={c} reload={reload} onEdit={() => setEditing(c)} />
+      )}
       <Card className="p-3 space-y-2">
-        <Field label={tt('الفئة', 'Label')}><input value={f.label} onChange={e => setF({ ...f, label: e.target.value })} className={inputCls} placeholder="U10" /></Field>
-        <Field label={tt('أوراق افتراضية للفئة (سطر لكل ورقة)', 'Default papers for this age (one per line)')}>
+        <p className="text-teal text-xs font-bold">➕ {tt('فئة عمرية جديدة', 'New age category')}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={tt('الاسم (عربي)', 'Name (Arabic)')}>
+            <input value={f.label_ar} onChange={e => setF({ ...f, label_ar: e.target.value })} placeholder="تحت 10" className={inputCls} />
+          </Field>
+          <Field label={tt('الاسم (إنجليزي)', 'Name (English)')}>
+            <input value={f.label_en} dir="ltr" onChange={e => setF({ ...f, label_en: e.target.value })} placeholder="U10" className={inputCls} />
+          </Field>
+        </div>
+        <Field label={tt('أقدم سنة ميلاد (اللاعب مؤهّل إذا وُلد في هذه السنة أو بعدها)', 'Oldest birth year (player must be born this year or later)')}>
+          <input value={f.oldest_birth_year} onChange={e => setF({ ...f, oldest_birth_year: e.target.value })}
+            type="number" placeholder="2015" inputMode="numeric" className={inputCls} />
+        </Field>
+        <Field label={tt('أوراق افتراضية للفئة (سطر لكل ورقة)', 'Default papers (one per line)')}>
           <textarea value={f.docs} onChange={e => setF({ ...f, docs: e.target.value })} rows={3} className={inputCls} />
         </Field>
-        <PrimaryButton onClick={async () => { if (f.label) { await tCreateCategory(token, { label: f.label, required_documents: toLines(f.docs) }); setF({ label: '', docs: DEFAULT_DOCS }); reload(); } }} disabled={!f.label}>{tt('إضافة فئة', 'Add age')}</PrimaryButton>
+        <PrimaryButton onClick={create} disabled={!f.label_ar.trim() && !f.label_en.trim()}>
+          {tt('إضافة فئة', 'Add age')}
+        </PrimaryButton>
       </Card>
     </div>
   );
 }
 
-function AgeRow({ token, cat, reload }: { token: string; cat: TCategory; reload: () => void }) {
+function AgeRow({ token, cat, reload, onEdit }: { token: string; cat: TCategory; reload: () => void; onEdit: () => void }) {
   const tt = useTT();
-  const [docs, setDocs] = useState((cat.required_documents ?? []).join('\n'));
+  return (
+    <Card className="p-3 flex items-center justify-between">
+      <button onClick={onEdit} className="text-start min-w-0 flex-1">
+        <div className="font-black text-text text-sm">
+          {cat.label_ar || cat.label}
+          {cat.label_en && cat.label_ar && <span className="text-hint font-normal" dir="ltr"> · {cat.label_en}</span>}
+        </div>
+        {cat.oldest_birth_year && (
+          <div className="text-[11px] text-teal font-bold tabular-nums">
+            {tt(`≥ ${cat.oldest_birth_year}`, `≥ ${cat.oldest_birth_year}`)}
+          </div>
+        )}
+      </button>
+      <button onClick={async () => { try { await tDeleteCategory(token, cat.id); reload(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } }} className="text-hint hover:text-loss ms-3">🗑</button>
+    </Card>
+  );
+}
+
+function AgeEditRow({ token, cat, reload, onCancel, onDone }: {
+  token: string; cat: TCategory; reload: () => void; onCancel: () => void; onDone: () => void;
+}) {
+  const tt = useTT();
+  const [f, setF] = useState({
+    label_ar: cat.label_ar ?? '',
+    label_en: cat.label_en ?? (cat.label ?? ''),
+    oldest_birth_year: cat.oldest_birth_year ? String(cat.oldest_birth_year) : '',
+    docs: (cat.required_documents ?? []).join('\n'),
+  });
   const [ok, setOk] = useState(false);
   const save = async () => {
-    await tUpdateCategory(token, cat.id, { required_documents: docs.split('\n').map(x => x.trim()).filter(Boolean) });
-    setOk(true); setTimeout(() => setOk(false), 1500); reload();
+    const labelEn = f.label_en.trim();
+    const labelAr = f.label_ar.trim();
+    await tUpdateCategory(token, cat.id, {
+      label: labelEn || labelAr || cat.label,
+      label_ar: labelAr || undefined,
+      label_en: labelEn || undefined,
+      oldest_birth_year: f.oldest_birth_year ? Number(f.oldest_birth_year) : undefined,
+      required_documents: toLines(f.docs),
+    });
+    setOk(true); setTimeout(() => { setOk(false); onDone(); }, 800);
   };
   return (
-    <Card className="p-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-black text-text">{cat.label}</span>
-        <button onClick={async () => { try { await tDeleteCategory(token, cat.id); reload(); } catch (e) { alert(e instanceof Error ? e.message : String(e)); } }} className="text-hint hover:text-loss">🗑</button>
+    <Card className="p-3 space-y-2 border-aqua/40">
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={tt('الاسم (عربي)', 'Name (Arabic)')}>
+          <input value={f.label_ar} onChange={e => setF({ ...f, label_ar: e.target.value })} placeholder="تحت 10" className={inputCls} />
+        </Field>
+        <Field label={tt('الاسم (إنجليزي)', 'Name (English)')}>
+          <input value={f.label_en} dir="ltr" onChange={e => setF({ ...f, label_en: e.target.value })} placeholder="U10" className={inputCls} />
+        </Field>
       </div>
-      <span className="block text-teal text-[10px] font-bold mb-1">
-        {tt('أوراق افتراضية (تُستخدم للفرق غير المسجلة في بطولة)', 'Default papers (used by teams not yet in a competition)')}
-      </span>
-      <textarea value={docs} onChange={e => setDocs(e.target.value)} rows={3} className={inputCls} />
-      <div className="flex items-center gap-2 mt-2">
-        <PrimaryButton onClick={save} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
-        {ok && <span className="text-win text-sm">✓</span>}
+      <Field label={tt('أقدم سنة ميلاد', 'Oldest birth year')}>
+        <input value={f.oldest_birth_year} onChange={e => setF({ ...f, oldest_birth_year: e.target.value })}
+          type="number" placeholder="2015" inputMode="numeric" className={inputCls} />
+      </Field>
+      <Field label={tt('الأوراق الافتراضية (سطر لكل ورقة)', 'Default papers (one per line)')}>
+        <textarea value={f.docs} onChange={e => setF({ ...f, docs: e.target.value })} rows={3} className={inputCls} />
+      </Field>
+      <div className="flex items-center gap-2">
+        <PrimaryButton onClick={save} className="text-sm">{ok ? '✓' : tt('حفظ', 'Save')}</PrimaryButton>
+        <button onClick={onCancel} className="text-xs text-hint hover:text-text">{tt('إلغاء', 'Cancel')}</button>
       </div>
     </Card>
   );

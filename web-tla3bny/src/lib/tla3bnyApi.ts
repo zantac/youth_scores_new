@@ -162,6 +162,9 @@ export interface TRequiredDocs {
 export interface TCategory {
   id: number;
   label: string;
+  label_ar: string | null;
+  label_en: string | null;
+  oldest_birth_year: number | null;
   required_files: number;
   required_documents: string[];
   sort_order: number;
@@ -170,6 +173,8 @@ export interface TCategory {
 export interface TSeason {
   id: number;
   name: string;
+  name_ar: string | null;
+  name_en: string | null;
   start_date: string | null;
   end_date: string | null;
   is_active: boolean;
@@ -181,6 +186,7 @@ export interface TCompAge {
   competition_id: number;
   age_category_id: number;
   age_category: string | null;
+  required_documents: string[];
   max_players_per_team: number;
   lineup_size: number;
   players_on_pitch: number;
@@ -784,3 +790,52 @@ export const tUpdateNews = (token: string, id: number, fd: TNewsInput) =>
 export const tDeleteNews = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/news/${id}`, undefined, token);
 export const tHome = () => get<THome>('/home');
+
+// ── super-admin dashboard stats ──────────────────────────────────────────────
+export interface TCompStat {
+  id: number;
+  name: string;
+  season_name: string | null;
+  status: TCompStatus;
+  teams: number;
+  total_matches: number;
+  played_matches: number;
+  pending_players: number;
+}
+export interface TStats {
+  counts: {
+    seasons: number; competitions: number; age_categories: number;
+    academies: number; teams: number; players: number;
+    coaches: number; matches: number; goals: number; news: number;
+  };
+  matches: { total: number; played: number; remaining: number };
+  averages: { goals_per_match: number; players_per_team: number };
+  active_season: string | null;
+  pending_approvals: number;
+  competitions: TCompStat[];
+}
+export const tStats = (token: string) => get<TStats>('/stats', token);
+
+// ── competition dashboard ─────────────────────────────────────────────────────
+export interface TCompDashboard {
+  counts: {
+    teams: number;
+    players_approved: number;
+    players_pending: number;
+    players_rejected: number;
+    matches_total: number;
+    matches_played: number;
+    goals: number;
+  };
+  ages: {
+    age_category: string | null;
+    teams: number;
+    players_approved: number;
+    players_pending: number;
+    matches_total: number;
+    matches_played: number;
+  }[];
+  pending_teams: { team_id: number; team_name: string | null; academy_name: string | null; pending: number }[];
+}
+export const tCompDashboard = (token: string, compId: number) =>
+  get<TCompDashboard>(`/competitions/${compId}/dashboard`, token);

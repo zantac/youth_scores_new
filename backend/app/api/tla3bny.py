@@ -1,4 +1,4 @@
-"""tla3bny API — served under /api/tla3bny, for the tla3bny.youthscores.org
+﻿"""tla3bny API — served under /api/tla3bny, for the tla3bny.youthscores.org
 subdomain (youth-academy friendly competitions, ages ~6-13).
 
 All reads are public; writes require the tla3bny login (`services.tla3bny_auth`),
@@ -666,15 +666,21 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
         .order_by(Tla3bnyCompetition.name.asc())
         .all()
     )
-    sources = [
-        {
+    sources = []
+    for e in entries:
+        if not e.competition:
+            continue
+        # Use per-age docs when available, fall back to competition-wide list.
+        cage = next(
+            (a for a in e.competition.ages if a.age_category_id == e.age_category_id),
+            None,
+        )
+        docs = cage.documents if cage else e.competition.documents
+        sources.append({
             "competition_id": e.competition_id,
-            "competition_name": e.competition.name if e.competition else None,
-            "documents": e.competition.documents if e.competition else [],
-        }
-        for e in entries
-        if e.competition
-    ]
+            "competition_name": e.competition.name,
+            "documents": docs,
+        })
     if not sources:
         age = team.age_category
         sources = [
@@ -702,15 +708,15 @@ def team_competition_entries(team_id: int):
     """
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
-    entries = TCompetitionTeam.query.filter_by(team_id=team_id, status="active").all()
+    entries = Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active").all()
     result = []
     for entry in entries:
         comp = entry.competition
-        cage = TCompetitionAge.query.filter_by(
+        cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
-        count = TCompetitionPlayer.query.filter_by(
+        count = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id
         ).count()
         result.append({
@@ -853,7 +859,7 @@ def create_player(team_id: int):
     Tla3bnyTeam.query.get_or_404(team_id)
 
     # Gate: team must be registered in at least one competition.
-    comp_entries = TCompetitionTeam.query.filter_by(
+    comp_entries = Tla3bnyCompetitionTeam.query.filter_by(
         team_id=team_id, status="active"
     ).all()
     if not comp_entries:
@@ -867,7 +873,7 @@ def create_player(team_id: int):
         comp = entry.competition
         if not comp or not comp.registration_open:
             continue
-        cage = TCompetitionAge.query.filter_by(
+        cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
@@ -875,7 +881,7 @@ def create_player(team_id: int):
         if cap is None:
             has_room = True
             break
-        count = TCompetitionPlayer.query.filter_by(
+        count = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id
         ).count()
         if count < cap:
@@ -924,19 +930,19 @@ def create_player(team_id: int):
     )
     # Auto-enqueue the new player as "pending" in every active competition this
     # team is registered in — the organiser's Approvals tab shows them at once.
-    for entry in TCompetitionTeam.query.filter_by(team_id=team_id, status="active"):
+    for entry in Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active"):
         comp = entry.competition
         if not comp or not comp.registration_open:
             continue
-        cage = TCompetitionAge.query.filter_by(
+        cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id, age_category_id=entry.age_category_id
         ).first()
         cap = cage.max_players_per_team if cage else None
-        if cap is not None and TCompetitionPlayer.query.filter_by(
+        if cap is not None and Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id
         ).count() >= cap:
             continue
-        db.session.add(TCompetitionPlayer(
+        db.session.add(Tla3bnyCompetitionPlayer(
             competition_team_id=entry.id, player_id=player.id, status="pending"
         ))
     db.session.commit()
@@ -1036,6 +1042,76 @@ def delete_player(player_id: int):
     return jsonify({"message": "deleted"})
 
 
+# ── dashboard stats ──────────────────────────────────────────────────────────
+@tla3bny_bp.get("/stats")
+@auth.super_admin_required
+def stats():
+    """Aggregate counts for the super-admin dashboard."""
+    total_matches = Tla3bnyMatch.query.count()
+    played = Tla3bnyMatch.query.filter_by(status="finished").count()
+    goals = Tla3bnyMatchEvent.query.filter_by(event_type="goal").count()
+    teams = Tla3bnyTeam.query.count()
+    players = Tla3bnyPlayer.query.count()
+    pending_approvals = Tla3bnyCompetitionPlayer.query.filter_by(status="pending").count()
+
+    active_season = Tla3bnySeason.query.filter_by(is_active=True).first()
+
+    per_comp = []
+    for c in Tla3bnyCompetition.query.order_by(Tla3bnyCompetition.id.desc()).all():
+        m = Tla3bnyMatch.query.filter_by(competition_id=c.id)
+        tot = m.count()
+        done = m.filter_by(status="finished").count()
+        comp_teams = Tla3bnyCompetitionTeam.query.filter_by(
+            competition_id=c.id, status="active"
+        ).count()
+        pending_in = (
+            Tla3bnyCompetitionPlayer.query
+            .join(Tla3bnyCompetitionTeam,
+                  Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id)
+            .filter(
+                Tla3bnyCompetitionTeam.competition_id == c.id,
+                Tla3bnyCompetitionPlayer.status == "pending",
+            ).count()
+        )
+        per_comp.append({
+            "id": c.id,
+            "name": c.name,
+            "season_name": c.season.name_ar or c.season.name if c.season else None,
+            "status": c.status,
+            "teams": comp_teams,
+            "total_matches": tot,
+            "played_matches": done,
+            "pending_players": pending_in,
+        })
+
+    return jsonify({
+        "counts": {
+            "seasons": Tla3bnySeason.query.count(),
+            "competitions": Tla3bnyCompetition.query.count(),
+            "age_categories": Tla3bnyAgeCategory.query.count(),
+            "academies": Tla3bnyAcademy.query.count(),
+            "teams": teams,
+            "players": players,
+            "coaches": Tla3bnyCoach.query.count(),
+            "matches": total_matches,
+            "goals": goals,
+            "news": Tla3bnyNews.query.count(),
+        },
+        "matches": {
+            "total": total_matches,
+            "played": played,
+            "remaining": total_matches - played,
+        },
+        "averages": {
+            "goals_per_match": round(goals / played, 2) if played else 0,
+            "players_per_team": round(players / teams, 1) if teams else 0,
+        },
+        "active_season": (active_season.name_ar or active_season.name) if active_season else None,
+        "pending_approvals": pending_approvals,
+        "competitions": per_comp,
+    })
+
+
 # ── seasons ──────────────────────────────────────────────────────────────────
 @tla3bny_bp.get("/seasons")
 def list_seasons():
@@ -1049,13 +1125,18 @@ def list_seasons():
 @auth.super_admin_required
 def create_season():
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
+    name_ar = (data.get("name_ar") or "").strip()
+    name_en = (data.get("name_en") or "").strip()
+    # `name` is the unique key — derive it from the bilingual inputs when not given.
+    name = (data.get("name") or "").strip() or name_ar or name_en
     if not name:
-        return _err("name is required")
+        return _err("name_ar or name_en is required")
     if Tla3bnySeason.query.filter_by(name=name).first():
         return _err("Season already exists", 409)
     s = Tla3bnySeason(
         name=name,
+        name_ar=name_ar or None,
+        name_en=name_en or None,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
         is_active=bool(data.get("is_active", True)),
@@ -1071,8 +1152,14 @@ def create_season():
 def update_season(season_id: int):
     s = Tla3bnySeason.query.get_or_404(season_id)
     data = request.get_json(silent=True) or {}
-    if data.get("name"):
-        s.name = data.get("name").strip()
+    if "name_ar" in data:
+        s.name_ar = (data.get("name_ar") or "").strip() or None
+    if "name_en" in data:
+        s.name_en = (data.get("name_en") or "").strip() or None
+    # Keep `name` (unique key) in sync with the bilingual display names.
+    new_name = (data.get("name") or "").strip() or s.name_ar or s.name_en
+    if new_name and new_name != s.name:
+        s.name = new_name
     if "start_date" in data:
         s.start_date = _parse_date(data.get("start_date"))
     if "end_date" in data:
@@ -1114,6 +1201,9 @@ def create_category():
         return _err("Category already exists", 409)
     cat = Tla3bnyAgeCategory(
         label=label,
+        label_ar=(data.get("label_ar") or "").strip() or None,
+        label_en=(data.get("label_en") or "").strip() or None,
+        oldest_birth_year=_int(data.get("oldest_birth_year")),
         required_documents=_clean_docs(data.get("required_documents")),
         sort_order=_int(data.get("sort_order"), 0),
     )
@@ -1133,6 +1223,12 @@ def update_category(cat_id: int):
         if existing and existing.id != cat_id:
             return _err("Category already exists", 409)
         cat.label = label
+    if "label_ar" in data:
+        cat.label_ar = (data.get("label_ar") or "").strip() or None
+    if "label_en" in data:
+        cat.label_en = (data.get("label_en") or "").strip() or None
+    if "oldest_birth_year" in data:
+        cat.oldest_birth_year = _int(data.get("oldest_birth_year"))
     if "required_documents" in data:
         cat.required_documents = _clean_docs(data.get("required_documents"))
     if "sort_order" in data:
@@ -1207,6 +1303,88 @@ def get_competition(comp_id: int):
     data["ages"] = [a.to_dict(with_stages=True) for a in comp.ages]
     data["admins"] = [ca.to_dict() for ca in comp.admins]
     return jsonify(data)
+
+
+@tla3bny_bp.get("/competitions/<int:comp_id>/dashboard")
+@auth.login_required
+def competition_dashboard(comp_id: int):
+    """Aggregated stats for the competition organiser's dashboard."""
+    if not auth.is_competition_admin(auth.current_user(), comp_id):
+        return _forbid()
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
+
+    entries = Tla3bnyCompetitionTeam.query.filter_by(
+        competition_id=comp_id, status="active"
+    ).all()
+    entry_ids = [e.id for e in entries]
+
+    # Player approval counts across the whole competition.
+    def _player_count(status_val):
+        return Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id.in_(entry_ids),
+            Tla3bnyCompetitionPlayer.status == status_val,
+        ).count() if entry_ids else 0
+
+    total_matches = Tla3bnyMatch.query.filter_by(competition_id=comp_id).count()
+    played_matches = Tla3bnyMatch.query.filter_by(
+        competition_id=comp_id, status="finished"
+    ).count()
+    goals = Tla3bnyMatchEvent.query.filter_by(event_type="goal").join(
+        Tla3bnyMatch, Tla3bnyMatchEvent.match_id == Tla3bnyMatch.id
+    ).filter(Tla3bnyMatch.competition_id == comp_id).count()
+
+    # Per-age breakdown.
+    ages_data = []
+    for cage in comp.ages:
+        age_entry_ids = [e.id for e in entries if e.age_category_id == cage.age_category_id]
+        age_pending = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id.in_(age_entry_ids),
+            Tla3bnyCompetitionPlayer.status == "pending",
+        ).count() if age_entry_ids else 0
+        age_approved = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id.in_(age_entry_ids),
+            Tla3bnyCompetitionPlayer.status == "approved",
+        ).count() if age_entry_ids else 0
+        age_matches = Tla3bnyMatch.query.filter_by(
+            competition_id=comp_id, age_category_id=cage.age_category_id
+        )
+        ages_data.append({
+            "age_category": cage.age_category.label if cage.age_category else None,
+            "teams": len(age_entry_ids),
+            "players_approved": age_approved,
+            "players_pending": age_pending,
+            "matches_total": age_matches.count(),
+            "matches_played": age_matches.filter_by(status="finished").count(),
+        })
+
+    # Teams that still have pending players — so the organiser knows who to chase.
+    pending_teams = []
+    for entry in entries:
+        pending = Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="pending"
+        ).count()
+        if pending:
+            pending_teams.append({
+                "team_id": entry.team_id,
+                "team_name": entry.team.display_name() if entry.team else None,
+                "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
+                "pending": pending,
+            })
+    pending_teams.sort(key=lambda x: -x["pending"])
+
+    return jsonify({
+        "counts": {
+            "teams": len(entries),
+            "players_approved": _player_count("approved"),
+            "players_pending": _player_count("pending"),
+            "players_rejected": _player_count("rejected"),
+            "matches_total": total_matches,
+            "matches_played": played_matches,
+            "goals": goals,
+        },
+        "ages": ages_data,
+        "pending_teams": pending_teams,
+    })
 
 
 @tla3bny_bp.post("/competitions")
@@ -1376,6 +1554,8 @@ def add_competition_age(comp_id: int):
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    if "required_documents" in data:
+        cage.required_documents = _clean_docs(data.get("required_documents"))
     db.session.add(cage)
     db.session.commit()
     return jsonify(cage.to_dict()), 201
@@ -1391,6 +1571,8 @@ def update_competition_age(cage_id: int):
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    if "required_documents" in data:
+        cage.required_documents = _clean_docs(data.get("required_documents"))
     db.session.commit()
     return jsonify(cage.to_dict())
 
@@ -1571,7 +1753,7 @@ def register_team(comp_id: int):
         ):
             if cap is not None and count >= cap:
                 break
-            db.session.add(TCompetitionPlayer(
+            db.session.add(Tla3bnyCompetitionPlayer(
                 competition_team_id=entry.id, player_id=mem.player_id, status="pending"
             ))
             count += 1

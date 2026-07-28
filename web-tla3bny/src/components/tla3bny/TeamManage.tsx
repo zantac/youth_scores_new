@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
@@ -97,87 +97,87 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
 
       {/* players */}
       <section>
-        <div className=”flex items-center justify-between mb-2”>
-          <h3 className=”font-black text-text”>{tt(‘اللاعبون’, ‘Players’)}</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-black text-text">{tt('اللاعبون', 'Players')}</h3>
           {quota && (
-            <span className={`text-xs font-bold tabular-nums ${quota.max !== null && quota.used >= quota.max ? ‘text-loss’ : ‘text-teal’}`}>
-              {quota.used}{quota.max !== null ? ` / ${quota.max}` : ‘’} {tt(‘لاعب’, ‘players’)}
+            <span className={`text-xs font-bold tabular-nums ${quota.max !== null && quota.used >= quota.max ? 'text-loss' : 'text-teal'}`}>
+              {quota.used}{quota.max !== null ? ` / ${quota.max}` : ''} {tt('لاعب', 'players')}
             </span>
           )}
         </div>
 
         {/* Competition context banner */}
         {compEntries.length === 0 ? (
-          <Card className=”p-4 text-center mb-3”>
-            <p className=”text-sm font-bold text-hint”>
-              {tt(‘فريقك لم يُضَف لأي بطولة بعد’, ‘Your team has not been added to any competition yet’)}
+          <Card className="p-4 text-center mb-3">
+            <p className="text-sm font-bold text-hint">
+              {tt('فريقك لم يُضَف لأي بطولة بعد', 'Your team has not been added to any competition yet')}
             </p>
-            <p className=”text-[11px] text-hint mt-1”>
-              {tt(‘تواصل مع المنظّم ليضيف فريقك، ثم يمكنك تسجيل اللاعبين.’,
-                  ‘Contact the organiser to add your team, then you can register players.’)}
+            <p className="text-[11px] text-hint mt-1">
+              {tt('تواصل مع المنظّم ليضيف فريقك، ثم يمكنك تسجيل اللاعبين.',
+                  'Contact the organiser to add your team, then you can register players.')}
             </p>
           </Card>
         ) : !canAddPlayers ? (
-          <Card className=”p-3 mb-3”>
-            <p className=”text-sm font-bold text-loss text-center”>
-              {tt(‘اكتمل الحد الأقصى للاعبين أو أُغلق التسجيل’, ‘Player cap reached or registration closed’)}
+          <Card className="p-3 mb-3">
+            <p className="text-sm font-bold text-loss text-center">
+              {tt('اكتمل الحد الأقصى للاعبين أو أُغلق التسجيل', 'Player cap reached or registration closed')}
             </p>
           </Card>
         ) : null}
 
-        <div className=”space-y-2 mb-3”>
+        <div className="space-y-2 mb-3">
           {(team.players ?? []).length === 0 ? (
-            <EmptyState icon=”⚽” text={tt(‘لا لاعبون بعد’, ‘No players yet’)} />
+            <EmptyState icon="⚽" text={tt('لا لاعبون بعد', 'No players yet')} />
           ) : (team.players ?? []).map(p => (
-            <Card key={p.id} className=”p-2”>
-              <div className=”flex items-center gap-3”>
+            <Card key={p.id} className="p-2">
+              <div className="flex items-center gap-3">
                 <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
-                <div className=”min-w-0 flex-1”>
-                  <div className=”font-bold text-text text-sm truncate”>{p.player_name}</div>
-                  <div className=”text-[11px] text-hint”>{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(‘ · ‘)}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
+                  <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
                 <PapersProgress required={requiredDocs} files={papers[p.player_id] ?? []} />
-                <Link href={`/player?id=${p.player_id}`} className=”text-xs font-bold text-aqua hover:underline px-1 shrink-0”>
-                  {tt(‘الملف والأوراق’, ‘Profile & papers’)}
+                <Link href={`/player?id=${p.player_id}`} className="text-xs font-bold text-aqua hover:underline px-1 shrink-0">
+                  {tt('الملف والأوراق', 'Profile & papers')}
                 </Link>
-                <button onClick={async () => { if (confirm(tt(‘حذف اللاعب؟’, ‘Delete player?’))) { await tDeletePlayer(token, p.player_id); reload(); } }}
-                  className=”text-hint hover:text-loss text-sm px-2”>🗑</button>
+                <button onClick={async () => { if (confirm(tt('حذف اللاعب؟', 'Delete player?'))) { await tDeletePlayer(token, p.player_id); reload(); } }}
+                  className="text-hint hover:text-loss text-sm px-2">🗑</button>
               </div>
             </Card>
           ))}
         </div>
 
         {canAddPlayers && (
-          <Card className=”p-3 space-y-3”>
-            <div className=”grid grid-cols-2 gap-3”>
-              <Field label={tt(‘الاسم’, ‘Name’)}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
-              <Field label={tt(‘المركز’, ‘Position’)}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder=”ST / GK …” /></Field>
-              <Field label={tt(‘الرقم’, ‘Jersey’)}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode=”numeric” /></Field>
-              <Field label={tt(‘تاريخ الميلاد’, ‘Date of birth’)}><input type=”date” value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
+          <Card className="p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
+              <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
+              <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
+              <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
             </div>
-            <Field label={tt(‘الصورة’, ‘Photo’)}>
-              <input type=”file” accept=”image/*” onChange={e => setPhoto(e.target.files?.[0] ?? null)} className=”text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal” />
+            <Field label={tt('الصورة', 'Photo')}>
+              <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
             </Field>
             <div>
-              <span className=”block text-teal text-xs font-bold mb-1”>{tt(‘أوراق التسجيل’, ‘Registration papers’)}</span>
-              <p className=”text-[10px] text-hint mb-1.5”>
+              <span className="block text-teal text-xs font-bold mb-1">{tt('أوراق التسجيل', 'Registration papers')}</span>
+              <p className="text-[10px] text-hint mb-1.5">
                 {requiredDocs.length === 0
-                  ? tt(‘لا أوراق مطلوبة حاليًا’, ‘No papers required right now’)
-                  : tt(‘تظهر للمنظّم فقط. ارفعها الآن، أو لاحقًا من صفحة اللاعب عبر «الملف والأوراق».’,
-                       ‘Visible to the organiser only. Upload now, or later from the player\’s page via “Profile & papers”.’)}
+                  ? tt('لا أوراق مطلوبة حاليًا', 'No papers required right now')
+                  : tt('تظهر للمنظّم فقط. ارفعها الآن، أو لاحقًا من صفحة اللاعب عبر «الملف والأوراق».',
+                       'Visible to the organiser only. Upload now, or later from the player\'s page via "Profile & papers".')}
               </p>
-              <div className=”grid grid-cols-1 sm:grid-cols-2 gap-2”>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {requiredDocs.map(doc => (
-                  <label key={doc} className=”flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2”>
-                    <span className=”text-xs text-text flex-1 min-w-0 truncate”>{doc}{docFiles[doc] && <span className=”text-win”> ✓</span>}</span>
-                    <input type=”file” accept=”image/*,.pdf”
+                  <label key={doc} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                    <span className="text-xs text-text flex-1 min-w-0 truncate">{doc}{docFiles[doc] && <span className="text-win"> ✓</span>}</span>
+                    <input type="file" accept="image/*,.pdf"
                       onChange={e => setDocFiles(prev => { const n = { ...prev }; const f = e.target.files?.[0]; if (f) n[doc] = f; else delete n[doc]; return n; })}
-                      className=”text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal w-32” />
+                      className="text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal w-32" />
                   </label>
                 ))}
               </div>
             </div>
-            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt(‘…’, ‘…’) : tt(‘إضافة لاعب’, ‘Add player’)}</PrimaryButton>
+            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
           </Card>
         )}
       </section>

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   tCategories, tCreateTeam, tDeleteTeam, tSetTeamAccount, tTeamAccount, tUpdateAcademy,
@@ -54,6 +55,7 @@ export default function DashboardPage() {
 function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Promise<void> }) {
   const tt = useTT();
   const { academy } = useTla3bnyAuth();
+  const [tab, setTab] = useState<'info' | 'teams'>('info');
   const [cats, setCats] = useState<TCategory[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -61,23 +63,43 @@ function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Pr
   if (!academy) return <Spinner />;
   const teams = academy.teams ?? [];
 
-  return (
-    <div className="space-y-5">
-      <ProfileEditor token={token} refresh={refresh} />
-      <CredentialsEditor token={token} refresh={refresh} />
-      <ManagersEditor token={token} refresh={refresh} />
+  const tabs: { key: 'info' | 'teams'; ar: string; en: string }[] = [
+    { key: 'info', ar: 'معلومات الأكاديمية', en: 'Academy Info' },
+    { key: 'teams', ar: 'الفرق', en: 'Teams' },
+  ];
 
-      <section>
-        <h2 className="font-black text-text mb-2">{tt('الفرق', 'Teams')}</h2>
-        <ErrorNote>{err}</ErrorNote>
-        <div className="space-y-2 mb-3">
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${tab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
+            {tt(t.ar, t.en)}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'info' && (
+        <div className="space-y-4">
+          <ProfileEditor token={token} refresh={refresh} />
+          <CredentialsEditor token={token} refresh={refresh} />
+          <ManagersEditor token={token} refresh={refresh} />
+        </div>
+      )}
+
+      {tab === 'teams' && (
+        <div className="space-y-3">
+          <ErrorNote>{err}</ErrorNote>
+          {teams.length === 0 && (
+            <p className="text-hint text-sm text-center py-4">{tt('لا فرق بعد', 'No teams yet')}</p>
+          )}
           {teams.map(t => (
             <TeamCard key={t.id} team={t} token={token} refresh={refresh}
               open={selected === t.id} onToggle={() => setSelected(selected === t.id ? null : t.id)} />
           ))}
+          <AddTeam token={token} cats={cats} refresh={refresh} onErr={setErr} />
         </div>
-        <AddTeam token={token} cats={cats} refresh={refresh} onErr={setErr} />
-      </section>
+      )}
     </div>
   );
 }
@@ -247,8 +269,13 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
   return (
     <Card className="p-3">
       <div className="flex items-center justify-between">
-        <button onClick={onToggle} className="font-bold text-text text-sm">{open ? '▾' : '▸'} {team.display_name}</button>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <button onClick={onToggle} className="text-hint text-sm shrink-0">{open ? '▾' : '▸'}</button>
+          <Link href={`/team?id=${team.id}`} className="font-bold text-text text-sm hover:text-aqua truncate">
+            {team.display_name}
+          </Link>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
           <button onClick={() => setAccOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('حساب مدير الفريق', 'Manager login')}</button>
           <button onClick={async () => { if (confirm(tt('حذف الفريق؟', 'Delete team?'))) { await tDeleteTeam(token, team.id); refresh(); } }} className="text-hint hover:text-loss text-sm">🗑</button>
         </div>
