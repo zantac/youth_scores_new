@@ -6,6 +6,7 @@ Create Date: 2026-07-28
 """
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "f2a3b4c5d6e7"
 down_revision = "e1f2a3b4c5d6"
@@ -14,8 +15,7 @@ depends_on = None
 
 
 def _columns(table: str) -> set[str]:
-    bind = op.get_bind()
-    return {row[1] for row in bind.execute(sa.text(f"PRAGMA table_info({table})"))}
+    return {c["name"] for c in inspect(op.get_bind()).get_columns(table)}
 
 
 def upgrade():
