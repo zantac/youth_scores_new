@@ -1059,6 +1059,7 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     )
     home_score: Mapped[int | None] = mapped_column(sa.Integer)
     away_score: Mapped[int | None] = mapped_column(sa.Integer)
+    note: Mapped[str | None] = mapped_column(sa.String(512))
 
     competition: Mapped["Tla3bnyCompetition"] = relationship()
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -1127,6 +1128,7 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "status": self.status,
             "home_score": self.home_score,
             "away_score": self.away_score,
+            "note": self.note,
         }
         if include_events:
             data["events"] = [

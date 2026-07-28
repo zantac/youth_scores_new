@@ -342,6 +342,7 @@ export interface TMatch {
   status: TMatchStatus;
   home_score: number | null;
   away_score: number | null;
+  note: string | null;
   events?: TMatchEvent[];
 }
 
@@ -568,6 +569,7 @@ export interface TTeamCompEntry {
   registration_open: boolean;
   max_players: number | null;
   player_count: number;
+  rejected_players: { player_id: number; player_name: string | null; rejection_reason: string | null }[];
 }
 /** Competitions this team is registered in, with player quota — for the academy dashboard. */
 export const tTeamCompetitionEntries = (token: string, teamId: number) =>

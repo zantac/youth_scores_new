@@ -13,6 +13,7 @@ import {
   type TCompetition, type TCompAge, type TCompDashboard, type TCategory, type TAcademy, type TTeam,
   type TCompTeam, type TCompPlayer, type TMatch,
 } from '@/lib/tla3bnyApi';
+import MatchRow from '@/components/tla3bny/MatchRow';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
@@ -431,25 +432,58 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
   const [entries, setEntries] = useState<TCompTeam[]>([]);
-  // The token is what makes the API hand over the players' papers — they are
-  // withheld from unauthenticated (public) roster reads.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const reload = useCallback(() => { tCompTeams(comp.id, undefined, true, token).then(setEntries).catch(() => setEntries([])); }, [comp.id, token]);
   useEffect(reload, [reload]);
+
+  const toggle = (id: number) => setExpanded(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
   return (
     <div className="space-y-3">
       {entries.length === 0 && <EmptyState icon="✅" text={tt('لا فرق', 'No teams')} />}
-      {entries.map(e => (
-        <Card key={e.id} className="p-3">
-          <div className="font-bold text-text text-sm mb-2">{e.team_name} <span className="text-[11px] text-hint">· {e.academy_name}</span></div>
-          {(e.roster ?? []).length === 0 ? <p className="text-xs text-hint">{tt('لا لاعبين في القائمة', 'No roster players')}</p> : (
-            <div className="space-y-2">
-              {(e.roster ?? []).map((p: TCompPlayer) => (
-                <RosterPlayerRow key={p.id} token={token} p={p} onDone={reload} />
-              ))}
-            </div>
-          )}
-        </Card>
-      ))}
+      {entries.map(e => {
+        const roster = e.roster ?? [];
+        const pending = roster.filter(p => p.status === 'pending').length;
+        const open = expanded.has(e.id);
+        return (
+          <Card key={e.id} className="p-3">
+            <button onClick={() => toggle(e.id)}
+              className="w-full flex items-center justify-between gap-2 text-start">
+              <div className="min-w-0">
+                <span className="font-bold text-text text-sm">{e.team_name}</span>
+                <span className="text-[11px] text-hint ms-1">· {e.academy_name}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {pending > 0 && (
+                  <span className="text-[11px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-2 py-0.5 tabular-nums">
+                    ⏳ {pending}
+                  </span>
+                )}
+                <span className="text-hint text-xs tabular-nums">{roster.length} {tt('لاعب', 'players')}</span>
+                <span className="text-hint text-sm">{open ? '▾' : '▸'}</span>
+              </div>
+            </button>
+
+            {open && (
+              <div className="mt-3 border-t border-bdr/50 pt-3">
+                {roster.length === 0
+                  ? <p className="text-xs text-hint">{tt('لا لاعبين في القائمة', 'No roster players')}</p>
+                  : (
+                    <div className="space-y-2">
+                      {roster.map((p: TCompPlayer) => (
+                        <RosterPlayerRow key={p.id} token={token} p={p} onDone={reload} />
+                      ))}
+                    </div>
+                  )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -535,119 +569,87 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [ageId, setAgeId] = useState<number | null>(comp.ages?.[0]?.age_category_id ?? null);
   const [entries, setEntries] = useState<TCompTeam[]>([]);
   const [matches, setMatches] = useState<TMatch[]>([]);
-  const [f, setF] = useState({ home: '', away: '', date: '', time: '', venue: '' });
-  const [resultFor, setResultFor] = useState<TMatch | null>(null);
-  const reloadMatches = useCallback(() => { if (ageId) tMatches({ competition_id: comp.id, age_category_id: ageId }).then(setMatches); }, [comp.id, ageId]);
+  const [showNew, setShowNew] = useState(false);
+  const [f, setF] = useState({ home: '', away: '', date: '', time: '', venue: '', round: '' });
+  const reloadMatches = useCallback(() => {
+    if (ageId) tMatches({ competition_id: comp.id, age_category_id: ageId }).then(setMatches);
+  }, [comp.id, ageId]);
   useEffect(() => { if (ageId) tCompTeams(comp.id, ageId).then(setEntries); reloadMatches(); }, [ageId, comp.id, reloadMatches]);
+
   const create = async () => {
     if (!ageId || !f.home || !f.away) return;
-    await tCreateMatch(token, { competition_id: comp.id, age_category_id: ageId, home_team_id: Number(f.home), away_team_id: Number(f.away), date: f.date || undefined, time: f.time || undefined, venue: f.venue || undefined });
-    setF({ home: '', away: '', date: '', time: '', venue: '' }); reloadMatches();
+    await tCreateMatch(token, {
+      competition_id: comp.id, age_category_id: ageId,
+      home_team_id: Number(f.home), away_team_id: Number(f.away),
+      date: f.date || undefined, time: f.time || undefined,
+      venue: f.venue || undefined, round: f.round || undefined,
+    });
+    setF({ home: '', away: '', date: '', time: '', venue: '', round: '' });
+    setShowNew(false); reloadMatches();
   };
+
   return (
     <div className="space-y-3">
+      {/* Age filter */}
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
         {(comp.ages ?? []).map(a => (
           <button key={a.id} onClick={() => setAgeId(a.age_category_id)}
-            className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>{a.age_category}</button>
+            className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+            {a.age_category}
+          </button>
         ))}
+        <span className="text-hint text-xs tabular-nums ms-auto shrink-0">
+          {matches.length} {tt('مباراة', 'matches')}
+        </span>
       </div>
+
+      {/* Match list — MatchRow cards + quick delete */}
+      {matches.length === 0 && <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />}
       {matches.map(m => (
-        <Card key={m.id} className="p-2 flex items-center justify-between">
-          <span className="text-sm text-text truncate">{m.home_team_name} {m.home_score ?? '–'}-{m.away_score ?? '–'} {m.away_team_name}</span>
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => setResultFor(m)} className="text-xs text-aqua font-bold hover:underline">{tt('نتيجة', 'Result')}</button>
-            <button onClick={async () => { if (confirm(tt('حذف؟', 'Delete?'))) { await tDeleteMatch(token, m.id); reloadMatches(); } }} className="text-hint hover:text-loss">🗑</button>
-          </div>
-        </Card>
+        <div key={m.id} className="relative group">
+          <MatchRow m={m} />
+          <button
+            onClick={async e => {
+              e.preventDefault();
+              if (confirm(tt('حذف المباراة؟', 'Delete match?'))) { await tDeleteMatch(token, m.id); reloadMatches(); }
+            }}
+            className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
+            🗑
+          </button>
+        </div>
       ))}
-      <Card className="p-3 space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={tt('المضيف', 'Home')}>
-            <select value={f.home} onChange={e => setF({ ...f, home: e.target.value })} className={inputCls}>
-              <option value="">—</option>{entries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
-            </select>
-          </Field>
-          <Field label={tt('الضيف', 'Away')}>
-            <select value={f.away} onChange={e => setF({ ...f, away: e.target.value })} className={inputCls}>
-              <option value="">—</option>{entries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
-            </select>
-          </Field>
-          <Field label={tt('التاريخ', 'Date')}><input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} className={inputCls} /></Field>
-          <Field label={tt('الوقت', 'Time')}><input value={f.time} onChange={e => setF({ ...f, time: e.target.value })} placeholder="18:00" className={inputCls} /></Field>
-        </div>
-        <Field label={tt('الملعب', 'Venue')}><input value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} className={inputCls} /></Field>
-        <PrimaryButton onClick={create} disabled={!f.home || !f.away || f.home === f.away}>{tt('إضافة مباراة', 'Add match')}</PrimaryButton>
-      </Card>
-      {resultFor && <ResultModal token={token} match={resultFor} entries={entries} onClose={() => { setResultFor(null); reloadMatches(); }} />}
-    </div>
-  );
-}
 
-interface EvRow { event_type: string; team_id: number; player_id: string; minute: string }
+      {/* Add match */}
+      <button onClick={() => setShowNew(s => !s)}
+        className="w-full border border-dashed border-bdr text-teal text-sm font-bold rounded-xl py-2.5 hover:border-aqua hover:text-aqua transition-colors">
+        {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
+      </button>
 
-function ResultModal({ token, match, entries, onClose }: { token: string; match: TMatch; entries: TCompTeam[]; onClose: () => void }) {
-  const tt = useTT();
-  const [home, setHome] = useState(String(match.home_score ?? ''));
-  const [away, setAway] = useState(String(match.away_score ?? ''));
-  const [rosters, setRosters] = useState<Record<number, TCompPlayer[]>>({});
-  const [events, setEvents] = useState<EvRow[]>([]);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    [match.home_team_id, match.away_team_id].forEach(tid => {
-      const entry = entries.find(e => e.team_id === tid);
-      if (entry) tRoster(entry.id).then(r => setRosters(prev => ({ ...prev, [tid]: (r.roster ?? []).filter(p => p.status === 'approved') })));
-    });
-  }, [match, entries]);
-  const addEv = () => setEvents(e => [...e, { event_type: 'goal', team_id: match.home_team_id, player_id: '', minute: '' }]);
-  const save = async () => {
-    setBusy(true);
-    try {
-      await tEnterResult(token, match.id, {
-        home_score: Number(home), away_score: Number(away),
-        events: events.filter(e => e.player_id).map(e => ({ event_type: e.event_type, team_id: e.team_id, player_id: Number(e.player_id), minute: e.minute ? Number(e.minute) : undefined })),
-      });
-      onClose();
-    } finally { setBusy(false); }
-  };
-  return (
-    <div className="fixed inset-0 z-[120] bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
-      <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-4 space-y-3" onClick={e => e.stopPropagation()}>
-        <h2 className="font-black text-text">{tt('إدخال النتيجة', 'Enter result')}</h2>
-        <div className="flex items-center justify-center gap-3">
-          <span className="text-sm text-text">{match.home_team_name}</span>
-          <input value={home} onChange={e => setHome(e.target.value)} className={`${inputCls} w-14 text-center tnum`} inputMode="numeric" />
-          <span className="text-hint">-</span>
-          <input value={away} onChange={e => setAway(e.target.value)} className={`${inputCls} w-14 text-center tnum`} inputMode="numeric" />
-          <span className="text-sm text-text">{match.away_team_name}</span>
-        </div>
-        <div className="space-y-2">
-          {events.map((ev, i) => {
-            const roster = rosters[ev.team_id] ?? [];
-            return (
-              <div key={i} className="grid grid-cols-[auto_1fr_1fr_auto_auto] gap-1.5 items-center">
-                <select value={ev.event_type} onChange={e => setEvents(a => a.map((x, j) => j === i ? { ...x, event_type: e.target.value } : x))} className={`${inputCls} !px-2 !py-1.5 text-xs`}>
-                  <option value="goal">⚽</option><option value="assist">🅰️</option><option value="yellow">🟨</option><option value="red">🟥</option>
-                </select>
-                <select value={ev.team_id} onChange={e => setEvents(a => a.map((x, j) => j === i ? { ...x, team_id: Number(e.target.value), player_id: '' } : x))} className={`${inputCls} !px-2 !py-1.5 text-xs`}>
-                  <option value={match.home_team_id}>{match.home_team_name}</option>
-                  <option value={match.away_team_id}>{match.away_team_name}</option>
-                </select>
-                <select value={ev.player_id} onChange={e => setEvents(a => a.map((x, j) => j === i ? { ...x, player_id: e.target.value } : x))} className={`${inputCls} !px-2 !py-1.5 text-xs`}>
-                  <option value="">—</option>{roster.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}</option>)}
-                </select>
-                <input value={ev.minute} onChange={e => setEvents(a => a.map((x, j) => j === i ? { ...x, minute: e.target.value } : x))} placeholder="'" className={`${inputCls} !px-2 !py-1.5 w-12 text-xs tnum`} inputMode="numeric" />
-                <button onClick={() => setEvents(a => a.filter((_, j) => j !== i))} className="text-hint hover:text-loss text-sm">×</button>
-              </div>
-            );
-          })}
-          <button onClick={addEv} className="text-xs font-bold text-aqua hover:underline">+ {tt('إضافة حدث', 'Add event')}</button>
-        </div>
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={save} disabled={busy || home === '' || away === ''}>{busy ? tt('…', '…') : tt('حفظ النتيجة', 'Save result')}</PrimaryButton>
-          <button onClick={onClose} className="text-sm text-hint">{tt('إلغاء', 'Cancel')}</button>
-        </div>
-      </div>
+      {showNew && (
+        <Card className="p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={tt('المضيف', 'Home')}>
+              <select value={f.home} onChange={e => setF({ ...f, home: e.target.value })} className={inputCls}>
+                <option value="">—</option>
+                {entries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
+              </select>
+            </Field>
+            <Field label={tt('الضيف', 'Away')}>
+              <select value={f.away} onChange={e => setF({ ...f, away: e.target.value })} className={inputCls}>
+                <option value="">—</option>
+                {entries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
+              </select>
+            </Field>
+            <Field label={tt('التاريخ', 'Date')}><input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} className={inputCls} /></Field>
+            <Field label={tt('الوقت', 'Time')}><input value={f.time} onChange={e => setF({ ...f, time: e.target.value })} placeholder="18:00" className={inputCls} /></Field>
+            <Field label={tt('الجولة', 'Round')}><input value={f.round} onChange={e => setF({ ...f, round: e.target.value })} className={inputCls} /></Field>
+            <Field label={tt('الملعب', 'Venue')}><input value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} className={inputCls} /></Field>
+          </div>
+          <PrimaryButton onClick={create} disabled={!f.home || !f.away || f.home === f.away}>
+            {tt('إضافة مباراة', 'Add match')}
+          </PrimaryButton>
+        </Card>
+      )}
     </div>
   );
 }

@@ -719,6 +719,9 @@ def team_competition_entries(team_id: int):
         count = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id
         ).count()
+        rejected = Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="rejected"
+        ).all()
         result.append({
             "entry_id": entry.id,
             "competition_id": entry.competition_id,
@@ -726,6 +729,14 @@ def team_competition_entries(team_id: int):
             "registration_open": comp.registration_open if comp else False,
             "max_players": cage.max_players_per_team if cage else None,
             "player_count": count,
+            "rejected_players": [
+                {
+                    "player_id": cp.player_id,
+                    "player_name": cp.player.name if cp.player else None,
+                    "rejection_reason": cp.rejection_reason,
+                }
+                for cp in rejected
+            ],
         })
     return jsonify(result)
 
@@ -980,6 +991,13 @@ def update_player(player_id: int):
         _save_documents(player, data, files)
     except ValueError as e:
         return _err(str(e))
+    db.session.commit()
+    # Any approved or rejected competition entry must go back to pending so the
+    # organiser reviews the updated data before the player competes.
+    Tla3bnyCompetitionPlayer.query.filter(
+        Tla3bnyCompetitionPlayer.player_id == player.id,
+        Tla3bnyCompetitionPlayer.status != "pending",
+    ).update({"status": "pending", "rejection_reason": None})
     db.session.commit()
     return jsonify(player.to_dict(with_files=True))
 
@@ -1971,6 +1989,8 @@ def update_match(match_id: int):
             setattr(match, field, data.get(field))
     if "date" in data:
         match.date = _parse_date(data.get("date"))
+    if "note" in data:
+        match.note = (data.get("note") or "").strip() or None
     for field in ("stage_id", "group_id"):
         if field in data:
             setattr(match, field, _int(data.get(field)))
