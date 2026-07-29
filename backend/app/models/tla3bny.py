@@ -678,12 +678,11 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
 
 
 class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
-    """One age bracket that a competition runs, plus that age's match rules.
+    """A named sub-competition within a competition for a specific age bracket.
 
-    The competition admin sets these per age because the format changes with
-    age (5/6/7-a-side, roster caps, substitutes, lineup deadline, etc.). They
-    are the authoritative source for roster/lineup validation and for match
-    setup — matches inherit them rather than storing their own copy.
+    The same age bracket may appear in multiple sub-competitions (e.g. "Class A
+    2014" and "Class B 2014"). Each sub-competition carries its own rules and
+    optional player-registration deadline.
     """
 
     __tablename__ = "tla3bny_competition_ages"
@@ -696,6 +695,10 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     age_category_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_age_categories.id"), nullable=False
     )
+    # Display name for this sub-competition (e.g. "Class A", "Elite Group").
+    name: Mapped[str | None] = mapped_column(sa.String(200))
+    # Last day a player may be added or edited in this sub-competition's roster.
+    player_registration_deadline: Mapped[date | None] = mapped_column(sa.Date)
 
     # Rules, set by the competition admin. Four independent caps:
     #   max_players_per_team — the team's registration list (e.g. 30)
@@ -722,7 +725,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     lineup_deadline_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=60
     )
-    # Registration papers required for players in this age within this competition.
+    # Registration papers required for players in this sub-competition.
     # Null falls back to the competition's global list, then the age category default.
     required_documents: Mapped[list | None] = mapped_column(sa.JSON)
 
@@ -734,18 +737,16 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
         order_by="Tla3bnyStage.stage_order",
     )
 
-    __table_args__ = (
-        sa.UniqueConstraint(
-            "competition_id", "age_category_id", name="uq_tla3bny_comp_age"
-        ),
-    )
+    # No unique constraint — multiple sub-competitions per age are intentional.
+
+    @property
+    def display_name(self) -> str:
+        age = self.age_category.label if self.age_category else ""
+        return f"{self.name} · {age}" if self.name else age
 
     @property
     def documents(self) -> list[str]:
-        """The papers players in this age must upload for this competition.
-
-        Falls back: per-age → competition global → age-category default → system default.
-        """
+        """Falls back: per-sub-comp → competition global → age-category default."""
         if self.required_documents:
             return self.required_documents
         if self.competition and self.competition.required_documents:
@@ -761,6 +762,11 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "age_category_id": self.age_category_id,
             "age_category": (
                 self.age_category.label if self.age_category else None
+            ),
+            "name": self.name,
+            "player_registration_deadline": (
+                self.player_registration_deadline.isoformat()
+                if self.player_registration_deadline else None
             ),
             "required_documents": self.documents,
             "max_players_per_team": self.max_players_per_team,
@@ -909,6 +915,10 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
     status: Mapped[str] = mapped_column(
         code_enum(*codes.TLA3BNY_ENTRY_STATUS), nullable=False, default="active"
     )
+    # Which sub-competition this team joined (nullable for legacy rows).
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
     # Points docked from this team's table in this competition (belongs to the
     # entry, not the durable team).
     point_deduction: Mapped[int] = mapped_column(
@@ -919,6 +929,7 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
         back_populates="team_entries"
     )
     team: Mapped["Tla3bnyTeam"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
     roster: Mapped[list["Tla3bnyCompetitionPlayer"]] = relationship(
         back_populates="entry", cascade="all, delete-orphan"
     )
@@ -930,9 +941,11 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
     )
 
     def to_dict(self, with_roster: bool = False, with_files: bool = False) -> dict:
+        cage = self.competition_age
         data = {
             "id": self.id,
             "competition_id": self.competition_id,
+            "competition_name": self.competition.name if self.competition else None,
             "team_id": self.team_id,
             "team_name": self.team.display_name() if self.team else None,
             "academy_id": self.team.academy_id if self.team else None,
@@ -945,6 +958,8 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
                 else None
             ),
             "age_category_id": self.age_category_id,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
             "status": self.status,
             "point_deduction": self.point_deduction,
         }
@@ -1029,6 +1044,10 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     age_category_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_age_categories.id"), nullable=False
     )
+    # The specific sub-competition this match belongs to (nullable for legacy rows).
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
     # Which phase/group the fixture belongs to (null for a flat competition).
     stage_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_stages.id", ondelete="SET NULL")
@@ -1063,6 +1082,7 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
 
     competition: Mapped["Tla3bnyCompetition"] = relationship()
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
     stage: Mapped["Tla3bnyStage | None"] = relationship()
     group: Mapped["Tla3bnyGroup | None"] = relationship()
     home_team: Mapped["Tla3bnyTeam"] = relationship(foreign_keys=[home_team_id])
@@ -1090,7 +1110,13 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
 
     @property
     def rules(self) -> "Tla3bnyCompetitionAge | None":
-        """This match's format rules — the competition+age settings it inherits."""
+        """The sub-competition rules for this match.
+
+        Prefers the explicit competition_age_id link (set on new matches).
+        Falls back to the first matching age_category_id for legacy rows.
+        """
+        if self.competition_age_id and self.competition_age:
+            return self.competition_age
         if not self.competition:
             return None
         for a in self.competition.ages:
@@ -1107,6 +1133,7 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "competition_name": self.competition.name if self.competition else None,
             "age_category_id": self.age_category_id,
             "age_category": self.age_category.label if self.age_category else None,
+            "competition_age_id": self.competition_age_id,
             "stage_id": self.stage_id,
             "stage_name": self.stage.name if self.stage else None,
             "stage_type": self.stage.type if self.stage else None,

@@ -63,13 +63,13 @@ TLA3BNY_COMPETITION_STATUS = ("draft", "active", "finished")
 TLA3BNY_STAGE_TYPE = ("group", "league", "knockout")
 TLA3BNY_STAGE_TYPE_KNOCKOUT = "knockout"
 # Tla3bnyCompetitionTeam.status — a team's registration in a competition.
-TLA3BNY_ENTRY_STATUS = ("active", "withdrawn")
+TLA3BNY_ENTRY_STATUS = ("active", "withdrawn", "pending")
 # Tla3bnyCompetitionPlayer.status — per-competition roster approval by that
 # competition's admin.
 TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected")
 # Tla3bnyMatch.status
-TLA3BNY_MATCH_STATUS = ("scheduled", "live", "finished")
-TLA3BNY_MATCH_STATUS_FINISHED = "finished"
+TLA3BNY_MATCH_STATUS = ("scheduled", "live", "completed", "postponed", "cancelled", "finished")
+TLA3BNY_MATCH_STATUS_FINISHED = "completed"
 # The player registration papers required by default. A competition's admin sets
 # its own list (Tla3bnyCompetition.required_documents) and the super admin can
 # set a per-age list (Tla3bnyAgeCategory.required_documents); this is the

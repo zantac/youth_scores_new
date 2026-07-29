@@ -175,6 +175,10 @@ def _match_row(m: Match) -> dict:
         "away": {"id": m.away_team_id, "name": _team_name(m.away_team, comp_id)},
         "home_score": m.home_score,
         "away_score": m.away_score,
+        "stage_id": m.stage_id,
+        "group_id": m.group_id,
+        "stage_name": (m.stage.name_ar or m.stage.name_en) if m.stage else None,
+        "group_name": (m.group.name_ar or m.group.name_en) if m.group else None,
     }
 
 
@@ -221,11 +225,17 @@ def create_match(cid: int):
     if date_s and not dt:
         return jsonify({"error": "التاريخ غير صحيح"}), 400
 
-    stage = _default_stage(comp)
+    req_stage_id = j.get("stage_id")
+    if req_stage_id:
+        stage = Stage.query.filter_by(id=req_stage_id, competition_id=cid).first() or _default_stage(comp)
+    else:
+        stage = _default_stage(comp)
+    req_group_id = j.get("group_id") or None
     week = (j.get("week") or "").strip() or None
     note = (j.get("note") or "").strip()[:255] or None
     m = Match(
         stage_id=stage.id,
+        group_id=req_group_id,
         home_team_id=home_id, away_team_id=away_id,
         match_date=dt, week=week,
         round_label_ar=(j.get("round") or None), round_label_en=(j.get("round") or None),

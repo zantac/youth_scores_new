@@ -4,8 +4,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   tMatch, tMatchLineups, tUpdateMatch, tDeleteMatch, tEnterResult,
-  tCompTeams, tRoster,
-  type TMatch, type TLineup, type TMatchEvent, type TCompPlayer,
+  tCompTeams, tRoster, tCompetition,
+  type TMatch, type TLineup, type TMatchEvent, type TCompPlayer, type TCompAge,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import PitchView, { type SlotView } from '@/components/tla3bny/PitchView';
@@ -17,6 +17,11 @@ type EvType = TMatchEvent['event_type'];
 const EV_ICON: Record<string, string> = {
   goal: '⚽', assist: '🅰️', yellow: '🟨', red: '🟥',
   substitution_in: '🔺', substitution_out: '🔻',
+};
+const EV_LABEL_AR: Record<string, [string, string]> = {
+  goal: ['هدف', 'Goal'], assist: ['صناعة', 'Assist'],
+  yellow: ['بطاقة صفراء', 'Yellow card'], red: ['بطاقة حمراء', 'Red card'],
+  substitution_in: ['دخول', 'Sub in'], substitution_out: ['خروج', 'Sub out'],
 };
 
 const goals      = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'goal');
@@ -204,6 +209,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const [homeScore, setHomeScore] = useState(m.home_score != null ? String(m.home_score) : '');
   const [awayScore, setAwayScore] = useState(m.away_score != null ? String(m.away_score) : '');
   const [status, setStatus] = useState(m.status);
+  // Keep status in sync when the parent updates the match (e.g. after saving score).
+  useEffect(() => { setStatus(m.status); }, [m.status]);
 
   // Info state
   const [date, setDate] = useState(m.date ?? '');
@@ -211,6 +218,22 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const [round, setRound] = useState(m.round ?? '');
   const [venue, setVenue] = useState(m.venue ?? '');
   const [note, setNote] = useState(m.note ?? '');
+  const [stageId, setStageId] = useState(m.stage_id ? String(m.stage_id) : '');
+  const [groupId, setGroupId] = useState(m.group_id ? String(m.group_id) : '');
+  useEffect(() => {
+    setStageId(m.stage_id ? String(m.stage_id) : '');
+    setGroupId(m.group_id ? String(m.group_id) : '');
+  }, [m.stage_id, m.group_id]);
+
+  // Competition stages for stage/group editing
+  const [compAges, setCompAges] = useState<TCompAge[]>([]);
+  useEffect(() => {
+    tCompetition(m.competition_id).then(c => setCompAges(c.ages ?? [])).catch(() => {});
+  }, [m.competition_id]);
+  const matchCage = compAges.find(a => a.id === m.competition_age_id);
+  const matchStages = matchCage?.stages ?? [];
+  const matchSelectedStage = matchStages.find(s => s.id === Number(stageId));
+  const matchGroups = matchSelectedStage?.groups ?? [];
 
   // Events state (all in one array, sectioned in UI)
   const [events, setEvents] = useState<TMatchEvent[]>(m.events ?? []);
@@ -264,6 +287,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         date: date || undefined, time: time || undefined,
         venue: venue || undefined, round: round || undefined,
         status, note: note || undefined,
+        stage_id: stageId ? Number(stageId) : null,
+        group_id: groupId ? Number(groupId) : null,
       });
       onUpdate(updated); setInfoOk(true); setTimeout(() => setInfoOk(false), 1500);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -298,9 +323,11 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         </div>
         <Field label={tt('الحالة', 'Status')}>
           <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
-            <option value="scheduled">{tt('قادمة', 'Scheduled')}</option>
-            <option value="live">{tt('مباشر', 'Live')}</option>
-            <option value="finished">{tt('انتهت', 'Finished')}</option>
+            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
+            <option value="live">{tt('مباشرة', 'Live')}</option>
+            <option value="completed">{tt('انتهت', 'Completed')}</option>
+            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
+            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
           </select>
         </Field>
         <PrimaryButton onClick={saveResult} disabled={resultBusy} className="w-full">
@@ -315,6 +342,28 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           <Field label={tt('الوقت', 'Time')}><input type="time" value={time} onChange={e => setTime(e.target.value)} className={inputCls} /></Field>
           <Field label={tt('الجولة', 'Round')}><input value={round} onChange={e => setRound(e.target.value)} className={inputCls} /></Field>
           <Field label={tt('الملعب', 'Venue')}><input value={venue} onChange={e => setVenue(e.target.value)} className={inputCls} /></Field>
+          {matchStages.length > 0 && (
+            <Field label={tt('الدور', 'Stage')}>
+              <select value={stageId} onChange={e => { setStageId(e.target.value); setGroupId(''); }} className={inputCls}>
+                <option value="">— {tt('بدون دور', 'No stage')}</option>
+                {matchStages.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name || tt(({ league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب' } as Record<string,string>)[s.type] ?? s.type, s.type)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {matchGroups.length > 0 && (
+            <Field label={tt('المجموعة', 'Group')}>
+              <select value={groupId} onChange={e => setGroupId(e.target.value)} className={inputCls}>
+                <option value="">— {tt('بدون مجموعة', 'No group')}</option>
+                {matchGroups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name || `Group ${g.id}`}</option>
+                ))}
+              </select>
+            </Field>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <PrimaryButton onClick={saveInfo} disabled={infoBusy} className="text-sm">
@@ -342,13 +391,11 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       </Section>
 
       {/* 4. Goals */}
-      <EventSection
-        title={tt('الأهداف', 'Goals')}
-        icon="⚽"
+      <GoalSection
         events={events}
-        types={['goal', 'assist']}
         m={m}
         rosters={rosters}
+        lineups={lineups}
         onAdd={addEv}
         onRemove={removeEv}
         onSave={saveEvents}
@@ -365,6 +412,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         types={['yellow', 'red']}
         m={m}
         rosters={rosters}
+        lineups={lineups}
         onAdd={addEv}
         onRemove={removeEv}
         onSave={saveEvents}
@@ -381,6 +429,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         types={['substitution_in', 'substitution_out']}
         m={m}
         rosters={rosters}
+        lineups={lineups}
         onAdd={addEv}
         onRemove={removeEv}
         onSave={saveEvents}
@@ -450,10 +499,115 @@ function ScoreInput({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-function EventSection({ title, icon, events, types, m, rosters, onAdd, onRemove, onSave, saving, ok, tt }: {
+function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, saving, ok, tt }: {
+  events: TMatchEvent[]; m: TMatch; rosters: Record<number, TCompPlayer[]>; lineups: TLineup[];
+  onAdd: (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => void;
+  onRemove: (id: number) => void;
+  onSave: () => void; saving: boolean; ok: boolean;
+  tt: (ar: string, en: string) => string;
+}) {
+  const goalEvs  = events.filter(e => e.event_type === 'goal');
+  const assistEvs = events.filter(e => e.event_type === 'assist');
+
+  const [evTeam,   setEvTeam]   = useState(String(m.home_team_id));
+  const [evScorer, setEvScorer] = useState('');
+  const [evAssist, setEvAssist] = useState('');
+  const [evMinute, setEvMinute] = useState('');
+
+  const teamId = Number(evTeam);
+  const lineupSlots = lineups.find(l => l.team_id === teamId)?.slots.filter(s => s.player_id != null) ?? [];
+  const roster = lineupSlots.length > 0
+    ? lineupSlots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
+    : (rosters[teamId] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
+
+  const add = () => {
+    if (!evScorer) return;
+    const scorer   = roster.find(p => String(p.player_id) === evScorer);
+    const assister = evAssist ? roster.find(p => String(p.player_id) === evAssist) : null;
+    const minute   = evMinute ? Number(evMinute) : null;
+    onAdd({ event_type: 'goal', team_id: Number(evTeam),
+      player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute });
+    if (assister) {
+      onAdd({ event_type: 'assist', team_id: Number(evTeam),
+        player_id: assister.player_id, player_name: assister.player_name ?? '', minute });
+    }
+    setEvScorer(''); setEvAssist(''); setEvMinute('');
+  };
+
+  return (
+    <Card className="p-4 space-y-3">
+      <p className="font-black text-text text-sm border-b border-bdr/50 pb-2">⚽ {tt('الأهداف', 'Goals')}</p>
+
+      {goalEvs.length > 0 && (
+        <div className="space-y-1">
+          {goalEvs.map(g => {
+            const assist = assistEvs.find(a => a.team_id === g.team_id && a.minute === g.minute);
+            return (
+              <div key={g.id} className="bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">⚽</span>
+                  <span className="text-text text-xs flex-1 font-bold">{g.player_name}</span>
+                  <span className="text-[11px] text-hint tabular-nums">
+                    {g.team_id === m.home_team_id ? m.home_team_name?.slice(0, 10) : m.away_team_name?.slice(0, 10)}
+                    {g.minute != null && ` · ${g.minute}'`}
+                  </span>
+                  <button onClick={() => { onRemove(g.id); if (assist) onRemove(assist.id); }}
+                    className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+                </div>
+                {assist && (
+                  <p className="text-[11px] text-teal ps-7 mt-0.5">🅰️ {tt('صناعة', 'Assist')}: {assist.player_name}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={tt('الفريق', 'Team')}>
+            <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvScorer(''); setEvAssist(''); }} className={inputCls}>
+              <option value={m.home_team_id}>{m.home_team_name}</option>
+              <option value={m.away_team_id}>{m.away_team_name}</option>
+            </select>
+          </Field>
+          <Field label={tt('الدقيقة', 'Minute')}>
+            <input type="number" value={evMinute} onChange={e => setEvMinute(e.target.value)}
+              min={1} max={120} placeholder="45" className={inputCls} />
+          </Field>
+          <Field label={tt('صاحب الهدف', 'Goal scorer')}>
+            <select value={evScorer} onChange={e => setEvScorer(e.target.value)} className={inputCls}>
+              <option value="">—</option>
+              {roster.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+            </select>
+          </Field>
+          <Field label={tt('صانع الهدف', 'Assist')}>
+            <select value={evAssist} onChange={e => setEvAssist(e.target.value)} className={inputCls}>
+              <option value="">{tt('لا صناعة', 'None')}</option>
+              {roster.filter(p => String(p.player_id) !== evScorer).map(p =>
+                <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={add} disabled={!evScorer}
+            className="flex-1 border border-aqua/40 text-aqua text-xs font-bold rounded-lg py-2 hover:bg-aqua/10 disabled:opacity-40">
+            + {tt('إضافة الهدف', 'Add goal')}
+          </button>
+          <button onClick={onSave} disabled={saving}
+            className="flex-1 bg-aqua text-on-accent text-xs font-bold rounded-lg py-2 disabled:opacity-50">
+            {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ', 'Save')}
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, onRemove, onSave, saving, ok, tt }: {
   title: string; icon: string;
   events: TMatchEvent[]; types: EvType[];
-  m: TMatch; rosters: Record<number, TCompPlayer[]>;
+  m: TMatch; rosters: Record<number, TCompPlayer[]>; lineups: TLineup[];
   onAdd: (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => void;
   onRemove: (id: number) => void;
   onSave: () => void; saving: boolean; ok: boolean;
@@ -464,11 +618,15 @@ function EventSection({ title, icon, events, types, m, rosters, onAdd, onRemove,
   const [evTeam, setEvTeam] = useState(String(m.home_team_id));
   const [evPlayer, setEvPlayer] = useState('');
   const [evMinute, setEvMinute] = useState('');
-  const roster = rosters[Number(evTeam)] ?? [];
+  const teamId = Number(evTeam);
+  const lineupSlots = lineups.find(l => l.team_id === teamId)?.slots.filter(s => s.player_id != null) ?? [];
+  const roster = lineupSlots.length > 0
+    ? lineupSlots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
+    : (rosters[teamId] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
 
   const add = () => {
     if (!evPlayer) return;
-    const player = roster.find(p => p.player_name === evPlayer);
+    const player = roster.find(p => String(p.player_id) === evPlayer);
     onAdd({
       event_type: evType as EvType,
       team_id: Number(evTeam),
@@ -503,11 +661,14 @@ function EventSection({ title, icon, events, types, m, rosters, onAdd, onRemove,
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('النوع', 'Type')}>
             <select value={evType} onChange={e => setEvType(e.target.value)} className={inputCls}>
-              {types.map(t => <option key={t} value={t}>{EV_ICON[t]} {t.replace('_', ' ')}</option>)}
+              {types.map(t => {
+                const [ar, en] = EV_LABEL_AR[t] ?? [t, t];
+                return <option key={t} value={t}>{EV_ICON[t]} {tt(ar, en)}</option>;
+              })}
             </select>
           </Field>
           <Field label={tt('الفريق', 'Team')}>
-            <select value={evTeam} onChange={e => setEvTeam(e.target.value)} className={inputCls}>
+            <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvPlayer(''); }} className={inputCls}>
               <option value={m.home_team_id}>{m.home_team_name}</option>
               <option value={m.away_team_id}>{m.away_team_name}</option>
             </select>
@@ -515,7 +676,7 @@ function EventSection({ title, icon, events, types, m, rosters, onAdd, onRemove,
           <Field label={tt('اللاعب', 'Player')}>
             <select value={evPlayer} onChange={e => setEvPlayer(e.target.value)} className={inputCls}>
               <option value="">—</option>
-              {roster.map(p => <option key={p.player_id} value={p.player_name ?? ''}>{p.player_name}</option>)}
+              {roster.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
             </select>
           </Field>
           <Field label={tt("الدقيقة", "Minute")}>
@@ -621,8 +782,10 @@ function MatchContent() {
     return false;
   };
 
-  const finished = m.status === 'finished';
+  const finished = m.status === 'completed' || m.status === 'finished';
   const live = m.status === 'live';
+  const postponed = m.status === 'postponed';
+  const cancelled = m.status === 'cancelled';
   const hasScore = m.home_score != null && m.away_score != null;
   const evs = m.events ?? [];
   const context = [m.competition_name, m.age_category, m.stage_name, m.group_name].filter(Boolean).join(' · ');
@@ -673,8 +836,8 @@ function MatchContent() {
             ) : (
               <span className="text-aqua font-extrabold text-2xl tnum">{m.time || '--:--'}</span>
             )}
-            <span className={`mt-1 text-[11px] font-bold px-3 py-0.5 rounded-full ${live ? 'bg-loss/20 text-loss' : finished ? 'bg-win/15 text-win border border-win/30' : 'bg-cardBg2 text-hint'}`}>
-              {live ? tt('● مباشر', '● LIVE') : finished ? tt('انتهت', 'FT') : (m.date ?? tt('قادمة', 'TBD'))}
+            <span className={`mt-1 text-[11px] font-bold px-3 py-0.5 rounded-full ${live ? 'bg-loss/20 text-loss' : finished ? 'bg-win/15 text-win border border-win/30' : postponed ? 'bg-gold/15 text-gold' : cancelled ? 'bg-loss/15 text-loss' : 'bg-cardBg2 text-hint'}`}>
+              {live ? tt('● مباشرة', '● LIVE') : finished ? tt('انتهت', 'FT') : postponed ? tt('مؤجلة', 'Postponed') : cancelled ? tt('ملغاة', 'Cancelled') : (m.date ?? tt('مجدولة', 'TBD'))}
             </span>
           </div>
           <Link href={`/team?id=${m.away_team_id}`} className="flex flex-col items-center gap-2 group">

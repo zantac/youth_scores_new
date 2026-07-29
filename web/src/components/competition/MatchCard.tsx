@@ -43,6 +43,9 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
 
   return (
     <div onClick={onClick} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 mb-2 cursor-pointer transition-all hover:border-aqua/30 hover:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.6)] active:opacity-80">
+      {match.group && (
+        <p className="text-[11px] font-bold text-teal mb-2 truncate">{match.group}</p>
+      )}
       <div className="flex items-center gap-2">
         {/* Home */}
         <div className="flex-1 flex flex-col items-center gap-1">

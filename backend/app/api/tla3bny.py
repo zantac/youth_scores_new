@@ -16,6 +16,8 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 
+import sqlalchemy as sa
+
 from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
@@ -701,18 +703,21 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
 @tla3bny_bp.get("/teams/<int:team_id>/competition-entries")
 @auth.login_required
 def team_competition_entries(team_id: int):
-    """The competitions this team is registered in, with their player quota.
+    """The competitions this team is registered in (active + pending requests).
 
     Used by the academy dashboard to gate and display player registration.
     Only the owning academy / team login (or super admin) may call this.
     """
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
-    entries = Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active").all()
+    entries = Tla3bnyCompetitionTeam.query.filter(
+        Tla3bnyCompetitionTeam.team_id == team_id,
+        Tla3bnyCompetitionTeam.status.in_(("active", "pending")),
+    ).all()
     result = []
     for entry in entries:
         comp = entry.competition
-        cage = Tla3bnyCompetitionAge.query.filter_by(
+        cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
@@ -726,6 +731,9 @@ def team_competition_entries(team_id: int):
             "entry_id": entry.id,
             "competition_id": entry.competition_id,
             "competition_name": comp.name if comp else None,
+            "competition_age_id": entry.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "status": entry.status,
             "registration_open": comp.registration_open if comp else False,
             "max_players": cage.max_players_per_team if cage else None,
             "player_count": count,
@@ -739,6 +747,138 @@ def team_competition_entries(team_id: int):
             ],
         })
     return jsonify(result)
+
+
+@tla3bny_bp.get("/teams/<int:team_id>/joinable-competitions")
+@auth.login_required
+def joinable_competitions(team_id: int):
+    """All sub-competitions the team could request to join.
+
+    Returns every sub-competition whose age matches the team's age and the
+    team has not already joined (or requested). Includes closed competitions
+    so the academy can still send a request — the admin decides.
+    """
+    if not auth.can_manage_team(auth.current_user(), team_id):
+        return _forbid()
+    team = Tla3bnyTeam.query.get_or_404(team_id)
+    existing_comp_ids = {
+        e.competition_id
+        for e in Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id).all()
+    }
+    cages = (
+        Tla3bnyCompetitionAge.query
+        .join(Tla3bnyCompetitionAge.competition)
+        .filter(
+            Tla3bnyCompetitionAge.age_category_id == team.age_category_id,
+            Tla3bnyCompetition.id.notin_(existing_comp_ids),
+        )
+        .order_by(Tla3bnyCompetition.name)
+        .all()
+    )
+    return jsonify([
+        {
+            "competition_age_id": c.id,
+            "competition_id": c.competition_id,
+            "competition_name": c.competition.name if c.competition else None,
+            "registration_open": c.competition.registration_open if c.competition else False,
+            "sub_competition_name": c.name,
+            "age_category": c.age_category.label if c.age_category else None,
+            "player_registration_deadline": (
+                c.player_registration_deadline.isoformat()
+                if c.player_registration_deadline else None
+            ),
+        }
+        for c in cages
+    ])
+
+
+@tla3bny_bp.post("/teams/<int:team_id>/request-join")
+@auth.login_required
+def request_join_competition(team_id: int):
+    """Academy requests to join a specific sub-competition.
+
+    Creates a TCompetitionTeam with status='pending'. The competition admin
+    must approve before the team can register players.
+    """
+    if not auth.can_manage_team(auth.current_user(), team_id):
+        return _forbid()
+    team = Tla3bnyTeam.query.get_or_404(team_id)
+    data = request.get_json(silent=True) or {}
+    cage_id = _int(data.get("competition_age_id"))
+    if not cage_id:
+        return _err("competition_age_id is required")
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    comp = cage.competition
+    if not comp:
+        return _err("Competition not found", 404)
+    if cage.age_category_id != team.age_category_id:
+        return _err("Team age does not match sub-competition age", 409)
+    if Tla3bnyCompetitionTeam.query.filter_by(
+        competition_id=comp.id, team_id=team_id
+    ).first():
+        return _err("Team has already joined or requested to join this competition", 409)
+    entry = Tla3bnyCompetitionTeam(
+        competition_id=comp.id,
+        team_id=team_id,
+        age_category_id=team.age_category_id,
+        competition_age_id=cage_id,
+        status="pending",
+    )
+    db.session.add(entry)
+    db.session.commit()
+    return jsonify(entry.to_dict()), 201
+
+
+@tla3bny_bp.post("/competition-teams/<int:entry_id>/approve")
+@auth.login_required
+def approve_team_join(entry_id: int):
+    """Competition admin approves a pending team join request."""
+    entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
+    if not auth.is_competition_admin(auth.current_user(), entry.competition_id):
+        return _forbid()
+    if entry.status != "pending":
+        return _err("Entry is not pending", 409)
+    entry.status = "active"
+    db.session.flush()
+    # Auto-enqueue existing active players.
+    comp = entry.competition
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+        competition_id=entry.competition_id,
+        age_category_id=entry.age_category_id,
+    ).first()
+    if comp and comp.registration_open:
+        cap = cage.max_players_per_team if cage else None
+        count = 0
+        for mem in Tla3bnyPlayerTeam.query.filter_by(
+            team_id=entry.team_id, end_date=None, status="active"
+        ).all():
+            if cap is not None and count >= cap:
+                break
+            if not Tla3bnyCompetitionPlayer.query.filter_by(
+                competition_team_id=entry.id, player_id=mem.player_id
+            ).first():
+                db.session.add(Tla3bnyCompetitionPlayer(
+                    competition_team_id=entry.id,
+                    player_id=mem.player_id,
+                    status="pending",
+                ))
+                count += 1
+    db.session.commit()
+    return jsonify(entry.to_dict())
+
+
+@tla3bny_bp.post("/competition-teams/<int:entry_id>/reject")
+@auth.login_required
+def reject_team_join(entry_id: int):
+    """Competition admin rejects a pending team join request (deletes it)."""
+    entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
+    if not auth.is_competition_admin(auth.current_user(), entry.competition_id):
+        return _forbid()
+    if entry.status != "pending":
+        return _err("Entry is not pending", 409)
+    db.session.delete(entry)
+    db.session.commit()
+    return jsonify({"message": "rejected"})
 
 
 @tla3bny_bp.get("/teams/<int:team_id>/required-documents")
@@ -1351,9 +1491,15 @@ def competition_dashboard(comp_id: int):
         Tla3bnyMatch, Tla3bnyMatchEvent.match_id == Tla3bnyMatch.id
     ).filter(Tla3bnyMatch.competition_id == comp_id).count()
 
-    # Per-age breakdown.
+    # Per-sub-competition breakdown, sorted by age_category year.
+    def _sort_key(c):
+        try:
+            return int(c.age_category.label) if c.age_category else 0
+        except (ValueError, TypeError):
+            return 0
+
     ages_data = []
-    for cage in comp.ages:
+    for cage in sorted(comp.ages, key=_sort_key):
         age_entry_ids = [e.id for e in entries if e.age_category_id == cage.age_category_id]
         age_pending = Tla3bnyCompetitionPlayer.query.filter(
             Tla3bnyCompetitionPlayer.competition_team_id.in_(age_entry_ids),
@@ -1367,7 +1513,9 @@ def competition_dashboard(comp_id: int):
             competition_id=comp_id, age_category_id=cage.age_category_id
         )
         ages_data.append({
+            "competition_age_id": cage.id,
             "age_category": cage.age_category.label if cage.age_category else None,
+            "name": cage.name,
             "teams": len(age_entry_ids),
             "players_approved": age_approved,
             "players_pending": age_pending,
@@ -1403,6 +1551,85 @@ def competition_dashboard(comp_id: int):
         "ages": ages_data,
         "pending_teams": pending_teams,
     })
+
+
+@tla3bny_bp.post("/competitions/<int:comp_id>/clone")
+@auth.super_admin_required
+def clone_competition(comp_id: int):
+    """Clone a competition into a different season.
+
+    Copies the competition's text fields, sub-competitions (ages), stages, and
+    groups into a fresh competition linked to the given season. Teams, players,
+    matches, admins, and news are NOT copied — the new season starts blank.
+    """
+    source = Tla3bnyCompetition.query.get_or_404(comp_id)
+    data = request.get_json(silent=True) or {}
+    season_id = _int(data.get("season_id"))
+    if not season_id:
+        return _err("season_id is required")
+    target_season = Tla3bnySeason.query.get(season_id)
+    if not target_season:
+        return _err("Season not found", 404)
+
+    new_comp = Tla3bnyCompetition(
+        season_id=season_id,
+        name=source.name,
+        description=source.description,
+        logo_path=source.logo_path,
+        location=source.location,
+        start_date=None,
+        end_date=None,
+        status="draft",
+        required_documents=list(source.required_documents) if source.required_documents else None,
+        info=source.info,
+        organizer_name=source.organizer_name,
+        contact_phone=source.contact_phone,
+        whatsapp_number=source.whatsapp_number,
+        whatsapp_group_url=source.whatsapp_group_url,
+        facebook_url=source.facebook_url,
+        location_url=source.location_url,
+        registration_open=False,
+    )
+    db.session.add(new_comp)
+    db.session.flush()
+
+    for age in source.ages:
+        new_age = Tla3bnyCompetitionAge(
+            competition_id=new_comp.id,
+            age_category_id=age.age_category_id,
+            name=age.name,
+            player_registration_deadline=None,
+            max_players_per_team=age.max_players_per_team,
+            lineup_size=age.lineup_size,
+            players_on_pitch=age.players_on_pitch,
+            max_substitutes=age.max_substitutes,
+            num_periods=age.num_periods,
+            period_minutes=age.period_minutes,
+            lineup_deadline_minutes=age.lineup_deadline_minutes,
+            required_documents=list(age.required_documents) if age.required_documents else None,
+        )
+        db.session.add(new_age)
+        db.session.flush()
+
+        for stage in age.stages:
+            new_stage = Tla3bnyStage(
+                competition_age_id=new_age.id,
+                name=stage.name,
+                stage_order=stage.stage_order,
+                type=stage.type,
+                carries_points=stage.carries_points,
+            )
+            db.session.add(new_stage)
+            db.session.flush()
+
+            for group in stage.groups:
+                db.session.add(Tla3bnyGroup(
+                    stage_id=new_stage.id,
+                    name=group.name,
+                ))
+
+    db.session.commit()
+    return jsonify(new_comp.to_dict(with_ages=True)), 201
 
 
 @tla3bny_bp.post("/competitions")
@@ -1564,11 +1791,12 @@ def add_competition_age(comp_id: int):
     age_id = _int(data.get("age_category_id"))
     if not age_id or not Tla3bnyAgeCategory.query.get(age_id):
         return _err("valid age_category_id is required")
-    if Tla3bnyCompetitionAge.query.filter_by(
-        competition_id=comp_id, age_category_id=age_id
-    ).first():
-        return _err("Age already added to this competition", 409)
-    cage = Tla3bnyCompetitionAge(competition_id=comp_id, age_category_id=age_id)
+    cage = Tla3bnyCompetitionAge(
+        competition_id=comp_id,
+        age_category_id=age_id,
+        name=(data.get("name") or "").strip() or None,
+        player_registration_deadline=_parse_date(data.get("player_registration_deadline")),
+    )
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
@@ -1586,6 +1814,10 @@ def update_competition_age(cage_id: int):
     if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
         return _forbid()
     data = request.get_json(silent=True) or {}
+    if "name" in data:
+        cage.name = (data.get("name") or "").strip() or None
+    if "player_registration_deadline" in data:
+        cage.player_registration_deadline = _parse_date(data.get("player_registration_deadline"))
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
@@ -1680,12 +1912,17 @@ def add_group(stage_id: int):
     return jsonify(g.to_dict()), 201
 
 
-@tla3bny_bp.delete("/groups/<int:group_id>")
+@tla3bny_bp.route("/groups/<int:group_id>", methods=["PUT", "DELETE"])
 @auth.login_required
-def delete_group(group_id: int):
+def group_endpoint(group_id: int):
     g = Tla3bnyGroup.query.get_or_404(group_id)
     if not auth.is_competition_admin(auth.current_user(), _stage_comp_id(g.stage)):
         return _forbid()
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        g.name = (data.get("name") or "").strip() or None
+        db.session.commit()
+        return jsonify(g.to_dict())
     db.session.delete(g)
     db.session.commit()
     return jsonify({"message": "deleted"})
@@ -1718,20 +1955,100 @@ def remove_group_team(group_id: int, team_id: int):
     return jsonify({"message": "removed"})
 
 
+@tla3bny_bp.post("/stages/<int:stage_id>/teams")
+@auth.login_required
+def add_stage_team(stage_id: int):
+    """Add a team directly to a knockout stage.
+
+    Uses an auto-created unnamed pool group so the data model stays consistent.
+    Only the competition admin may call this.
+    """
+    stage = Tla3bnyStage.query.get_or_404(stage_id)
+    if not auth.is_competition_admin(auth.current_user(), _stage_comp_id(stage)):
+        return _forbid()
+    team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
+    if not team_id or not Tla3bnyTeam.query.get(team_id):
+        return _err("valid team_id is required")
+    # Reject duplicate (team already in any group of this stage).
+    for g in stage.groups:
+        if Tla3bnyGroupTeam.query.filter_by(group_id=g.id, team_id=team_id).first():
+            return _err("Team is already in this stage", 409)
+    # Find or auto-create the single pool group for this stage.
+    pool = stage.groups[0] if stage.groups else None
+    if pool is None:
+        pool = Tla3bnyGroup(stage_id=stage_id, name=None)
+        db.session.add(pool)
+        db.session.flush()
+    db.session.add(Tla3bnyGroupTeam(group_id=pool.id, team_id=team_id))
+    db.session.commit()
+    return jsonify({"team_id": team_id, "group_id": pool.id}), 201
+
+
+@tla3bny_bp.delete("/stages/<int:stage_id>/teams/<int:team_id>")
+@auth.login_required
+def remove_stage_team(stage_id: int, team_id: int):
+    """Remove a team from a knockout stage (across all pool groups)."""
+    stage = Tla3bnyStage.query.get_or_404(stage_id)
+    if not auth.is_competition_admin(auth.current_user(), _stage_comp_id(stage)):
+        return _forbid()
+    removed = False
+    for g in stage.groups:
+        gt = Tla3bnyGroupTeam.query.filter_by(group_id=g.id, team_id=team_id).first()
+        if gt:
+            db.session.delete(gt)
+            removed = True
+    if not removed:
+        return _err("Team not found in this stage", 404)
+    db.session.commit()
+    return jsonify({"message": "removed"})
+
+
 # ── competition registration + roster approval ───────────────────────────────
 @tla3bny_bp.get("/competitions/<int:comp_id>/teams")
 def list_competition_teams(comp_id: int):
+    is_admin = auth.is_competition_admin(auth.current_user(), comp_id)
     q = Tla3bnyCompetitionTeam.query.filter_by(competition_id=comp_id)
+    if not is_admin:
+        # Public view: only active teams.
+        q = q.filter_by(status="active")
     age_id = request.args.get("age_category_id", type=int)
     if age_id:
         q = q.filter_by(age_category_id=age_id)
+    cage_id = request.args.get("competition_age_id", type=int)
+    cage: "Tla3bnyCompetitionAge | None" = None
+    if cage_id:
+        cage = Tla3bnyCompetitionAge.query.get(cage_id)
+        if cage:
+            # Include teams explicitly in this sub-comp, or (for legacy rows that
+            # pre-date competition_age_id) teams with no sub-comp assigned whose
+            # age matches this sub-comp's age.
+            q = q.filter(
+                sa.or_(
+                    Tla3bnyCompetitionTeam.competition_age_id == cage_id,
+                    sa.and_(
+                        Tla3bnyCompetitionTeam.competition_age_id.is_(None),
+                        Tla3bnyCompetitionTeam.age_category_id == cage.age_category_id,
+                    ),
+                )
+            )
+        else:
+            q = q.filter_by(competition_age_id=cage_id)
     entries = q.all()
+    # Back-fill competition_age_id on any legacy rows (NULL) so that
+    # subsequent filtered queries work without the OR fallback.
+    if cage_id and cage:
+        dirty = False
+        for entry in entries:
+            if entry.competition_age_id is None:
+                entry.competition_age_id = cage_id
+                dirty = True
+        if dirty:
+            db.session.commit()
     with_roster = request.args.get("roster") == "1"
     # Papers are for this competition's admin panel only, never the public list.
-    with_files = auth.is_competition_admin(auth.current_user(), comp_id)
     return jsonify(
         [
-            e.to_dict(with_roster=with_roster, with_files=with_files)
+            e.to_dict(with_roster=with_roster, with_files=is_admin)
             for e in entries
         ]
     )
@@ -1744,21 +2061,35 @@ def register_team(comp_id: int):
     if not auth.is_competition_admin(auth.current_user(), comp_id):
         return _forbid()
     comp = Tla3bnyCompetition.query.get_or_404(comp_id)
-    team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
+    data = request.get_json(silent=True) or {}
+    team_id = _int(data.get("team_id"))
     team = Tla3bnyTeam.query.get(team_id) if team_id else None
     if team is None:
         return _err("valid team_id is required")
-    cage = Tla3bnyCompetitionAge.query.filter_by(
-        competition_id=comp_id, age_category_id=team.age_category_id
-    ).first()
-    if not cage:
-        return _err("This competition does not run the team's age", 409)
+    # Accept an explicit sub-competition; fall back to first matching age.
+    cage_id = _int(data.get("competition_age_id"))
+    if cage_id:
+        cage = Tla3bnyCompetitionAge.query.filter_by(
+            id=cage_id, competition_id=comp_id
+        ).first()
+        if not cage:
+            return _err("Sub-competition not found", 404)
+        if cage.age_category_id != team.age_category_id:
+            return _err("Team age does not match sub-competition age", 409)
+    else:
+        cage = Tla3bnyCompetitionAge.query.filter_by(
+            competition_id=comp_id, age_category_id=team.age_category_id
+        ).first()
+        if not cage:
+            return _err("This competition does not run the team's age", 409)
     if Tla3bnyCompetitionTeam.query.filter_by(
         competition_id=comp_id, team_id=team_id
     ).first():
         return _err("Team already registered", 409)
     entry = Tla3bnyCompetitionTeam(
-        competition_id=comp_id, team_id=team_id, age_category_id=team.age_category_id
+        competition_id=comp_id, team_id=team_id,
+        age_category_id=team.age_category_id,
+        competition_age_id=cage.id,
     )
     db.session.add(entry)
     db.session.flush()  # get entry.id before auto-enqueue
@@ -1882,7 +2213,7 @@ def reject_roster_player(cp_id: int):
 @tla3bny_bp.get("/matches")
 def list_matches():
     q = Tla3bnyMatch.query
-    for field in ("competition_id", "age_category_id", "stage_id", "group_id"):
+    for field in ("competition_id", "age_category_id", "competition_age_id", "stage_id", "group_id"):
         val = request.args.get(field, type=int)
         if val:
             q = q.filter(getattr(Tla3bnyMatch, field) == val)
@@ -1953,7 +2284,10 @@ def create_match():
     if not comp_id or not auth.is_competition_admin(auth.current_user(), comp_id):
         return _forbid()
     Tla3bnyCompetition.query.get_or_404(comp_id)
-    age_id = _int(data.get("age_category_id"))
+    # Prefer competition_age_id; derive age_category_id from the sub-competition.
+    cage_id = _int(data.get("competition_age_id"))
+    cage = Tla3bnyCompetitionAge.query.get(cage_id) if cage_id else None
+    age_id = cage.age_category_id if cage else _int(data.get("age_category_id"))
     home_id = _int(data.get("home_team_id"))
     away_id = _int(data.get("away_team_id"))
     err = _validate_match_teams(comp_id, age_id, home_id, away_id)
@@ -1962,6 +2296,7 @@ def create_match():
     match = Tla3bnyMatch(
         competition_id=comp_id,
         age_category_id=age_id,
+        competition_age_id=cage_id,
         stage_id=_int(data.get("stage_id")),
         group_id=_int(data.get("group_id")),
         home_team_id=home_id,
@@ -2057,12 +2392,114 @@ def enter_result(match_id: int):
             )
         )
 
-    match.status = "finished"
+    if match.status not in ("live",):
+        match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
     db.session.commit()
     return jsonify(match.to_dict(include_events=True))
 
 
 # ── lineups ──────────────────────────────────────────────────────────────────
+
+def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
+    """Players a coach may include in the lineup for this match.
+
+    Primary roster: all players approved for this competition entry.
+    Guest players: active members of any other team at the same academy
+      whose birth year is >= the competition age's oldest_birth_year (younger
+      players playing up is allowed; older players playing down is not).
+    """
+    team = Tla3bnyTeam.query.get_or_404(team_id)
+    academy_id = team.academy_id
+
+    # Oldest birth year allowed by this competition's age category.
+    oldest_birth_year: int | None = (
+        match.age_category.oldest_birth_year if match.age_category else None
+    )
+
+    # Primary: approved competition players.
+    entry = Tla3bnyCompetitionTeam.query.filter_by(
+        competition_id=match.competition_id, team_id=team_id
+    ).first()
+    approved_cp = (
+        Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="approved"
+        ).all()
+        if entry
+        else []
+    )
+    seen: set[int] = set()
+    result = []
+    for cp in approved_cp:
+        p = cp.player
+        if not p or cp.player_id in seen:
+            continue
+        seen.add(cp.player_id)
+        result.append({
+            "player_id": cp.player_id,
+            "player_name": p.name,
+            "photo_path": p.photo_path,
+            "position": p.position,
+            "dob": p.dob.isoformat() if p.dob else None,
+            "status": "approved",
+            "rejection_reason": None,
+            "guest": False,
+            "guest_team": None,
+        })
+
+    # Guests: players from younger teams at the same academy.
+    # A team is "younger" if its age category's oldest_birth_year >= the match's
+    # oldest_birth_year (higher birth year = more recently born = younger).
+    # Individual DOB is used as a secondary check when the team's category is
+    # older or unknown — this handles mixed-age squads.
+    academy_teams = Tla3bnyTeam.query.filter(
+        Tla3bnyTeam.academy_id == academy_id,
+        Tla3bnyTeam.id != team_id,
+    ).all()
+    for other_team in academy_teams:
+        team_birth_year: int | None = (
+            other_team.age_category.oldest_birth_year
+            if other_team.age_category else None
+        )
+        # If the team's own age category is already younger, all its active
+        # members are eligible regardless of individual DOB.
+        team_is_younger = (
+            oldest_birth_year is None
+            or (team_birth_year is not None and team_birth_year >= oldest_birth_year)
+        )
+        for mem in Tla3bnyPlayerTeam.query.filter_by(
+            team_id=other_team.id, end_date=None, status="active"
+        ).all():
+            p = mem.player
+            if not p or p.id in seen:
+                continue
+            # Eligibility: team category qualifies, OR individual DOB qualifies.
+            if not team_is_younger:
+                if oldest_birth_year is None:
+                    pass  # no restriction
+                elif not p.dob or p.dob.year < oldest_birth_year:
+                    continue  # too old
+            seen.add(p.id)
+            result.append({
+                "player_id": p.id,
+                "player_name": p.name,
+                "photo_path": p.photo_path,
+                "position": p.position,
+                "dob": p.dob.isoformat() if p.dob else None,
+                "status": "approved",
+                "rejection_reason": None,
+                "guest": True,
+                "guest_team": other_team.display_name(),
+            })
+
+    return result
+
+
+@tla3bny_bp.get("/lineups/match/<int:match_id>/team/<int:team_id>/eligible-players")
+def eligible_lineup_players(match_id: int, team_id: int):
+    match = Tla3bnyMatch.query.get_or_404(match_id)
+    return jsonify(_lineup_eligible_players(match, team_id))
+
+
 @tla3bny_bp.get("/lineups/match/<int:match_id>")
 def get_match_lineups(match_id: int):
     lineups = Tla3bnyLineup.query.filter_by(match_id=match_id).all()
@@ -2101,22 +2538,13 @@ def save_lineup(match_id: int, team_id: int):
         if len(slots) > rules.lineup_size:
             return _err(f"Lineup too large (max {rules.lineup_size})", 409)
 
-    # Players must be approved on this team's roster for this competition.
-    entry = Tla3bnyCompetitionTeam.query.filter_by(
-        competition_id=match.competition_id, team_id=team_id
-    ).first()
-    approved_ids = set()
-    if entry:
-        approved_ids = {
-            cp.player_id
-            for cp in Tla3bnyCompetitionPlayer.query.filter_by(
-                competition_team_id=entry.id, status="approved"
-            ).all()
-        }
+    # Each player must be eligible: either approved on this team's competition
+    # roster, or a younger guest from the same academy.
+    eligible = {p["player_id"] for p in _lineup_eligible_players(match, team_id)}
     for s in slots:
         pid = _int(s.get("player_id"))
-        if pid and pid not in approved_ids:
-            return _err("Lineup contains a player not approved for this competition", 409)
+        if pid and pid not in eligible:
+            return _err("Lineup contains a player not eligible for this competition", 409)
 
     lineup = Tla3bnyLineup.query.filter_by(match_id=match_id, team_id=team_id).first()
     if not lineup:

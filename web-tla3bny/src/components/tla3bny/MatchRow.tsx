@@ -14,8 +14,10 @@ import { LogoAvatar, useTT } from './kit';
 export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?: boolean }) {
   const { locale } = useApp();
   const tt = useTT();
-  const finished = m.status === 'finished';
+  const finished = m.status === 'completed' || m.status === 'finished';
   const live = m.status === 'live';
+  const postponed = m.status === 'postponed';
+  const cancelled = m.status === 'cancelled';
   const hasScore = m.home_score != null && m.away_score != null;
 
   const homeWon = finished && hasScore && m.home_score! > m.away_score!;
@@ -24,12 +26,12 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
   // Recomputed every minute so a card left on screen keeps counting down.
   const [countdown, setCountdown] = useState<string | null>(null);
   useEffect(() => {
-    if (finished || live) return;
+    if (finished || live || postponed || cancelled) return;
     const update = () => setCountdown(countdownLabel(m.date ?? '', m.time ?? '', locale));
     update();
     const id = setInterval(update, 60_000);
     return () => clearInterval(id);
-  }, [finished, live, m.date, m.time, locale]);
+  }, [finished, live, postponed, cancelled, m.date, m.time, locale]);
 
   const context = [m.age_category, showComp ? m.competition_name : null, m.stage_name, m.group_name]
     .filter(Boolean).join(' · ');
@@ -62,7 +64,7 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
               </div>
               {live
                 ? <span className="text-loss text-[10px] font-extrabold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-loss animate-pulse" />{tt('مباشر', 'LIVE')}
+                    <span className="w-1.5 h-1.5 rounded-full bg-loss animate-pulse" />{tt('مباشرة', 'LIVE')}
                   </span>
                 : <span className="text-hint text-[9px]">{tt('انتهت', 'FT')}</span>}
               <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
@@ -71,8 +73,18 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
             <>
               <div className="bg-loss/20 border border-loss rounded-lg px-2 py-1 flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-loss animate-pulse" />
-                <span className="text-loss font-bold text-sm tnum">{m.time || tt('مباشر', 'LIVE')}</span>
+                <span className="text-loss font-bold text-sm tnum">{m.time || tt('مباشرة', 'LIVE')}</span>
               </div>
+              <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
+            </>
+          ) : postponed ? (
+            <>
+              <span className="text-gold font-bold text-xs">{tt('مؤجلة', 'Postponed')}</span>
+              <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
+            </>
+          ) : cancelled ? (
+            <>
+              <span className="text-loss font-bold text-xs">{tt('ملغاة', 'Cancelled')}</span>
               <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
             </>
           ) : (

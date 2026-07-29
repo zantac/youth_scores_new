@@ -78,6 +78,8 @@ export interface EntryMatchRow {
   id: number; date: string; time: string; week: string; status: string;
   home: { id: number; name: Loc }; away: { id: number; name: Loc };
   home_score: number | null; away_score: number | null;
+  stage_id: number | null; group_id: number | null;
+  stage_name: string | null; group_name: string | null;
 }
 export interface EntryGoal { id: number; team_id: number; side: string; scorer: string; assist: string | null; minute: number | null; is_own_goal: boolean; is_penalty: boolean; }
 export interface EntryCard { id: number; team_id: number; side: string; player: string; card_type: string; minute: number | null; }

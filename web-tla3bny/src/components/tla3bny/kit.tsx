@@ -45,7 +45,10 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: 'text-loss bg-loss/10 border-loss/30',
   scheduled: 'text-teal bg-cardBg2 border-bdr',
   live: 'text-loss bg-loss/10 border-loss/30',
+  completed: 'text-hint bg-cardBg2 border-bdr',
   finished: 'text-hint bg-cardBg2 border-bdr',
+  postponed: 'text-gold bg-gold/10 border-gold/30',
+  cancelled: 'text-loss bg-loss/10 border-loss/30',
 };
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {

@@ -10,7 +10,7 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
-import { formatMatchDate } from '@/lib/utils';
+import { formatMatchDate, sortAges, subCompLabel } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
@@ -26,7 +26,7 @@ function CompetitionsContent() {
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [comps, setComps] = useState<TCompetition[]>([]);
   const [comp, setComp] = useState<TCompetition | null>(null);
-  const [ageId, setAgeId] = useState<number | null>(null);
+  const [cageId, setCageId] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('standings');
   const [loading, setLoading] = useState(true);
 
@@ -47,7 +47,7 @@ function CompetitionsContent() {
   const openComp = useCallback((id: number) => {
     tCompetition(id).then(c => {
       setComp(c);
-      setAgeId(c.ages?.[0]?.age_category_id ?? null);
+      setCageId(sortAges(c.ages ?? [])[0]?.id ?? null);
       setTab('standings');
     });
   }, []);
@@ -72,13 +72,13 @@ function CompetitionsContent() {
           </div>
         </Card>
 
-        {/* age tabs */}
+        {/* sub-competition tabs — sorted by birth year */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {(comp.ages ?? []).map(a => (
-            <button key={a.id} onClick={() => setAgeId(a.age_category_id)}
+          {sortAges(comp.ages ?? []).map(a => (
+            <button key={a.id} onClick={() => setCageId(a.id)}
               className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border transition-colors ${
-                ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
-              {a.age_category}
+                cageId === a.id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+              {subCompLabel(a)}
             </button>
           ))}
         </div>
@@ -100,9 +100,9 @@ function CompetitionsContent() {
             they do not wait on an age being picked. */}
         {tab === 'info' ? <CompetitionInfo comp={comp} />
           : tab === 'news' ? <NewsList compId={comp.id} />
-          : ageId == null
+          : cageId == null
             ? <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
-            : <TabBody comp={comp} ageId={ageId} tab={tab} />}
+            : <TabBody comp={comp} cageId={cageId} tab={tab} />}
       </div>
     );
   }
@@ -132,7 +132,7 @@ function CompetitionsContent() {
                 <LogoAvatar src={c.logo_path} name={c.name} size={44} />
                 <div className="min-w-0">
                   <div className="font-bold text-text truncate">{c.name}</div>
-                  <div className="text-[11px] text-hint">{(c.ages ?? []).map(a => a.age_category).join(' · ')}</div>
+                  <div className="text-[11px] text-hint">{sortAges(c.ages ?? []).map(subCompLabel).join(' · ')}</div>
                 </div>
               </Card>
             </button>
@@ -143,9 +143,11 @@ function CompetitionsContent() {
   );
 }
 
-function TabBody({ comp, ageId, tab }: { comp: TCompetition; ageId: number; tab: Tab }) {
+function TabBody({ comp, cageId, tab }: { comp: TCompetition; cageId: number; tab: Tab }) {
+  const cage = (comp.ages ?? []).find(a => a.id === cageId);
+  const ageId = cage?.age_category_id ?? 0;
   if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} />;
-  if (tab === 'matches') return <MatchesTab compId={comp.id} ageId={ageId} />;
+  if (tab === 'matches') return <MatchesTab compId={comp.id} cageId={cageId} />;
   if (tab === 'stats') return <StatsTab compId={comp.id} ageId={ageId} />;
   return <BracketTab compId={comp.id} ageId={ageId} />;
 }
@@ -170,11 +172,11 @@ function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
 }
 
 /** Matches grouped by date, newest block first — the youthscores match list. */
-function MatchesTab({ compId, ageId }: { compId: number; ageId: number }) {
+function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
   const tt = useTT();
   const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
-  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, age_category_id: ageId }).then(setMatches).catch(() => setMatches([])); }, [compId, ageId]);
+  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
   if (!matches) return <Spinner />;
   if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
 
@@ -263,7 +265,7 @@ function StatsTab({ compId, ageId }: { compId: number; ageId: number }) {
   }, [compId, ageId]);
   if (!a || !matches) return <Spinner />;
 
-  const played = matches.filter(m => m.status === 'finished');
+  const played = matches.filter(m => m.status === 'completed' || m.status === 'finished');
   const goals = played.reduce((sum, m) => sum + (m.home_score ?? 0) + (m.away_score ?? 0), 0);
   const avg = played.length ? (goals / played.length).toFixed(1) : '0.0';
   const cards = a.yellow_cards.reduce((s, r) => s + r.count, 0) + a.red_cards.reduce((s, r) => s + r.count, 0);

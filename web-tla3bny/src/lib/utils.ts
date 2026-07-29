@@ -34,6 +34,20 @@ export function countdownLabel(date: string, time: string, locale: string): stri
   } catch { return null; }
 }
 
+/** Sort sub-competitions by age_category year ascending (2013 → 2014 → 2015). */
+export function sortAges<T extends { age_category?: string | null }>(ages: T[]): T[] {
+  return [...ages].sort((a, b) => {
+    const ya = parseInt(a.age_category ?? '0', 10) || 0;
+    const yb = parseInt(b.age_category ?? '0', 10) || 0;
+    return ya - yb;
+  });
+}
+
+/** Display label for a sub-competition: "Class A · 2014" if named, or "2014". */
+export function subCompLabel(a: { name?: string | null; age_category?: string | null }): string {
+  return a.name ? `${a.name} · ${a.age_category}` : (a.age_category ?? '—');
+}
+
 export function formatMatchDate(dateStr: string, locale: string): string {
   if (!dateStr) return locale === 'ar' ? 'غير محدد' : 'TBD';
   try {

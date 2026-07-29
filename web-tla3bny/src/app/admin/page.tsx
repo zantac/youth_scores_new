@@ -6,11 +6,12 @@ import {
   tStats, tSeasons, tCreateSeason, tUpdateSeason, tDeleteSeason,
   tCategories, tCreateCategory, tUpdateCategory, tDeleteCategory,
   tManageAcademies, tRestoreAcademy, tSuspendAcademy, tSetAcademyAccount,
-  tCompetitions, tCompetition, tCreateCompetition, tDeleteCompetition, tAddCompAdmin, tRemoveCompAdmin,
+  tCompetitions, tCompetition, tCreateCompetition, tDeleteCompetition, tCloneCompetition, tAddCompAdmin, tRemoveCompAdmin,
   tMatches,
   type TStats, type TSeason, type TCategory, type TAcademy, type TCompetition, type TMatch,
 } from '@/lib/tla3bnyApi';
 import MatchRow from '@/components/tla3bny/MatchRow';
+import { subCompLabel } from '@/lib/utils';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
@@ -283,31 +284,23 @@ function MatchesAdmin({ token }: { token: string }) {
         </Field>
       </div>
 
-      {ages.length > 1 && (
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <button onClick={() => setAgeId(null)}
-            className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${!ageId ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
-            {tt('الكل', 'All')}
-          </button>
-          {ages.map(a => (
-            <button key={a.id} onClick={() => setAgeId(a.age_category_id)}
-              className={`px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border ${ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
-              {a.age_category}
-            </button>
-          ))}
-        </div>
-      )}
-
       {compId && (
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {(['', 'scheduled', 'live', 'finished'] as const).map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap border ${statusFilter === s ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
-              {tt({ '': 'الكل', scheduled: 'قادمة', live: 'مباشر', finished: 'منتهية' }[s],
-                  { '': 'All', scheduled: 'Upcoming', live: 'Live', finished: 'Finished' }[s])}
-            </button>
-          ))}
-          <span className="text-hint text-xs tabular-nums ms-auto shrink-0">{shown.length} {tt('مباراة', 'matches')}</span>
+        <div className="grid grid-cols-2 gap-2">
+          {ages.length > 1 && (
+            <select value={ageId ?? ''} onChange={e => setAgeId(Number(e.target.value) || null)} className={inputCls + ' text-sm'}>
+              <option value="">{tt('كل الفئات', 'All ages')}</option>
+              {ages.map(a => <option key={a.id} value={a.age_category_id}>{subCompLabel(a)}</option>)}
+            </select>
+          )}
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className={inputCls + ' text-sm'}>
+            <option value="">{tt('كل الحالات', 'All statuses')}</option>
+            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
+            <option value="live">{tt('مباشرة', 'Live')}</option>
+            <option value="completed">{tt('انتهت', 'Completed')}</option>
+            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
+            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
+          </select>
+          <span className="col-span-2 text-hint text-xs tabular-nums text-end">{shown.length} {tt('مباراة', 'matches')}</span>
         </div>
       )}
 
@@ -672,9 +665,18 @@ function Competitions({ token }: { token: string }) {
   const tt = useTT();
   const [seasons, setSeasons] = useState<TSeason[]>([]);
   const [items, setItems] = useState<TCompetition[]>([]);
+  const [filterSeason, setFilterSeason] = useState('');
   const [f, setF] = useState({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS });
   const reload = useCallback(() => { tCompetitions(undefined, token).then(setItems).catch(() => setItems([])); }, [token]);
-  useEffect(() => { tSeasons().then(setSeasons); reload(); }, [reload]);
+  useEffect(() => {
+    tSeasons().then(ss => {
+      setSeasons(ss);
+      // Default filter to the active season.
+      const active = ss.find(s => s.is_active);
+      if (active) setFilterSeason(String(active.id));
+    });
+    reload();
+  }, [reload]);
   const create = async () => {
     if (!f.season_id || !f.name) return;
     await tCreateCompetition(
@@ -684,9 +686,25 @@ function Competitions({ token }: { token: string }) {
     );
     setF({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS }); reload();
   };
+  const visible = filterSeason ? items.filter(c => String(c.season_id) === filterSeason) : items;
   return (
     <div className="space-y-2">
-      {items.map(c => <CompRow key={c.id} c={c} token={token} reload={reload} />)}
+      {/* Season filter */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-bold text-teal shrink-0">{tt('الموسم', 'Season')}</label>
+        <select value={filterSeason} onChange={e => setFilterSeason(e.target.value)} className={inputCls + ' text-sm flex-1'}>
+          <option value="">{tt('كل المواسم', 'All seasons')}</option>
+          {seasons.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.name}{s.is_active ? tt(' (الحالي)', ' (active)') : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+      {visible.length === 0 && items.length > 0 && (
+        <p className="text-hint text-sm text-center py-2">{tt('لا بطولات في هذا الموسم', 'No competitions in this season')}</p>
+      )}
+      {visible.map(c => <CompRow key={c.id} c={c} token={token} seasons={seasons} reload={reload} />)}
       <Card className="p-3 space-y-2">
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('الموسم', 'Season')}>
@@ -711,12 +729,19 @@ function Competitions({ token }: { token: string }) {
   );
 }
 
-function CompRow({ c, token, reload }: { c: TCompetition; token: string; reload: () => void }) {
+function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string; seasons: TSeason[]; reload: () => void }) {
   const tt = useTT();
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSeason, setCloneSeason] = useState('');
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneMsg, setCloneMsg] = useState<string | null>(null);
   const [af, setAf] = useState({ username: '', password: '', name: '' });
   const [msg, setMsg] = useState<string | null>(null);
+
+  const otherSeasons = seasons.filter(s => s.id !== c.season_id);
+
   const addAdmin = async () => {
     try {
       await tAddCompAdmin(token, c.id, af);
@@ -725,6 +750,18 @@ function CompRow({ c, token, reload }: { c: TCompetition; token: string; reload:
       reload();
     } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
   };
+
+  const clone = async () => {
+    if (!cloneSeason) return;
+    setCloneBusy(true); setCloneMsg(null);
+    try {
+      await tCloneCompetition(token, c.id, Number(cloneSeason));
+      setCloneMsg(tt('✓ تم النسخ بنجاح', '✓ Cloned successfully'));
+      reload();
+    } catch (e) { setCloneMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setCloneBusy(false); }
+  };
+
   return (
     <Card className="p-3">
       <div className="flex items-center justify-between">
@@ -732,10 +769,34 @@ function CompRow({ c, token, reload }: { c: TCompetition; token: string; reload:
         <div className="flex items-center gap-2">
           <button onClick={() => setDocsOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('الأوراق', 'Papers')}</button>
           <button onClick={() => setAdminOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('المنظمون', 'Organizers')}</button>
+          <button onClick={() => { setCloneOpen(o => !o); setCloneMsg(null); }} className="text-xs text-gold font-bold hover:underline">{tt('نسخ لموسم', 'Clone')}</button>
           <Link href={`/manage?comp=${c.id}`} className="text-xs text-aqua font-bold hover:underline">{tt('إدارة', 'Manage')}</Link>
           <button onClick={async () => { if (confirm(tt('حذف البطولة؟', 'Delete competition?'))) { await tDeleteCompetition(token, c.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
         </div>
       </div>
+
+      {cloneOpen && (
+        <div className="mt-2 pt-2 border-t border-bdr/50 space-y-2">
+          <p className="text-[11px] text-hint">
+            {tt('ينسخ البطولة (الفئات والقواعد والأدوار) إلى موسم جديد. الفرق والمباريات والنتائج لا تُنسخ.',
+                'Copies the competition structure (sub-competitions, rules, stages) to a new season. Teams, matches and results are not copied.')}
+          </p>
+          <div className="flex items-center gap-2">
+            <select value={cloneSeason} onChange={e => setCloneSeason(e.target.value)} className={inputCls + ' flex-1 text-sm'}>
+              <option value="">{tt('اختر الموسم الجديد', 'Select target season')}</option>
+              {otherSeasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <PrimaryButton onClick={clone} disabled={!cloneSeason || cloneBusy} className="text-sm shrink-0">
+              {cloneBusy ? tt('…', '…') : tt('نسخ', 'Clone')}
+            </PrimaryButton>
+          </div>
+          {otherSeasons.length === 0 && (
+            <p className="text-[11px] text-loss">{tt('لا يوجد موسم آخر. أنشئ موسمًا جديدًا أولاً.', 'No other season exists. Create a new season first.')}</p>
+          )}
+          {cloneMsg && <p className={`text-[11px] ${cloneMsg.startsWith('✓') ? 'text-win' : 'text-loss'}`}>{cloneMsg}</p>}
+        </div>
+      )}
+
       {docsOpen && <div className="mt-2"><CompDocsEditor token={token} comp={c} reload={reload} /></div>}
       {adminOpen && (
         <div className="mt-2 space-y-2">

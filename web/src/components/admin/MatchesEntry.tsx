@@ -6,8 +6,9 @@ import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
+  apiStages,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
-  type EntryCard, type EntrySub,
+  type EntryCard, type EntrySub, type MStage,
 } from '@/lib/adminApi';
 
 type Loc = { ar: string; en: string };
@@ -35,6 +36,7 @@ export default function MatchesEntry() {
   const [comps, setComps] = useState<EntryCompetition[]>([]);
   const [cid, setCid] = useState<number | null>(null);
   const [teams, setTeams] = useState<EntryTeam[]>([]);
+  const [stages, setStages] = useState<MStage[]>([]);
   const [matches, setMatches] = useState<EntryMatchRow[]>([]);
   const [editing, setEditing] = useState<EntryMatch | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -47,9 +49,9 @@ export default function MatchesEntry() {
 
   const loadComp = useCallback((id: number) => {
     if (!token) return;
-    setCid(id); setEditing(null); setShowNew(false);
-    Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id)])
-      .then(([t, m]) => { setTeams(t); setMatches(m); })
+    setCid(id); setEditing(null); setShowNew(false); setStages([]);
+    Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id), apiStages(token, id)])
+      .then(([t, m, s]) => { setTeams(t); setMatches(m); setStages(s); })
       .catch(e => setErr(e.message));
   }, [token]);
 
@@ -78,7 +80,7 @@ export default function MatchesEntry() {
   const clear = () => { setFTeam(''); setFWeek(''); setFDate(''); };
 
   if (editing) {
-    return <MatchEditor token={token!} match={editing} teams={teams}
+    return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
       onChange={setEditing} onBack={() => { setEditing(null); refreshMatches(); }} />;
   }
 
@@ -125,7 +127,7 @@ export default function MatchesEntry() {
             )}
           </div>
 
-          {showNew && <NewMatch token={token!} cid={cid} teams={teams}
+          {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
             onDone={() => { setShowNew(false); refreshMatches(); }} />}
 
           <div className="space-y-2">
@@ -164,21 +166,27 @@ function field(label: string, node: React.ReactNode) {
 }
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 
-function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; teams: EntryTeam[]; onDone: () => void }) {
+function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; onDone: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled' });
-  // A fixture may be confirmed before its date is set. When true, the date and
-  // time are sent blank and the match is stored as TBD (غير محدد).
+  const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled', stage_id: '', group_id: '' });
   const [tbd, setTbd] = useState(false);
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }));
+
+  const selectedStage = stages.find(s => s.id === Number(f.stage_id));
+  const stageGroups = selectedStage?.groups ?? [];
+  const isGroupStage = selectedStage?.type === 'group';
 
   const submit = async () => {
     setErr(null); setBusy(true);
+    const selectedGroup = stageGroups.find(g => g.id === Number(f.group_id));
     try {
       await apiCreateMatch(token, cid, {
         home_team_id: Number(f.home_team_id), away_team_id: Number(f.away_team_id),
         date: tbd ? '' : f.date, time: tbd ? '' : f.time, week: f.week, venue: f.venue, status: f.status,
+        stage_id: f.stage_id ? Number(f.stage_id) : undefined,
+        group_id: f.group_id ? Number(f.group_id) : undefined,
+        round: selectedGroup ? (selectedGroup.name_ar || selectedGroup.name_en || '') : undefined,
       });
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); } finally { setBusy(false); }
@@ -190,6 +198,18 @@ function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; t
       <div className="grid grid-cols-2 gap-3">
         {field('الفريق المضيف', <select value={f.home_team_id} onChange={e => set('home_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
         {field('الفريق الضيف', <select value={f.away_team_id} onChange={e => set('away_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
+        {stages.length > 0 && field('الدور', (
+          <select value={f.stage_id} onChange={e => { set('stage_id', e.target.value); set('group_id', ''); }} className={inputCls}>
+            <option value="">— اختر الدور</option>
+            {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
+          </select>
+        ))}
+        {stageGroups.length > 0 && field('المجموعة', (
+          <select value={f.group_id} onChange={e => set('group_id', e.target.value)} className={inputCls}>
+            <option value="">— اختر المجموعة</option>
+            {stageGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
+          </select>
+        ))}
         {field('التاريخ', <input type="date" value={f.date} disabled={tbd} onChange={e => set('date', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الوقت', <input type="time" value={f.time} disabled={tbd} onChange={e => set('time', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الجولة', <input value={f.week} onChange={e => set('week', e.target.value)} placeholder="27" className={inputCls} />)}
@@ -201,15 +221,16 @@ function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; t
         التاريخ غير محدد بعد (مباراة مؤكدة بدون موعد)
       </label>
       {err && <p className="text-loss text-xs">{err}</p>}
-      <button onClick={submit} disabled={busy} className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+      <button onClick={submit} disabled={busy || !f.home_team_id || !f.away_team_id || (isGroupStage && !f.group_id)}
+        className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
         {busy ? 'جارٍ الحفظ…' : 'إنشاء المباراة'}
       </button>
     </div>
   );
 }
 
-function MatchEditor({ token, match, teams, onChange, onBack }: {
-  token: string; match: EntryMatch; teams: EntryTeam[];
+function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
+  token: string; match: EntryMatch; teams: EntryTeam[]; stages: MStage[];
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
   const [players, setPlayers] = useState<Record<number, string[]>>({});
@@ -224,6 +245,9 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
   const [venueSaved, setVenueSaved] = useState(false);
   const [note, setNote] = useState(match.note || '');
   const [noteSaved, setNoteSaved] = useState(false);
+  const [stageId, setStageId] = useState(match.stage_id ? String(match.stage_id) : '');
+  const [groupId, setGroupId] = useState(match.group_id ? String(match.group_id) : '');
+  const [stageSaved, setStageSaved] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
   const [schedSaved, setSchedSaved] = useState(false);
@@ -232,6 +256,22 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
   const [editGoalId, setEditGoalId] = useState<number | null>(null);
   const [editCardId, setEditCardId] = useState<number | null>(null);
   const [editSubId, setEditSubId] = useState<number | null>(null);
+
+  const editorStage = stages.find(s => s.id === Number(stageId));
+  const editorGroups = editorStage?.groups ?? [];
+
+  const saveStage = async () => {
+    setErr(null);
+    const selectedGroup = editorGroups.find(g => g.id === Number(groupId));
+    try {
+      const m = await apiUpdateMatch(token, match.id, {
+        stage_id: stageId ? Number(stageId) : null,
+        group_id: groupId ? Number(groupId) : null,
+        round: selectedGroup ? (selectedGroup.name_ar || selectedGroup.name_en || '') : undefined,
+      });
+      onChange(m); setStageSaved(true); setTimeout(() => setStageSaved(false), 1500);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+  };
 
   useEffect(() => {
     [match.home.id, match.away.id].forEach(id =>
@@ -355,6 +395,30 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
           </button>
         </div>
       </div>
+
+      {/* Stage / Group assignment */}
+      {stages.length > 0 && (
+        <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+          <p className="text-text font-bold text-sm">📋 الدور والمجموعة</p>
+          <div className="grid grid-cols-2 gap-2">
+            {field('الدور', (
+              <select value={stageId} onChange={e => { setStageId(e.target.value); setGroupId(''); }} className={inputCls}>
+                <option value="">— بدون دور</option>
+                {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
+              </select>
+            ))}
+            {editorGroups.length > 0 && field('المجموعة', (
+              <select value={groupId} onChange={e => setGroupId(e.target.value)} className={inputCls}>
+                <option value="">— بدون مجموعة</option>
+                {editorGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
+              </select>
+            ))}
+          </div>
+          <button onClick={saveStage} className="bg-aqua text-on-accent font-bold px-4 py-2 rounded-lg text-xs">
+            {stageSaved ? '✓ حُفظ' : 'حفظ الدور / المجموعة'}
+          </button>
+        </div>
+      )}
 
       {/* Match note — a free-text reason for the result. */}
       <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-2">
