@@ -458,14 +458,19 @@ def analysis():
     _buckets = {"goal": goals, "assist": assists, "yellow": yellows, "red": reds}
 
     if match_ids:
-        for pid, etype in db.session.query(
+        for pid, etype, is_own in db.session.query(
             Tla3bnyMatchEvent.player_id,
             Tla3bnyMatchEvent.event_type,
+            Tla3bnyMatchEvent.is_own_goal,
         ).filter(
             Tla3bnyMatchEvent.match_id.in_(match_ids),
             Tla3bnyMatchEvent.player_id.isnot(None),
             Tla3bnyMatchEvent.event_type.in_(list(_buckets)),
         ).all():
+            # Own goals are not credited to the scorer in the top-scorers list,
+            # matching youthscores' behaviour (same rule as MatchGoal.is_own_goal).
+            if etype == "goal" and is_own:
+                continue
             _buckets[etype][pid] += 1
 
     # Appearances: distinct matches a player has a lineup slot in.

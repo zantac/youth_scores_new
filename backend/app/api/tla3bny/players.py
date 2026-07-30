@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime  # noqa: F401 — kept for type annotations in this file
 
 from flask import jsonify, request
+import sqlalchemy as sa
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
@@ -160,6 +161,11 @@ def player_stats(player_id: int):
             Tla3bnyMatchEvent.player_id == player_id,
             Tla3bnyMatch.status.in_(_FINISHED),
             Tla3bnyMatchEvent.event_type.in_(["goal", "assist", "yellow", "red"]),
+            # Own goals are not credited to the scorer, matching youthscores.
+            sa.or_(
+                Tla3bnyMatchEvent.event_type != "goal",
+                Tla3bnyMatchEvent.is_own_goal == False,  # noqa: E712
+            ),
         )
         .group_by(Tla3bnyMatch.competition_id, Tla3bnyMatchEvent.event_type)
         .all()
