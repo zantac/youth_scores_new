@@ -2,6 +2,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from flask import jsonify, request
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import (
@@ -24,6 +26,9 @@ from app.services import tla3bny_tables as tables
 
 from . import tla3bny_bp
 from ._helpers import _err, _forbid, _int, _parse_date, _utcnow
+
+# Both status values used for "a result has been entered".
+_FINISHED = ("finished", "completed")
 
 
 @tla3bny_bp.get("/matches")
@@ -409,53 +414,89 @@ def analysis():
     if not comp_id or not age_id:
         return _err("competition_id and age_category_id are required")
 
-    matches = Tla3bnyMatch.query.filter_by(
-        competition_id=comp_id, age_category_id=age_id, status="finished"
-    ).all()
-    match_ids = [m.id for m in matches]
+    # Both "finished" and "completed" mean a result has been entered.
+    match_ids = [
+        row[0] for row in db.session.query(Tla3bnyMatch.id).filter(
+            Tla3bnyMatch.competition_id == comp_id,
+            Tla3bnyMatch.age_category_id == age_id,
+            Tla3bnyMatch.status.in_(_FINISHED),
+        ).all()
+    ]
 
-    goals: dict = defaultdict(int)
-    assists: dict = defaultdict(int)
-    yellows: dict = defaultdict(int)
-    reds: dict = defaultdict(int)
-    buckets = {"goal": goals, "assist": assists, "yellow": yellows, "red": reds}
+    goals: dict[int, int] = defaultdict(int)
+    assists: dict[int, int] = defaultdict(int)
+    yellows: dict[int, int] = defaultdict(int)
+    reds: dict[int, int] = defaultdict(int)
+    _buckets = {"goal": goals, "assist": assists, "yellow": yellows, "red": reds}
+
     if match_ids:
-        for e in Tla3bnyMatchEvent.query.filter(
-            Tla3bnyMatchEvent.match_id.in_(match_ids)
+        for pid, etype in db.session.query(
+            Tla3bnyMatchEvent.player_id,
+            Tla3bnyMatchEvent.event_type,
+        ).filter(
+            Tla3bnyMatchEvent.match_id.in_(match_ids),
+            Tla3bnyMatchEvent.player_id.isnot(None),
+            Tla3bnyMatchEvent.event_type.in_(list(_buckets)),
         ).all():
-            if e.player_id is None:
-                continue
-            bucket = buckets.get(e.event_type)
-            if bucket is not None:
-                bucket[e.player_id] += 1
+            _buckets[etype][pid] += 1
 
-    def board(counter):
-        out = []
-        for pid, count in counter.items():
-            p = Tla3bnyPlayer.query.get(pid)
-            if not p:
-                continue
-            cur = p.current_membership()
-            team = cur.team if cur else None
-            out.append(
-                {
-                    "player_id": pid,
-                    "player_name": p.name,
-                    "photo_path": p.photo_path,
-                    "team_id": team.id if team else None,
-                    "team_name": team.display_name() if team else None,
-                    "academy_id": team.academy_id if team else None,
-                    "count": count,
-                }
+    # Appearances: distinct matches a player has a lineup slot in.
+    appearances: dict[int, int] = defaultdict(int)
+    if match_ids:
+        for pid, cnt in db.session.query(
+            Tla3bnyLineupSlot.player_id,
+            func.count(func.distinct(Tla3bnyLineup.match_id)),
+        ).join(Tla3bnyLineup, Tla3bnyLineupSlot.lineup_id == Tla3bnyLineup.id).filter(
+            Tla3bnyLineup.match_id.in_(match_ids),
+            Tla3bnyLineupSlot.player_id.isnot(None),
+        ).group_by(Tla3bnyLineupSlot.player_id).all():
+            appearances[pid] = cnt
+
+    # Batch-load all referenced players in one query.
+    all_pids = set(goals) | set(assists) | set(yellows) | set(reds) | set(appearances)
+    players: dict[int, Tla3bnyPlayer] = {}
+    if all_pids:
+        for p in (
+            Tla3bnyPlayer.query
+            .options(
+                selectinload(Tla3bnyPlayer.memberships)
+                .selectinload(Tla3bnyPlayerTeam.team)
             )
-        out.sort(key=lambda x: (-x["count"], (x["player_name"] or "").lower()))
-        return out
+            .filter(Tla3bnyPlayer.id.in_(all_pids))
+            .all()
+        ):
+            players[p.id] = p
 
-    return jsonify(
-        {
-            "top_scorers": board(goals),
-            "top_assisters": board(assists),
-            "yellow_cards": board(yellows),
-            "red_cards": board(reds),
+    def _row(pid: int, count: int) -> dict:
+        p = players.get(pid)
+        if not p:
+            return {}
+        cur = p.current_membership()
+        team = cur.team if cur else None
+        return {
+            "player_id": pid,
+            "player_name": p.name,
+            "photo_path": p.photo_path,
+            "team_id": team.id if team else None,
+            "team_name": team.display_name() if team else None,
+            "academy_id": team.academy_id if team else None,
+            "count": count,
         }
-    )
+
+    def board(counter: dict[int, int]) -> list[dict]:
+        rows = [_row(pid, cnt) for pid, cnt in counter.items() if pid in players]
+        rows.sort(key=lambda x: (-x["count"], (x["player_name"] or "").lower()))
+        return rows
+
+    def appearances_board() -> list[dict]:
+        rows = [_row(pid, cnt) for pid, cnt in appearances.items() if pid in players]
+        rows.sort(key=lambda x: (-x["count"], (x["player_name"] or "").lower()))
+        return rows
+
+    return jsonify({
+        "top_scorers": board(goals),
+        "top_assisters": board(assists),
+        "yellow_cards": board(yellows),
+        "red_cards": board(reds),
+        "appearances": appearances_board(),
+    })

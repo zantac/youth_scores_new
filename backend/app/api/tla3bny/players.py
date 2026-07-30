@@ -1,6 +1,9 @@
+from collections import defaultdict
 from datetime import datetime  # noqa: F401 — kept for type annotations in this file
 
 from flask import jsonify, request
+from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import (
@@ -9,11 +12,17 @@ from app.models import (
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
     Tla3bnyCompetitionTeam,
+    Tla3bnyLineup,
+    Tla3bnyLineupSlot,
+    Tla3bnyMatch,
+    Tla3bnyMatchEvent,
     Tla3bnyPlayer,
     Tla3bnyPlayerFile,
     Tla3bnyPlayerTeam,
     Tla3bnyTeam,
 )
+
+_FINISHED = ("finished", "completed")
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -126,6 +135,93 @@ def player_registrations(player_id: int):
             ]
         out.append(item)
     return jsonify(out)
+
+
+@tla3bny_bp.get("/players/<int:player_id>/stats")
+def player_stats(player_id: int):
+    """Career statistics for one player, broken down by competition.
+
+    Counts goals, assists, yellow cards, red cards, and appearances (lineup
+    slots in finished matches) across every competition the player has events
+    or lineup entries in.  Public endpoint — no auth required.
+    """
+    Tla3bnyPlayer.query.get_or_404(player_id)
+
+    # ── event stats (goals / assists / cards) ────────────────────────────────
+    event_rows = (
+        db.session.query(
+            Tla3bnyMatch.competition_id,
+            Tla3bnyMatchEvent.event_type,
+            func.count().label("cnt"),
+        )
+        .join(Tla3bnyMatch, Tla3bnyMatchEvent.match_id == Tla3bnyMatch.id)
+        .filter(
+            Tla3bnyMatchEvent.player_id == player_id,
+            Tla3bnyMatch.status.in_(_FINISHED),
+            Tla3bnyMatchEvent.event_type.in_(["goal", "assist", "yellow", "red"]),
+        )
+        .group_by(Tla3bnyMatch.competition_id, Tla3bnyMatchEvent.event_type)
+        .all()
+    )
+
+    # ── appearances (lineup slots in finished matches) ────────────────────────
+    appearance_rows = (
+        db.session.query(
+            Tla3bnyMatch.competition_id,
+            func.count(func.distinct(Tla3bnyMatch.id)).label("cnt"),
+        )
+        .join(Tla3bnyLineup, Tla3bnyLineup.match_id == Tla3bnyMatch.id)
+        .join(Tla3bnyLineupSlot, Tla3bnyLineupSlot.lineup_id == Tla3bnyLineup.id)
+        .filter(
+            Tla3bnyLineupSlot.player_id == player_id,
+            Tla3bnyMatch.status.in_(_FINISHED),
+        )
+        .group_by(Tla3bnyMatch.competition_id)
+        .all()
+    )
+
+    # Aggregate into {comp_id: {stat: count}}.
+    per_comp: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for comp_id, etype, cnt in event_rows:
+        key = {"goal": "goals", "assist": "assists", "yellow": "yellow_cards", "red": "red_cards"}[etype]
+        per_comp[comp_id][key] += cnt
+    for comp_id, cnt in appearance_rows:
+        per_comp[comp_id]["appearances"] += cnt
+
+    # Fetch competition names in one query.
+    comp_ids = list(per_comp)
+    comp_map: dict[int, Tla3bnyCompetition] = {}
+    if comp_ids:
+        for c in (
+            Tla3bnyCompetition.query
+            .options(selectinload(Tla3bnyCompetition.season))
+            .filter(Tla3bnyCompetition.id.in_(comp_ids))
+            .all()
+        ):
+            comp_map[c.id] = c
+
+    _zero = {"goals": 0, "assists": 0, "yellow_cards": 0, "red_cards": 0, "appearances": 0}
+
+    by_competition = []
+    for comp_id, stats in per_comp.items():
+        comp = comp_map.get(comp_id)
+        row = {**_zero, **stats}
+        row["competition_id"] = comp_id
+        row["competition_name"] = comp.name if comp else None
+        row["season_name"] = (
+            (comp.season.name_ar or comp.season.name) if comp and comp.season else None
+        )
+        by_competition.append(row)
+
+    by_competition.sort(key=lambda x: (x["competition_name"] or ""))
+
+    totals = {k: sum(c[k] for c in by_competition) for k in _zero}
+
+    return jsonify({
+        "player_id": player_id,
+        "totals": totals,
+        "by_competition": by_competition,
+    })
 
 
 @tla3bny_bp.post("/teams/<int:team_id>/players")
