@@ -214,8 +214,7 @@ def enter_result(match_id: int):
             )
         )
 
-    if match.status not in ("live",):
-        match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
+    match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
     _log("result_entered", "match", match.id, {
         "home_team_id": match.home_team_id,
         "away_team_id": match.away_team_id,

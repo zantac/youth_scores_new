@@ -50,8 +50,11 @@ def _set_academy_status(academy_id: int, status: str, reason: str | None = None)
     academy = Tla3bnyAcademy.query.get_or_404(academy_id)
     academy.status = status
     academy.rejection_reason = reason
+    suspending = status in ("suspended", "rejected")
     for user in Tla3bnyUser.query.filter_by(academy_id=academy.id).all():
-        user.status = "suspended" if status in ("suspended", "rejected") else "active"
+        user.status = "suspended" if suspending else "active"
+        if suspending:
+            user.token_version = (user.token_version or 0) + 1
     action = "academy_suspended" if status in ("suspended", "rejected") else "academy_approved"
     _log(action, "academy", academy.id, {
         "academy_name": academy.name,

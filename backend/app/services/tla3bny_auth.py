@@ -38,7 +38,7 @@ def _serializer() -> URLSafeTimedSerializer:
 
 
 def generate_token(user: Tla3bnyUser) -> str:
-    return _serializer().dumps({"uid": user.id})
+    return _serializer().dumps({"uid": user.id, "v": user.token_version})
 
 
 def verify_token(token: str) -> Tla3bnyUser | None:
@@ -46,7 +46,15 @@ def verify_token(token: str) -> Tla3bnyUser | None:
         data = _serializer().loads(token, max_age=TOKEN_MAX_AGE)
     except (BadSignature, SignatureExpired):
         return None
-    return db.session.get(Tla3bnyUser, data.get("uid"))
+    user = db.session.get(Tla3bnyUser, data.get("uid"))
+    if user is None:
+        return None
+    # Tokens issued before a suspension carry an older version and are rejected.
+    # Legacy tokens without "v" get 0, which matches the column default, so
+    # existing sessions survive this change without being logged out.
+    if data.get("v", 0) != user.token_version:
+        return None
+    return user
 
 
 def _bearer_token() -> str | None:

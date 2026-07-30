@@ -13,6 +13,12 @@ def create_app(config_name: str | None = None) -> Flask:
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
     app.config.from_object(CONFIGS.get(config_name, CONFIGS["development"]))
 
+    if not app.config.get("DEBUG") and app.config.get("SECRET_KEY") == "dev-only-change-me":
+        raise RuntimeError(
+            "SECRET_KEY is not set. Set the SECRET_KEY environment variable "
+            "to a secure random value before starting in production."
+        )
+
     # Behind a reverse proxy (Railway), trust X-Forwarded-Proto/Host so
     # request.host_url reflects the real https://<domain> — the config feed
     # embeds absolute data URLs built from it, and an http URL would be blocked

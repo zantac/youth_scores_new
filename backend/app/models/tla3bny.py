@@ -75,6 +75,9 @@ class Tla3bnyUser(TimestampMixin, db.Model):
     status: Mapped[str] = mapped_column(
         code_enum(*codes.TLA3BNY_USER_STATUS), nullable=False, default="pending"
     )
+    # Incremented on every suspension so tokens issued before the suspend
+    # are immediately rejected by verify_token even within their 30-day window.
+    token_version: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     name: Mapped[str | None] = mapped_column(sa.String(255))
 
     academy_id: Mapped[int | None] = mapped_column(
