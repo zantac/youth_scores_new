@@ -666,6 +666,7 @@ function Competitions({ token }: { token: string }) {
   const [seasons, setSeasons] = useState<TSeason[]>([]);
   const [items, setItems] = useState<TCompetition[]>([]);
   const [filterSeason, setFilterSeason] = useState('');
+  const [q, setQ] = useState('');
   const [f, setF] = useState({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS });
   const reload = useCallback(() => { tCompetitions(undefined, token).then(setItems).catch(() => setItems([])); }, [token]);
   useEffect(() => {
@@ -686,10 +687,13 @@ function Competitions({ token }: { token: string }) {
     );
     setF({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS }); reload();
   };
-  const visible = filterSeason ? items.filter(c => String(c.season_id) === filterSeason) : items;
+  const visible = items.filter(c =>
+    (!filterSeason || String(c.season_id) === filterSeason) &&
+    (!q || c.name.toLowerCase().includes(q.toLowerCase()))
+  );
   return (
     <div className="space-y-2">
-      {/* Season filter */}
+      {/* Season + name filters */}
       <div className="flex items-center gap-2">
         <label className="text-xs font-bold text-teal shrink-0">{tt('الموسم', 'Season')}</label>
         <select value={filterSeason} onChange={e => setFilterSeason(e.target.value)} className={inputCls + ' text-sm flex-1'}>
@@ -701,8 +705,15 @@ function Competitions({ token }: { token: string }) {
           ))}
         </select>
       </div>
+      <input
+        value={q} onChange={e => setQ(e.target.value)}
+        placeholder={tt('بحث باسم البطولة…', 'Search competitions…')}
+        className={inputCls + ' text-sm'}
+      />
       {visible.length === 0 && items.length > 0 && (
-        <p className="text-hint text-sm text-center py-2">{tt('لا بطولات في هذا الموسم', 'No competitions in this season')}</p>
+        <p className="text-hint text-sm text-center py-2">
+          {q ? tt('لا نتائج', 'No results') : tt('لا بطولات في هذا الموسم', 'No competitions in this season')}
+        </p>
       )}
       {visible.map(c => <CompRow key={c.id} c={c} token={token} seasons={seasons} reload={reload} />)}
       <Card className="p-3 space-y-2">

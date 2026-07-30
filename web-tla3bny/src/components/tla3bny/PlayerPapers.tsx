@@ -63,16 +63,20 @@ export function PapersUploader({
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   };
 
+  // Sort required docs alphabetically so the order is consistent regardless
+  // of the order competitions or age categories were created.
+  const sortedRequired = [...required].sort();
+
   // Anything uploaded under a label the requirements no longer mention still
   // belongs to the player, so keep showing it rather than hiding it.
   const extra = files.filter(f => !f.label || !required.includes(f.label));
 
   return (
     <div className="space-y-1.5">
-      {required.length === 0 && (
+      {sortedRequired.length === 0 && (
         <p className="text-[11px] text-hint">{tt('لا أوراق مطلوبة', 'No papers required')}</p>
       )}
-      {required.map(doc => {
+      {sortedRequired.map(doc => {
         const f = files.find(x => x.label === doc);
         const asks = askedBy(doc, sources);
         return (

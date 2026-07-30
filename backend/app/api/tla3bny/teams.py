@@ -265,6 +265,7 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
         for doc in src["documents"]:
             if doc not in merged:
                 merged.append(doc)
+    merged.sort()
     return merged, sources
 
 

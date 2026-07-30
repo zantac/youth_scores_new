@@ -20,7 +20,7 @@ import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
 type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
 
@@ -329,6 +329,10 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
     Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [ok, setOk] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  useUnsavedGuard(isDirty);
+
+  const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setIsDirty(true); };
 
   const save = async () => {
     const docList = docs.split('\n').map(x => x.trim()).filter(Boolean);
@@ -338,7 +342,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
       ...f,
       required_documents: docList,
     });
-    setOk(true); setTimeout(() => setOk(false), 1500); reload();
+    setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
 
   return (
@@ -354,11 +358,11 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
 
       <div className="grid grid-cols-2 gap-2">
         <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
-          <input value={name} onChange={e => setName(e.target.value)} className={inputCls}
+          <input value={name} onChange={e => mark(setName)(e.target.value)} className={inputCls}
             placeholder={tt('مثال: الفئة أ', 'e.g. Class A')} />
         </Field>
         <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
-          <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} className={inputCls} />
+          <input type="date" value={deadline} onChange={e => mark(setDeadline)(e.target.value)} className={inputCls} />
         </Field>
       </div>
 
@@ -367,7 +371,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
         {RULE_FIELDS.map(([k, ar, en]) => (
           <label key={k} className="block">
             <span className="block text-teal text-[10px] font-bold mb-1">{tt(ar, en)}</span>
-            <input value={f[k]} onChange={e => setF({ ...f, [k]: Number(e.target.value) || 0 })} inputMode="numeric"
+            <input value={f[k]} onChange={e => { setF({ ...f, [k]: Number(e.target.value) || 0 }); setIsDirty(true); }} inputMode="numeric"
               className="w-full bg-darkBg border border-bdr rounded-lg px-2 py-1.5 text-text text-sm outline-none focus:border-aqua tnum" />
           </label>
         ))}
@@ -378,13 +382,14 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
         <span className="block text-teal text-[10px] font-bold mb-1">
           {tt('أوراق اللاعبين (سطر لكل ورقة)', 'Player papers (one per line)')}
         </span>
-        <textarea value={docs} onChange={e => setDocs(e.target.value)} rows={3} className={inputCls}
+        <textarea value={docs} onChange={e => mark(setDocs)(e.target.value)} rows={3} className={inputCls}
           placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <PrimaryButton onClick={save} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
         {ok && <span className="text-win text-sm">✓</span>}
+        <UnsavedBadge isDirty={isDirty} />
       </div>
     </Card>
   );
@@ -1080,8 +1085,13 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setF({ ...f, [k]: e.target.value });
+  const [isDirty, setIsDirty] = useState(false);
+  useUnsavedGuard(isDirty);
+
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setF(prev => ({ ...prev, [k]: e.target.value }));
+    setIsDirty(true);
+  };
 
   const save = async () => {
     setBusy(true); setOk(false); setErr(null);
@@ -1091,7 +1101,7 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
         { ...f, registration_open: registrationOpen ? 'true' : 'false' },
         logo,
       );
-      setOk(true); setLogo(null); reload();
+      setOk(true); setIsDirty(false); setLogo(null); reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
@@ -1146,7 +1156,7 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
 
       <Card className="p-4 space-y-3">
         <label className="flex items-center gap-2 text-teal text-sm font-bold">
-          <input type="checkbox" checked={registrationOpen} onChange={e => setRegistrationOpen(e.target.checked)} />
+          <input type="checkbox" checked={registrationOpen} onChange={e => { setRegistrationOpen(e.target.checked); setIsDirty(true); }} />
           {tt('التسجيل مفتوح', 'Registration is open')}
         </label>
         <Field label={tt('الشعار', 'Logo')}>
@@ -1154,11 +1164,12 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
             className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
         </Field>
         <ErrorNote>{err}</ErrorNote>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <PrimaryButton onClick={save} disabled={busy || !f.name.trim()}>
             {busy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ', 'Save')}
           </PrimaryButton>
           {ok && <span className="text-win text-sm font-bold">✓ {tt('تم الحفظ', 'Saved')}</span>}
+          <UnsavedBadge isDirty={isDirty} />
           <Link href={`/competitions?comp=${comp.id}`} className="text-xs text-aqua font-bold hover:underline">
             {tt('معاينة الصفحة →', 'Preview page →')}
           </Link>
