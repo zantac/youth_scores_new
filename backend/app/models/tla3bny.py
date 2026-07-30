@@ -1206,6 +1206,14 @@ class Tla3bnyMatchEvent(TimestampMixin, db.Model):
     related_event_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_match_events.id", ondelete="SET NULL")
     )
+    # Flags matching youthscores' MatchGoal / MatchCard / MatchSubstitution.
+    is_extra_time: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    # Goal-only flags.
+    is_own_goal: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    is_penalty: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    # Penalty-shootout-only fields (penalty_scored / penalty_missed event types).
+    kick_order: Mapped[int | None] = mapped_column(sa.SmallInteger)
+    is_winning_kick: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
 
     match: Mapped["Tla3bnyMatch"] = relationship(back_populates="events")
     player: Mapped["Tla3bnyPlayer | None"] = relationship()
@@ -1220,6 +1228,11 @@ class Tla3bnyMatchEvent(TimestampMixin, db.Model):
             "event_type": self.event_type,
             "minute": self.minute,
             "related_event_id": self.related_event_id,
+            "is_extra_time": self.is_extra_time,
+            "is_own_goal": self.is_own_goal,
+            "is_penalty": self.is_penalty,
+            "kick_order": self.kick_order,
+            "is_winning_kick": self.is_winning_kick,
         }
 
 

@@ -341,6 +341,16 @@ export interface TMatchEvent {
   event_type: TEventType;
   minute: number | null;
   related_event_id: number | null;
+  /** True when the event happened during extra time. */
+  is_extra_time: boolean;
+  /** True for own goals (team_id is the benefiting team). */
+  is_own_goal: boolean;
+  /** True when the goal was scored from the penalty spot during play (not shootout). */
+  is_penalty: boolean;
+  /** Position in the penalty shootout sequence (penalty_scored / penalty_missed only). */
+  kick_order: number | null;
+  /** True for the kick that decided the shootout. */
+  is_winning_kick: boolean;
 }
 
 export interface TMatch {

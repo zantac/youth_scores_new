@@ -405,6 +405,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         events: events.filter(e => e.player_id != null).map(e => ({
           event_type: e.event_type, team_id: e.team_id,
           player_id: e.player_id, minute: e.minute ?? undefined,
+          is_extra_time: e.is_extra_time, is_own_goal: e.is_own_goal,
+          is_penalty: e.is_penalty, kick_order: e.kick_order ?? undefined,
+          is_winning_kick: e.is_winning_kick,
         })),
       };
       if (hasET) {
@@ -446,6 +449,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         events: events.filter(e => e.player_id != null).map(e => ({
           event_type: e.event_type, team_id: e.team_id,
           player_id: e.player_id, minute: e.minute ?? undefined,
+          is_extra_time: e.is_extra_time, is_own_goal: e.is_own_goal,
+          is_penalty: e.is_penalty, kick_order: e.kick_order ?? undefined,
+          is_winning_kick: e.is_winning_kick,
         })),
       });
       onUpdate(updated); setEventsOk(true); setTimeout(() => setEventsOk(false), 1500);
@@ -746,6 +752,9 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
   const [evScorer, setEvScorer] = useState('');
   const [evAssist, setEvAssist] = useState('');
   const [evMinute, setEvMinute] = useState('');
+  const [isOwnGoal, setIsOwnGoal] = useState(false);
+  const [isPenalty, setIsPenalty] = useState(false);
+  const [isGoalET,  setIsGoalET]  = useState(false);
 
   const teamId = Number(evTeam);
   const lineupSlots = lineups.find(l => l.team_id === teamId)?.slots.filter(s => s.player_id != null) ?? [];
@@ -756,15 +765,24 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
   const add = () => {
     if (!evScorer) return;
     const scorer   = roster.find(p => String(p.player_id) === evScorer);
-    const assister = evAssist ? roster.find(p => String(p.player_id) === evAssist) : null;
+    const assister = evAssist && !isOwnGoal ? roster.find(p => String(p.player_id) === evAssist) : null;
     const minute   = evMinute ? Number(evMinute) : null;
-    onAdd({ event_type: 'goal', team_id: Number(evTeam),
-      player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute });
+    // Own goal: credit the opposing team.
+    const creditTeam = isOwnGoal
+      ? (Number(evTeam) === m.home_team_id ? m.away_team_id : m.home_team_id)
+      : Number(evTeam);
+    onAdd({ event_type: 'goal', team_id: creditTeam,
+      player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
+      is_extra_time: isGoalET, is_own_goal: isOwnGoal, is_penalty: isPenalty,
+      kick_order: null, is_winning_kick: false });
     if (assister) {
       onAdd({ event_type: 'assist', team_id: Number(evTeam),
-        player_id: assister.player_id, player_name: assister.player_name ?? '', minute });
+        player_id: assister.player_id, player_name: assister.player_name ?? '', minute,
+        is_extra_time: isGoalET, is_own_goal: false, is_penalty: false,
+        kick_order: null, is_winning_kick: false });
     }
     setEvScorer(''); setEvAssist(''); setEvMinute('');
+    setIsOwnGoal(false); setIsPenalty(false); setIsGoalET(false);
   };
 
   return (
@@ -780,6 +798,11 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
                 <div className="flex items-center gap-2">
                   <span className="text-base">⚽</span>
                   <span className="text-text text-xs flex-1 font-bold">{g.player_name}</span>
+                  <div className="flex items-center gap-1">
+                    {g.is_own_goal && <span className="text-[9px] font-bold text-loss bg-loss/10 rounded px-1">OG</span>}
+                    {g.is_penalty && <span className="text-[9px] font-bold text-gold bg-gold/10 rounded px-1">{tt('جزاء', 'Pen')}</span>}
+                    {g.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+                  </div>
                   <span className="text-[11px] text-hint tabular-nums">
                     {g.team_id === m.home_team_id ? m.home_team_name?.slice(0, 10) : m.away_team_name?.slice(0, 10)}
                     {g.minute != null && ` · ${g.minute}'`}
@@ -822,6 +845,20 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
             </select>
           </Field>
         </div>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-1.5 text-[11px] text-teal font-bold cursor-pointer">
+            <input type="checkbox" checked={isOwnGoal} onChange={e => setIsOwnGoal(e.target.checked)} />
+            {tt('هدف في مرماه', 'Own goal')}
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-teal font-bold cursor-pointer">
+            <input type="checkbox" checked={isPenalty} onChange={e => setIsPenalty(e.target.checked)} />
+            {tt('ركلة جزاء (خلال المباراة)', 'Penalty (in play)')}
+          </label>
+          <label className="flex items-center gap-1.5 text-[11px] text-teal font-bold cursor-pointer">
+            <input type="checkbox" checked={isGoalET} onChange={e => setIsGoalET(e.target.checked)} />
+            {tt('في الوقت الإضافي', 'Extra time')}
+          </label>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={add} disabled={!evScorer}
             className="flex-1 border border-aqua/40 text-aqua text-xs font-bold rounded-lg py-2 hover:bg-aqua/10 disabled:opacity-40">
@@ -851,6 +888,12 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
   const [evTeam, setEvTeam] = useState(String(m.home_team_id));
   const [evPlayer, setEvPlayer] = useState('');
   const [evMinute, setEvMinute] = useState('');
+  const [isEvET, setIsEvET] = useState(false);
+  // Penalty-shootout fields (only used when types includes penalty_scored/missed).
+  const isPenSection = types.includes('penalty_scored' as EvType);
+  const [kickOrder, setKickOrder] = useState('');
+  const [isWinningKick, setIsWinningKick] = useState(false);
+
   const teamId = Number(evTeam);
   const lineupSlots = lineups.find(l => l.team_id === teamId)?.slots.filter(s => s.player_id != null) ?? [];
   const roster = lineupSlots.length > 0
@@ -866,8 +909,14 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
       player_id: player?.player_id ?? null,
       player_name: player?.player_name ?? evPlayer,
       minute: evMinute ? Number(evMinute) : null,
+      is_extra_time: isEvET,
+      is_own_goal: false,
+      is_penalty: false,
+      kick_order: isPenSection && kickOrder ? Number(kickOrder) : null,
+      is_winning_kick: isPenSection ? isWinningKick : false,
     });
-    setEvPlayer(''); setEvMinute('');
+    setEvPlayer(''); setEvMinute(''); setIsEvET(false);
+    if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
   };
 
   return (
@@ -880,6 +929,11 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
             <div key={e.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
               <span className="text-base">{EV_ICON[e.event_type] ?? '•'}</span>
               <span className="text-text text-xs flex-1 truncate font-bold">{e.player_name}</span>
+              <div className="flex items-center gap-1">
+                {e.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+                {e.kick_order != null && <span className="text-[9px] text-hint">#{e.kick_order}</span>}
+                {e.is_winning_kick && <span className="text-[9px] text-gold">★</span>}
+              </div>
               <span className="text-[11px] text-hint tabular-nums">
                 {e.team_id === m.home_team_id ? m.home_team_name?.slice(0, 8) : m.away_team_name?.slice(0, 8)}
                 {e.minute != null && ` · ${e.minute}'`}
@@ -916,6 +970,24 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
             <input type="number" value={evMinute} onChange={e => setEvMinute(e.target.value)} min={1} max={120} placeholder="45" className={inputCls} />
           </Field>
         </div>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-1.5 text-[11px] text-teal font-bold cursor-pointer">
+            <input type="checkbox" checked={isEvET} onChange={e => setIsEvET(e.target.checked)} />
+            {tt('في الوقت الإضافي', 'Extra time')}
+          </label>
+          {isPenSection && (
+            <label className="flex items-center gap-1.5 text-[11px] text-gold font-bold cursor-pointer">
+              <input type="checkbox" checked={isWinningKick} onChange={e => setIsWinningKick(e.target.checked)} />
+              {tt('الضربة الحاسمة', 'Winning kick')}
+            </label>
+          )}
+        </div>
+        {isPenSection && (
+          <Field label={tt('ترتيب الضربة', 'Kick order')}>
+            <input type="number" value={kickOrder} onChange={e => setKickOrder(e.target.value)}
+              min={1} max={20} placeholder="1" className={inputCls} />
+          </Field>
+        )}
         <div className="flex items-center gap-2">
           <button onClick={add} disabled={!evPlayer}
             className="flex-1 border border-aqua/40 text-aqua text-xs font-bold rounded-lg py-2 hover:bg-aqua/10 disabled:opacity-40">

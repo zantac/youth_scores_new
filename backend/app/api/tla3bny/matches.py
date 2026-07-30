@@ -210,6 +210,11 @@ def enter_result(match_id: int):
             team_id=_int(ev.get("team_id")),
             event_type=etype,
             minute=_int(ev.get("minute")),
+            is_extra_time=bool(ev.get("is_extra_time", False)),
+            is_own_goal=bool(ev.get("is_own_goal", False)),
+            is_penalty=bool(ev.get("is_penalty", False)),
+            kick_order=_int(ev.get("kick_order")),
+            is_winning_kick=bool(ev.get("is_winning_kick", False)),
         )
         db.session.add(obj)
         db.session.flush()
@@ -225,6 +230,7 @@ def enter_result(match_id: int):
                 event_type="assist",
                 minute=_int(ev.get("minute")),
                 related_event_id=temp_map.get(ev.get("related_temp_id")),
+                is_extra_time=bool(ev.get("is_extra_time", False)),
             )
         )
 
