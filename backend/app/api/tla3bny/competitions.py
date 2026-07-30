@@ -939,3 +939,146 @@ def reject_roster_player(cp_id: int):
     }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
     return jsonify(cp.to_dict(with_files=True))
+
+
+# ── bulk approval / rejection ─────────────────────────────────────────────────
+
+def _load_cps_for_bulk(ids: list[int]):
+    """Load competition players with all relationships needed for bulk actions."""
+    from app.models import Tla3bnyPlayer
+    return (
+        Tla3bnyCompetitionPlayer.query
+        .options(
+            selectinload(Tla3bnyCompetitionPlayer.player)
+            .selectinload(Tla3bnyPlayer.files),
+            selectinload(Tla3bnyCompetitionPlayer.entry)
+            .selectinload(Tla3bnyCompetitionTeam.competition)
+            .selectinload(Tla3bnyCompetition.ages),
+            selectinload(Tla3bnyCompetitionPlayer.entry)
+            .selectinload(Tla3bnyCompetitionTeam.team),
+        )
+        .filter(Tla3bnyCompetitionPlayer.id.in_(ids))
+        .all()
+    )
+
+
+def _assert_admin_for_all(user, cps: list) -> bool:
+    """Return False if the user is not a competition admin for every affected
+    competition. Caller should return _forbid() when False."""
+    comp_ids = {cp.entry.competition_id for cp in cps if cp.entry}
+    return all(auth.is_competition_admin(user, cid) for cid in comp_ids)
+
+
+@tla3bny_bp.post("/competition-players/bulk-approve")
+@auth.login_required
+def bulk_approve_roster_players():
+    """Approve up to 100 competition players in one call.
+
+    Body:
+        ids    [int]  IDs of Tla3bnyCompetitionPlayer rows to approve
+        force  bool   approve even when required documents are missing
+                      (useful when papers are verified physically)
+
+    Response:
+        approved  [int]  IDs successfully approved this call
+        skipped   [int]  IDs already approved — no change needed
+        errors    [{id, player_name, missing_documents}]  blocked by docs
+    """
+    data = request.get_json(silent=True) or {}
+    ids = [v for v in (_int(i) for i in (data.get("ids") or [])) if v]
+    if not ids:
+        return _err("ids is required")
+    if len(ids) > 100:
+        return _err("Cannot approve more than 100 players at once")
+
+    force = bool(data.get("force"))
+    user = auth.current_user()
+    cps = _load_cps_for_bulk(ids)
+
+    if not _assert_admin_for_all(user, cps):
+        return _forbid()
+
+    approved, skipped, errors = [], [], []
+
+    for cp in cps:
+        if cp.status == "approved":
+            skipped.append(cp.id)
+            continue
+
+        # Document completeness check (same logic as single approve).
+        player = cp.player
+        entry = cp.entry
+        if not force and player and entry and entry.competition:
+            cage = next(
+                (a for a in entry.competition.ages
+                 if a.age_category_id == entry.age_category_id),
+                None,
+            )
+            required = cage.documents if cage else entry.competition.documents
+            supplied = {f.label for f in player.files if f.label}
+            missing = [d for d in required if d not in supplied]
+            if missing:
+                errors.append({
+                    "id": cp.id,
+                    "player_name": player.name if player else None,
+                    "missing_documents": missing,
+                })
+                continue
+
+        cp.status = "approved"
+        cp.rejection_reason = None
+        cp.approved_by_user_id = user.id
+        _log("player_approved", "competition_player", cp.id, {
+            "player_id": cp.player_id,
+            "player_name": player.name if player else None,
+            "team_id": entry.team_id if entry else None,
+            "team_name": entry.team.display_name() if entry and entry.team else None,
+            "bulk": True,
+        }, competition_id=entry.competition_id if entry else None)
+        approved.append(cp.id)
+
+    db.session.commit()
+    return jsonify({"approved": approved, "skipped": skipped, "errors": errors})
+
+
+@tla3bny_bp.post("/competition-players/bulk-reject")
+@auth.login_required
+def bulk_reject_roster_players():
+    """Reject up to 100 competition players in one call.
+
+    Body:
+        ids     [int]  IDs of Tla3bnyCompetitionPlayer rows to reject
+        reason  str    rejection reason shown to the academy (optional)
+    """
+    data = request.get_json(silent=True) or {}
+    ids = [v for v in (_int(i) for i in (data.get("ids") or [])) if v]
+    reason = (data.get("reason") or "").strip() or None
+    if not ids:
+        return _err("ids is required")
+    if len(ids) > 100:
+        return _err("Cannot reject more than 100 players at once")
+
+    user = auth.current_user()
+    cps = _load_cps_for_bulk(ids)
+
+    if not _assert_admin_for_all(user, cps):
+        return _forbid()
+
+    rejected = []
+    for cp in cps:
+        cp.status = "rejected"
+        cp.rejection_reason = reason
+        cp.approved_by_user_id = user.id
+        entry = cp.entry
+        _log("player_rejected", "competition_player", cp.id, {
+            "player_id": cp.player_id,
+            "player_name": cp.player.name if cp.player else None,
+            "team_id": entry.team_id if entry else None,
+            "team_name": entry.team.display_name() if entry and entry.team else None,
+            "reason": reason,
+            "bulk": True,
+        }, competition_id=entry.competition_id if entry else None)
+        rejected.append(cp.id)
+
+    db.session.commit()
+    return jsonify({"rejected": rejected})

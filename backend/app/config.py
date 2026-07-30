@@ -63,6 +63,30 @@ class Config:
     ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
     ALLOWED_PDF_EXTENSIONS = {"pdf"}
 
+    # ── S3 / S3-compatible object storage ──────────────────────────────────
+    # When AWS_S3_BUCKET is set, save_upload() sends files to S3 and returns
+    # the full public URL instead of a local path.  Unset → local disk.
+    #
+    # Works with AWS S3, Cloudflare R2, MinIO, Backblaze B2, etc.:
+    #   AWS_ACCESS_KEY_ID     access key (or R2 access key ID)
+    #   AWS_SECRET_ACCESS_KEY secret key (or R2 secret access key)
+    #   AWS_S3_BUCKET         bucket name
+    #   AWS_S3_REGION         region (default us-east-1; irrelevant for R2)
+    #   AWS_S3_ENDPOINT_URL   custom endpoint for non-AWS providers, e.g.:
+    #                           Cloudflare R2: https://<acct>.r2.cloudflarestorage.com
+    #   AWS_S3_PUBLIC_URL     CDN / public base URL for served files, e.g.:
+    #                           https://cdn.yourdomain.com  (without trailing slash)
+    #                         Falls back to the standard S3 URL when not set.
+    AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    AWS_S3_BUCKET = os.environ.get("AWS_S3_BUCKET")
+    AWS_S3_REGION = os.environ.get("AWS_S3_REGION", "us-east-1")
+    AWS_S3_ENDPOINT_URL = os.environ.get("AWS_S3_ENDPOINT_URL")
+    AWS_S3_PUBLIC_URL = os.environ.get("AWS_S3_PUBLIC_URL")
+
+    # ── Error tracking ──────────────────────────────────────────────────────
+    SENTRY_DSN = os.environ.get("SENTRY_DSN")
+
 
 class ProductionConfig(Config):
     DEBUG = False

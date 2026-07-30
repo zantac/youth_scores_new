@@ -1,6 +1,8 @@
 import logging
 import os
 
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
 from flask import Flask, abort, request, send_from_directory
 
 from app.config import CONFIGS
@@ -12,6 +14,15 @@ def create_app(config_name: str | None = None) -> Flask:
 
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
     app.config.from_object(CONFIGS.get(config_name, CONFIGS["development"]))
+
+    _dsn = app.config.get("SENTRY_DSN")
+    if _dsn:
+        sentry_sdk.init(
+            dsn=_dsn,
+            integrations=[FlaskIntegration()],
+            traces_sample_rate=0.05,  # 5 % of requests sampled for performance
+            send_default_pii=False,
+        )
 
     if not app.config.get("DEBUG") and app.config.get("SECRET_KEY") == "dev-only-change-me":
         raise RuntimeError(

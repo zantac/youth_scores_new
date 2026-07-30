@@ -1,5 +1,7 @@
 Flask==3.0.3
 Flask-Limiter==3.8.0
+boto3==1.35.0
+sentry-sdk[flask]==2.13.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.7
 SQLAlchemy==2.0.35
