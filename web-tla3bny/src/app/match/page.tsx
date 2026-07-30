@@ -394,9 +394,41 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const [eventsOk, setEventsOk] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [lineupWarnings, setLineupWarnings] = useState<string[]>([]);
   const router = useRouter();
 
+  // Check that every player named in a goal/card event appears in their team's
+  // submitted lineup. Returns warning strings; empty means all clear.
+  const getLineupWarnings = (): string[] => {
+    const CHECK = new Set(['goal', 'assist', 'yellow', 'red'] as EvType[]);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const ev of events) {
+      if (!ev.player_id || !ev.team_id || ev.is_own_goal) continue;
+      if (!CHECK.has(ev.event_type as EvType)) continue;
+      const lineup = lineups.find(l => l.team_id === ev.team_id);
+      if (!lineup || lineup.slots.length === 0) continue; // no lineup → skip
+      if (lineup.slots.some(s => s.player_id === ev.player_id)) continue;
+      const key = `${ev.player_id}-${ev.event_type}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        const [ar, en] = EV_LABEL_AR[ev.event_type] ?? [ev.event_type, ev.event_type];
+        out.push(`${ev.player_name} — ${tt(ar, en)}`);
+      }
+    }
+    return out;
+  };
+
   const saveResult = async () => {
+    // If warnings are already displayed the admin clicked "Save anyway" — skip check.
+    if (lineupWarnings.length === 0) {
+      const hasLineup = lineups.some(l => l.slots.length > 0);
+      if (hasLineup) {
+        const warnings = getLineupWarnings();
+        if (warnings.length > 0) { setLineupWarnings(warnings); return; }
+      }
+    }
+    setLineupWarnings([]);
     setErr(null); setResultBusy(true);
     try {
       const body: Record<string, unknown> = {
@@ -550,6 +582,28 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
           </select>
         </Field>
+        {lineupWarnings.length > 0 && (
+          <div className="bg-gold/10 border border-gold/40 rounded-xl p-3 space-y-2">
+            <p className="text-gold font-bold text-xs">
+              ⚠️ {tt('لاعبون في الأحداث غير موجودين في التشكيلة:', 'Event players missing from lineup:')}
+            </p>
+            <ul className="space-y-0.5">
+              {lineupWarnings.map((w, i) => (
+                <li key={i} className="text-[11px] text-hint">• {w}</li>
+              ))}
+            </ul>
+            <div className="flex items-center gap-3 pt-1">
+              <button onClick={saveResult}
+                className="text-xs font-bold text-gold border border-gold/40 rounded-lg px-3 py-1.5 hover:bg-gold/10">
+                {tt('حفظ على أي حال', 'Save anyway')}
+              </button>
+              <button onClick={() => setLineupWarnings([])}
+                className="text-xs text-hint hover:text-text">
+                {tt('مراجعة', 'Review')}
+              </button>
+            </div>
+          </div>
+        )}
         <PrimaryButton onClick={saveResult} disabled={resultBusy} className="w-full">
           {resultBusy ? tt('…', '…') : tt('حفظ النتيجة', 'Save result')}
         </PrimaryButton>

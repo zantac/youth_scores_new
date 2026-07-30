@@ -146,16 +146,16 @@ function CompetitionsContent() {
 function TabBody({ comp, cageId, tab }: { comp: TCompetition; cageId: number; tab: Tab }) {
   const cage = (comp.ages ?? []).find(a => a.id === cageId);
   const ageId = cage?.age_category_id ?? 0;
-  if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} />;
+  if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} cageId={cageId} />;
   if (tab === 'matches') return <MatchesTab compId={comp.id} cageId={cageId} />;
   if (tab === 'stats') return <StatsTab compId={comp.id} ageId={ageId} />;
   return <BracketTab compId={comp.id} ageId={ageId} />;
 }
 
-function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
+function StandingsTab({ compId, ageId, cageId }: { compId: number; ageId: number; cageId?: number }) {
   const tt = useTT();
   const [groups, setGroups] = useState<TStandingGroup[] | null>(null);
-  useEffect(() => { setGroups(null); tStandings(compId, ageId).then(setGroups).catch(() => setGroups([])); }, [compId, ageId]);
+  useEffect(() => { setGroups(null); tStandings(compId, ageId, cageId).then(setGroups).catch(() => setGroups([])); }, [compId, ageId, cageId]);
   if (!groups) return <Spinner />;
   if (groups.length === 0 || groups.every(g => g.standings.length === 0))
     return <EmptyState icon="📊" text={tt('لا ترتيب بعد', 'No standings yet')} />;
@@ -290,6 +290,54 @@ function StatsTab({ compId, ageId }: { compId: number; ageId: number }) {
   );
 }
 
+/** A compact two-row match card used inside knockout bracket rounds. */
+function BracketCard({ m }: { m: TMatch }) {
+  const finished = m.status === 'completed' || m.status === 'finished';
+  const homeWon = finished && m.home_score != null && m.away_score != null
+    && (m.home_score_pen ?? m.home_score) > (m.away_score_pen ?? m.away_score);
+  const awayWon = finished && m.home_score != null && m.away_score != null
+    && (m.away_score_pen ?? m.away_score) > (m.home_score_pen ?? m.home_score);
+
+  const scoreFor = (pen: number | null, reg: number | null) =>
+    pen != null ? pen : reg != null ? reg : '–';
+
+  const row = (
+    name: string | null, logo: string | null,
+    score: number | null, scorePen: number | null,
+    won: boolean, lost: boolean,
+  ) => (
+    <div className={`flex items-center justify-between gap-2 px-3 py-2
+      ${won ? 'bg-win/10' : ''}`}>
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <LogoAvatar src={logo} name={name} size={22} />
+        <span className={`text-sm font-bold truncate
+          ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
+          {name}
+        </span>
+      </div>
+      <span className={`text-sm font-black tnum shrink-0
+        ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
+        {scoreFor(scorePen, score)}
+      </span>
+    </div>
+  );
+
+  return (
+    <Link href={`/match?id=${m.id}`} className="block">
+      <div className="bg-cardBg border border-bdr rounded-xl overflow-hidden hover:border-aqua/40 transition-colors">
+        {row(m.home_team_name, m.home_logo, m.home_score, m.home_score_pen, homeWon, awayWon)}
+        <div className="h-px bg-bdr/50" />
+        {row(m.away_team_name, m.away_logo, m.away_score, m.away_score_pen, awayWon, homeWon)}
+        {m.home_score_pen != null && (
+          <div className="px-3 pb-1.5 text-[10px] text-gold tabular-nums">
+            {m.home_score_et}–{m.away_score_et} {m.home_score_pen != null ? `· ركلات ${m.home_score_pen}–${m.away_score_pen}` : ''}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
   const tt = useTT();
   const [stages, setStages] = useState<TBracketStage[] | null>(null);
@@ -297,14 +345,25 @@ function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
   if (!stages) return <Spinner />;
   if (stages.length === 0) return <EmptyState icon="🏆" text={tt('لا أدوار إقصائية', 'No knockout stages')} />;
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {stages.map(s => (
-        <div key={s.stage_id}>
-          {s.stage_name && <h3 className="font-black text-text mb-2">{s.stage_name}</h3>}
+        <div key={s.stage_id} className="space-y-4">
+          {s.stage_name && (
+            <h3 className="font-black text-text text-sm">{s.stage_name}</h3>
+          )}
           {s.rounds.map((r, i) => (
-            <div key={i} className="mb-3">
-              {r.round && <div className="text-[11px] font-bold text-teal mb-1">{r.round}</div>}
-              <div className="space-y-2">{r.matches.map(m => <MatchRow key={m.id} m={m} />)}</div>
+            <div key={i}>
+              {r.round && (
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/20 rounded-full px-3 py-0.5 whitespace-nowrap">
+                    {r.round}
+                  </span>
+                  <span className="flex-1 h-px bg-bdr" />
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {r.matches.map(m => <BracketCard key={m.id} m={m} />)}
+              </div>
             </div>
           ))}
         </div>

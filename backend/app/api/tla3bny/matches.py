@@ -435,9 +435,10 @@ def save_lineup(match_id: int, team_id: int):
 def standings():
     comp_id = request.args.get("competition_id", type=int)
     age_id = request.args.get("age_category_id", type=int)
-    if not comp_id or not age_id:
-        return _err("competition_id and age_category_id are required")
-    return jsonify(tables.standings_by_group(comp_id, age_id))
+    cage_id = request.args.get("competition_age_id", type=int)
+    if not comp_id or (not age_id and not cage_id):
+        return _err("competition_id and age_category_id (or competition_age_id) are required")
+    return jsonify(tables.standings_by_group(comp_id, age_id or 0, cage_id=cage_id))
 
 
 @tla3bny_bp.get("/bracket")

@@ -845,8 +845,12 @@ export const tSaveLineup = (token: string, matchId: number, teamId: number, b: R
   send<TLineup>('PUT', `/lineups/match/${matchId}/team/${teamId}`, b, token);
 
 // ── standings / bracket / analysis ────────────────────────────────────────
-export const tStandings = (compId: number, ageId: number) =>
-  get<TStandingGroup[]>(`/standings${qs({ competition_id: compId, age_category_id: ageId })}`);
+export const tStandings = (compId: number, ageId: number, cageId?: number) =>
+  get<TStandingGroup[]>(`/standings${qs({
+    competition_id: compId,
+    competition_age_id: cageId,
+    age_category_id: cageId ? undefined : ageId,
+  })}`);
 export const tBracket = (compId: number, ageId: number) =>
   get<TBracketStage[]>(`/bracket${qs({ competition_id: compId, age_category_id: ageId })}`);
 export const tAnalysis = (compId: number, ageId: number) =>
