@@ -27,6 +27,7 @@ from app.models import (
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
+from .audit import _log
 from ._helpers import (
     _bool,
     _clean_docs,
@@ -887,6 +888,12 @@ def approve_roster_player(cp_id: int):
     cp.status = "approved"
     cp.rejection_reason = None
     cp.approved_by_user_id = auth.current_user().id
+    _log("player_approved", "competition_player", cp.id, {
+        "player_id": cp.player_id,
+        "player_name": cp.player.name if cp.player else None,
+        "team_id": cp.entry.team_id if cp.entry else None,
+        "team_name": cp.entry.team.display_name() if cp.entry and cp.entry.team else None,
+    }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
     return jsonify(cp.to_dict(with_files=True))
 
@@ -900,5 +907,12 @@ def reject_roster_player(cp_id: int):
     cp.status = "rejected"
     cp.rejection_reason = (request.get_json(silent=True) or {}).get("reason") or None
     cp.approved_by_user_id = auth.current_user().id
+    _log("player_rejected", "competition_player", cp.id, {
+        "player_id": cp.player_id,
+        "player_name": cp.player.name if cp.player else None,
+        "team_id": cp.entry.team_id if cp.entry else None,
+        "team_name": cp.entry.team.display_name() if cp.entry and cp.entry.team else None,
+        "reason": cp.rejection_reason,
+    }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
     return jsonify(cp.to_dict(with_files=True))

@@ -5,6 +5,7 @@ from app.models import Tla3bnyAcademy, Tla3bnyAcademyManager, Tla3bnyUser
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
+from .audit import _log
 from ._helpers import _credentials, _claim_login, _err, _forbid, _int, save_upload, _read_payload
 
 
@@ -51,6 +52,11 @@ def _set_academy_status(academy_id: int, status: str, reason: str | None = None)
     academy.rejection_reason = reason
     for user in Tla3bnyUser.query.filter_by(academy_id=academy.id).all():
         user.status = "suspended" if status in ("suspended", "rejected") else "active"
+    action = "academy_suspended" if status in ("suspended", "rejected") else "academy_approved"
+    _log(action, "academy", academy.id, {
+        "academy_name": academy.name,
+        "reason": reason,
+    })
     db.session.commit()
     return jsonify(academy.to_dict())
 

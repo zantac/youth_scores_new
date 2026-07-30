@@ -1338,3 +1338,47 @@ class Tla3bnyNews(TimestampMixin, db.Model):
 
     def __repr__(self) -> str:
         return f"<Tla3bnyNews {self.id} {self.title}>"
+
+
+class Tla3bnyAuditLog(db.Model):
+    """Immutable record of every significant admin action in the tla3bny system.
+
+    Rows are only ever inserted, never updated or deleted.  The ``detail``
+    JSON column stores human-readable context (names, scores, reasons) so the
+    log remains readable even if the source rows are later changed or deleted.
+    ``competition_id`` is indexed for fast per-competition history queries.
+    """
+
+    __tablename__ = "tla3bny_audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, default=datetime.utcnow
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+    action: Mapped[str] = mapped_column(sa.String(80), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(sa.String(50), nullable=False)
+    target_id: Mapped[int | None] = mapped_column(sa.Integer)
+    competition_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="SET NULL"), index=True
+    )
+    detail: Mapped[dict | None] = mapped_column(sa.JSON)
+
+    actor: Mapped["Tla3bnyUser | None"] = relationship(foreign_keys=[actor_user_id])
+
+    def to_dict(self) -> dict:
+        actor = self.actor
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "actor_user_id": self.actor_user_id,
+            "actor_name": actor.display_name() if actor else None,
+            "actor_login": (actor.username or actor.email) if actor else None,
+            "action": self.action,
+            "target_type": self.target_type,
+            "target_id": self.target_id,
+            "competition_id": self.competition_id,
+            "detail": self.detail or {},
+        }

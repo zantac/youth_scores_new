@@ -25,6 +25,7 @@ from app.services import tla3bny_auth as auth
 from app.services import tla3bny_tables as tables
 
 from . import tla3bny_bp
+from .audit import _log
 from ._helpers import _err, _forbid, _int, _parse_date, _utcnow
 
 # Both status values used for "a result has been entered".
@@ -215,6 +216,14 @@ def enter_result(match_id: int):
 
     if match.status not in ("live",):
         match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
+    _log("result_entered", "match", match.id, {
+        "home_team_id": match.home_team_id,
+        "away_team_id": match.away_team_id,
+        "home_team": match.home_team.display_name() if match.home_team else None,
+        "away_team": match.away_team.display_name() if match.away_team else None,
+        "home_score": match.home_score,
+        "away_score": match.away_score,
+    }, competition_id=match.competition_id)
     db.session.commit()
     return jsonify(match.to_dict(include_events=True))
 

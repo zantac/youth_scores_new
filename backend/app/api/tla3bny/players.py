@@ -26,6 +26,7 @@ _FINISHED = ("finished", "completed")
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
+from .audit import _log
 from ._helpers import _err, _forbid, _int, _parse_date, _read_payload, _utcnow, save_upload
 
 
@@ -358,6 +359,12 @@ def update_player(player_id: int):
         _save_documents(player, data, files)
     except ValueError as e:
         return _err(str(e))
+    cur = player.current_membership()
+    _log("player_updated", "player", player.id, {
+        "player_name": player.name,
+        "team_id": cur.team_id if cur else None,
+        "team_name": cur.team.display_name() if cur and cur.team else None,
+    })
     db.session.commit()
     # Any approved or rejected competition entry must go back to pending so the
     # organiser reviews the updated data before the player competes.

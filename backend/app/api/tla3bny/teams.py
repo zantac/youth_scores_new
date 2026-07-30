@@ -16,6 +16,7 @@ from app.models import (
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
+from .audit import _log
 from ._helpers import (
     _credentials,
     _claim_login,
@@ -407,6 +408,11 @@ def approve_team_join(entry_id: int):
         return _err("Entry is not pending", 409)
     entry.status = "active"
     db.session.flush()
+    _log("team_join_approved", "competition_team", entry.id, {
+        "team_id": entry.team_id,
+        "team_name": entry.team.display_name() if entry.team else None,
+        "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
+    }, competition_id=entry.competition_id)
     # Auto-enqueue existing active players.
     comp = entry.competition
     cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
@@ -443,6 +449,11 @@ def reject_team_join(entry_id: int):
         return _forbid()
     if entry.status != "pending":
         return _err("Entry is not pending", 409)
+    _log("team_join_rejected", "competition_team", entry.id, {
+        "team_id": entry.team_id,
+        "team_name": entry.team.display_name() if entry.team else None,
+        "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
+    }, competition_id=entry.competition_id)
     db.session.delete(entry)
     db.session.commit()
     return jsonify({"message": "rejected"})
