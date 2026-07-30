@@ -1081,6 +1081,13 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     )
     home_score: Mapped[int | None] = mapped_column(sa.Integer)
     away_score: Mapped[int | None] = mapped_column(sa.Integer)
+    # Extra-time scores (cumulative from kick-off, e.g. 2-2 if 1-1 at 90 min
+    # and each team scores once in ET). NULL means no extra time was played.
+    home_score_et: Mapped[int | None] = mapped_column(sa.Integer)
+    away_score_et: Mapped[int | None] = mapped_column(sa.Integer)
+    # Penalty-shootout scores (e.g. 4-3). NULL means no shootout was played.
+    home_score_pen: Mapped[int | None] = mapped_column(sa.Integer)
+    away_score_pen: Mapped[int | None] = mapped_column(sa.Integer)
     note: Mapped[str | None] = mapped_column(sa.String(512))
 
     competition: Mapped["Tla3bnyCompetition"] = relationship()
@@ -1158,6 +1165,10 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "status": self.status,
             "home_score": self.home_score,
             "away_score": self.away_score,
+            "home_score_et": self.home_score_et,
+            "away_score_et": self.away_score_et,
+            "home_score_pen": self.home_score_pen,
+            "away_score_pen": self.away_score_pen,
             "note": self.note,
         }
         if include_events:

@@ -59,9 +59,19 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
             <>
               <div className="bg-darkBg border border-bdr rounded-lg px-3 py-1 shadow-inner">
                 <span className="text-aqua font-extrabold text-lg tnum tracking-tight">
-                  {m.home_score} - {m.away_score}
+                  {m.home_score_pen != null
+                    ? `${m.home_score_pen} - ${m.away_score_pen}`
+                    : m.home_score_et != null
+                      ? `${m.home_score_et} - ${m.away_score_et}`
+                      : `${m.home_score} - ${m.away_score}`}
                 </span>
               </div>
+              {m.home_score_pen != null && (
+                <span className="text-gold text-[9px] font-bold">{tt('بعد ركلات', 'on pens')}</span>
+              )}
+              {m.home_score_et != null && m.home_score_pen == null && (
+                <span className="text-teal text-[9px] font-bold">{tt('بعد وقت إضافي', 'a.e.t.')}</span>
+              )}
               {live
                 ? <span className="text-loss text-[10px] font-extrabold flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-loss animate-pulse" />{tt('مباشرة', 'LIVE')}

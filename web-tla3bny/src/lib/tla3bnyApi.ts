@@ -29,7 +29,8 @@ export type TCompStatus = 'draft' | 'active' | 'finished';
 export type TMatchStatus = 'scheduled' | 'live' | 'completed' | 'postponed' | 'cancelled' | 'finished';
 export type TStageType = 'group' | 'league' | 'knockout';
 export type TEventType =
-  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out';
+  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out'
+  | 'penalty_scored' | 'penalty_missed';
 
 export interface TUser {
   id: number;
@@ -370,6 +371,12 @@ export interface TMatch {
   status: TMatchStatus;
   home_score: number | null;
   away_score: number | null;
+  /** Cumulative score after extra time (null if no ET was played). */
+  home_score_et: number | null;
+  away_score_et: number | null;
+  /** Penalty-shootout score (null if no shootout). */
+  home_score_pen: number | null;
+  away_score_pen: number | null;
   note: string | null;
   events?: TMatchEvent[];
 }

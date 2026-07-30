@@ -59,12 +59,24 @@ type EvType = TMatchEvent['event_type'];
 const EV_ICON: Record<string, string> = {
   goal: '⚽', assist: '🅰️', yellow: '🟨', red: '🟥',
   substitution_in: '🔺', substitution_out: '🔻',
+  penalty_scored: '✅', penalty_missed: '❌',
 };
 const EV_LABEL_AR: Record<string, [string, string]> = {
   goal: ['هدف', 'Goal'], assist: ['صناعة', 'Assist'],
   yellow: ['بطاقة صفراء', 'Yellow card'], red: ['بطاقة حمراء', 'Red card'],
   substitution_in: ['دخول', 'Sub in'], substitution_out: ['خروج', 'Sub out'],
+  penalty_scored: ['ضربة جزاء مسجّلة', 'Penalty scored'],
+  penalty_missed: ['ضربة جزاء مُضاعة', 'Penalty missed'],
 };
+
+/** Derive the "decisive" score label for display. Penalty score takes precedence. */
+function matchScoreLabel(m: TMatch) {
+  if (m.home_score_pen != null && m.away_score_pen != null)
+    return { home: m.home_score_pen, away: m.away_score_pen };
+  if (m.home_score_et != null && m.away_score_et != null)
+    return { home: m.home_score_et, away: m.away_score_et };
+  return { home: m.home_score, away: m.away_score };
+}
 
 const goals      = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'goal');
 const assists    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'assist');
@@ -257,11 +269,21 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     dirty: false,
   });
 
-  // Result state
+  // Result state — regular time
   const [homeScore, setHomeScore] = useState(m.home_score != null ? String(m.home_score) : '');
   const [awayScore, setAwayScore] = useState(m.away_score != null ? String(m.away_score) : '');
   const changeHomeScore = (v: string) => { setHomeScore(v); draftRef.current.dirty = true; };
   const changeAwayScore = (v: string) => { setAwayScore(v); draftRef.current.dirty = true; };
+
+  // Extra time
+  const [hasET, setHasET] = useState(m.home_score_et != null);
+  const [homeET, setHomeET] = useState(m.home_score_et != null ? String(m.home_score_et) : '');
+  const [awayET, setAwayET] = useState(m.away_score_et != null ? String(m.away_score_et) : '');
+
+  // Penalty shootout
+  const [hasPen, setHasPen] = useState(m.home_score_pen != null);
+  const [homePen, setHomePen] = useState(m.home_score_pen != null ? String(m.home_score_pen) : '');
+  const [awayPen, setAwayPen] = useState(m.away_score_pen != null ? String(m.away_score_pen) : '');
   const [status, setStatus] = useState(m.status);
   // Keep status in sync when the parent updates the match (e.g. after saving score).
   useEffect(() => { setStatus(m.status); }, [m.status]);
@@ -377,14 +399,23 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const saveResult = async () => {
     setErr(null); setResultBusy(true);
     try {
-      const updated = await tEnterResult(token, m.id, {
+      const body: Record<string, unknown> = {
         home_score: homeScore === '' ? null : Number(homeScore),
         away_score: awayScore === '' ? null : Number(awayScore),
         events: events.filter(e => e.player_id != null).map(e => ({
           event_type: e.event_type, team_id: e.team_id,
           player_id: e.player_id, minute: e.minute ?? undefined,
         })),
-      });
+      };
+      if (hasET) {
+        body.home_score_et = homeET === '' ? null : Number(homeET);
+        body.away_score_et = awayET === '' ? null : Number(awayET);
+      }
+      if (hasPen) {
+        body.home_score_pen = homePen === '' ? null : Number(homePen);
+        body.away_score_pen = awayPen === '' ? null : Number(awayPen);
+      }
+      const updated = await tEnterResult(token, m.id, body);
       clearDraft(m.id);
       draftRef.current.dirty = false;
       onUpdate(updated);
@@ -456,11 +487,54 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 
       {/* 1. Result */}
       <Section title={tt('نتيجة المباراة', 'Match result')}>
-        <div className="flex items-center justify-center gap-6 py-2">
+        {/* Regular time */}
+        <p className="text-hint text-[11px] font-bold">{tt('الوقت الأصلي (90 دقيقة)', 'Regular time (90 min)')}</p>
+        <div className="flex items-center justify-center gap-6 py-1">
           <ScoreInput label={m.home_team_name ?? ''} value={homeScore} onChange={changeHomeScore} />
           <span className="text-hint font-black text-2xl">-</span>
           <ScoreInput label={m.away_team_name ?? ''} value={awayScore} onChange={changeAwayScore} />
         </div>
+
+        {/* Extra time toggle */}
+        <label className="flex items-center gap-2 text-teal text-xs font-bold cursor-pointer mt-1">
+          <input type="checkbox" checked={hasET} onChange={e => {
+            setHasET(e.target.checked);
+            if (!e.target.checked) { setHomeET(''); setAwayET(''); setHasPen(false); setHomePen(''); setAwayPen(''); }
+          }} />
+          {tt('اللعب امتد لوقت إضافي', 'Match went to extra time')}
+        </label>
+
+        {hasET && (<>
+          <p className="text-hint text-[11px] font-bold mt-2">
+            {tt('بعد الوقت الإضافي (النتيجة التراكمية)', 'After extra time (cumulative score)')}
+          </p>
+          <div className="flex items-center justify-center gap-6 py-1">
+            <ScoreInput label={m.home_team_name ?? ''} value={homeET} onChange={setHomeET} />
+            <span className="text-hint font-black text-2xl">-</span>
+            <ScoreInput label={m.away_team_name ?? ''} value={awayET} onChange={setAwayET} />
+          </div>
+
+          {/* Penalty shootout toggle — only if ET ended in a draw */}
+          <label className="flex items-center gap-2 text-teal text-xs font-bold cursor-pointer mt-1">
+            <input type="checkbox" checked={hasPen} onChange={e => {
+              setHasPen(e.target.checked);
+              if (!e.target.checked) { setHomePen(''); setAwayPen(''); }
+            }} />
+            {tt('الوقت الإضافي انتهى بالتعادل — ضربات جزاء', 'Extra time drew — penalty shootout')}
+          </label>
+
+          {hasPen && (<>
+            <p className="text-hint text-[11px] font-bold mt-2">
+              {tt('نتيجة ضربات الجزاء', 'Penalty shootout score')}
+            </p>
+            <div className="flex items-center justify-center gap-6 py-1">
+              <ScoreInput label={m.home_team_name ?? ''} value={homePen} onChange={setHomePen} />
+              <span className="text-hint font-black text-2xl">-</span>
+              <ScoreInput label={m.away_team_name ?? ''} value={awayPen} onChange={setAwayPen} />
+            </div>
+          </>)}
+        </>)}
+
         <Field label={tt('الحالة', 'Status')}>
           <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
             <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
@@ -561,7 +635,26 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         tt={tt}
       />
 
-      {/* 6. Substitutions */}
+      {/* 6. Penalty shootout takers — only shown when a shootout was recorded */}
+      {hasPen && (
+        <EventSection
+          title={tt('ضاربو الجزاء', 'Penalty takers')}
+          icon="🎯"
+          events={events}
+          types={['penalty_scored', 'penalty_missed']}
+          m={m}
+          rosters={rosters}
+          lineups={lineups}
+          onAdd={addEv}
+          onRemove={removeEv}
+          onSave={saveEvents}
+          saving={eventsBusy}
+          ok={eventsOk}
+          tt={tt}
+        />
+      )}
+
+      {/* 7. Substitutions */}
       <EventSection
         title={tt('التبديلات', 'Substitutions')}
         icon="🔁"
@@ -968,11 +1061,27 @@ function MatchContent() {
           </Link>
           <div className="flex flex-col items-center gap-1 min-w-[100px]">
             {hasScore && (finished || live) ? (
+              <>
               <div className="flex items-baseline gap-2 font-extrabold tnum">
-                <span className="text-5xl text-text" style={{ textShadow: '0 0 30px rgb(var(--accent-rgb)/0.3)' }}>{m.home_score}</span>
-                <span className="text-2xl text-hint">-</span>
-                <span className="text-5xl text-text">{m.away_score}</span>
+                {(() => { const s = matchScoreLabel(m); return (<>
+                  <span className="text-5xl text-text" style={{ textShadow: '0 0 30px rgb(var(--accent-rgb)/0.3)' }}>{s.home}</span>
+                  <span className="text-2xl text-hint">-</span>
+                  <span className="text-5xl text-text">{s.away}</span>
+                </>); })()}
               </div>
+              {m.home_score_pen != null && (
+                <span className="text-[11px] font-bold text-gold tabular-nums">
+                  {tt(`${m.home_score_et}-${m.away_score_et} بعد الوقت الإضافي · ضربات الجزاء`,
+                      `${m.home_score_et}-${m.away_score_et} a.e.t. · on penalties`)}
+                </span>
+              )}
+              {m.home_score_et != null && m.home_score_pen == null && (
+                <span className="text-[11px] font-bold text-teal tabular-nums">
+                  {tt(`${m.home_score}-${m.away_score} في الوقت الأصلي · بعد وقت إضافي`,
+                      `${m.home_score}-${m.away_score} FT · a.e.t.`)}
+                </span>
+              )}
+              </>)
             ) : (
               <span className="text-aqua font-extrabold text-2xl tnum">{m.time || '--:--'}</span>
             )}

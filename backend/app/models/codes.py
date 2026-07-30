@@ -88,6 +88,10 @@ TLA3BNY_EVENT_TYPE = (
     "red",
     "substitution_in",
     "substitution_out",
+    # Penalty-shootout takers (only used for the post-ET shootout, not spot-kicks
+    # awarded during play — those are normal "goal" events).
+    "penalty_scored",
+    "penalty_missed",
 )
 
 # TeamCoach.role_ar — the default seniority order for a team's technical staff.

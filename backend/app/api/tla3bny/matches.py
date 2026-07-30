@@ -177,6 +177,20 @@ def enter_result(match_id: int):
     data = request.get_json(silent=True) or {}
     match.home_score = _int(data.get("home_score"))
     match.away_score = _int(data.get("away_score"))
+    # Extra time — key present means ET was played; absent means it wasn't.
+    if "home_score_et" in data:
+        match.home_score_et = _int(data.get("home_score_et"))
+        match.away_score_et = _int(data.get("away_score_et"))
+    else:
+        match.home_score_et = None
+        match.away_score_et = None
+    # Penalty shootout — same convention.
+    if "home_score_pen" in data:
+        match.home_score_pen = _int(data.get("home_score_pen"))
+        match.away_score_pen = _int(data.get("away_score_pen"))
+    else:
+        match.home_score_pen = None
+        match.away_score_pen = None
 
     Tla3bnyMatchEvent.query.filter_by(match_id=match.id).delete()
     db.session.flush()
