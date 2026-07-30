@@ -63,6 +63,7 @@ function PlayerContent() {
   ];
 
   const statCells: { label: string; value: number; color: string }[] = stats ? [
+    { label: tt('مشاركات', 'Apps'),    value: stats.appearances,  color: 'text-aqua' },
     { label: tt('أهداف', 'Goals'),     value: stats.goals,        color: 'text-green-400' },
     { label: tt('صناعة', 'Assists'),   value: stats.assists,      color: 'text-teal' },
     { label: tt('ك. أصفر', 'Yellow'),  value: stats.yellow_cards, color: 'text-yellow-400' },
@@ -81,7 +82,7 @@ function PlayerContent() {
       </Card>
 
       {statCells.length > 0 && (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           {statCells.map(({ label, value, color }) => (
             <Card key={label} className="p-3 flex flex-col items-center gap-1">
               <span className={`text-2xl font-black ${color}`}>{value}</span>

@@ -93,9 +93,25 @@ function DashboardTab({ token, comp, onNavigate }: {
   const matchPct = counts.matches_total
     ? Math.round((counts.matches_played / counts.matches_total) * 100) : 0;
   const totalPlayers = counts.players_approved + counts.players_pending + counts.players_rejected;
+  const openReplacementAges = (comp.ages ?? []).filter(a => a.replacements_open);
 
   return (
     <div className="space-y-4">
+      {/* Replacement window open banner */}
+      {openReplacementAges.length > 0 && (
+        <div className="flex items-center gap-3 bg-gold/10 border border-gold/40 rounded-2xl px-4 py-3">
+          <span className="text-2xl">🔄</span>
+          <div>
+            <p className="text-gold font-bold text-sm">
+              {tt('نافذة الاستبدال مفتوحة', 'Replacement window is open')}
+            </p>
+            <p className="text-hint text-[11px]">
+              {openReplacementAges.map(a => a.name ? `${a.name} · ${a.age_category}` : a.age_category).join(' · ')}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Pending approvals alert */}
       {counts.players_pending > 0 && (
         <button onClick={() => onNavigate('approvals')}
