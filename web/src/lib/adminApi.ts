@@ -84,6 +84,7 @@ export interface EntryMatchRow {
   home_score: number | null; away_score: number | null;
   stage_id: number | null; group_id: number | null;
   stage_name: string | null; group_name: string | null;
+  deleted_at?: string | null;
 }
 export interface EntryGoal { id: number; team_id: number; side: string; scorer: string; assist: string | null; minute: number | null; is_own_goal: boolean; is_penalty: boolean; }
 export interface EntryCard { id: number; team_id: number; side: string; player: string; card_type: string; minute: number | null; }
@@ -113,7 +114,14 @@ export const apiCompetitionMatches = (t: string, cid: number) => get<{ matches: 
 export const apiCreateMatch = (t: string, cid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/competitions/${cid}/matches`, body);
 export const apiGetMatch = (t: string, mid: number) => get<EntryMatch>(t, `/api/admin/matches/${mid}`);
 export const apiUpdateMatch = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/matches/${mid}`, body);
-export const apiDeleteMatch = (t: string, mid: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/matches/${mid}`);
+export const apiDeleteMatch = (t: string, mid: number) => send<{ deleted: number; deleted_at: string }>(t, 'DELETE', `/api/admin/matches/${mid}`);
+export const apiRestoreMatch = (t: string, mid: number) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/restore`);
+
+export interface PlayerSearchResult { id: number; name: string; birth_year: number; }
+export const apiSearchPlayers = (t: string, q: string) =>
+  get<{ players: PlayerSearchResult[] }>(t, `/api/admin/players/search?q=${encodeURIComponent(q)}`).then(d => d.players);
+export const apiMergePlayer = (t: string, sourceId: number, targetId: number) =>
+  send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/players/${sourceId}/merge-into/${targetId}`);
 export const apiAddGoal = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/goals`, body);
 export const apiUpdateGoal = (t: string, gid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/goals/${gid}`, body);
 export const apiDeleteGoal = (t: string, gid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/goals/${gid}`);

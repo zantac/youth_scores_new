@@ -4,7 +4,8 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
 import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers,
-  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiAddGoal, apiUpdateGoal, apiDeleteGoal,
+  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
+  apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiStages,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
@@ -68,16 +69,25 @@ export default function MatchesEntry() {
     return seen.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
   }, [matches]);
 
+  const active = useMemo(() => matches.filter(m => !m.deleted_at), [matches]);
+  const recentlyDeleted = useMemo(() => matches.filter(m => m.deleted_at), [matches]);
+
   const shown = useMemo(() => {
     const q = fold(fTeam);
-    return matches.filter(m =>
+    return active.filter(m =>
       (!q || fold(loc(m.home.name)).includes(q) || fold(loc(m.away.name)).includes(q))
       && (!fWeek || m.week === fWeek)
       && (!fDate || m.date === fDate));
-  }, [matches, fTeam, fWeek, fDate]);
+  }, [active, fTeam, fWeek, fDate]);
 
   const filtering = Boolean(fTeam || fWeek || fDate);
   const clear = () => { setFTeam(''); setFWeek(''); setFDate(''); };
+
+  const restoreFromList = async (mid: number) => {
+    if (!token) return;
+    try { await apiRestoreMatch(token, mid); refreshMatches(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ في الاسترداد'); }
+  };
 
   if (editing) {
     return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
@@ -104,7 +114,7 @@ export default function MatchesEntry() {
         <>
           <div className="flex items-center justify-between">
             <p className="text-hint text-xs">
-              {filtering ? `${shown.length} من ${matches.length} مباراة` : `${matches.length} مباراة`}
+              {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
             </p>
             <button onClick={() => setShowNew(s => !s)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-2 rounded-xl">
               {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
@@ -150,11 +160,32 @@ export default function MatchesEntry() {
                 </p>
               </button>
             ))}
-            {matches.length === 0 && <p className="text-hint text-sm text-center py-6">لا توجد مباريات — أضف واحدة</p>}
-            {matches.length > 0 && shown.length === 0 && (
+            {active.length === 0 && <p className="text-hint text-sm text-center py-6">لا توجد مباريات — أضف واحدة</p>}
+            {active.length > 0 && shown.length === 0 && (
               <p className="text-hint text-sm text-center py-6">لا نتائج مطابقة للفلاتر</p>
             )}
           </div>
+
+          {recentlyDeleted.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-bdr/50">
+              <p className="text-hint text-[11px] font-bold">محذوفة مؤخراً (قابلة للاسترداد خلال 24 ساعة)</p>
+              {recentlyDeleted.map(m => (
+                <div key={m.id} className="bg-cardBg border border-loss/20 rounded-xl p-3 opacity-60">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 text-sm text-hint truncate text-end line-through">{loc(m.home.name)}</div>
+                    <div className="text-hint text-xs tnum min-w-[64px] text-center">
+                      {m.home_score != null ? `${m.home_score} - ${m.away_score}` : (m.date || 'غير محدد')}
+                    </div>
+                    <div className="flex-1 text-sm text-hint truncate line-through">{loc(m.away.name)}</div>
+                    <button onClick={() => restoreFromList(m.id)}
+                      className="flex-shrink-0 text-gold text-[11px] font-bold border border-gold/40 rounded-lg px-2.5 py-1 hover:bg-gold/10">
+                      استعادة
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -250,6 +281,7 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
   const [stageSaved, setStageSaved] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
+  const [softDeleted, setSoftDeleted] = useState(false);
   const [schedSaved, setSchedSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -332,8 +364,20 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
 
   const deleteMatch = async () => {
     setErr(null); setDelBusy(true);
-    try { await apiDeleteMatch(token, match.id); onBack(); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setDelBusy(false); }
+    try {
+      await apiDeleteMatch(token, match.id);
+      setSoftDeleted(true); setConfirmDel(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setDelBusy(false); }
+  };
+
+  const undoDelete = async () => {
+    setErr(null); setDelBusy(true);
+    try {
+      const restored = await apiRestoreMatch(token, match.id);
+      onChange(restored); setSoftDeleted(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setDelBusy(false); }
   };
 
   return (
@@ -473,28 +517,47 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
           onCancelEdit={() => setEditSubId(null)}
           onAdd={m => { onChange(m); setEditSubId(null); }} />} />
 
-      {/* Delete the whole match. */}
-      <div className="bg-cardBg border border-loss/30 rounded-2xl p-4 space-y-2">
-        <p className="text-text font-bold text-sm">حذف المباراة</p>
-        <p className="text-hint text-[11px] leading-relaxed">
-          يحذف المباراة وكل أهدافها وبطاقاتها وتبديلاتها وتشكيلاتها نهائيًا. لا يمكن التراجع.
-        </p>
-        {!confirmDel ? (
-          <button onClick={() => setConfirmDel(true)}
-            className="text-loss text-sm font-bold border border-loss/40 rounded-lg px-4 py-2">
-            🗑️ حذف المباراة
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="flex-1 text-loss text-xs">هل أنت متأكد؟ لا يمكن التراجع.</span>
-            <button onClick={() => setConfirmDel(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
-            <button onClick={deleteMatch} disabled={delBusy}
-              className="bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-              {delBusy ? '…' : 'تأكيد الحذف'}
+      {/* Delete / undo-delete */}
+      {softDeleted ? (
+        <div className="bg-cardBg border border-gold/30 rounded-2xl p-4 space-y-2">
+          <p className="text-gold font-bold text-sm">تم حذف المباراة</p>
+          <p className="text-hint text-[11px] leading-relaxed">
+            المباراة مخفية الآن من الجمهور. يمكن استردادها خلال 24 ساعة.
+          </p>
+          {err && <p className="text-loss text-xs">{err}</p>}
+          <div className="flex gap-2">
+            <button onClick={undoDelete} disabled={delBusy}
+              className="bg-gold text-black font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {delBusy ? '…' : 'تراجع عن الحذف'}
+            </button>
+            <button onClick={onBack} className="text-hint text-sm font-bold px-4 py-2 border border-bdr rounded-lg">
+              العودة
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="bg-cardBg border border-loss/30 rounded-2xl p-4 space-y-2">
+          <p className="text-text font-bold text-sm">حذف المباراة</p>
+          <p className="text-hint text-[11px] leading-relaxed">
+            تختفي المباراة فورًا من الجمهور والترتيب، ويمكن استردادها من قائمة المباريات خلال 24 ساعة.
+          </p>
+          {!confirmDel ? (
+            <button onClick={() => setConfirmDel(true)}
+              className="text-loss text-sm font-bold border border-loss/40 rounded-lg px-4 py-2">
+              🗑️ حذف المباراة
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="flex-1 text-loss text-xs">هل أنت متأكد؟</span>
+              <button onClick={() => setConfirmDel(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
+              <button onClick={deleteMatch} disabled={delBusy}
+                className="bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                {delBusy ? '…' : 'تأكيد الحذف'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

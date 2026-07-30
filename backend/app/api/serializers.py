@@ -190,6 +190,7 @@ def competition_data(competition_id: int) -> dict | None:
     matches = (
         Match.query.join(Stage)
         .filter(Stage.competition_id == competition_id)
+        .filter(Match.deleted_at.is_(None))
         # Undated (TBD) fixtures sort last; is_(None) orders False<True.
         .order_by(Match.match_date.is_(None), Match.match_date)
         .all()
@@ -774,7 +775,7 @@ def all_matches(
             "logo": t.club.logo_url,
         }
 
-    q = Match.query
+    q = Match.query.filter(Match.deleted_at.is_(None))
     if date_from:
         q = q.filter(Match.match_date >= datetime.combine(date_from, day_time.min))
     if date_to:
