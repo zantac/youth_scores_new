@@ -477,6 +477,27 @@ _RULE_FIELDS = (
     "max_replacements",
 )
 
+# Minimum allowed value for each numeric rule field.
+_RULE_MINIMUMS = {
+    "max_players_per_team": 1,
+    "lineup_size": 1,
+    "players_on_pitch": 1,
+    "max_substitutes": 0,
+    "num_periods": 1,
+    "period_minutes": 1,
+    "lineup_deadline_minutes": 0,
+    "max_replacements": 0,
+}
+
+
+def _validate_rule_fields(data: dict) -> str | None:
+    """Return an error message if any rule field is out of range, else None."""
+    for f, minimum in _RULE_MINIMUMS.items():
+        val = _int(data.get(f))
+        if f in data and val is not None and val < minimum:
+            return f"'{f}' must be ≥ {minimum} (got {val})"
+    return None
+
 
 @tla3bny_bp.post("/competitions/<int:comp_id>/ages")
 @auth.login_required
@@ -488,6 +509,9 @@ def add_competition_age(comp_id: int):
     age_id = _int(data.get("age_category_id"))
     if not age_id or not Tla3bnyAgeCategory.query.get(age_id):
         return _err("valid age_category_id is required")
+    rule_err = _validate_rule_fields(data)
+    if rule_err:
+        return _err(rule_err, 400)
     cage = Tla3bnyCompetitionAge(
         competition_id=comp_id,
         age_category_id=age_id,
@@ -513,6 +537,9 @@ def update_competition_age(cage_id: int):
     if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
         return _forbid()
     data = request.get_json(silent=True) or {}
+    rule_err = _validate_rule_fields(data)
+    if rule_err:
+        return _err(rule_err, 400)
     if "name" in data:
         cage.name = (data.get("name") or "").strip() or None
     if "player_registration_deadline" in data:

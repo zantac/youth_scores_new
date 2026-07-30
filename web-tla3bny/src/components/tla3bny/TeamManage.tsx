@@ -48,7 +48,10 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   const [showJoinModal, setShowJoinModal] = useState(false);
 
   const refreshEntries = useCallback(() => {
-    tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => setCompEntries([]));
+    tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(e => {
+      setCompEntries([]);
+      setErr(e instanceof Error ? e.message : String(e));
+    });
     tJoinableCompetitions(token, teamId).then(setJoinable).catch(() => setJoinable([]));
   }, [token, teamId]);
 

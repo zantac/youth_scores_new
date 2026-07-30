@@ -267,18 +267,19 @@ def create_player(team_id: int):
         if not in_registration and not in_replacement:
             continue
         cap = cage.max_players_per_team if cage else None
-        # Count only active (pending + approved) players against the cap.
-        active_count = Tla3bnyCompetitionPlayer.query.filter(
+        # Lock rows to prevent a concurrent request from bypassing the cap.
+        active_rows = Tla3bnyCompetitionPlayer.query.filter(
             Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
             Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
-        ).count()
+        ).with_for_update().all()
+        active_count = len(active_rows)
         if cap is not None and active_count >= cap:
             continue
         if in_replacement and not in_registration:
             # Replacement window: also enforce the swap quota.
             replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
                 competition_team_id=entry.id, status="replaced"
-            ).count()
+            ).with_for_update().count()
             if replaced_count >= cage.max_replacements:
                 continue
         has_room = True
@@ -293,6 +294,8 @@ def create_player(team_id: int):
     name = (data.get("name") or "").strip()
     if not name:
         return _err("name is required")
+    if len(name) > 200:
+        return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
 
     photo = None
     try:
@@ -338,17 +341,32 @@ def create_player(team_id: int):
         if not in_registration and not in_replacement:
             continue
         cap = cage.max_players_per_team if cage else None
-        active_count = Tla3bnyCompetitionPlayer.query.filter(
+        active_count = len(Tla3bnyCompetitionPlayer.query.filter(
             Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
             Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
-        ).count()
+        ).with_for_update().all())
         if cap is not None and active_count >= cap:
             continue
         if in_replacement and not in_registration:
             replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
                 competition_team_id=entry.id, status="replaced"
-            ).count()
+            ).with_for_update().count()
             if replaced_count >= cage.max_replacements:
+                continue
+            # Prevent cycling: block if this player already has an approved or
+            # replaced entry anywhere in this competition (across all team entries).
+            already_in = (
+                db.session.query(Tla3bnyCompetitionPlayer)
+                .join(Tla3bnyCompetitionTeam,
+                      Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id)
+                .filter(
+                    Tla3bnyCompetitionTeam.competition_id == entry.competition_id,
+                    Tla3bnyCompetitionPlayer.player_id == player.id,
+                    Tla3bnyCompetitionPlayer.status.in_(("approved", "replaced")),
+                )
+                .first()
+            )
+            if already_in:
                 continue
         db.session.add(Tla3bnyCompetitionPlayer(
             competition_team_id=entry.id, player_id=player.id, status="pending"
@@ -378,14 +396,24 @@ def replace_competition_player(cp_id: int):
     ).first()
     if not cage or not cage.replacements_open:
         return _err("Replacement window is not open for this sub-competition")
+    comp = entry.competition
+    if comp and comp.status == "finished":
+        return _err("لا يمكن الاستبدال في بطولة منتهية", 409)
+    # Lock the quota row to prevent a concurrent replace from bypassing the limit.
     replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
         competition_team_id=entry.id, status="replaced"
-    ).count()
+    ).with_for_update().count()
     if replaced_count >= cage.max_replacements:
         return _err(
             f"تم استنفاد حصة الاستبدال ({cage.max_replacements} لاعبين)", 409
         )
     cp.status = "replaced"
+    _log("player_replaced", "competition_player", cp.id, {
+        "player_id": cp.player_id,
+        "player_name": cp.player.name if cp.player else None,
+        "team_id": entry.team_id,
+        "competition_id": entry.competition_id,
+    }, competition_id=entry.competition_id)
     db.session.commit()
     return jsonify(cp.to_dict())
 
@@ -403,8 +431,16 @@ def update_player(player_id: int):
     if team_id is None or not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
     data, files = _read_payload()
+
+    # Snapshot identity-critical fields before applying changes.
+    old_name = player.name
+    old_dob = player.dob
+
     if data.get("name"):
-        player.name = data.get("name").strip()
+        new_name = data.get("name").strip()
+        if len(new_name) > 200:
+            return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
+        player.name = new_name
     if "dob" in data:
         player.dob = _parse_date(data.get("dob"))
     if "position" in data:
@@ -414,13 +450,33 @@ def update_player(player_id: int):
     if "jersey_number" in data:
         cur = player.current_membership()
         if cur:
-            cur.jersey_number = _int(data.get("jersey_number"))
+            new_num = _int(data.get("jersey_number"))
+            if new_num is not None:
+                conflict = Tla3bnyPlayerTeam.query.filter(
+                    Tla3bnyPlayerTeam.team_id == team_id,
+                    Tla3bnyPlayerTeam.jersey_number == new_num,
+                    Tla3bnyPlayerTeam.end_date == None,  # noqa: E711
+                    Tla3bnyPlayerTeam.player_id != player_id,
+                ).first()
+                if conflict:
+                    return _err(f"رقم القميص {new_num} مستخدم بالفعل في هذا الفريق", 409)
+            cur.jersey_number = new_num
+
+    # Detect whether new registration papers were uploaded (material change).
+    has_new_docs = files is not None and (
+        (hasattr(files, "getlist") and any(
+            f and getattr(f, "filename", "") != ""
+            for f in files.getlist("documents")
+        ))
+        or bool(files.get("papers"))
+    )
     try:
         if files is not None and files.get("photo"):
             player.photo_path = save_upload(files.get("photo"), kind="image")
         _save_documents(player, data, files)
     except ValueError as e:
         return _err(str(e))
+
     cur = player.current_membership()
     _log("player_updated", "player", player.id, {
         "player_name": player.name,
@@ -428,13 +484,17 @@ def update_player(player_id: int):
         "team_name": cur.team.display_name() if cur and cur.team else None,
     })
     db.session.commit()
-    # Any approved or rejected competition entry must go back to pending so the
-    # organiser reviews the updated data before the player competes.
-    Tla3bnyCompetitionPlayer.query.filter(
-        Tla3bnyCompetitionPlayer.player_id == player.id,
-        Tla3bnyCompetitionPlayer.status != "pending",
-    ).update({"status": "pending", "rejection_reason": None})
-    db.session.commit()
+
+    # Reset to pending ONLY for identity-critical changes (name, DOB, papers).
+    # Position, jersey, photo changes don't warrant re-review.
+    name_changed = player.name != old_name
+    dob_changed = player.dob != old_dob
+    if name_changed or dob_changed or has_new_docs:
+        Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.player_id == player.id,
+            Tla3bnyCompetitionPlayer.status.in_(("approved", "rejected")),
+        ).update({"status": "pending", "rejection_reason": None})
+        db.session.commit()
     return jsonify(player.to_dict(with_files=True))
 
 
@@ -506,6 +566,29 @@ def delete_player(player_id: int):
     team_id = _player_team_id(player)
     if team_id is None or not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
+    # Block deletion if player has an active competition entry — removing them
+    # while approved would silently corrupt the organiser's roster.
+    active_entry = Tla3bnyCompetitionPlayer.query.filter(
+        Tla3bnyCompetitionPlayer.player_id == player_id,
+        Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+    ).first()
+    if active_entry:
+        return _err(
+            "لا يمكن حذف لاعب مسجّل في بطولة نشطة — أزِل قيده أولًا أو استخدم نافذة الاستبدال",
+            409,
+        )
+    # Block deletion if player has match events — their goals/cards are part of
+    # permanent match records and would become unattributed (NULL player_id) on delete.
+    if Tla3bnyMatchEvent.query.filter_by(player_id=player_id).first():
+        return _err(
+            "لا يمكن حذف لاعب شارك في مباريات — سجلّه محفوظ في سجلات المباريات",
+            409,
+        )
+    player_name = player.name
     db.session.delete(player)
+    _log("player_deleted", "player", player_id, {
+        "player_name": player_name,
+        "team_id": team_id,
+    })
     db.session.commit()
     return jsonify({"message": "deleted"})

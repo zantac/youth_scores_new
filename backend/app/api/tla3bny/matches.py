@@ -174,7 +174,19 @@ def enter_result(match_id: int):
     match = Tla3bnyMatch.query.get_or_404(match_id)
     if not auth.is_competition_admin(auth.current_user(), match.competition_id):
         return _forbid()
+    if match.status in ("cancelled", "postponed"):
+        return _err("لا يمكن إدخال نتيجة مباراة ملغاة أو مؤجلة", 409)
     data = request.get_json(silent=True) or {}
+
+    # Validate that every event's team_id belongs to this match.
+    valid_team_ids = {match.home_team_id, match.away_team_id} - {None}
+    for ev in data.get("events") or []:
+        ev_team = _int(ev.get("team_id"))
+        if ev_team is not None and ev_team not in valid_team_ids:
+            return _err(
+                f"team_id {ev_team} ليس أحد فريقَي هذه المباراة", 400
+            )
+
     match.home_score = _int(data.get("home_score"))
     match.away_score = _int(data.get("away_score"))
     # Extra time — key present means ET was played; absent means it wasn't.
@@ -192,6 +204,7 @@ def enter_result(match_id: int):
         match.home_score_pen = None
         match.away_score_pen = None
 
+    was_finished = match.status in ("completed", "finished")
     Tla3bnyMatchEvent.query.filter_by(match_id=match.id).delete()
     db.session.flush()
 
@@ -235,7 +248,8 @@ def enter_result(match_id: int):
         )
 
     match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
-    _log("result_entered", "match", match.id, {
+    event_type = "result_corrected" if was_finished else "result_entered"
+    _log(event_type, "match", match.id, {
         "home_team_id": match.home_team_id,
         "away_team_id": match.away_team_id,
         "home_team": match.home_team.display_name() if match.home_team else None,
