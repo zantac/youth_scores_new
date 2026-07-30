@@ -332,6 +332,7 @@ export interface TRules {
   period_minutes: number;
   lineup_deadline_minutes: number;
   max_players_per_team: number;
+  oldest_birth_year: number | null;
 }
 
 export interface TMatchEvent {

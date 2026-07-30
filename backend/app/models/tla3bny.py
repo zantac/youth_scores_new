@@ -790,6 +790,9 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "lineup_deadline_minutes": self.lineup_deadline_minutes,
             "replacements_open": self.replacements_open,
             "max_replacements": self.max_replacements,
+            "oldest_birth_year": (
+                self.age_category.oldest_birth_year if self.age_category else None
+            ),
         }
         if with_stages:
             data["stages"] = [s.to_dict(with_groups=True) for s in self.stages]

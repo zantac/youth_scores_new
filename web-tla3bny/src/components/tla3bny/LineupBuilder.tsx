@@ -131,6 +131,7 @@ export default function LineupBuilder({
   const currentPickId = picker && !picker.forSub && picker.slot ? assign[picker.slot] : undefined;
   const rules = match.rules;
   const playersOnPitch = rules?.players_on_pitch ?? 11;
+  const oldestBirthYear = rules?.oldest_birth_year ?? null;
   const validFormations = FORMATION_NAMES.filter(f => FORMATIONS[f].length === playersOnPitch);
 
   return (
@@ -209,6 +210,7 @@ export default function LineupBuilder({
           usedIds={usedIds}
           currentId={currentPickId}
           slotHint={picker.slot ? slotBase(picker.slot) : null}
+          oldestBirthYear={oldestBirthYear}
           title={picker.forSub ? tt('إضافة بديل', 'Add substitute') : tt(`اختر لاعبًا لـ ${picker.slot}`, `Select for ${picker.slot}`)}
           onPick={pick}
           onClose={() => setPicker(null)}
@@ -219,12 +221,13 @@ export default function LineupBuilder({
 }
 
 function PlayerPicker({
-  players, usedIds, currentId, slotHint, title, onPick, onClose,
+  players, usedIds, currentId, slotHint, oldestBirthYear, title, onPick, onClose,
 }: {
   players: TEligiblePlayer[];
   usedIds: Set<number>;
   currentId?: number;
   slotHint: string | null;
+  oldestBirthYear: number | null;
   title: string;
   onPick: (id: number | null) => void;
   onClose: () => void;
@@ -239,6 +242,12 @@ function PlayerPicker({
     };
     return [...players].sort((a, b) => score(a) - score(b));
   }, [players, slotHint]);
+
+  const isOverAge = (p: TEligiblePlayer): boolean => {
+    if (!oldestBirthYear || !p.dob) return false;
+    const birthYear = new Date(p.dob).getFullYear();
+    return birthYear < oldestBirthYear;
+  };
 
   return (
     <div className="fixed inset-0 z-[120] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -255,22 +264,37 @@ function PlayerPicker({
           )}
           {sorted.map(p => {
             const used = usedIds.has(p.player_id) && p.player_id !== currentId;
+            const overAge = isOverAge(p);
             return (
               <button key={p.player_id} disabled={used} onClick={() => onPick(p.player_id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start ${used ? 'opacity-40' : 'hover:bg-cardBg2'}`}>
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start ${used ? 'opacity-40' : overAge ? 'hover:bg-gold/5' : 'hover:bg-cardBg2'}`}>
                 <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
                   <div className="text-[11px] text-hint truncate">
                     {[
                       p.position,
+                      p.dob ? new Date(p.dob).getFullYear() : null,
                       p.guest ? `↑ ${p.guest_team ?? tt('فريق أصغر', 'younger team')}` : null,
                       used ? tt('مختار بالفعل', 'already selected') : null,
                     ].filter(Boolean).join(' · ')}
                   </div>
                 </div>
-                {p.player_id === currentId && <span className="text-aqua">✓</span>}
-                {p.guest && !used && <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-1.5 py-0.5 shrink-0">{tt('ضيف', 'Guest')}</span>}
+                <div className="flex items-center gap-1 shrink-0">
+                  {p.player_id === currentId && <span className="text-aqua">✓</span>}
+                  {overAge && (
+                    <span title={tt(`مواليد قبل ${oldestBirthYear}`, `Born before ${oldestBirthYear}`)}
+                      className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-1.5 py-0.5">
+                      ⚠ {tt('فوق السن', 'Over-age')}
+                    </span>
+                  )}
+                  {p.guest && !used && !overAge && (
+                    <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-1.5 py-0.5">{tt('ضيف', 'Guest')}</span>
+                  )}
+                  {p.guest && overAge && (
+                    <span className="text-[10px] font-bold text-teal bg-teal/10 border border-teal/20 rounded-full px-1.5 py-0.5">{tt('ضيف', 'Guest')}</span>
+                  )}
+                </div>
               </button>
             );
           })}
