@@ -732,6 +732,15 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     # Null falls back to the competition's global list, then the age category default.
     required_documents: Mapped[list | None] = mapped_column(sa.JSON)
 
+    # Replacement window: organizer opens this mid-season so academies can swap
+    # up to max_replacements approved players for new ones.
+    replacements_open: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
+    max_replacements: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=5, server_default="5"
+    )
+
     competition: Mapped["Tla3bnyCompetition"] = relationship(back_populates="ages")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
     stages: Mapped[list["Tla3bnyStage"]] = relationship(
@@ -779,6 +788,8 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "num_periods": self.num_periods,
             "period_minutes": self.period_minutes,
             "lineup_deadline_minutes": self.lineup_deadline_minutes,
+            "replacements_open": self.replacements_open,
+            "max_replacements": self.max_replacements,
         }
         if with_stages:
             data["stages"] = [s.to_dict(with_groups=True) for s in self.stages]

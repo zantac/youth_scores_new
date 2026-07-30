@@ -252,29 +252,40 @@ def create_player(team_id: int):
             "الفريق لم يُضَف لأي بطولة بعد — تواصل مع المنظّم لإضافته أولًا", 403
         )
 
-    # Gate: at least one open competition must still have room.
+    # Gate: at least one open (registration or replacement) competition must have room.
     has_room = False
     for entry in comp_entries:
         comp = entry.competition
-        if not comp or not comp.registration_open:
+        if not comp:
             continue
         cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
+        in_registration = comp.registration_open
+        in_replacement = cage and cage.replacements_open
+        if not in_registration and not in_replacement:
+            continue
         cap = cage.max_players_per_team if cage else None
-        if cap is None:
-            has_room = True
-            break
-        count = Tla3bnyCompetitionPlayer.query.filter_by(
-            competition_team_id=entry.id
+        # Count only active (pending + approved) players against the cap.
+        active_count = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
         ).count()
-        if count < cap:
-            has_room = True
-            break
+        if cap is not None and active_count >= cap:
+            continue
+        if in_replacement and not in_registration:
+            # Replacement window: also enforce the swap quota.
+            replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
+                competition_team_id=entry.id, status="replaced"
+            ).count()
+            if replaced_count >= cage.max_replacements:
+                continue
+        has_room = True
+        break
     if not has_room:
         return _err(
-            "وصل الفريق للحد الأقصى من اللاعبين أو أُغلق التسجيل في جميع البطولات",
+            "وصل الفريق للحد الأقصى من اللاعبين أو أُغلق التسجيل والاستبدال في جميع البطولات",
             409,
         )
 
@@ -317,21 +328,66 @@ def create_player(team_id: int):
     # team is registered in — the organiser's Approvals tab shows them at once.
     for entry in Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active"):
         comp = entry.competition
-        if not comp or not comp.registration_open:
+        if not comp:
             continue
         cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id, age_category_id=entry.age_category_id
         ).first()
-        cap = cage.max_players_per_team if cage else None
-        if cap is not None and Tla3bnyCompetitionPlayer.query.filter_by(
-            competition_team_id=entry.id
-        ).count() >= cap:
+        in_registration = comp.registration_open
+        in_replacement = cage and cage.replacements_open
+        if not in_registration and not in_replacement:
             continue
+        cap = cage.max_players_per_team if cage else None
+        active_count = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+        ).count()
+        if cap is not None and active_count >= cap:
+            continue
+        if in_replacement and not in_registration:
+            replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
+                competition_team_id=entry.id, status="replaced"
+            ).count()
+            if replaced_count >= cage.max_replacements:
+                continue
         db.session.add(Tla3bnyCompetitionPlayer(
             competition_team_id=entry.id, player_id=player.id, status="pending"
         ))
     db.session.commit()
     return jsonify(player.to_dict(with_files=True)), 201
+
+
+@tla3bny_bp.post("/competition-players/<int:cp_id>/replace")
+@auth.login_required
+def replace_competition_player(cp_id: int):
+    """Mark an approved competition player as replaced during the replacement window.
+
+    The player stays on the team and retains all their match history; they are
+    simply removed from this competition's active roster so a new player can
+    take their slot.
+    """
+    cp = Tla3bnyCompetitionPlayer.query.get_or_404(cp_id)
+    entry = cp.entry
+    if not auth.can_manage_team(auth.current_user(), entry.team_id):
+        return _forbid()
+    if cp.status != "approved":
+        return _err("Only approved players can be replaced")
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+        competition_id=entry.competition_id,
+        age_category_id=entry.age_category_id,
+    ).first()
+    if not cage or not cage.replacements_open:
+        return _err("Replacement window is not open for this sub-competition")
+    replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
+        competition_team_id=entry.id, status="replaced"
+    ).count()
+    if replaced_count >= cage.max_replacements:
+        return _err(
+            f"تم استنفاد حصة الاستبدال ({cage.max_replacements} لاعبين)", 409
+        )
+    cp.status = "replaced"
+    db.session.commit()
+    return jsonify(cp.to_dict())
 
 
 def _player_team_id(player: Tla3bnyPlayer) -> int | None:

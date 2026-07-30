@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tJoinableCompetitions, tRequestJoin,
-  tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
+  tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach, tReplaceCompPlayer,
   type TTeam, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
@@ -68,9 +68,13 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
     finally { setJoinBusy(null); }
   };
 
-  // Derive registration availability from competition entries.
+  // Derive registration / replacement availability from competition entries.
   const openEntries = compEntries.filter(e => e.status === 'active' && e.registration_open);
-  const canAddPlayers = openEntries.some(e => e.max_players === null || e.player_count < e.max_players);
+  const replacementEntries = compEntries.filter(e => e.status === 'active' && e.replacements_open);
+  const canAddPlayers = openEntries.some(e => e.max_players === null || e.player_count < e.max_players)
+    || replacementEntries.some(e =>
+        e.replacement_count < e.max_replacements &&
+        (e.max_players === null || e.player_count < e.max_players));
   // Show the strictest quota: the open competition with the fewest remaining slots.
   const quota = openEntries.reduce<{ used: number; max: number | null } | null>((acc, e) => {
     if (e.max_players === null) return acc ?? { used: e.player_count, max: null };
@@ -94,6 +98,17 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       setPf({ name: '', position: '', jersey_number: '', dob: '' }); setPhoto(null); setDocFiles({});
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setPBusy(false); }
+  };
+
+  const [replaceBusy, setReplaceBusy] = useState<number | null>(null);
+  const replacePlayer = async (cpId: number) => {
+    if (!confirm(tt('إزالة هذا اللاعب من البطولة؟ سيبقى في الفريق لكن لن يكمل المنافسة.', 'Remove this player from the competition? They stay on the team but will not continue in this tournament.'))) return;
+    setErr(null); setReplaceBusy(cpId);
+    try {
+      await tReplaceCompPlayer(token, cpId);
+      await Promise.all([reload(), refreshEntries()]);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setReplaceBusy(null); }
   };
 
   // player edit state
@@ -184,6 +199,55 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
             </p>
           </Card>
         ) : null}
+
+        {/* Replacement window banners */}
+        {replacementEntries.map(e => (
+          <Card key={e.entry_id} className="p-3 mb-3 border-gold/40 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-gold font-bold text-sm">
+                  🔄 {tt('نافذة الاستبدال مفتوحة', 'Replacement window open')}
+                  {e.sub_competition_name && (
+                    <span className="text-hint font-normal text-[11px] ms-1">· {e.sub_competition_name}</span>
+                  )}
+                </p>
+                <p className="text-[11px] text-hint mt-0.5">
+                  {tt(
+                    `استُخدم ${e.replacement_count} من ${e.max_replacements} استبدالات`,
+                    `${e.replacement_count} of ${e.max_replacements} replacements used`,
+                  )}
+                </p>
+              </div>
+              <span className={`text-sm font-black tabular-nums ${e.replacement_count >= e.max_replacements ? 'text-loss' : 'text-gold'}`}>
+                {e.replacement_count}/{e.max_replacements}
+              </span>
+            </div>
+            {e.replacement_count < e.max_replacements && e.approved_players.length > 0 && (
+              <div className="space-y-1 border-t border-bdr/50 pt-2">
+                <p className="text-[11px] text-teal font-bold">{tt('اختر لاعبًا لاستبداله', 'Select a player to replace')}</p>
+                {e.approved_players.map(ap => (
+                  <div key={ap.competition_player_id} className="flex items-center justify-between bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="text-sm text-text font-bold truncate block">{ap.player_name}</span>
+                      {ap.position && <span className="text-[11px] text-hint">{ap.position}</span>}
+                    </div>
+                    <button
+                      onClick={() => replacePlayer(ap.competition_player_id)}
+                      disabled={replaceBusy === ap.competition_player_id}
+                      className="text-xs font-bold text-loss border border-loss/40 rounded-lg px-3 py-1.5 hover:bg-loss/10 disabled:opacity-50 shrink-0 ms-2">
+                      {replaceBusy === ap.competition_player_id ? tt('…', '…') : tt('استبدال', 'Replace')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {e.replacement_count >= e.max_replacements && (
+              <p className="text-loss text-[11px]">
+                {tt('تم استنفاد الحصة الكاملة للاستبدال.', 'All replacements have been used.')}
+              </p>
+            )}
+          </Card>
+        ))}
 
         {/* Rejection alerts */}
         {allRejections.length > 0 && (

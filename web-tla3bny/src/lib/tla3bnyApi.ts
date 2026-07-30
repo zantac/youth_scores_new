@@ -197,6 +197,8 @@ export interface TCompAge {
   num_periods: number;
   period_minutes: number;
   lineup_deadline_minutes: number;
+  replacements_open: boolean;
+  max_replacements: number;
   stages?: TStage[];
 }
 
@@ -607,6 +609,13 @@ export const tTeamAccount = (token: string, teamId: number) =>
     `/teams/${teamId}/account`, token,
   );
 
+export interface TApprovedPlayer {
+  competition_player_id: number;
+  player_id: number;
+  player_name: string | null;
+  position: string | null;
+}
+
 export interface TTeamCompEntry {
   entry_id: number;
   competition_id: number;
@@ -617,6 +626,11 @@ export interface TTeamCompEntry {
   registration_open: boolean;
   max_players: number | null;
   player_count: number;
+  replacements_open: boolean;
+  max_replacements: number;
+  replacement_count: number;
+  /** Populated only when replacements_open is true. */
+  approved_players: TApprovedPlayer[];
   rejected_players: { player_id: number; player_name: string | null; rejection_reason: string | null }[];
 }
 /** Competitions this team is registered in (active + pending), with player quota — for the academy dashboard. */
@@ -802,6 +816,9 @@ export const tApproveRosterPlayer = (token: string, cpId: number) =>
   send<TCompPlayer>('POST', `/competition-players/${cpId}/approve`, undefined, token);
 export const tRejectRosterPlayer = (token: string, cpId: number, reason?: string) =>
   send<TCompPlayer>('POST', `/competition-players/${cpId}/reject`, { reason }, token);
+/** Academy marks an approved player as replaced during the replacement window. */
+export const tReplaceCompPlayer = (token: string, cpId: number) =>
+  send<TCompPlayer>('POST', `/competition-players/${cpId}/replace`, undefined, token);
 
 // ── matches ─────────────────────────────────────────────────────────────────
 export const tMatches = (params: {

@@ -66,7 +66,7 @@ TLA3BNY_STAGE_TYPE_KNOCKOUT = "knockout"
 TLA3BNY_ENTRY_STATUS = ("active", "withdrawn", "pending")
 # Tla3bnyCompetitionPlayer.status — per-competition roster approval by that
 # competition's admin.
-TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected")
+TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected", "replaced")
 # Tla3bnyMatch.status
 TLA3BNY_MATCH_STATUS = ("scheduled", "live", "completed", "postponed", "cancelled", "finished")
 TLA3BNY_MATCH_STATUS_FINISHED = "completed"

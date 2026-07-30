@@ -328,6 +328,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
   const [f, setF] = useState<Record<string, number>>(() =>
     Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
+  const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedGuard(isDirty);
@@ -341,6 +342,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
       player_registration_deadline: deadline || null,
       ...f,
       required_documents: docList,
+      replacements_open: replacementsOpen,
     });
     setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
@@ -375,6 +377,33 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
               className="w-full bg-darkBg border border-bdr rounded-lg px-2 py-1.5 text-text text-sm outline-none focus:border-aqua tnum" />
           </label>
         ))}
+      </div>
+
+      {/* Replacement window */}
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
+        <p className="text-teal text-[10px] font-bold">{tt('نافذة الاستبدال', 'Replacement window')}</p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-text">
+            <input type="checkbox" checked={replacementsOpen}
+              onChange={e => { setReplacementsOpen(e.target.checked); setIsDirty(true); }} />
+            {tt('فتح نافذة الاستبدال', 'Open replacement window')}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text">
+            <span className="text-[11px] text-hint">{tt('الحد الأقصى للاستبدالات', 'Max replacements')}</span>
+            <input
+              value={f['max_replacements']}
+              onChange={e => { setF({ ...f, max_replacements: Number(e.target.value) || 0 }); setIsDirty(true); }}
+              inputMode="numeric" className="w-16 bg-darkBg border border-bdr rounded-lg px-2 py-1 text-text text-sm outline-none focus:border-aqua tnum" />
+          </label>
+        </div>
+        {replacementsOpen && (
+          <p className="text-[11px] text-gold">
+            {tt(
+              'الأكاديميات تستطيع الآن استبدال لاعبين معتمدين بلاعبين جدد.',
+              'Academies can now replace approved players with new ones.',
+            )}
+          </p>
+        )}
       </div>
 
       {/* Per-sub-competition player papers */}

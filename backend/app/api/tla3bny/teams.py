@@ -290,12 +290,34 @@ def team_competition_entries(team_id: int):
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
-        count = Tla3bnyCompetitionPlayer.query.filter_by(
-            competition_team_id=entry.id
+        # Count only active (pending + approved) players against the cap.
+        count = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+        ).count()
+        replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="replaced"
         ).count()
         rejected = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id, status="rejected"
         ).all()
+        replacements_open = cage.replacements_open if cage else False
+        # Include the approved roster only when the replacement window is open so
+        # the academy can pick which players to remove.
+        approved_players: list[dict] = []
+        if replacements_open:
+            approved = Tla3bnyCompetitionPlayer.query.filter_by(
+                competition_team_id=entry.id, status="approved"
+            ).all()
+            approved_players = [
+                {
+                    "competition_player_id": cp.id,
+                    "player_id": cp.player_id,
+                    "player_name": cp.player.name if cp.player else None,
+                    "position": cp.player.position if cp.player else None,
+                }
+                for cp in approved
+            ]
         result.append({
             "entry_id": entry.id,
             "competition_id": entry.competition_id,
@@ -306,6 +328,10 @@ def team_competition_entries(team_id: int):
             "registration_open": comp.registration_open if comp else False,
             "max_players": cage.max_players_per_team if cage else None,
             "player_count": count,
+            "replacements_open": replacements_open,
+            "max_replacements": cage.max_replacements if cage else 5,
+            "replacement_count": replaced_count,
+            "approved_players": approved_players,
             "rejected_players": [
                 {
                     "player_id": cp.player_id,

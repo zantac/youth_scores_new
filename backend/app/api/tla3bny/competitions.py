@@ -474,6 +474,7 @@ _RULE_FIELDS = (
     "num_periods",
     "period_minutes",
     "lineup_deadline_minutes",
+    "max_replacements",
 )
 
 
@@ -498,6 +499,8 @@ def add_competition_age(comp_id: int):
             setattr(cage, f, _int(data.get(f)))
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
+    if "replacements_open" in data:
+        cage.replacements_open = bool(data.get("replacements_open"))
     db.session.add(cage)
     db.session.commit()
     return jsonify(cage.to_dict()), 201
@@ -519,6 +522,8 @@ def update_competition_age(cage_id: int):
             setattr(cage, f, _int(data.get(f)))
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
+    if "replacements_open" in data:
+        cage.replacements_open = bool(data.get("replacements_open"))
     db.session.commit()
     return jsonify(cage.to_dict())
 
