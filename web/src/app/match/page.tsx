@@ -29,6 +29,8 @@ function MatchCenter() {
   const [loading, setLoading] = useState(true);
   const [share, setShare] = useState(false);
   const isAr = locale === 'ar';
+  // Derived before conditional returns so it can be used in a hook below.
+  const isLive = m?.status === 'live';
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
@@ -36,13 +38,22 @@ function MatchCenter() {
     fetchMatchFull(id).then(setM).finally(() => setLoading(false));
   }, [id]);
 
+  // Poll the match endpoint every 20 s while the status is live so the score
+  // and event list stay current without any websocket infrastructure.
+  useEffect(() => {
+    if (!id || !isLive) return;
+    const iv = setInterval(() => {
+      fetchMatchFull(id).then(updated => { if (updated) setM(updated); });
+    }, 20_000);
+    return () => clearInterval(iv);
+  }, [id, isLive]);
+
   if (loading) return <div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>;
   if (!m) return <div className="p-8 text-center text-hint">{isAr ? 'المباراة غير موجودة' : 'Match not found'}</div>;
 
   const homeName = localize(m.home.name, locale);
   const awayName = localize(m.away.name, locale);
   const isCompleted = m.status === 'completed';
-  const isLive = m.status === 'live';
   const compName = m.competition ? localize(m.competition.name, locale) : '';
 
   type Ev = { minute: number | null; side: 'home' | 'away'; main: string; sub?: string; icon: string; cls: string; playerId?: number | null };

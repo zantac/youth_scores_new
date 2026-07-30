@@ -88,15 +88,45 @@ function PlayerJourney() {
                 <div className="relative z-10">
                   {c.logo ? <img src={c.logo} alt="" className="w-7 h-7 object-contain rounded" /> : <div className="w-7 h-7 rounded bg-bdr grid place-items-center text-xs">🛡️</div>}
                 </div>
-                <div className={`border rounded-xl p-3 flex items-center gap-3 ${c.current ? 'border-gold/35 bg-gold/[0.04]' : 'border-bdr bg-cardBg'}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-text text-sm font-bold truncate">{c.club}</p>
-                    <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}{c.status === 'transferred' ? ` · ${isAr ? 'انتقال' : 'transfer'}` : ''}</p>
+                <div className={`border rounded-xl p-3 space-y-2 ${c.current ? 'border-gold/35 bg-gold/[0.04]' : 'border-bdr bg-cardBg'}`}>
+                  {/* Club + season + season totals */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-text text-sm font-bold truncate">{c.club}</p>
+                      <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}{c.status === 'transferred' ? ` · ${isAr ? 'انتقال' : 'transfer'}` : ''}</p>
+                    </div>
+                    <div className="flex gap-3">
+                      {c.appearances > 0 && (
+                        <div className="text-center">
+                          <p className="text-text font-bold text-sm tnum">{c.appearances}</p>
+                          <p className="text-hint text-[9px]">{isAr ? 'مباراة' : 'apps'}</p>
+                        </div>
+                      )}
+                      {c.assists > 0 && (
+                        <div className="text-center">
+                          <p className="text-aqua font-bold text-sm tnum">{c.assists}</p>
+                          <p className="text-hint text-[9px]">{isAr ? 'صناعة' : 'ast'}</p>
+                        </div>
+                      )}
+                      <div className="text-center">
+                        <p className="text-gold font-extrabold text-lg tnum">{c.goals}</p>
+                        <p className="text-hint text-[9px]">{isAr ? 'هدف' : 'goals'}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-gold font-extrabold text-lg tnum">{c.goals}</p>
-                    <p className="text-hint text-[9px]">{isAr ? 'هدف' : 'goals'}</p>
-                  </div>
+                  {/* Per-competition breakdown */}
+                  {c.competitions.length > 0 && (
+                    <div className="border-t border-bdr/40 pt-2 space-y-1">
+                      {c.competitions.map((comp, ci) => (
+                        <div key={ci} className="flex items-center gap-2 text-[11px]">
+                          <span className="flex-1 text-hint truncate">{localize(comp.name, locale)}</span>
+                          {comp.appearances > 0 && <span className="text-hint tnum">{comp.appearances}{isAr ? ' م' : ' ap'}</span>}
+                          {comp.assists > 0   && <span className="text-aqua tnum">{comp.assists}{isAr ? ' ص' : ' a'}</span>}
+                          <span className="text-gold font-bold tnum w-6 text-end">{comp.goals}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -104,7 +134,7 @@ function PlayerJourney() {
         )}
       </div>
 
-      {/* Goals per season */}
+      {/* Goals per season bar chart */}
       {p.career.length > 0 && (
         <div className="px-4 pt-4">
           <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الأهداف لكل موسم' : 'Goals per season'}</h2>

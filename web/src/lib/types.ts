@@ -209,7 +209,13 @@ export interface MatchFull {
   goals: MatchGoalEv[]; cards: MatchCardEv[]; subs: MatchSubEv[];
 }
 
-export interface PlayerCareer { club: string; logo: string | null; season: string | { ar: string; en: string }; goals: number; current: boolean; status: string; }
+export interface PlayerCareerComp { name: string | Localized; goals: number; assists: number; appearances: number; }
+export interface PlayerCareer {
+  club: string; logo: string | null; season: string | { ar: string; en: string };
+  goals: number; assists: number; appearances: number;
+  current: boolean; status: string;
+  competitions: PlayerCareerComp[];
+}
 export interface PlayerFull {
   id: number; name: Localized; position: Localized | null; birth_year: number;
   nationality: Localized | null; photo: string | null; current_club: string | null;
