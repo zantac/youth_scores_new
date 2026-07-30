@@ -27,7 +27,9 @@ export default function Tla3bnyLoginPage() {
     setError(null); setBusy(true);
     try {
       const u = await login(loginId.trim().toLowerCase(), password);
-      router.replace(dest(u));
+      // Full navigation (not client-side replace) so iOS Safari sees the
+      // successful form submission and offers to save the credentials.
+      window.location.href = dest(u);
     } catch (err) {
       setError(err instanceof Error ? err.message : tt('تعذّر تسجيل الدخول', 'Login failed'));
     } finally { setBusy(false); }
@@ -45,12 +47,14 @@ export default function Tla3bnyLoginPage() {
         <form onSubmit={submit}
           className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-5 space-y-4 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.7)]">
           <Field label={tt('اسم المستخدم أو البريد', 'Username or email')}>
-            <input value={loginId} autoFocus dir="ltr" autoComplete="username"
+            <input name="username" id="username" type="text"
+              value={loginId} autoFocus dir="ltr" autoComplete="username"
               onChange={e => setLoginId(e.target.value)} className={inputCls} />
           </Field>
           <Field label={tt('كلمة المرور', 'Password')}>
             <div className="relative">
-              <input type={showPw ? 'text' : 'password'} value={password} autoComplete="current-password"
+              <input name="password" id="password"
+                type={showPw ? 'text' : 'password'} value={password} autoComplete="current-password"
                 onChange={e => setPassword(e.target.value)} className={`${inputCls} pe-16`} />
               <button type="button" onClick={() => setShowPw(v => !v)}
                 className="absolute end-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-teal hover:text-aqua">

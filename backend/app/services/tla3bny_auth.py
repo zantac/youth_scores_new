@@ -29,7 +29,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from app.extensions import db
 from app.models import Tla3bnyCompetitionAdmin, Tla3bnyTeam, Tla3bnyUser
 
-TOKEN_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
+TOKEN_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 _SALT = "tla3bny-auth-v1"
 
 
