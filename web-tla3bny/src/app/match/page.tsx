@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -11,6 +11,48 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import PitchView, { type SlotView } from '@/components/tla3bny/PitchView';
 import Spinner from '@/components/ui/Spinner';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+
+// ── draft auto-save ───────────────────────────────────────────────────────────
+const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
+
+interface ResultDraft {
+  home_score: string;
+  away_score: string;
+  events: TMatchEvent[];
+  saved_at: string;
+}
+
+function saveDraft(matchId: number, home: string, away: string, events: TMatchEvent[]) {
+  try {
+    localStorage.setItem(draftKey(matchId), JSON.stringify({
+      home_score: home, away_score: away, events,
+      saved_at: new Date().toISOString(),
+    } satisfies ResultDraft));
+  } catch { /* storage full — ignore */ }
+}
+
+function clearDraft(matchId: number) {
+  try { localStorage.removeItem(draftKey(matchId)); } catch {}
+}
+
+function loadDraft(matchId: number): ResultDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(matchId));
+    if (!raw) return null;
+    const d = JSON.parse(raw) as ResultDraft;
+    // Discard drafts older than 24 hours.
+    if (Date.now() - new Date(d.saved_at).getTime() > 86_400_000) {
+      clearDraft(matchId);
+      return null;
+    }
+    return d;
+  } catch { return null; }
+}
+
+function fmtDraftTime(iso: string) {
+  try { return new Date(iso).toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 type EvType = TMatchEvent['event_type'];
@@ -205,9 +247,21 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 }) {
   const tt = useTT();
 
+  // Holds the current form values so the auto-save interval never captures stale
+  // state via closure. Initialized with empty values; the sync useEffect keeps it
+  // up-to-date every render.
+  const draftRef = useRef({
+    homeScore: m.home_score != null ? String(m.home_score) : '',
+    awayScore: m.away_score != null ? String(m.away_score) : '',
+    events: [] as TMatchEvent[],
+    dirty: false,
+  });
+
   // Result state
   const [homeScore, setHomeScore] = useState(m.home_score != null ? String(m.home_score) : '');
   const [awayScore, setAwayScore] = useState(m.away_score != null ? String(m.away_score) : '');
+  const changeHomeScore = (v: string) => { setHomeScore(v); draftRef.current.dirty = true; };
+  const changeAwayScore = (v: string) => { setAwayScore(v); draftRef.current.dirty = true; };
   const [status, setStatus] = useState(m.status);
   // Keep status in sync when the parent updates the match (e.g. after saving score).
   useEffect(() => { setStatus(m.status); }, [m.status]);
@@ -237,9 +291,65 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 
   // Events state (all in one array, sectioned in UI)
   const [events, setEvents] = useState<TMatchEvent[]>(m.events ?? []);
-  const addEv = (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) =>
-    setEvents(prev => [...prev, { ...ev, id: Date.now(), match_id: m.id, related_event_id: null }]);
-  const removeEv = (id: number) => setEvents(prev => prev.filter(e => e.id !== id));
+
+  // ── draft auto-save ────────────────────────────────────────────────────────
+  // Keep draftRef in sync with the latest render values.
+  useEffect(() => { draftRef.current = { ...draftRef.current, homeScore, awayScore, events }; },
+    [homeScore, awayScore, events]);
+
+  // Recover a draft when the admin first opens the panel.
+  const [recoveredDraft, setRecoveredDraft] = useState<ResultDraft | null>(null);
+  useEffect(() => {
+    const d = loadDraft(m.id);
+    if (!d) return;
+    const hasEvents = d.events.length > 0;
+    const scoreDiffers =
+      d.home_score !== String(m.home_score ?? '') ||
+      d.away_score !== String(m.away_score ?? '');
+    if (hasEvents || scoreDiffers) setRecoveredDraft(d);
+  // Run once on mount — m.id / scores are stable at this point.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const restoreDraft = () => {
+    if (!recoveredDraft) return;
+    setHomeScore(recoveredDraft.home_score);
+    setAwayScore(recoveredDraft.away_score);
+    setEvents(recoveredDraft.events);
+    draftRef.current.dirty = true;
+    setRecoveredDraft(null);
+  };
+  const discardDraft = () => { clearDraft(m.id); setRecoveredDraft(null); };
+
+  // Periodic auto-save every 10 seconds (only if something changed).
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!draftRef.current.dirty) return;
+      const { homeScore, awayScore, events } = draftRef.current;
+      saveDraft(m.id, homeScore, awayScore, events);
+    }, 10_000);
+    return () => clearInterval(id);
+  // m.id is stable for the lifetime of this component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addEv = (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => {
+    setEvents(prev => {
+      const next = [...prev, { ...ev, id: Date.now(), match_id: m.id, related_event_id: null }];
+      // Save immediately so a crash right after adding an event loses nothing.
+      draftRef.current.dirty = true;
+      saveDraft(m.id, draftRef.current.homeScore, draftRef.current.awayScore, next);
+      return next;
+    });
+  };
+  const removeEv = (id: number) => {
+    setEvents(prev => {
+      const next = prev.filter(e => e.id !== id);
+      draftRef.current.dirty = true;
+      saveDraft(m.id, draftRef.current.homeScore, draftRef.current.awayScore, next);
+      return next;
+    });
+  };
 
   // Roster for event forms
   const [rosters, setRosters] = useState<Record<number, TCompPlayer[]>>({});
@@ -275,6 +385,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           player_id: e.player_id, minute: e.minute ?? undefined,
         })),
       });
+      clearDraft(m.id);
+      draftRef.current.dirty = false;
       onUpdate(updated);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setResultBusy(false); }
@@ -312,14 +424,42 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 
   return (
     <div className="space-y-4 p-4">
+      {/* Draft recovery banner */}
+      {recoveredDraft && (
+        <div className="flex items-start gap-3 bg-gold/10 border border-gold/40 rounded-2xl px-4 py-3">
+          <span className="text-2xl shrink-0">⚡</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-gold font-bold text-sm">
+              {tt('مسودة محفوظة', 'Draft recovered')}
+              {recoveredDraft.events.length > 0 &&
+                ` · ${recoveredDraft.events.length} ${tt('أحداث', 'events')}`}
+            </p>
+            <p className="text-hint text-[11px]">
+              {tt(`محفوظة الساعة ${fmtDraftTime(recoveredDraft.saved_at)}`,
+                  `Saved at ${fmtDraftTime(recoveredDraft.saved_at)}`)}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button onClick={restoreDraft}
+              className="text-gold text-xs font-bold hover:underline">
+              {tt('استعادة', 'Restore')}
+            </button>
+            <button onClick={discardDraft}
+              className="text-hint text-xs hover:text-text">
+              {tt('تجاهل', 'Discard')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <ErrorNote>{err}</ErrorNote>
 
       {/* 1. Result */}
       <Section title={tt('نتيجة المباراة', 'Match result')}>
         <div className="flex items-center justify-center gap-6 py-2">
-          <ScoreInput label={m.home_team_name ?? ''} value={homeScore} onChange={setHomeScore} />
+          <ScoreInput label={m.home_team_name ?? ''} value={homeScore} onChange={changeHomeScore} />
           <span className="text-hint font-black text-2xl">-</span>
-          <ScoreInput label={m.away_team_name ?? ''} value={awayScore} onChange={setAwayScore} />
+          <ScoreInput label={m.away_team_name ?? ''} value={awayScore} onChange={changeAwayScore} />
         </div>
         <Field label={tt('الحالة', 'Status')}>
           <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
