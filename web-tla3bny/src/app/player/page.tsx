@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats,
+  mediaUrl,
   type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -72,13 +73,23 @@ function PlayerContent() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-5 flex items-center gap-4">
-        <LogoAvatar src={p.photo_path} name={p.name} size={72} />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-black text-text">{p.name}</h1>
-          <p className="text-sm text-teal font-bold">{p.position}</p>
+      <Card className="overflow-hidden">
+        {p.photo_path ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={mediaUrl(p.photo_path)!}
+            alt={p.name}
+            className="w-full h-72 object-cover object-top"
+          />
+        ) : null}
+        <div className="p-4 flex items-center gap-4">
+          {!p.photo_path && <LogoAvatar src={null} name={p.name} size={72} />}
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-black text-text">{p.name}</h1>
+            <p className="text-sm text-teal font-bold">{p.position}</p>
+          </div>
+          {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
         </div>
-        {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
       </Card>
 
       {statCells.length > 0 && (
