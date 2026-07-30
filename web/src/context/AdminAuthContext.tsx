@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { apiLogin, apiMe, type AdminUser } from '@/lib/adminApi';
 
 const TOKEN_KEY = 'ys_admin_token';
+export const SESSION_EXPIRED_KEY = 'ys_admin_expired';
 
 interface Ctx {
   token: string | null;
@@ -37,6 +38,18 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
     apiMe(saved)
       .then(u => { if (u) setUser(u); else { sessionStorage.removeItem(TOKEN_KEY); setToken(null); } })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Catch any 401 from admin API calls (token expired mid-session) and redirect to login.
+  useEffect(() => {
+    const handle = () => {
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.setItem(SESSION_EXPIRED_KEY, '1');
+      setToken(null);
+      setUser(null);
+    };
+    window.addEventListener('admin-session-expired', handle);
+    return () => window.removeEventListener('admin-session-expired', handle);
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {

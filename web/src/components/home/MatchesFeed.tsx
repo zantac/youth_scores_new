@@ -11,7 +11,7 @@ function toMatch(m: HomeMatch): Match {
   return {
     id: m.id, group: m.group, week: '', date: m.date, time: m.time,
     homeTeamId: m.homeTeam?.id ?? '', awayTeamId: m.awayTeam?.id ?? '',
-    venue: m.venue, status: m.status,
+    venue: m.venue, status: m.status, note: m.note,
     homeScore: m.homeScore, awayScore: m.awayScore,
     homePenalty: m.homePenalty, awayPenalty: m.awayPenalty,
     homeScorers: [], awayScorers: [], homeYc: [], awayYc: [], homeRc: [], awayRc: [],

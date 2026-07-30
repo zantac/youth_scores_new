@@ -184,6 +184,7 @@ export interface HomeMatch {
   status: string;
   group: string;
   venue: string;
+  note?: string;
   homeScore?: number;
   awayScore?: number;
   homePenalty?: number;

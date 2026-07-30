@@ -29,6 +29,10 @@ function headers(token: string | null, json = false): HeadersInit {
 
 async function parse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('admin-session-expired'));
+    throw new Error('انتهت صلاحية الجلسة');
+  }
   if (!res.ok) throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
   return data as T;
 }

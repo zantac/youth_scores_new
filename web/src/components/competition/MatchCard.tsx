@@ -104,6 +104,7 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
         </div>
       </div>
       {match.venue && <p className="text-center text-[10px] text-hint mt-1 truncate">{match.venue}</p>}
+      {match.note && <p className="text-center text-[10px] text-gold mt-1 leading-snug px-1">{match.note}</p>}
     </div>
   );
 }

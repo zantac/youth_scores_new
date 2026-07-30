@@ -799,6 +799,7 @@ def all_matches(
             "status": STATUS_OUT.get(m.status, "upcoming"),
             "group": m.round_label_ar or m.round_label_en or "",
             "venue": m.venue_ar or m.venue_en or "",
+            "note": m.note_ar or m.note_en or None,
             "home_score": m.home_score,
             "away_score": m.away_score,
             "home_penalty": m.home_penalty_score,
