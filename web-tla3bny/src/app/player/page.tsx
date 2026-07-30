@@ -2,8 +2,8 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  tPlayer, tPlayerRegistrations, tTeamRequiredDocs,
-  type TPlayer, type TPlayerRegistration, type TRequiredDocs,
+  tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats,
+  type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
@@ -18,6 +18,7 @@ function PlayerContent() {
   const [p, setP] = useState<TPlayer | null>(null);
   const [regs, setRegs] = useState<TPlayerRegistration[]>([]);
   const [docs, setDocs] = useState<TRequiredDocs>({ documents: [], sources: [] });
+  const [stats, setStats] = useState<TPlayerStatTotals | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -29,6 +30,7 @@ function PlayerContent() {
       const player = await tPlayer(id, token);
       setP(player);
       tPlayerRegistrations(id, token).then(setRegs).catch(() => setRegs([]));
+      tPlayerStats(id).then(r => setStats(r.totals)).catch(() => undefined);
       if (player.current_team_id) {
         tTeamRequiredDocs(player.current_team_id).then(setDocs).catch(() => undefined);
       }
@@ -60,6 +62,13 @@ function PlayerContent() {
     [tt('الرقم', 'Jersey'), p.jersey_number != null ? `#${p.jersey_number}` : null],
   ];
 
+  const statCells: { label: string; value: number; color: string }[] = stats ? [
+    { label: tt('أهداف', 'Goals'),     value: stats.goals,        color: 'text-green-400' },
+    { label: tt('صناعة', 'Assists'),   value: stats.assists,      color: 'text-teal' },
+    { label: tt('ك. أصفر', 'Yellow'),  value: stats.yellow_cards, color: 'text-yellow-400' },
+    { label: tt('ك. أحمر', 'Red'),     value: stats.red_cards,    color: 'text-loss' },
+  ] : [];
+
   return (
     <div className="space-y-4">
       <Card className="p-5 flex items-center gap-4">
@@ -70,6 +79,17 @@ function PlayerContent() {
         </div>
         {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
       </Card>
+
+      {statCells.length > 0 && (
+        <div className="grid grid-cols-4 gap-2">
+          {statCells.map(({ label, value, color }) => (
+            <Card key={label} className="p-3 flex flex-col items-center gap-1">
+              <span className={`text-2xl font-black ${color}`}>{value}</span>
+              <span className="text-[11px] text-hint text-center">{label}</span>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Card className="p-4">
         <dl className="grid grid-cols-2 gap-3">

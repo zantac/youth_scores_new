@@ -659,6 +659,27 @@ export const tPlayer = (id: number, token?: string | null) =>
 export const tPlayerRegistrations = (id: number, token?: string | null) =>
   get<TPlayerRegistration[]>(`/players/${id}/registrations`, token);
 
+export interface TPlayerStatTotals {
+  goals: number;
+  assists: number;
+  yellow_cards: number;
+  red_cards: number;
+  appearances: number;
+}
+export interface TPlayerStatRow extends TPlayerStatTotals {
+  competition_id: number;
+  competition_name: string | null;
+  season_name: string | null;
+}
+export interface TPlayerStats {
+  player_id: number;
+  totals: TPlayerStatTotals;
+  by_competition: TPlayerStatRow[];
+}
+/** Career stats (goals, assists, yellow/red cards, appearances) — public endpoint. */
+export const tPlayerStats = (id: number) =>
+  get<TPlayerStats>(`/players/${id}/stats`);
+
 /** A registration paper paired with the document type it fulfils. */
 export interface LabeledDoc { label: string; file: File }
 
