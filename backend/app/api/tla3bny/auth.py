@@ -1,6 +1,6 @@
 from flask import jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import Tla3bnyAcademy, Tla3bnyCompetitionAdmin, Tla3bnyUser
 from app.services import tla3bny_auth as auth
 
@@ -9,6 +9,7 @@ from ._helpers import _credentials, _claim_login, _err, save_upload, _read_paylo
 
 
 @tla3bny_bp.post("/auth/register")
+@limiter.limit("5 per hour")
 def register():
     """Register a new academy (multipart for a logo, or JSON).
 
@@ -80,6 +81,7 @@ def register():
 
 
 @tla3bny_bp.post("/auth/login")
+@limiter.limit("10 per minute; 50 per hour")
 def login():
     data = request.get_json(silent=True) or {}
     login_id, password = _credentials(data)

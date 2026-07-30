@@ -4,7 +4,7 @@ import os
 from flask import Flask, abort, request, send_from_directory
 
 from app.config import CONFIGS
-from app.extensions import db, migrate
+from app.extensions import db, migrate, limiter
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -43,6 +43,14 @@ def create_app(config_name: str | None = None) -> Flask:
 
     db.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
+
+    from flask import jsonify as _jsonify
+    from werkzeug.exceptions import TooManyRequests
+
+    @app.errorhandler(429)
+    def _rate_limit_handler(e):
+        return _jsonify({"error": "Too many requests — please slow down."}), 429
 
     # Registers every mapper before Alembic autogenerate inspects the metadata.
     from app import models  # noqa: F401

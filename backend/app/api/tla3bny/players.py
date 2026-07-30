@@ -394,8 +394,23 @@ def move_player(player_id: int):
     if cur:
         if cur.team_id == dest_team_id:
             return _err("Player is already on that team")
+        old_team_id = cur.team_id
         cur.end_date = _parse_date(data.get("end_date")) or today
         cur.status = "transferred"
+
+        # Remove the player from every competition roster tied to the old team.
+        # They are no longer a member, so pending/approved entries are invalid.
+        # The destination academy can re-register them in any competition.
+        old_entry_ids = [
+            e.id for e in
+            Tla3bnyCompetitionTeam.query.filter_by(team_id=old_team_id).all()
+        ]
+        if old_entry_ids:
+            Tla3bnyCompetitionPlayer.query.filter(
+                Tla3bnyCompetitionPlayer.competition_team_id.in_(old_entry_ids),
+                Tla3bnyCompetitionPlayer.player_id == player.id,
+            ).delete(synchronize_session=False)
+
     db.session.add(
         Tla3bnyPlayerTeam(
             player_id=player.id,

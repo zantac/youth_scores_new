@@ -1,4 +1,6 @@
 import sqlalchemy as sa
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import event
@@ -22,6 +24,12 @@ class Base(DeclarativeBase):
 
 db = SQLAlchemy(model_class=Base)
 migrate = Migrate()
+
+# Rate limiter — key on the real client IP (ProxyFix in create_app() ensures
+# request.remote_addr is the client, not the Railway/Heroku proxy).
+# Storage defaults to in-process memory; set RATELIMIT_STORAGE_URI=redis://...
+# in production for persistence across workers.
+limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
 # Cleared by migrations/env.py for the duration of a migration run. Alembic's

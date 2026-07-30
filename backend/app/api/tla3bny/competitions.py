@@ -885,6 +885,29 @@ def approve_roster_player(cp_id: int):
     cp = Tla3bnyCompetitionPlayer.query.get_or_404(cp_id)
     if not auth.is_competition_admin(auth.current_user(), cp.entry.competition_id):
         return _forbid()
+
+    # Guard: check that all required documents have been uploaded.
+    # Pass "force": true in the body to approve anyway (e.g. papers verified
+    # physically and not yet scanned).
+    player = cp.player
+    entry = cp.entry
+    if player and entry and entry.competition:
+        cage = next(
+            (a for a in entry.competition.ages
+             if a.age_category_id == entry.age_category_id),
+            None,
+        )
+        required = cage.documents if cage else entry.competition.documents
+        supplied = {f.label for f in player.files if f.label}
+        missing = [d for d in required if d not in supplied]
+        force = bool((request.get_json(silent=True) or {}).get("force"))
+        if missing and not force:
+            return _err(
+                f"Missing documents: {', '.join(missing)}. "
+                'Pass "force": true to approve without them.',
+                409,
+            )
+
     cp.status = "approved"
     cp.rejection_reason = None
     cp.approved_by_user_id = auth.current_user().id
