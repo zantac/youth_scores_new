@@ -42,39 +42,40 @@ def competition_age(competition_id: int, age_category_id: int):
     ).first()
 
 
-def age_matches(competition_id: int, age_category_id: int) -> list[Tla3bnyMatch]:
-    return (
-        Tla3bnyMatch.query.filter_by(
-            competition_id=competition_id, age_category_id=age_category_id
-        )
-        .options(joinedload(Tla3bnyMatch.stage))
-        .all()
-    )
+def age_matches(
+    competition_id: int, age_category_id: int, *, cage_id: int | None = None
+) -> list[Tla3bnyMatch]:
+    q = Tla3bnyMatch.query.filter_by(competition_id=competition_id)
+    if cage_id:
+        q = q.filter(Tla3bnyMatch.competition_age_id == cage_id)
+    else:
+        q = q.filter(Tla3bnyMatch.age_category_id == age_category_id)
+    return q.options(joinedload(Tla3bnyMatch.stage)).all()
 
 
-def age_teams(competition_id: int, age_category_id: int) -> list[Tla3bnyTeam]:
-    return (
-        Tla3bnyTeam.query.join(
-            Tla3bnyCompetitionTeam,
-            Tla3bnyCompetitionTeam.team_id == Tla3bnyTeam.id,
-        )
-        .filter(
-            Tla3bnyCompetitionTeam.competition_id == competition_id,
-            Tla3bnyCompetitionTeam.age_category_id == age_category_id,
-        )
-        .order_by(Tla3bnyCompetitionTeam.id)
-        .all()
-    )
+def age_teams(
+    competition_id: int, age_category_id: int, *, cage_id: int | None = None
+) -> list[Tla3bnyTeam]:
+    q = Tla3bnyTeam.query.join(
+        Tla3bnyCompetitionTeam,
+        Tla3bnyCompetitionTeam.team_id == Tla3bnyTeam.id,
+    ).filter(Tla3bnyCompetitionTeam.competition_id == competition_id)
+    if cage_id:
+        q = q.filter(Tla3bnyCompetitionTeam.competition_age_id == cage_id)
+    else:
+        q = q.filter(Tla3bnyCompetitionTeam.age_category_id == age_category_id)
+    return q.order_by(Tla3bnyCompetitionTeam.id).all()
 
 
-def deductions_of(competition_id: int, age_category_id: int) -> dict[int, int]:
-    return {
-        ct.team_id: ct.point_deduction
-        for ct in Tla3bnyCompetitionTeam.query.filter_by(
-            competition_id=competition_id, age_category_id=age_category_id
-        ).all()
-        if ct.point_deduction
-    }
+def deductions_of(
+    competition_id: int, age_category_id: int, *, cage_id: int | None = None
+) -> dict[int, int]:
+    q = Tla3bnyCompetitionTeam.query.filter_by(competition_id=competition_id)
+    if cage_id:
+        q = q.filter(Tla3bnyCompetitionTeam.competition_age_id == cage_id)
+    else:
+        q = q.filter(Tla3bnyCompetitionTeam.age_category_id == age_category_id)
+    return {ct.team_id: ct.point_deduction for ct in q.all() if ct.point_deduction}
 
 
 def groups_of(cage: Tla3bnyCompetitionAge) -> list[Tla3bnyGroup]:
@@ -108,21 +109,41 @@ def _standing_dict(s: Standing, team: Tla3bnyTeam | None, form: list[str]) -> di
     }
 
 
-def standings_by_group(competition_id: int, age_category_id: int) -> list[dict]:
+def standings_by_group(
+    competition_id: int,
+    age_category_id: int = 0,
+    *,
+    cage_id: int | None = None,
+) -> list[dict]:
     """One table per group, or a single unnamed table when there are no groups.
 
     Mirrors youthscores' ``services.tables.standings_by_group``: teams are
     partitioned by group while their matches against everyone else still count,
     unless the group's stage starts from zero (``carries_points = False``).
+
+    Pass ``cage_id`` (competition_age_id) to scope the table to a single
+    sub-competition — necessary when several sub-competitions share the same
+    age category.
     """
-    cage = competition_age(competition_id, age_category_id)
+    if cage_id:
+        cage = Tla3bnyCompetitionAge.query.filter_by(
+            id=cage_id, competition_id=competition_id
+        ).first()
+    elif age_category_id:
+        cage = competition_age(competition_id, age_category_id)
+    else:
+        return []
     if cage is None:
         return []
 
-    teams = age_teams(competition_id, age_category_id)
+    # When the caller supplied cage_id we use the cage's own age_category_id
+    # for any fallback lookups that still need it.
+    effective_age_id = cage.age_category_id if cage_id else age_category_id
+
+    teams = age_teams(competition_id, effective_age_id, cage_id=cage_id)
     team_by_id = {t.id: t for t in teams}
-    matches = age_matches(competition_id, age_category_id)
-    docked = deductions_of(competition_id, age_category_id)
+    matches = age_matches(competition_id, effective_age_id, cage_id=cage_id)
+    docked = deductions_of(competition_id, effective_age_id, cage_id=cage_id)
     groups = groups_of(cage)
 
     def rows(standings):

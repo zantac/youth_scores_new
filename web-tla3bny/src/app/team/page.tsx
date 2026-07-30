@@ -3,6 +3,8 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tTeam, tMatches, type TTeam, type TMatch } from '@/lib/tla3bnyApi';
+import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
+import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
@@ -11,11 +13,12 @@ function TeamContent() {
   const tt = useTT();
   const params = useSearchParams();
   const id = Number(params.get('id'));
+  const { academy, team: myTeam, token, isAcademy, isTeam, isSuperAdmin } = useTla3bnyAuth();
   const [t, setT] = useState<TTeam | null>(null);
   const [matches, setMatches] = useState<TMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [tab, setTab] = useState<'squad' | 'matches'>('squad');
+  const [tab, setTab] = useState<'squad' | 'matches' | 'manage'>('squad');
 
   useEffect(() => {
     if (!id) { setLoading(false); setNotFound(true); return; }
@@ -30,9 +33,15 @@ function TeamContent() {
   if (loading) return <Spinner />;
   if (notFound || !t) return <EmptyState icon="🔍" text={tt('الفريق غير موجود', 'Team not found')} />;
 
-  const tabs: { key: 'squad' | 'matches'; ar: string; en: string }[] = [
+  // Check if the logged-in user can manage this team.
+  const canManage = isSuperAdmin
+    || (isTeam && myTeam?.id === id)
+    || (isAcademy && (academy?.teams ?? []).some(at => at.id === id));
+
+  const tabs: { key: 'squad' | 'matches' | 'manage'; ar: string; en: string }[] = [
     { key: 'squad', ar: 'الجهاز الفني واللاعبون', en: 'Staff & Players' },
     { key: 'matches', ar: 'المباريات', en: 'Matches' },
+    ...(canManage && token ? [{ key: 'manage' as const, ar: 'إدارة الفريق', en: 'Manage' }] : []),
   ];
 
   return (
@@ -115,6 +124,11 @@ function TeamContent() {
             : matches.map(m => <MatchRow key={m.id} m={m} showComp />)
           }
         </div>
+      )}
+
+      {/* Manage — only visible to the owning academy/team */}
+      {tab === 'manage' && canManage && token && (
+        <TeamManage token={token} teamId={id} />
       )}
     </div>
   );

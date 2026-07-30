@@ -12,6 +12,7 @@ def competition_matches(competition_id: int) -> list[Match]:
     return (
         Match.query.join(Stage)
         .filter(Stage.competition_id == competition_id)
+        .filter(Match.deleted_at.is_(None))
         .options(joinedload(Match.stage))
         .all()
     )

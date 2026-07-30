@@ -190,6 +190,7 @@ def competition_data(competition_id: int) -> dict | None:
     matches = (
         Match.query.join(Stage)
         .filter(Stage.competition_id == competition_id)
+        .filter(Match.deleted_at.is_(None))
         # Undated (TBD) fixtures sort last; is_(None) orders False<True.
         .order_by(Match.match_date.is_(None), Match.match_date)
         .all()
@@ -527,46 +528,113 @@ def _team_seasons(t) -> list[dict]:
 def player_full(p) -> dict:
     from app.models import MatchGoal, MatchPlayer, PlayerTeam
 
-    # Own goals are excluded: they are recorded against the player who put the
-    # ball in, but they are not goals he scored, and g.team_id on one points at
-    # the opponent — so counting them would credit his tally to the wrong club.
-    goals = MatchGoal.query.filter_by(scorer_id=p.id, is_own_goal=False).all()
-    assists = MatchGoal.query.filter_by(assist_id=p.id).count()
-    appearances = MatchPlayer.query.filter_by(player_id=p.id).count()
+    # Aggregate goals/assists/appearances by (team_id, competition_id) in three
+    # queries rather than loading every event row.  Own goals are excluded from
+    # the scorer tally; they do count against MatchPlayer appearances.
+    goal_rows = (
+        MatchGoal.query
+        .join(Match, Match.id == MatchGoal.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(
+            MatchGoal.scorer_id == p.id,
+            MatchGoal.is_own_goal == False,   # noqa: E712
+            Match.deleted_at.is_(None),
+        )
+        .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
+        .group_by(MatchGoal.team_id, Stage.competition_id)
+        .all()
+    )
+    assist_rows = (
+        MatchGoal.query
+        .join(Match, Match.id == MatchGoal.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(MatchGoal.assist_id == p.id, Match.deleted_at.is_(None))
+        .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
+        .group_by(MatchGoal.team_id, Stage.competition_id)
+        .all()
+    )
+    app_rows = (
+        MatchPlayer.query
+        .join(Match, Match.id == MatchPlayer.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(MatchPlayer.player_id == p.id, Match.deleted_at.is_(None))
+        .with_entities(MatchPlayer.team_id, Stage.competition_id, sa.func.count())
+        .group_by(MatchPlayer.team_id, Stage.competition_id)
+        .all()
+    )
 
-    goals_by_team: dict[int, int] = {}
-    for g in goals:
-        goals_by_team[g.team_id] = goals_by_team.get(g.team_id, 0) + 1
+    # Flatten to lookup dicts keyed by (team_id, competition_id).
+    goals_tc:   dict[tuple, int] = {(r[0], r[1]): r[2] for r in goal_rows}
+    assists_tc: dict[tuple, int] = {(r[0], r[1]): r[2] for r in assist_rows}
+    apps_tc:    dict[tuple, int] = {(r[0], r[1]): r[2] for r in app_rows}
 
-    # One career stint per registration, most recent first.
-    regs = (PlayerTeam.query.filter_by(player_id=p.id)
-            .join(Team).order_by(PlayerTeam.start_date.desc()).all())
+    total_goals       = sum(goals_tc.values())
+    total_assists     = sum(assists_tc.values())
+    total_appearances = sum(apps_tc.values())
+
+    # Competition names — one query for all IDs seen across the three result sets.
+    all_comp_ids = (
+        {r[1] for r in goal_rows}
+        | {r[1] for r in assist_rows}
+        | {r[1] for r in app_rows}
+    )
+    comp_name: dict[int, dict] = {}
+    if all_comp_ids:
+        for c in Competition.query.filter(Competition.id.in_(all_comp_ids)).all():
+            comp_name[c.id] = _loc(c.name_ar, c.name_en) or {"ar": "", "en": ""}
+
+    # One career entry per PlayerTeam registration, most recent first.
+    regs = (
+        PlayerTeam.query.filter_by(player_id=p.id)
+        .join(Team).order_by(PlayerTeam.start_date.desc()).all()
+    )
     career = []
     for r in regs:
         t = r.team
-        ag = _team_name(t)  # club/team name
+        tid = t.id
+
+        comp_ids = (
+            {cid for (team_id, cid) in goals_tc   if team_id == tid}
+            | {cid for (team_id, cid) in assists_tc if team_id == tid}
+            | {cid for (team_id, cid) in apps_tc   if team_id == tid}
+        )
+
+        # Per-competition breakdown, sorted by appearances descending.
+        competitions = sorted([
+            {
+                "name":        comp_name.get(cid, {"ar": "", "en": ""}),
+                "goals":       goals_tc.get((tid, cid), 0),
+                "assists":     assists_tc.get((tid, cid), 0),
+                "appearances": apps_tc.get((tid, cid), 0),
+            }
+            for cid in comp_ids
+        ], key=lambda x: -x["appearances"])
+
         career.append({
-            "club": t.club.name_ar or t.club.name_en,
-            "logo": t.club.logo_url,
-            "season": _season_on(r.start_date) or {"ar": "", "en": ""},
-            "goals": goals_by_team.get(t.id, 0),
-            "current": r.end_date is None,
-            "status": r.status,
+            "club":         t.club.name_ar or t.club.name_en,
+            "logo":         t.club.logo_url,
+            "season":       _season_on(r.start_date) or {"ar": "", "en": ""},
+            "goals":        sum(goals_tc.get((tid, cid), 0)   for cid in comp_ids),
+            "assists":      sum(assists_tc.get((tid, cid), 0)  for cid in comp_ids),
+            "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in comp_ids),
+            "current":      r.end_date is None,
+            "status":       r.status,
+            "competitions": competitions,
         })
 
     current = career[0] if career else None
     return {
-        "id": p.id,
-        "name": _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
-        "position": _loc(p.position_ar, p.position_en),
-        "birth_year": p.birth_year,
-        "nationality": _loc(p.nationality_ar, p.nationality_en),
-        "photo": p.profile_pic_url,
+        "id":           p.id,
+        "name":         _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
+        "position":     _loc(p.position_ar, p.position_en),
+        "birth_year":   p.birth_year,
+        "nationality":  _loc(p.nationality_ar, p.nationality_en),
+        "photo":        p.profile_pic_url,
         "current_club": current["club"] if current else None,
-        "goals": len(goals),
-        "assists": assists,
-        "appearances": appearances,
-        "career": career,
+        "goals":        total_goals,
+        "assists":      total_assists,
+        "appearances":  total_appearances,
+        "career":       career,
     }
 
 
@@ -774,7 +842,7 @@ def all_matches(
             "logo": t.club.logo_url,
         }
 
-    q = Match.query
+    q = Match.query.filter(Match.deleted_at.is_(None))
     if date_from:
         q = q.filter(Match.match_date >= datetime.combine(date_from, day_time.min))
     if date_to:
@@ -799,6 +867,7 @@ def all_matches(
             "status": STATUS_OUT.get(m.status, "upcoming"),
             "group": m.round_label_ar or m.round_label_en or "",
             "venue": m.venue_ar or m.venue_en or "",
+            "note": m.note_ar or m.note_en or None,
             "home_score": m.home_score,
             "away_score": m.away_score,
             "home_penalty": m.home_penalty_score,

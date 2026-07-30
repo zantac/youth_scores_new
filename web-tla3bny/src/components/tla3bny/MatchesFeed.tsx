@@ -49,7 +49,7 @@ function HeroCard({ m }: { m: TMatch }) {
   const tt = useTT();
   const { locale } = useApp();
   const isLive = m.status === 'live';
-  const isFinished = m.status === 'finished';
+  const isFinished = m.status === 'completed' || m.status === 'finished';
   return (
     <Link href={`/match?id=${m.id}`}
       className="relative block w-full overflow-hidden rounded-2xl border border-aqua/25 bg-gradient-to-br from-cardBg to-cardBg2 p-4 hover:border-aqua/50 transition-colors">
@@ -57,7 +57,7 @@ function HeroCard({ m }: { m: TMatch }) {
       <div className="relative flex items-center gap-2 mb-4">
         {isLive
           ? <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-loss px-2.5 py-0.5 rounded-md">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />{tt('مباشر', 'LIVE')}
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />{tt('مباشرة', 'LIVE')}
             </span>
           : <span className="text-[11px] text-gold font-bold bg-gold/10 border border-gold/25 px-2.5 py-0.5 rounded-md">
               {isFinished ? tt('أبرز مباراة', 'Featured') : tt('قادم', 'Upcoming')}

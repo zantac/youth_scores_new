@@ -10,7 +10,7 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
-import { formatMatchDate } from '@/lib/utils';
+import { formatMatchDate, sortAges, subCompLabel } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
@@ -26,7 +26,7 @@ function CompetitionsContent() {
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [comps, setComps] = useState<TCompetition[]>([]);
   const [comp, setComp] = useState<TCompetition | null>(null);
-  const [ageId, setAgeId] = useState<number | null>(null);
+  const [cageId, setCageId] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>('standings');
   const [loading, setLoading] = useState(true);
 
@@ -47,7 +47,7 @@ function CompetitionsContent() {
   const openComp = useCallback((id: number) => {
     tCompetition(id).then(c => {
       setComp(c);
-      setAgeId(c.ages?.[0]?.age_category_id ?? null);
+      setCageId(sortAges(c.ages ?? [])[0]?.id ?? null);
       setTab('standings');
     });
   }, []);
@@ -72,13 +72,13 @@ function CompetitionsContent() {
           </div>
         </Card>
 
-        {/* age tabs */}
+        {/* sub-competition tabs — sorted by birth year */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {(comp.ages ?? []).map(a => (
-            <button key={a.id} onClick={() => setAgeId(a.age_category_id)}
+          {sortAges(comp.ages ?? []).map(a => (
+            <button key={a.id} onClick={() => setCageId(a.id)}
               className={`px-4 py-1.5 rounded-full text-sm font-bold whitespace-nowrap border transition-colors ${
-                ageId === a.age_category_id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
-              {a.age_category}
+                cageId === a.id ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 text-teal border-bdr'}`}>
+              {subCompLabel(a)}
             </button>
           ))}
         </div>
@@ -100,9 +100,9 @@ function CompetitionsContent() {
             they do not wait on an age being picked. */}
         {tab === 'info' ? <CompetitionInfo comp={comp} />
           : tab === 'news' ? <NewsList compId={comp.id} />
-          : ageId == null
+          : cageId == null
             ? <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
-            : <TabBody comp={comp} ageId={ageId} tab={tab} />}
+            : <TabBody comp={comp} cageId={cageId} tab={tab} />}
       </div>
     );
   }
@@ -132,7 +132,7 @@ function CompetitionsContent() {
                 <LogoAvatar src={c.logo_path} name={c.name} size={44} />
                 <div className="min-w-0">
                   <div className="font-bold text-text truncate">{c.name}</div>
-                  <div className="text-[11px] text-hint">{(c.ages ?? []).map(a => a.age_category).join(' · ')}</div>
+                  <div className="text-[11px] text-hint">{sortAges(c.ages ?? []).map(subCompLabel).join(' · ')}</div>
                 </div>
               </Card>
             </button>
@@ -143,17 +143,19 @@ function CompetitionsContent() {
   );
 }
 
-function TabBody({ comp, ageId, tab }: { comp: TCompetition; ageId: number; tab: Tab }) {
-  if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} />;
-  if (tab === 'matches') return <MatchesTab compId={comp.id} ageId={ageId} />;
+function TabBody({ comp, cageId, tab }: { comp: TCompetition; cageId: number; tab: Tab }) {
+  const cage = (comp.ages ?? []).find(a => a.id === cageId);
+  const ageId = cage?.age_category_id ?? 0;
+  if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} cageId={cageId} />;
+  if (tab === 'matches') return <MatchesTab compId={comp.id} cageId={cageId} />;
   if (tab === 'stats') return <StatsTab compId={comp.id} ageId={ageId} />;
   return <BracketTab compId={comp.id} ageId={ageId} />;
 }
 
-function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
+function StandingsTab({ compId, ageId, cageId }: { compId: number; ageId: number; cageId?: number }) {
   const tt = useTT();
   const [groups, setGroups] = useState<TStandingGroup[] | null>(null);
-  useEffect(() => { setGroups(null); tStandings(compId, ageId).then(setGroups).catch(() => setGroups([])); }, [compId, ageId]);
+  useEffect(() => { setGroups(null); tStandings(compId, ageId, cageId).then(setGroups).catch(() => setGroups([])); }, [compId, ageId, cageId]);
   if (!groups) return <Spinner />;
   if (groups.length === 0 || groups.every(g => g.standings.length === 0))
     return <EmptyState icon="📊" text={tt('لا ترتيب بعد', 'No standings yet')} />;
@@ -170,11 +172,11 @@ function StandingsTab({ compId, ageId }: { compId: number; ageId: number }) {
 }
 
 /** Matches grouped by date, newest block first — the youthscores match list. */
-function MatchesTab({ compId, ageId }: { compId: number; ageId: number }) {
+function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
   const tt = useTT();
   const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
-  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, age_category_id: ageId }).then(setMatches).catch(() => setMatches([])); }, [compId, ageId]);
+  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
   if (!matches) return <Spinner />;
   if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
 
@@ -263,7 +265,7 @@ function StatsTab({ compId, ageId }: { compId: number; ageId: number }) {
   }, [compId, ageId]);
   if (!a || !matches) return <Spinner />;
 
-  const played = matches.filter(m => m.status === 'finished');
+  const played = matches.filter(m => m.status === 'completed' || m.status === 'finished');
   const goals = played.reduce((sum, m) => sum + (m.home_score ?? 0) + (m.away_score ?? 0), 0);
   const avg = played.length ? (goals / played.length).toFixed(1) : '0.0';
   const cards = a.yellow_cards.reduce((s, r) => s + r.count, 0) + a.red_cards.reduce((s, r) => s + r.count, 0);
@@ -288,6 +290,54 @@ function StatsTab({ compId, ageId }: { compId: number; ageId: number }) {
   );
 }
 
+/** A compact two-row match card used inside knockout bracket rounds. */
+function BracketCard({ m }: { m: TMatch }) {
+  const finished = m.status === 'completed' || m.status === 'finished';
+  const homeWon = finished && m.home_score != null && m.away_score != null
+    && (m.home_score_pen ?? m.home_score) > (m.away_score_pen ?? m.away_score);
+  const awayWon = finished && m.home_score != null && m.away_score != null
+    && (m.away_score_pen ?? m.away_score) > (m.home_score_pen ?? m.home_score);
+
+  const scoreFor = (pen: number | null, reg: number | null) =>
+    pen != null ? pen : reg != null ? reg : '–';
+
+  const row = (
+    name: string | null, logo: string | null,
+    score: number | null, scorePen: number | null,
+    won: boolean, lost: boolean,
+  ) => (
+    <div className={`flex items-center justify-between gap-2 px-3 py-2
+      ${won ? 'bg-win/10' : ''}`}>
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <LogoAvatar src={logo} name={name} size={22} />
+        <span className={`text-sm font-bold truncate
+          ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
+          {name}
+        </span>
+      </div>
+      <span className={`text-sm font-black tnum shrink-0
+        ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
+        {scoreFor(scorePen, score)}
+      </span>
+    </div>
+  );
+
+  return (
+    <Link href={`/match?id=${m.id}`} className="block">
+      <div className="bg-cardBg border border-bdr rounded-xl overflow-hidden hover:border-aqua/40 transition-colors">
+        {row(m.home_team_name, m.home_logo, m.home_score, m.home_score_pen, homeWon, awayWon)}
+        <div className="h-px bg-bdr/50" />
+        {row(m.away_team_name, m.away_logo, m.away_score, m.away_score_pen, awayWon, homeWon)}
+        {m.home_score_pen != null && (
+          <div className="px-3 pb-1.5 text-[10px] text-gold tabular-nums">
+            {m.home_score_et}–{m.away_score_et} {m.home_score_pen != null ? `· ركلات ${m.home_score_pen}–${m.away_score_pen}` : ''}
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+}
+
 function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
   const tt = useTT();
   const [stages, setStages] = useState<TBracketStage[] | null>(null);
@@ -295,14 +345,25 @@ function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
   if (!stages) return <Spinner />;
   if (stages.length === 0) return <EmptyState icon="🏆" text={tt('لا أدوار إقصائية', 'No knockout stages')} />;
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {stages.map(s => (
-        <div key={s.stage_id}>
-          {s.stage_name && <h3 className="font-black text-text mb-2">{s.stage_name}</h3>}
+        <div key={s.stage_id} className="space-y-4">
+          {s.stage_name && (
+            <h3 className="font-black text-text text-sm">{s.stage_name}</h3>
+          )}
           {s.rounds.map((r, i) => (
-            <div key={i} className="mb-3">
-              {r.round && <div className="text-[11px] font-bold text-teal mb-1">{r.round}</div>}
-              <div className="space-y-2">{r.matches.map(m => <MatchRow key={m.id} m={m} />)}</div>
+            <div key={i}>
+              {r.round && (
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/20 rounded-full px-3 py-0.5 whitespace-nowrap">
+                    {r.round}
+                  </span>
+                  <span className="flex-1 h-px bg-bdr" />
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {r.matches.map(m => <BracketCard key={m.id} m={m} />)}
+              </div>
             </div>
           ))}
         </div>

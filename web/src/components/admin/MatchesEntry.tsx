@@ -4,10 +4,12 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
 import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers,
-  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiAddGoal, apiUpdateGoal, apiDeleteGoal,
+  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
+  apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
+  apiStages,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
-  type EntryCard, type EntrySub,
+  type EntryCard, type EntrySub, type MStage,
 } from '@/lib/adminApi';
 
 type Loc = { ar: string; en: string };
@@ -35,6 +37,7 @@ export default function MatchesEntry() {
   const [comps, setComps] = useState<EntryCompetition[]>([]);
   const [cid, setCid] = useState<number | null>(null);
   const [teams, setTeams] = useState<EntryTeam[]>([]);
+  const [stages, setStages] = useState<MStage[]>([]);
   const [matches, setMatches] = useState<EntryMatchRow[]>([]);
   const [editing, setEditing] = useState<EntryMatch | null>(null);
   const [showNew, setShowNew] = useState(false);
@@ -47,9 +50,9 @@ export default function MatchesEntry() {
 
   const loadComp = useCallback((id: number) => {
     if (!token) return;
-    setCid(id); setEditing(null); setShowNew(false);
-    Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id)])
-      .then(([t, m]) => { setTeams(t); setMatches(m); })
+    setCid(id); setEditing(null); setShowNew(false); setStages([]);
+    Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id), apiStages(token, id)])
+      .then(([t, m, s]) => { setTeams(t); setMatches(m); setStages(s); })
       .catch(e => setErr(e.message));
   }, [token]);
 
@@ -66,19 +69,28 @@ export default function MatchesEntry() {
     return seen.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
   }, [matches]);
 
+  const active = useMemo(() => matches.filter(m => !m.deleted_at), [matches]);
+  const recentlyDeleted = useMemo(() => matches.filter(m => m.deleted_at), [matches]);
+
   const shown = useMemo(() => {
     const q = fold(fTeam);
-    return matches.filter(m =>
+    return active.filter(m =>
       (!q || fold(loc(m.home.name)).includes(q) || fold(loc(m.away.name)).includes(q))
       && (!fWeek || m.week === fWeek)
       && (!fDate || m.date === fDate));
-  }, [matches, fTeam, fWeek, fDate]);
+  }, [active, fTeam, fWeek, fDate]);
 
   const filtering = Boolean(fTeam || fWeek || fDate);
   const clear = () => { setFTeam(''); setFWeek(''); setFDate(''); };
 
+  const restoreFromList = async (mid: number) => {
+    if (!token) return;
+    try { await apiRestoreMatch(token, mid); refreshMatches(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ في الاسترداد'); }
+  };
+
   if (editing) {
-    return <MatchEditor token={token!} match={editing} teams={teams}
+    return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
       onChange={setEditing} onBack={() => { setEditing(null); refreshMatches(); }} />;
   }
 
@@ -102,7 +114,7 @@ export default function MatchesEntry() {
         <>
           <div className="flex items-center justify-between">
             <p className="text-hint text-xs">
-              {filtering ? `${shown.length} من ${matches.length} مباراة` : `${matches.length} مباراة`}
+              {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
             </p>
             <button onClick={() => setShowNew(s => !s)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-2 rounded-xl">
               {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
@@ -125,7 +137,7 @@ export default function MatchesEntry() {
             )}
           </div>
 
-          {showNew && <NewMatch token={token!} cid={cid} teams={teams}
+          {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
             onDone={() => { setShowNew(false); refreshMatches(); }} />}
 
           <div className="space-y-2">
@@ -148,11 +160,32 @@ export default function MatchesEntry() {
                 </p>
               </button>
             ))}
-            {matches.length === 0 && <p className="text-hint text-sm text-center py-6">لا توجد مباريات — أضف واحدة</p>}
-            {matches.length > 0 && shown.length === 0 && (
+            {active.length === 0 && <p className="text-hint text-sm text-center py-6">لا توجد مباريات — أضف واحدة</p>}
+            {active.length > 0 && shown.length === 0 && (
               <p className="text-hint text-sm text-center py-6">لا نتائج مطابقة للفلاتر</p>
             )}
           </div>
+
+          {recentlyDeleted.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-bdr/50">
+              <p className="text-hint text-[11px] font-bold">محذوفة مؤخراً (قابلة للاسترداد خلال 24 ساعة)</p>
+              {recentlyDeleted.map(m => (
+                <div key={m.id} className="bg-cardBg border border-loss/20 rounded-xl p-3 opacity-60">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 text-sm text-hint truncate text-end line-through">{loc(m.home.name)}</div>
+                    <div className="text-hint text-xs tnum min-w-[64px] text-center">
+                      {m.home_score != null ? `${m.home_score} - ${m.away_score}` : (m.date || 'غير محدد')}
+                    </div>
+                    <div className="flex-1 text-sm text-hint truncate line-through">{loc(m.away.name)}</div>
+                    <button onClick={() => restoreFromList(m.id)}
+                      className="flex-shrink-0 text-gold text-[11px] font-bold border border-gold/40 rounded-lg px-2.5 py-1 hover:bg-gold/10">
+                      استعادة
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -164,21 +197,27 @@ function field(label: string, node: React.ReactNode) {
 }
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 
-function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; teams: EntryTeam[]; onDone: () => void }) {
+function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; onDone: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled' });
-  // A fixture may be confirmed before its date is set. When true, the date and
-  // time are sent blank and the match is stored as TBD (غير محدد).
+  const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled', stage_id: '', group_id: '' });
   const [tbd, setTbd] = useState(false);
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }));
+
+  const selectedStage = stages.find(s => s.id === Number(f.stage_id));
+  const stageGroups = selectedStage?.groups ?? [];
+  const isGroupStage = selectedStage?.type === 'group';
 
   const submit = async () => {
     setErr(null); setBusy(true);
+    const selectedGroup = stageGroups.find(g => g.id === Number(f.group_id));
     try {
       await apiCreateMatch(token, cid, {
         home_team_id: Number(f.home_team_id), away_team_id: Number(f.away_team_id),
         date: tbd ? '' : f.date, time: tbd ? '' : f.time, week: f.week, venue: f.venue, status: f.status,
+        stage_id: f.stage_id ? Number(f.stage_id) : undefined,
+        group_id: f.group_id ? Number(f.group_id) : undefined,
+        round: selectedGroup ? (selectedGroup.name_ar || selectedGroup.name_en || '') : undefined,
       });
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); } finally { setBusy(false); }
@@ -190,6 +229,18 @@ function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; t
       <div className="grid grid-cols-2 gap-3">
         {field('الفريق المضيف', <select value={f.home_team_id} onChange={e => set('home_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
         {field('الفريق الضيف', <select value={f.away_team_id} onChange={e => set('away_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
+        {stages.length > 0 && field('الدور', (
+          <select value={f.stage_id} onChange={e => { set('stage_id', e.target.value); set('group_id', ''); }} className={inputCls}>
+            <option value="">— اختر الدور</option>
+            {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
+          </select>
+        ))}
+        {stageGroups.length > 0 && field('المجموعة', (
+          <select value={f.group_id} onChange={e => set('group_id', e.target.value)} className={inputCls}>
+            <option value="">— اختر المجموعة</option>
+            {stageGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
+          </select>
+        ))}
         {field('التاريخ', <input type="date" value={f.date} disabled={tbd} onChange={e => set('date', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الوقت', <input type="time" value={f.time} disabled={tbd} onChange={e => set('time', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الجولة', <input value={f.week} onChange={e => set('week', e.target.value)} placeholder="27" className={inputCls} />)}
@@ -201,15 +252,16 @@ function NewMatch({ token, cid, teams, onDone }: { token: string; cid: number; t
         التاريخ غير محدد بعد (مباراة مؤكدة بدون موعد)
       </label>
       {err && <p className="text-loss text-xs">{err}</p>}
-      <button onClick={submit} disabled={busy} className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+      <button onClick={submit} disabled={busy || !f.home_team_id || !f.away_team_id || (isGroupStage && !f.group_id)}
+        className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
         {busy ? 'جارٍ الحفظ…' : 'إنشاء المباراة'}
       </button>
     </div>
   );
 }
 
-function MatchEditor({ token, match, teams, onChange, onBack }: {
-  token: string; match: EntryMatch; teams: EntryTeam[];
+function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
+  token: string; match: EntryMatch; teams: EntryTeam[]; stages: MStage[];
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
   const [players, setPlayers] = useState<Record<number, string[]>>({});
@@ -224,14 +276,34 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
   const [venueSaved, setVenueSaved] = useState(false);
   const [note, setNote] = useState(match.note || '');
   const [noteSaved, setNoteSaved] = useState(false);
+  const [stageId, setStageId] = useState(match.stage_id ? String(match.stage_id) : '');
+  const [groupId, setGroupId] = useState(match.group_id ? String(match.group_id) : '');
+  const [stageSaved, setStageSaved] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
+  const [softDeleted, setSoftDeleted] = useState(false);
   const [schedSaved, setSchedSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [editGoalId, setEditGoalId] = useState<number | null>(null);
   const [editCardId, setEditCardId] = useState<number | null>(null);
   const [editSubId, setEditSubId] = useState<number | null>(null);
+
+  const editorStage = stages.find(s => s.id === Number(stageId));
+  const editorGroups = editorStage?.groups ?? [];
+
+  const saveStage = async () => {
+    setErr(null);
+    const selectedGroup = editorGroups.find(g => g.id === Number(groupId));
+    try {
+      const m = await apiUpdateMatch(token, match.id, {
+        stage_id: stageId ? Number(stageId) : null,
+        group_id: groupId ? Number(groupId) : null,
+        round: selectedGroup ? (selectedGroup.name_ar || selectedGroup.name_en || '') : undefined,
+      });
+      onChange(m); setStageSaved(true); setTimeout(() => setStageSaved(false), 1500);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+  };
 
   useEffect(() => {
     [match.home.id, match.away.id].forEach(id =>
@@ -292,8 +364,20 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
 
   const deleteMatch = async () => {
     setErr(null); setDelBusy(true);
-    try { await apiDeleteMatch(token, match.id); onBack(); }
-    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setDelBusy(false); }
+    try {
+      await apiDeleteMatch(token, match.id);
+      setSoftDeleted(true); setConfirmDel(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setDelBusy(false); }
+  };
+
+  const undoDelete = async () => {
+    setErr(null); setDelBusy(true);
+    try {
+      const restored = await apiRestoreMatch(token, match.id);
+      onChange(restored); setSoftDeleted(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setDelBusy(false); }
   };
 
   return (
@@ -356,6 +440,30 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
         </div>
       </div>
 
+      {/* Stage / Group assignment */}
+      {stages.length > 0 && (
+        <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+          <p className="text-text font-bold text-sm">📋 الدور والمجموعة</p>
+          <div className="grid grid-cols-2 gap-2">
+            {field('الدور', (
+              <select value={stageId} onChange={e => { setStageId(e.target.value); setGroupId(''); }} className={inputCls}>
+                <option value="">— بدون دور</option>
+                {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
+              </select>
+            ))}
+            {editorGroups.length > 0 && field('المجموعة', (
+              <select value={groupId} onChange={e => setGroupId(e.target.value)} className={inputCls}>
+                <option value="">— بدون مجموعة</option>
+                {editorGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
+              </select>
+            ))}
+          </div>
+          <button onClick={saveStage} className="bg-aqua text-on-accent font-bold px-4 py-2 rounded-lg text-xs">
+            {stageSaved ? '✓ حُفظ' : 'حفظ الدور / المجموعة'}
+          </button>
+        </div>
+      )}
+
       {/* Match note — a free-text reason for the result. */}
       <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-2">
         <p className="text-text font-bold text-sm">📝 ملاحظة المباراة</p>
@@ -409,28 +517,47 @@ function MatchEditor({ token, match, teams, onChange, onBack }: {
           onCancelEdit={() => setEditSubId(null)}
           onAdd={m => { onChange(m); setEditSubId(null); }} />} />
 
-      {/* Delete the whole match. */}
-      <div className="bg-cardBg border border-loss/30 rounded-2xl p-4 space-y-2">
-        <p className="text-text font-bold text-sm">حذف المباراة</p>
-        <p className="text-hint text-[11px] leading-relaxed">
-          يحذف المباراة وكل أهدافها وبطاقاتها وتبديلاتها وتشكيلاتها نهائيًا. لا يمكن التراجع.
-        </p>
-        {!confirmDel ? (
-          <button onClick={() => setConfirmDel(true)}
-            className="text-loss text-sm font-bold border border-loss/40 rounded-lg px-4 py-2">
-            🗑️ حذف المباراة
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="flex-1 text-loss text-xs">هل أنت متأكد؟ لا يمكن التراجع.</span>
-            <button onClick={() => setConfirmDel(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
-            <button onClick={deleteMatch} disabled={delBusy}
-              className="bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-              {delBusy ? '…' : 'تأكيد الحذف'}
+      {/* Delete / undo-delete */}
+      {softDeleted ? (
+        <div className="bg-cardBg border border-gold/30 rounded-2xl p-4 space-y-2">
+          <p className="text-gold font-bold text-sm">تم حذف المباراة</p>
+          <p className="text-hint text-[11px] leading-relaxed">
+            المباراة مخفية الآن من الجمهور. يمكن استردادها خلال 24 ساعة.
+          </p>
+          {err && <p className="text-loss text-xs">{err}</p>}
+          <div className="flex gap-2">
+            <button onClick={undoDelete} disabled={delBusy}
+              className="bg-gold text-black font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+              {delBusy ? '…' : 'تراجع عن الحذف'}
+            </button>
+            <button onClick={onBack} className="text-hint text-sm font-bold px-4 py-2 border border-bdr rounded-lg">
+              العودة
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="bg-cardBg border border-loss/30 rounded-2xl p-4 space-y-2">
+          <p className="text-text font-bold text-sm">حذف المباراة</p>
+          <p className="text-hint text-[11px] leading-relaxed">
+            تختفي المباراة فورًا من الجمهور والترتيب، ويمكن استردادها من قائمة المباريات خلال 24 ساعة.
+          </p>
+          {!confirmDel ? (
+            <button onClick={() => setConfirmDel(true)}
+              className="text-loss text-sm font-bold border border-loss/40 rounded-lg px-4 py-2">
+              🗑️ حذف المباراة
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="flex-1 text-loss text-xs">هل أنت متأكد؟</span>
+              <button onClick={() => setConfirmDel(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
+              <button onClick={deleteMatch} disabled={delBusy}
+                className="bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                {delBusy ? '…' : 'تأكيد الحذف'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -63,13 +63,13 @@ TLA3BNY_COMPETITION_STATUS = ("draft", "active", "finished")
 TLA3BNY_STAGE_TYPE = ("group", "league", "knockout")
 TLA3BNY_STAGE_TYPE_KNOCKOUT = "knockout"
 # Tla3bnyCompetitionTeam.status — a team's registration in a competition.
-TLA3BNY_ENTRY_STATUS = ("active", "withdrawn")
+TLA3BNY_ENTRY_STATUS = ("active", "withdrawn", "pending")
 # Tla3bnyCompetitionPlayer.status — per-competition roster approval by that
 # competition's admin.
-TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected")
+TLA3BNY_PLAYER_STATUS = ("pending", "approved", "rejected", "replaced")
 # Tla3bnyMatch.status
-TLA3BNY_MATCH_STATUS = ("scheduled", "live", "finished")
-TLA3BNY_MATCH_STATUS_FINISHED = "finished"
+TLA3BNY_MATCH_STATUS = ("scheduled", "live", "completed", "postponed", "cancelled", "finished")
+TLA3BNY_MATCH_STATUS_FINISHED = "completed"
 # The player registration papers required by default. A competition's admin sets
 # its own list (Tla3bnyCompetition.required_documents) and the super admin can
 # set a per-age list (Tla3bnyAgeCategory.required_documents); this is the
@@ -88,6 +88,10 @@ TLA3BNY_EVENT_TYPE = (
     "red",
     "substitution_in",
     "substitution_out",
+    # Penalty-shootout takers (only used for the post-ET shootout, not spot-kicks
+    # awarded during play — those are normal "goal" events).
+    "penalty_scored",
+    "penalty_missed",
 )
 
 # TeamCoach.role_ar — the default seniority order for a team's technical staff.

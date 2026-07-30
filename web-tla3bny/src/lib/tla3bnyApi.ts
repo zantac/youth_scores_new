@@ -26,10 +26,11 @@ export type TUserStatus = 'active' | 'suspended' | 'pending' | 'approved' | 'rej
 export type TAcademyStatus = 'approved' | 'suspended' | 'pending' | 'rejected';
 export type TApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type TCompStatus = 'draft' | 'active' | 'finished';
-export type TMatchStatus = 'scheduled' | 'live' | 'finished';
+export type TMatchStatus = 'scheduled' | 'live' | 'completed' | 'postponed' | 'cancelled' | 'finished';
 export type TStageType = 'group' | 'league' | 'knockout';
 export type TEventType =
-  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out';
+  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out'
+  | 'penalty_scored' | 'penalty_missed';
 
 export interface TUser {
   id: number;
@@ -186,6 +187,8 @@ export interface TCompAge {
   competition_id: number;
   age_category_id: number;
   age_category: string | null;
+  name: string | null;
+  player_registration_deadline: string | null;
   required_documents: string[];
   max_players_per_team: number;
   lineup_size: number;
@@ -194,6 +197,8 @@ export interface TCompAge {
   num_periods: number;
   period_minutes: number;
   lineup_deadline_minutes: number;
+  replacements_open: boolean;
+  max_replacements: number;
   stages?: TStage[];
 }
 
@@ -280,18 +285,43 @@ export interface TCompPlayer {
   missing_documents?: string[];
 }
 
+/** A player eligible to appear in a match lineup — either an approved
+ *  competition player (guest=false) or a younger guest from the same academy. */
+export interface TEligiblePlayer {
+  player_id: number;
+  player_name: string | null;
+  photo_path: string | null;
+  position: string | null;
+  dob: string | null;
+  guest: boolean;
+  guest_team: string | null;
+}
+
 export interface TCompTeam {
   id: number;
   competition_id: number;
+  competition_name: string | null;
   team_id: number;
   team_name: string | null;
   academy_id: number | null;
   academy_name: string | null;
   academy_logo: string | null;
   age_category_id: number;
+  competition_age_id: number | null;
+  sub_competition_name: string | null;
   status: string;
   point_deduction: number;
   roster?: TCompPlayer[];
+}
+
+export interface TJoinableCompetition {
+  competition_age_id: number;
+  competition_id: number;
+  competition_name: string | null;
+  registration_open: boolean;
+  sub_competition_name: string | null;
+  age_category: string | null;
+  player_registration_deadline: string | null;
 }
 
 export interface TRules {
@@ -302,6 +332,7 @@ export interface TRules {
   period_minutes: number;
   lineup_deadline_minutes: number;
   max_players_per_team: number;
+  oldest_birth_year: number | null;
 }
 
 export interface TMatchEvent {
@@ -313,6 +344,16 @@ export interface TMatchEvent {
   event_type: TEventType;
   minute: number | null;
   related_event_id: number | null;
+  /** True when the event happened during extra time. */
+  is_extra_time: boolean;
+  /** True for own goals (team_id is the benefiting team). */
+  is_own_goal: boolean;
+  /** True when the goal was scored from the penalty spot during play (not shootout). */
+  is_penalty: boolean;
+  /** Position in the penalty shootout sequence (penalty_scored / penalty_missed only). */
+  kick_order: number | null;
+  /** True for the kick that decided the shootout. */
+  is_winning_kick: boolean;
 }
 
 export interface TMatch {
@@ -321,6 +362,7 @@ export interface TMatch {
   competition_name: string | null;
   age_category_id: number;
   age_category: string | null;
+  competition_age_id: number | null;
   stage_id: number | null;
   stage_name: string | null;
   stage_type: TStageType | null;
@@ -342,6 +384,12 @@ export interface TMatch {
   status: TMatchStatus;
   home_score: number | null;
   away_score: number | null;
+  /** Cumulative score after extra time (null if no ET was played). */
+  home_score_et: number | null;
+  away_score_et: number | null;
+  /** Penalty-shootout score (null if no shootout). */
+  home_score_pen: number | null;
+  away_score_pen: number | null;
   note: string | null;
   events?: TMatchEvent[];
 }
@@ -562,18 +610,45 @@ export const tTeamAccount = (token: string, teamId: number) =>
     `/teams/${teamId}/account`, token,
   );
 
+export interface TApprovedPlayer {
+  competition_player_id: number;
+  player_id: number;
+  player_name: string | null;
+  position: string | null;
+}
+
 export interface TTeamCompEntry {
   entry_id: number;
   competition_id: number;
   competition_name: string | null;
+  competition_age_id: number | null;
+  sub_competition_name: string | null;
+  status: string;
   registration_open: boolean;
   max_players: number | null;
   player_count: number;
+  replacements_open: boolean;
+  max_replacements: number;
+  replacement_count: number;
+  /** Populated only when replacements_open is true. */
+  approved_players: TApprovedPlayer[];
   rejected_players: { player_id: number; player_name: string | null; rejection_reason: string | null }[];
 }
-/** Competitions this team is registered in, with player quota — for the academy dashboard. */
+/** Competitions this team is registered in (active + pending), with player quota — for the academy dashboard. */
 export const tTeamCompetitionEntries = (token: string, teamId: number) =>
   get<TTeamCompEntry[]>(`/teams/${teamId}/competition-entries`, token);
+/** Sub-competitions the team can request to join (registration open, matching age). */
+export const tJoinableCompetitions = (token: string, teamId: number) =>
+  get<TJoinableCompetition[]>(`/teams/${teamId}/joinable-competitions`, token);
+/** Academy requests to join a sub-competition. */
+export const tRequestJoin = (token: string, teamId: number, competitionAgeId: number) =>
+  send<TCompTeam>('POST', `/teams/${teamId}/request-join`, { competition_age_id: competitionAgeId }, token);
+/** Competition admin approves a pending team join request. */
+export const tApproveTeamJoin = (token: string, entryId: number) =>
+  send<TCompTeam>('POST', `/competition-teams/${entryId}/approve`, undefined, token);
+/** Competition admin rejects a pending team join request. */
+export const tRejectTeamJoin = (token: string, entryId: number) =>
+  send<{ message: string }>('POST', `/competition-teams/${entryId}/reject`, undefined, token);
 
 // ── coaches ─────────────────────────────────────────────────────────────────
 export function tAddCoach(token: string, teamId: number, fd: Record<string, string | undefined>, photo?: File | null) {
@@ -598,6 +673,27 @@ export const tPlayer = (id: number, token?: string | null) =>
 /** The player's competition requests — with the rejection reason for owners. */
 export const tPlayerRegistrations = (id: number, token?: string | null) =>
   get<TPlayerRegistration[]>(`/players/${id}/registrations`, token);
+
+export interface TPlayerStatTotals {
+  goals: number;
+  assists: number;
+  yellow_cards: number;
+  red_cards: number;
+  appearances: number;
+}
+export interface TPlayerStatRow extends TPlayerStatTotals {
+  competition_id: number;
+  competition_name: string | null;
+  season_name: string | null;
+}
+export interface TPlayerStats {
+  player_id: number;
+  totals: TPlayerStatTotals;
+  by_competition: TPlayerStatRow[];
+}
+/** Career stats (goals, assists, yellow/red cards, appearances) — public endpoint. */
+export const tPlayerStats = (id: number) =>
+  get<TPlayerStats>(`/players/${id}/stats`);
 
 /** A registration paper paired with the document type it fulfils. */
 export interface LabeledDoc { label: string; file: File }
@@ -661,6 +757,8 @@ export function tUpdateCompetition(
 }
 export const tDeleteCompetition = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/competitions/${id}`, undefined, token);
+export const tCloneCompetition = (token: string, id: number, seasonId: number) =>
+  send<TCompetition>('POST', `/competitions/${id}/clone`, { season_id: seasonId }, token);
 export const tAddCompAdmin = (token: string, compId: number, b: Record<string, unknown>) =>
   send<{ message: string; user: TUser }>('POST', `/competitions/${compId}/admins`, b, token);
 export const tRemoveCompAdmin = (token: string, compId: number, userId: number) =>
@@ -683,22 +781,30 @@ export const tDeleteStage = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/stages/${id}`, undefined, token);
 export const tAddGroup = (token: string, stageId: number, b: Record<string, unknown>) =>
   send<TGroup>('POST', `/stages/${stageId}/groups`, b, token);
+export const tUpdateGroup = (token: string, id: number, b: { name: string }) =>
+  send<TGroup>('PUT', `/groups/${id}`, b, token);
 export const tDeleteGroup = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/groups/${id}`, undefined, token);
 export const tAddGroupTeam = (token: string, groupId: number, teamId: number) =>
   send<TGroup>('POST', `/groups/${groupId}/teams`, { team_id: teamId }, token);
 export const tRemoveGroupTeam = (token: string, groupId: number, teamId: number) =>
   send<{ message: string }>('DELETE', `/groups/${groupId}/teams/${teamId}`, undefined, token);
+/** Add a team directly to a knockout stage (no group required). */
+export const tAddStageTeam = (token: string, stageId: number, teamId: number) =>
+  send<{ team_id: number; group_id: number }>('POST', `/stages/${stageId}/teams`, { team_id: teamId }, token);
+/** Remove a team from a knockout stage. */
+export const tRemoveStageTeam = (token: string, stageId: number, teamId: number) =>
+  send<{ message: string }>('DELETE', `/stages/${stageId}/teams/${teamId}`, undefined, token);
 
 // ── registration + roster ─────────────────────────────────────────────────
 /** Pass the token as a competition admin to get each player's papers back. */
-export const tCompTeams = (compId: number, ageId?: number, withRoster = false, token?: string | null) =>
+export const tCompTeams = (compId: number, ageId?: number, withRoster = false, token?: string | null, cageId?: number) =>
   get<TCompTeam[]>(
-    `/competitions/${compId}/teams${qs({ age_category_id: ageId, roster: withRoster ? 1 : undefined })}`,
+    `/competitions/${compId}/teams${qs({ age_category_id: ageId, competition_age_id: cageId, roster: withRoster ? 1 : undefined })}`,
     token,
   );
-export const tRegisterTeam = (token: string, compId: number, teamId: number) =>
-  send<TCompTeam>('POST', `/competitions/${compId}/teams`, { team_id: teamId }, token);
+export const tRegisterTeam = (token: string, compId: number, teamId: number, competitionAgeId?: number) =>
+  send<TCompTeam>('POST', `/competitions/${compId}/teams`, { team_id: teamId, competition_age_id: competitionAgeId }, token);
 export const tUnregisterTeam = (token: string, entryId: number) =>
   send<{ message: string }>('DELETE', `/competition-teams/${entryId}`, undefined, token);
 export const tRoster = (entryId: number, token?: string | null) =>
@@ -711,11 +817,14 @@ export const tApproveRosterPlayer = (token: string, cpId: number) =>
   send<TCompPlayer>('POST', `/competition-players/${cpId}/approve`, undefined, token);
 export const tRejectRosterPlayer = (token: string, cpId: number, reason?: string) =>
   send<TCompPlayer>('POST', `/competition-players/${cpId}/reject`, { reason }, token);
+/** Academy marks an approved player as replaced during the replacement window. */
+export const tReplaceCompPlayer = (token: string, cpId: number) =>
+  send<TCompPlayer>('POST', `/competition-players/${cpId}/replace`, undefined, token);
 
 // ── matches ─────────────────────────────────────────────────────────────────
 export const tMatches = (params: {
-  competition_id?: number; age_category_id?: number; stage_id?: number;
-  group_id?: number; status?: string; team_id?: number; date?: string;
+  competition_id?: number; age_category_id?: number; competition_age_id?: number;
+  stage_id?: number; group_id?: number; status?: string; team_id?: number; date?: string;
   /** A date window, for the home feed's page-outwards-from-today browsing. */
   from?: string; to?: string; order?: 'asc'; limit?: number;
 } = {}) => get<TMatch[]>(`/matches${qs(params)}`);
@@ -731,12 +840,18 @@ export const tEnterResult = (token: string, id: number, b: Record<string, unknow
 
 // ── lineups ─────────────────────────────────────────────────────────────────
 export const tMatchLineups = (matchId: number) => get<TLineup[]>(`/lineups/match/${matchId}`);
+export const tEligibleLineupPlayers = (matchId: number, teamId: number) =>
+  get<TEligiblePlayer[]>(`/lineups/match/${matchId}/team/${teamId}/eligible-players`);
 export const tSaveLineup = (token: string, matchId: number, teamId: number, b: Record<string, unknown>) =>
   send<TLineup>('PUT', `/lineups/match/${matchId}/team/${teamId}`, b, token);
 
 // ── standings / bracket / analysis ────────────────────────────────────────
-export const tStandings = (compId: number, ageId: number) =>
-  get<TStandingGroup[]>(`/standings${qs({ competition_id: compId, age_category_id: ageId })}`);
+export const tStandings = (compId: number, ageId: number, cageId?: number) =>
+  get<TStandingGroup[]>(`/standings${qs({
+    competition_id: compId,
+    competition_age_id: cageId,
+    age_category_id: cageId ? undefined : ageId,
+  })}`);
 export const tBracket = (compId: number, ageId: number) =>
   get<TBracketStage[]>(`/bracket${qs({ competition_id: compId, age_category_id: ageId })}`);
 export const tAnalysis = (compId: number, ageId: number) =>
@@ -830,7 +945,9 @@ export interface TCompDashboard {
     goals: number;
   };
   ages: {
+    competition_age_id: number;
     age_category: string | null;
+    name: string | null;
     teams: number;
     players_approved: number;
     players_pending: number;

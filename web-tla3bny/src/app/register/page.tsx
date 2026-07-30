@@ -55,10 +55,14 @@ export default function Tla3bnyRegisterPage() {
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label={tt('اسم المستخدم', 'Username')}>
-              <input value={f.username} onChange={set('username')} dir="ltr" autoComplete="username" className={inputCls} />
+              <input name="username" id="username" type="text"
+                value={f.username} onChange={set('username')} dir="ltr"
+                autoComplete="username" className={inputCls} />
             </Field>
             <Field label={tt('كلمة المرور', 'Password')}>
-              <input type="password" value={f.password} onChange={set('password')} autoComplete="new-password" className={inputCls} />
+              <input name="new-password" id="new-password" type="password"
+                value={f.password} onChange={set('password')}
+                autoComplete="new-password" className={inputCls} />
             </Field>
           </div>
           <p className="text-hint text-[11px] -mt-1">
@@ -66,7 +70,8 @@ export default function Tla3bnyRegisterPage() {
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label={tt('الهاتف *', 'Phone *')}>
-              <input value={f.phone} onChange={set('phone')} dir="ltr" inputMode="tel" className={inputCls} />
+              <input name="phone" type="tel" value={f.phone} onChange={set('phone')}
+                dir="ltr" inputMode="tel" autoComplete="tel" className={inputCls} />
             </Field>
             <Field label={tt('العنوان', 'City / Address')}>
               <input value={f.address} onChange={set('address')} className={inputCls} />
@@ -85,7 +90,8 @@ export default function Tla3bnyRegisterPage() {
             </Field>
           </div>
           <Field label={tt('البريد الإلكتروني (اختياري)', 'Email (optional)')}>
-            <input type="email" value={f.email} onChange={set('email')} dir="ltr" className={inputCls} />
+            <input name="email" type="email" value={f.email} onChange={set('email')}
+              dir="ltr" autoComplete="email" className={inputCls} />
           </Field>
           <Field label={tt('الشعار (اختياري)', 'Logo (optional)')}>
             <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)}

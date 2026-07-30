@@ -57,7 +57,7 @@ def match_detail(match_id: int):
     from app.models import Match
 
     m = Match.query.get(match_id)
-    if m is None:
+    if m is None or m.deleted_at is not None:
         return jsonify({"error": "not found"}), 404
     return jsonify(serializers.match_full(m))
 

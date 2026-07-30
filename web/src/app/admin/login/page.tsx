@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useAdminAuth, SESSION_EXPIRED_KEY } from '@/context/AdminAuthContext';
 
 export default function AdminLoginPage() {
   const { login, user, loading } = useAdminAuth();
@@ -11,8 +11,16 @@ export default function AdminLoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   useEffect(() => { if (!loading && user) router.replace('/admin'); }, [loading, user, router]);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(SESSION_EXPIRED_KEY)) {
+      setSessionExpired(true);
+      sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+    }
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +65,9 @@ export default function AdminLoginPage() {
             </div>
           </div>
 
+          {sessionExpired && (
+            <p className="text-gold text-xs bg-gold/10 border border-gold/30 rounded-lg px-3 py-2">انتهت صلاحية الجلسة. يرجى تسجيل الدخول مجدداً.</p>
+          )}
           {error && (
             <p className="text-loss text-xs bg-loss/10 border border-loss/30 rounded-lg px-3 py-2">{error}</p>
           )}

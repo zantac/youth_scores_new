@@ -70,6 +70,9 @@ class Match(TimestampMixin, db.Model):
     note_en: Mapped[str | None] = mapped_column(sa.String(255))
     note_ar: Mapped[str | None] = mapped_column(sa.String(255))
 
+    # NULL = live; non-NULL = soft-deleted, eligible for restore within 24 hours.
+    deleted_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)
+
     stage: Mapped["Stage"] = relationship()
     group: Mapped["Group"] = relationship()
     home_team: Mapped["Team"] = relationship(foreign_keys=[home_team_id])
@@ -102,6 +105,7 @@ class Match(TimestampMixin, db.Model):
         sa.Index("ix_matches_home", "home_team_id"),
         sa.Index("ix_matches_away", "away_team_id"),
         sa.Index("ix_matches_status", "status"),
+        sa.Index("ix_matches_deleted_at", "deleted_at"),
     )
 
     @property

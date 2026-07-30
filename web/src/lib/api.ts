@@ -275,6 +275,7 @@ function parseHomeMatch(j: Record<string, unknown>): HomeMatch {
     status:      String(j.status ?? ''),
     group:       String(j.group ?? ''),
     venue:       String(j.venue ?? ''),
+    note:        j.note ? String(j.note) : undefined,
     homeScore:   parseInt2(j.home_score),
     awayScore:   parseInt2(j.away_score),
     homePenalty: parseInt2(j.home_penalty),

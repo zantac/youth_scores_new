@@ -6,7 +6,7 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import AdminUser
 from app.services import auth
 
@@ -14,6 +14,7 @@ auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.post("/api/auth/login")
+@limiter.limit("10 per minute")
 def login():
     j = request.get_json(silent=True) or {}
     username = (j.get("username") or "").strip()

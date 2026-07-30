@@ -2,8 +2,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach,
-  type TTeam, type TTeamCompEntry, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
+  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tJoinableCompetitions, tRequestJoin,
+  tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach, tReplaceCompPlayer,
+  type TTeam, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
@@ -42,15 +43,41 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       await loadPapers(t);
     } finally { setLoading(false); }
   }, [teamId, loadPapers]);
+  const [joinable, setJoinable] = useState<TJoinableCompetition[]>([]);
+  const [joinBusy, setJoinBusy] = useState<number | null>(null);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+
+  const refreshEntries = useCallback(() => {
+    tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(e => {
+      setCompEntries([]);
+      setErr(e instanceof Error ? e.message : String(e));
+    });
+    tJoinableCompetitions(token, teamId).then(setJoinable).catch(() => setJoinable([]));
+  }, [token, teamId]);
+
   useEffect(() => {
     reload();
     tTeamRequiredDocs(teamId).then(setDocs).catch(() => setDocs({ documents: [], sources: [] }));
-    tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => setCompEntries([]));
-  }, [reload, teamId, token]);
+    refreshEntries();
+  }, [reload, teamId, token, refreshEntries]);
 
-  // Derive registration availability from competition entries.
-  const openEntries = compEntries.filter(e => e.registration_open);
-  const canAddPlayers = openEntries.some(e => e.max_players === null || e.player_count < e.max_players);
+  const requestJoin = async (cageId: number) => {
+    setJoinBusy(cageId);
+    try {
+      await tRequestJoin(token, teamId, cageId);
+      setShowJoinModal(false);
+      refreshEntries();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setJoinBusy(null); }
+  };
+
+  // Derive registration / replacement availability from competition entries.
+  const openEntries = compEntries.filter(e => e.status === 'active' && e.registration_open);
+  const replacementEntries = compEntries.filter(e => e.status === 'active' && e.replacements_open);
+  const canAddPlayers = openEntries.some(e => e.max_players === null || e.player_count < e.max_players)
+    || replacementEntries.some(e =>
+        e.replacement_count < e.max_replacements &&
+        (e.max_players === null || e.player_count < e.max_players));
   // Show the strictest quota: the open competition with the fewest remaining slots.
   const quota = openEntries.reduce<{ used: number; max: number | null } | null>((acc, e) => {
     if (e.max_players === null) return acc ?? { used: e.player_count, max: null };
@@ -74,6 +101,17 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       setPf({ name: '', position: '', jersey_number: '', dob: '' }); setPhoto(null); setDocFiles({});
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setPBusy(false); }
+  };
+
+  const [replaceBusy, setReplaceBusy] = useState<number | null>(null);
+  const replacePlayer = async (cpId: number) => {
+    if (!confirm(tt('إزالة هذا اللاعب من البطولة؟ سيبقى في الفريق لكن لن يكمل المنافسة.', 'Remove this player from the competition? They stay on the team but will not continue in this tournament.'))) return;
+    setErr(null); setReplaceBusy(cpId);
+    try {
+      await tReplaceCompPlayer(token, cpId);
+      await Promise.all([reload(), refreshEntries()]);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setReplaceBusy(null); }
   };
 
   // player edit state
@@ -101,9 +139,10 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       const documents: LabeledDoc[] = Object.entries(editDocFiles).map(([label, file]) => ({ label, file }));
       await tUpdatePlayer(token, editingId, ef, editPhoto, documents);
       setEditingId(null);
-      await reload();
-      // refresh comp entries to reflect new pending status
-      tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => {});
+      await Promise.all([
+        reload(),
+        tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(() => {}),
+      ]);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setEBusy(false); }
   };
 
@@ -163,6 +202,55 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
             </p>
           </Card>
         ) : null}
+
+        {/* Replacement window banners */}
+        {replacementEntries.map(e => (
+          <Card key={e.entry_id} className="p-3 mb-3 border-gold/40 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-gold font-bold text-sm">
+                  🔄 {tt('نافذة الاستبدال مفتوحة', 'Replacement window open')}
+                  {e.sub_competition_name && (
+                    <span className="text-hint font-normal text-[11px] ms-1">· {e.sub_competition_name}</span>
+                  )}
+                </p>
+                <p className="text-[11px] text-hint mt-0.5">
+                  {tt(
+                    `استُخدم ${e.replacement_count} من ${e.max_replacements} استبدالات`,
+                    `${e.replacement_count} of ${e.max_replacements} replacements used`,
+                  )}
+                </p>
+              </div>
+              <span className={`text-sm font-black tabular-nums ${e.replacement_count >= e.max_replacements ? 'text-loss' : 'text-gold'}`}>
+                {e.replacement_count}/{e.max_replacements}
+              </span>
+            </div>
+            {e.replacement_count < e.max_replacements && e.approved_players.length > 0 && (
+              <div className="space-y-1 border-t border-bdr/50 pt-2">
+                <p className="text-[11px] text-teal font-bold">{tt('اختر لاعبًا لاستبداله', 'Select a player to replace')}</p>
+                {e.approved_players.map(ap => (
+                  <div key={ap.competition_player_id} className="flex items-center justify-between bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="text-sm text-text font-bold truncate block">{ap.player_name}</span>
+                      {ap.position && <span className="text-[11px] text-hint">{ap.position}</span>}
+                    </div>
+                    <button
+                      onClick={() => replacePlayer(ap.competition_player_id)}
+                      disabled={replaceBusy === ap.competition_player_id}
+                      className="text-xs font-bold text-loss border border-loss/40 rounded-lg px-3 py-1.5 hover:bg-loss/10 disabled:opacity-50 shrink-0 ms-2">
+                      {replaceBusy === ap.competition_player_id ? tt('…', '…') : tt('استبدال', 'Replace')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {e.replacement_count >= e.max_replacements && (
+              <p className="text-loss text-[11px]">
+                {tt('تم استنفاد الحصة الكاملة للاستبدال.', 'All replacements have been used.')}
+              </p>
+            )}
+          </Card>
+        ))}
 
         {/* Rejection alerts */}
         {allRejections.length > 0 && (
@@ -297,6 +385,95 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           </Card>
         )}
       </section>
+
+      {/* competition entries + join button */}
+      <section>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-black text-text">{tt('البطولات', 'Competitions')}</h3>
+          <button
+            onClick={() => setShowJoinModal(true)}
+            className="text-xs font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1.5 hover:bg-aqua/10">
+            + {tt('طلب الانضمام لبطولة', 'Request to join')}
+          </button>
+        </div>
+        <div className="space-y-2">
+          {compEntries.length === 0 && (
+            <p className="text-xs text-hint py-2">{tt('لا بطولات مسجّلة بعد', 'Not registered in any competition yet')}</p>
+          )}
+          {compEntries.map(e => (
+            <Card key={e.entry_id} className="p-3 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-bold text-text text-sm truncate">
+                  {e.sub_competition_name
+                    ? `${e.competition_name} · ${e.sub_competition_name}`
+                    : e.competition_name}
+                </div>
+              </div>
+              {e.status === 'pending' ? (
+                <span className="text-[11px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-2 py-0.5 shrink-0">
+                  {tt('قيد الموافقة', 'Pending')}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-win bg-win/10 border border-win/30 rounded-full px-2 py-0.5 shrink-0">
+                  {tt('مسجّل', 'Active')}
+                </span>
+              )}
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* Join competition modal */}
+      {showJoinModal && (
+        <div className="fixed inset-0 z-[120] bg-black/60 flex items-end sm:items-center justify-center"
+          onClick={() => setShowJoinModal(false)}>
+          <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-bdr shrink-0">
+              <span className="font-black text-text">{tt('اختر البطولة الفرعية', 'Select sub-competition')}</span>
+              <button onClick={() => setShowJoinModal(false)} className="text-hint hover:text-loss text-xl leading-none">×</button>
+            </div>
+            {/* List */}
+            <div className="overflow-y-auto p-3 space-y-2">
+              {joinable.length === 0 && (
+                <p className="text-hint text-sm text-center py-6">{tt('لا بطولات متاحة لهذه الفئة العمرية', 'No competitions available for this age group')}</p>
+              )}
+              {joinable.map(j => (
+                <button key={j.competition_age_id} onClick={() => requestJoin(j.competition_age_id)}
+                  disabled={joinBusy === j.competition_age_id}
+                  className="w-full text-start bg-darkBg border border-bdr rounded-xl px-4 py-3 hover:border-aqua/50 transition-colors disabled:opacity-50">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-text text-sm">
+                        {j.competition_name}
+                        {j.sub_competition_name && (
+                          <span className="text-teal font-normal"> · {j.sub_competition_name}</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-hint mt-0.5">{j.age_category}</div>
+                      {j.player_registration_deadline && (
+                        <div className="text-[11px] text-gold mt-0.5">
+                          {tt('آخر موعد', 'Deadline')}: {j.player_registration_deadline}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0 mt-0.5">
+                      {joinBusy === j.competition_age_id ? (
+                        <span className="text-xs text-hint">{tt('…', '…')}</span>
+                      ) : j.registration_open ? (
+                        <span className="text-[10px] font-bold text-win bg-win/10 border border-win/30 rounded-full px-2 py-0.5">{tt('مفتوح', 'Open')}</span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-hint bg-cardBg2 border border-bdr rounded-full px-2 py-0.5">{tt('مغلق', 'Closed')}</span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* coaches */}
       <section>

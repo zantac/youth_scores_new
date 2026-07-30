@@ -817,7 +817,7 @@ def enroll_team(cid: int):
     # The second name and the deduction both belong to this competition entry.
     db.session.add(CompetitionTeam(
         competition_id=comp.id, team_id=t.id,
-        point_deduction=max(0, int(j.get("point_deduction") or 0)),
+        point_deduction=max(0, min(100, int(j.get("point_deduction") or 0))),
         name_ar=_str(j.get("name_ar")), name_en=_str(j.get("name_en")),
     ))
     db.session.commit()
@@ -898,7 +898,7 @@ def update_team(tid: int):
         if "name_en" in j: entry.name_en = _str(j.get("name_en"))
         if "point_deduction" in j:
             try:
-                entry.point_deduction = max(0, int(j["point_deduction"]))
+                entry.point_deduction = max(0, min(100, int(j["point_deduction"])))
             except (TypeError, ValueError):
                 pass
     db.session.commit()

@@ -1,7 +1,7 @@
 'use client';
 import { whatsappLink, type TCompetition } from '@/lib/tla3bnyApi';
 import { useApp } from '@/context/AppContext';
-import { formatMatchDate } from '@/lib/utils';
+import { formatMatchDate, sortAges, subCompLabel } from '@/lib/utils';
 import { Card, EmptyState, useTT } from './kit';
 
 /**
@@ -28,7 +28,7 @@ export default function CompetitionInfo({ comp }: { comp: TCompetition }) {
     [tt('الموسم', 'Season'), comp.season_name],
     [tt('المكان', 'Location'), comp.location],
     [tt('الفترة', 'Dates'), period],
-    [tt('الأعمار', 'Ages'), (comp.ages ?? []).map(a => a.age_category).join(' · ') || null],
+    [tt('البطولات الفرعية', 'Sub-competitions'), sortAges(comp.ages ?? []).map(subCompLabel).join(' · ') || null],
   ];
   const shown = facts.filter(([, v]) => v);
 

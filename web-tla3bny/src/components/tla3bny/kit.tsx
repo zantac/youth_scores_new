@@ -1,5 +1,5 @@
 'use client';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { mediaUrl } from '@/lib/tla3bnyApi';
 
@@ -45,7 +45,10 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: 'text-loss bg-loss/10 border-loss/30',
   scheduled: 'text-teal bg-cardBg2 border-bdr',
   live: 'text-loss bg-loss/10 border-loss/30',
+  completed: 'text-hint bg-cardBg2 border-bdr',
   finished: 'text-hint bg-cardBg2 border-bdr',
+  postponed: 'text-gold bg-gold/10 border-gold/30',
+  cancelled: 'text-loss bg-loss/10 border-loss/30',
 };
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {
@@ -105,5 +108,30 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
   if (!children) return null;
   return (
     <p className="text-loss text-xs bg-loss/10 border border-loss/30 rounded-lg px-3 py-2">{children}</p>
+  );
+}
+
+/**
+ * Warns the user before they close the tab / navigate away while a form
+ * has unsaved changes.  Does NOT block in-app tab switches — pair with
+ * <UnsavedBadge> to make the dirty state visible inside the page.
+ */
+export function useUnsavedGuard(isDirty: boolean) {
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+}
+
+/** Small inline badge shown when a form has unsaved changes. */
+export function UnsavedBadge({ isDirty }: { isDirty: boolean }) {
+  const tt = useTT();
+  if (!isDirty) return null;
+  return (
+    <span className="text-[11px] font-bold text-gold animate-pulse">
+      ● {tt('تغييرات غير محفوظة', 'Unsaved changes')}
+    </span>
   );
 }

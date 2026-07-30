@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  tMatch, tCompTeams, tRoster, tMatchLineups, tSaveLineup,
-  type TMatch, type TCompPlayer,
+  tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers,
+  type TMatch, type TEligiblePlayer,
 } from '@/lib/tla3bnyApi';
 import { FORMATIONS, FORMATION_NAMES, slotBase } from '@/lib/tla3bnyFormations';
 import Spinner from '@/components/ui/Spinner';
@@ -18,7 +18,7 @@ export default function LineupBuilder({
 }) {
   const tt = useTT();
   const [match, setMatch] = useState<TMatch | null>(null);
-  const [players, setPlayers] = useState<TCompPlayer[]>([]);
+  const [players, setPlayers] = useState<TEligiblePlayer[]>([]);
   const [formation, setFormation] = useState('4-3-3');
   const [assign, setAssign] = useState<Record<string, number>>({});
   const [subs, setSubs] = useState<number[]>([]);
@@ -36,19 +36,19 @@ export default function LineupBuilder({
         const m = await tMatch(matchId);
         if (!alive) return;
         setMatch(m);
-        // Approved roster for this team in this competition.
-        const entries = await tCompTeams(m.competition_id, m.age_category_id);
-        const entry = entries.find(e => e.team_id === teamId);
-        if (entry) {
-          const full = await tRoster(entry.id);
-          if (!alive) return;
-          setPlayers((full.roster ?? []).filter(p => p.status === 'approved'));
-        }
+        const eligible = await tEligibleLineupPlayers(matchId, teamId).catch(() => []);
+        if (!alive) return;
+        setPlayers(eligible);
         const lineups = await tMatchLineups(matchId).catch(() => []);
         if (!alive) return;
         const mine = lineups.find(l => l.team_id === teamId);
+        // Pick a default formation that matches the competition's player count.
+        const playersOnPitch = m.rules?.players_on_pitch ?? 11;
+        const validForms = FORMATION_NAMES.filter(f => FORMATIONS[f].length === playersOnPitch);
+        const defaultForm = validForms[0] ?? FORMATION_NAMES[0];
         if (mine) {
-          if (mine.formation && FORMATIONS[mine.formation]) setFormation(mine.formation);
+          const savedForm = mine.formation && FORMATIONS[mine.formation] ? mine.formation : defaultForm;
+          setFormation(savedForm);
           const a: Record<string, number> = {};
           const s: number[] = [];
           for (const slot of mine.slots) {
@@ -58,6 +58,8 @@ export default function LineupBuilder({
           }
           setAssign(a);
           setSubs(s);
+        } else {
+          setFormation(defaultForm);
         }
       } catch (e) {
         if (alive) setErr(e instanceof Error ? e.message : String(e));
@@ -128,6 +130,9 @@ export default function LineupBuilder({
   const teamName = teamId === match.home_team_id ? match.home_team_name : match.away_team_name;
   const currentPickId = picker && !picker.forSub && picker.slot ? assign[picker.slot] : undefined;
   const rules = match.rules;
+  const playersOnPitch = rules?.players_on_pitch ?? 11;
+  const oldestBirthYear = rules?.oldest_birth_year ?? null;
+  const validFormations = FORMATION_NAMES.filter(f => FORMATIONS[f].length === playersOnPitch);
 
   return (
     <div className="space-y-4">
@@ -155,8 +160,11 @@ export default function LineupBuilder({
         <label className="text-xs font-bold text-teal">{tt('الخطة', 'Formation')}</label>
         <select value={formation} onChange={e => changeFormation(e.target.value)}
           className="bg-darkBg border border-bdr rounded-xl px-3 py-2 text-text text-sm outline-none focus:border-aqua">
-          {FORMATION_NAMES.map(f => <option key={f} value={f}>{f}</option>)}
+          {validFormations.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
+        {validFormations.length === 0 && (
+          <span className="text-loss text-[11px]">{tt(`لا خطط لـ ${playersOnPitch} لاعبين`, `No formations for ${playersOnPitch} players`)}</span>
+        )}
         <span className="text-[11px] text-hint">{tt('اضغط على مركز لاختيار لاعب', 'Tap a position to assign')}</span>
       </div>
 
@@ -202,6 +210,7 @@ export default function LineupBuilder({
           usedIds={usedIds}
           currentId={currentPickId}
           slotHint={picker.slot ? slotBase(picker.slot) : null}
+          oldestBirthYear={oldestBirthYear}
           title={picker.forSub ? tt('إضافة بديل', 'Add substitute') : tt(`اختر لاعبًا لـ ${picker.slot}`, `Select for ${picker.slot}`)}
           onPick={pick}
           onClose={() => setPicker(null)}
@@ -212,26 +221,33 @@ export default function LineupBuilder({
 }
 
 function PlayerPicker({
-  players, usedIds, currentId, slotHint, title, onPick, onClose,
+  players, usedIds, currentId, slotHint, oldestBirthYear, title, onPick, onClose,
 }: {
-  players: TCompPlayer[];
+  players: TEligiblePlayer[];
   usedIds: Set<number>;
   currentId?: number;
   slotHint: string | null;
+  oldestBirthYear: number | null;
   title: string;
   onPick: (id: number | null) => void;
   onClose: () => void;
 }) {
   const tt = useTT();
   const sorted = useMemo(() => {
-    const score = (p: TCompPlayer) => {
-      if (!slotHint) return 1;
+    const score = (p: TEligiblePlayer) => {
+      if (!slotHint) return p.guest ? 1 : 0;
       const sp = (p.position ?? '').toUpperCase();
-      if (slotHint === 'GK') return sp === 'GK' ? 0 : 1;
-      return sp.startsWith(slotHint) ? 0 : 1;
+      const posMatch = slotHint === 'GK' ? sp === 'GK' : sp.startsWith(slotHint);
+      return (p.guest ? 2 : 0) + (posMatch ? 0 : 1);
     };
     return [...players].sort((a, b) => score(a) - score(b));
   }, [players, slotHint]);
+
+  const isOverAge = (p: TEligiblePlayer): boolean => {
+    if (!oldestBirthYear || !p.dob) return false;
+    const birthYear = new Date(p.dob).getFullYear();
+    return birthYear < oldestBirthYear;
+  };
 
   return (
     <div className="fixed inset-0 z-[120] bg-black/60 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -248,17 +264,37 @@ function PlayerPicker({
           )}
           {sorted.map(p => {
             const used = usedIds.has(p.player_id) && p.player_id !== currentId;
+            const overAge = isOverAge(p);
             return (
               <button key={p.player_id} disabled={used} onClick={() => onPick(p.player_id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start ${used ? 'opacity-40' : 'hover:bg-cardBg2'}`}>
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start ${used ? 'opacity-40' : overAge ? 'hover:bg-gold/5' : 'hover:bg-cardBg2'}`}>
                 <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
                   <div className="text-[11px] text-hint truncate">
-                    {[p.position, used ? tt('مختار بالفعل', 'already selected') : null].filter(Boolean).join(' · ')}
+                    {[
+                      p.position,
+                      p.dob ? new Date(p.dob).getFullYear() : null,
+                      p.guest ? `↑ ${p.guest_team ?? tt('فريق أصغر', 'younger team')}` : null,
+                      used ? tt('مختار بالفعل', 'already selected') : null,
+                    ].filter(Boolean).join(' · ')}
                   </div>
                 </div>
-                {p.player_id === currentId && <span className="text-aqua">✓</span>}
+                <div className="flex items-center gap-1 shrink-0">
+                  {p.player_id === currentId && <span className="text-aqua">✓</span>}
+                  {overAge && (
+                    <span title={tt(`مواليد قبل ${oldestBirthYear}`, `Born before ${oldestBirthYear}`)}
+                      className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-1.5 py-0.5">
+                      ⚠ {tt('فوق السن', 'Over-age')}
+                    </span>
+                  )}
+                  {p.guest && !used && !overAge && (
+                    <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-1.5 py-0.5">{tt('ضيف', 'Guest')}</span>
+                  )}
+                  {p.guest && overAge && (
+                    <span className="text-[10px] font-bold text-teal bg-teal/10 border border-teal/20 rounded-full px-1.5 py-0.5">{tt('ضيف', 'Guest')}</span>
+                  )}
+                </div>
               </button>
             );
           })}

@@ -1,10 +1,12 @@
 import logging
 import os
 
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
 from flask import Flask, abort, request, send_from_directory
 
 from app.config import CONFIGS
-from app.extensions import db, migrate
+from app.extensions import db, migrate, limiter
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -12,6 +14,28 @@ def create_app(config_name: str | None = None) -> Flask:
 
     config_name = config_name or os.environ.get("FLASK_ENV", "development")
     app.config.from_object(CONFIGS.get(config_name, CONFIGS["development"]))
+
+    _dsn = app.config.get("SENTRY_DSN")
+    if _dsn:
+        sentry_sdk.init(
+            dsn=_dsn,
+            integrations=[FlaskIntegration()],
+            traces_sample_rate=0.05,  # 5 % of requests sampled for performance
+            send_default_pii=False,
+        )
+
+    if not app.config.get("DEBUG"):
+        if app.config.get("SECRET_KEY") == "dev-only-change-me":
+            raise RuntimeError(
+                "SECRET_KEY is not set. Set the SECRET_KEY environment variable "
+                "to a secure random value before starting in production."
+            )
+        _api_key = app.config.get("ADMIN_API_KEY")
+        if not _api_key or _api_key == "dev-admin-key":
+            raise RuntimeError(
+                "ADMIN_API_KEY is not set or is still the development default. "
+                "Set the ADMIN_API_KEY environment variable to a secure random value."
+            )
 
     # Behind a reverse proxy (Railway), trust X-Forwarded-Proto/Host so
     # request.host_url reflects the real https://<domain> — the config feed
@@ -37,6 +61,14 @@ def create_app(config_name: str | None = None) -> Flask:
 
     db.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
+
+    from flask import jsonify as _jsonify
+    from werkzeug.exceptions import TooManyRequests
+
+    @app.errorhandler(429)
+    def _rate_limit_handler(e):
+        return _jsonify({"error": "Too many requests — please slow down."}), 429
 
     # Registers every mapper before Alembic autogenerate inspects the metadata.
     from app import models  # noqa: F401
@@ -60,6 +92,13 @@ def create_app(config_name: str | None = None) -> Flask:
     register_commands(app)
 
     # CORS for the browser clients (public site + admin panel on other ports).
+    # In production set ALLOWED_ORIGINS to a comma-separated list of exact
+    # origins (e.g. "https://youthscores.org,https://admin.youthscores.org").
+    # In development the wildcard is used as a fallback so the Next.js dev
+    # server (port 3000) can reach the Flask API (port 5000) without config.
+    _raw_origins = app.config.get("ALLOWED_ORIGINS") or ""
+    _origin_set = {o.strip() for o in _raw_origins.split(",") if o.strip()}
+
     @app.before_request
     def _preflight():
         if request.method == "OPTIONS":
@@ -67,9 +106,34 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.after_request
     def _cors(response):
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        origin = request.headers.get("Origin", "")
+        if _origin_set:
+            if origin in _origin_set:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Vary"] = "Origin"
+        else:
+            # Development fallback — wildcard is fine when DEBUG=True.
+            response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Key"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        return response
+
+    # Audit log: record every admin write operation (non-GET to /api/admin|manage|entry).
+    @app.after_request
+    def _audit_admin_mutations(response):
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            path = request.path
+            if path.startswith(("/api/admin/", "/api/manage/", "/api/entry/")):
+                try:
+                    from app.services import auth as _auth
+                    u = _auth.current_admin()
+                    actor = u.username if u else "master_key"
+                except Exception:
+                    actor = "unknown"
+                app.logger.info(
+                    "ADMIN_MUTATION %s %s → %d  actor=%s",
+                    request.method, path, response.status_code, actor,
+                )
         return response
 
     @app.get("/uploads/<path:filename>")

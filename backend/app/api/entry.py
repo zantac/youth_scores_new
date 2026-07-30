@@ -12,8 +12,9 @@ so saving a score updates every table that depends on it.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
 
 from app.extensions import db
@@ -23,6 +24,7 @@ from app.models import (
     CompetitionTeam,
     MatchCard,
     MatchGoal,
+    MatchPenaltyShootout,
     MatchPlayer,
     MatchSubstitution,
     Match,
@@ -175,17 +177,25 @@ def _match_row(m: Match) -> dict:
         "away": {"id": m.away_team_id, "name": _team_name(m.away_team, comp_id)},
         "home_score": m.home_score,
         "away_score": m.away_score,
+        "stage_id": m.stage_id,
+        "group_id": m.group_id,
+        "stage_name": (m.stage.name_ar or m.stage.name_en) if m.stage else None,
+        "group_name": (m.group.name_ar or m.group.name_en) if m.group else None,
+        "deleted_at": m.deleted_at.isoformat() if m.deleted_at else None,
     }
 
 
 @entry_bp.get("/api/admin/competitions/<int:cid>/matches")
 @auth.login_required
 def competition_matches(cid: int):
-    matches = (
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    all_m = (
         Match.query.join(Stage).filter(Stage.competition_id == cid)
         # Undated (TBD) fixtures collect at the end; is_(None) sorts False<True.
         .order_by(Match.match_date.is_(None), Match.match_date.desc(), Match.id).all()
     )
+    # Include live matches and those soft-deleted within the 24-hour undo window.
+    matches = [m for m in all_m if m.deleted_at is None or m.deleted_at >= cutoff]
     return jsonify({"matches": [_match_row(m) for m in matches]})
 
 
@@ -221,11 +231,25 @@ def create_match(cid: int):
     if date_s and not dt:
         return jsonify({"error": "التاريخ غير صحيح"}), 400
 
-    stage = _default_stage(comp)
+    req_stage_id = j.get("stage_id")
+    if req_stage_id:
+        stage = Stage.query.filter_by(id=req_stage_id, competition_id=cid).first() or _default_stage(comp)
+    else:
+        stage = _default_stage(comp)
+    req_group_id = j.get("group_id") or None
+
+    # Prevent duplicate fixtures: same stage, same pair of teams.
+    duplicate = Match.query.filter_by(
+        stage_id=stage.id, home_team_id=home_id, away_team_id=away_id
+    ).first()
+    if duplicate:
+        return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
+
     week = (j.get("week") or "").strip() or None
     note = (j.get("note") or "").strip()[:255] or None
     m = Match(
         stage_id=stage.id,
+        group_id=req_group_id,
         home_team_id=home_id, away_team_id=away_id,
         match_date=dt, week=week,
         round_label_ar=(j.get("round") or None), round_label_en=(j.get("round") or None),
@@ -324,6 +348,9 @@ def update_match(mid: int):
     if "date" in j:
         date_s = (j.get("date") or "").strip()
         if not date_s:
+            # Block clearing the date on a match that already has a result.
+            if m.home_score is not None or m.away_score is not None:
+                return jsonify({"error": "لا يمكن مسح تاريخ مباراة لها نتيجة مسجّلة"}), 400
             m.match_date = None  # cleared → back to TBD
         else:
             # Keep the existing time when only the date is edited; a TBD match
@@ -340,19 +367,34 @@ def update_match(mid: int):
 @entry_bp.delete("/api/admin/matches/<int:mid>")
 @auth.login_required
 def delete_match(mid: int):
-    """Remove a match outright — the fix for a fixture entered by mistake.
-
-    Its goals, cards, substitutions, line-up and shootout kicks all hang off the
-    match with ON DELETE CASCADE (and the ORM's delete-orphan), so they go with
-    it; nothing else in the schema points back at a match, so it always clears.
-    Standings are derived on read, so the tables correct themselves at once.
+    """Soft-delete a match — sets deleted_at so it is hidden from public feeds
+    but can be restored within 24 hours.  Standings recalculate on read and so
+    correct themselves immediately.
     """
     m = db.session.get(Match, mid)
     if m is None:
         return jsonify({"error": "المباراة غير موجودة"}), 404
-    db.session.delete(m)
+    if m.deleted_at is not None:
+        return jsonify({"error": "المباراة محذوفة بالفعل"}), 409
+    m.deleted_at = datetime.utcnow()
     db.session.commit()
-    return jsonify({"deleted": mid})
+    return jsonify({"deleted": mid, "deleted_at": m.deleted_at.isoformat()})
+
+
+@entry_bp.post("/api/admin/matches/<int:mid>/restore")
+@auth.login_required
+def restore_match(mid: int):
+    """Undo a soft-delete within the 24-hour window."""
+    m = db.session.get(Match, mid)
+    if m is None:
+        return jsonify({"error": "المباراة غير موجودة"}), 404
+    if m.deleted_at is None:
+        return jsonify({"error": "المباراة غير محذوفة"}), 400
+    if datetime.utcnow() - m.deleted_at > timedelta(hours=24):
+        return jsonify({"error": "انتهت مهلة الاسترداد (24 ساعة)"}), 400
+    m.deleted_at = None
+    db.session.commit()
+    return jsonify(_match_detail(m))
 
 
 # ── goals & cards ────────────────────────────────────────────────────────────
@@ -674,3 +716,94 @@ def delete_sub(sid: int):
     db.session.delete(s)
     db.session.commit()
     return jsonify(_match_detail(db.session.get(Match, mid)))
+
+
+# ── players ───────────────────────────────────────────────────────────────────
+
+@entry_bp.get("/api/admin/players/search")
+@auth.login_required
+def search_players():
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"players": []})
+    pattern = f"%{q}%"
+    rows = (
+        Player.query
+        .filter(sa.or_(Player.full_name_ar.ilike(pattern), Player.full_name_en.ilike(pattern)))
+        .order_by(Player.full_name_ar)
+        .limit(20)
+        .all()
+    )
+    return jsonify({"players": [
+        {"id": p.id, "name": p.full_name_ar or p.full_name_en, "birth_year": p.birth_year}
+        for p in rows
+    ]})
+
+
+@entry_bp.post("/api/admin/players/<int:source_id>/merge-into/<int:target_id>")
+@auth.login_required
+def merge_players(source_id: int, target_id: int):
+    """Re-point every FK that references source onto target, then delete source.
+
+    Used to clean up duplicate player rows created by name-spelling variants in
+    the quick-add flow.  Handles the two edge cases:
+
+    - MatchPlayer has a unique (match_id, player_id) constraint: if target is
+      already in the same match's lineup, source's row is dropped instead.
+    - MatchSubstitution has a check (player_out_id <> player_in_id): if a sub
+      would become a self-substitution after re-pointing, it is dropped.
+    - PlayerTeam: if target is already registered with the same team, source's
+      registration is dropped to avoid a logical duplicate.
+    """
+    if source_id == target_id:
+        return jsonify({"error": "لا يمكن دمج لاعب مع نفسه"}), 400
+    source = db.session.get(Player, source_id)
+    target = db.session.get(Player, target_id)
+    if source is None:
+        return jsonify({"error": "اللاعب المصدر غير موجود"}), 404
+    if target is None:
+        return jsonify({"error": "اللاعب الهدف غير موجود"}), 404
+
+    # Simple FK columns — no unique constraints, bulk UPDATE is safe.
+    MatchGoal.query.filter_by(scorer_id=source_id).update(
+        {"scorer_id": target_id}, synchronize_session=False)
+    MatchGoal.query.filter_by(assist_id=source_id).update(
+        {"assist_id": target_id}, synchronize_session=False)
+    MatchCard.query.filter_by(player_id=source_id).update(
+        {"player_id": target_id}, synchronize_session=False)
+    MatchPenaltyShootout.query.filter_by(player_id=source_id).update(
+        {"player_id": target_id}, synchronize_session=False)
+
+    # Substitutions: re-point row by row to catch self-sub violations.
+    for sub in MatchSubstitution.query.filter_by(player_out_id=source_id).all():
+        if sub.player_in_id == target_id:
+            db.session.delete(sub)
+        else:
+            sub.player_out_id = target_id
+    for sub in MatchSubstitution.query.filter_by(player_in_id=source_id).all():
+        if sub.player_out_id == target_id:
+            db.session.delete(sub)
+        else:
+            sub.player_in_id = target_id
+
+    # MatchPlayer: unique (match_id, player_id) — drop source if target is already in that lineup.
+    target_match_ids = {mp.match_id for mp in MatchPlayer.query.filter_by(player_id=target_id).all()}
+    for mp in MatchPlayer.query.filter_by(player_id=source_id).all():
+        if mp.match_id in target_match_ids:
+            db.session.delete(mp)
+        else:
+            mp.player_id = target_id
+
+    # PlayerTeam: drop source's registration if target already belongs to the same team.
+    target_team_ids = {pt.team_id for pt in PlayerTeam.query.filter_by(player_id=target_id).all()}
+    for pt in PlayerTeam.query.filter_by(player_id=source_id).all():
+        if pt.team_id in target_team_ids:
+            db.session.delete(pt)
+        else:
+            pt.player_id = target_id
+
+    target_name = target.full_name_ar or target.full_name_en
+    db.session.flush()   # apply re-points before the source row is deleted
+    db.session.delete(source)
+    db.session.commit()
+    return jsonify({"merged": source_id, "into": target_id, "target_name": target_name})
