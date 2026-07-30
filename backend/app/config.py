@@ -54,6 +54,12 @@ class Config:
     # Guards the admin write endpoints (create news/venue, etc.).
     ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
 
+    # Comma-separated list of allowed CORS origins for browser clients.
+    # Example: "https://youthscores.org,https://admin.youthscores.org"
+    # Unset in production raises a RuntimeError at startup (see app factory).
+    # Unset in development falls back to the wildcard "*".
+    ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS")
+
     # Uploaded images. UPLOAD_FOLDER defaults to instance/uploads (set in the
     # app factory). Cap request bodies so a huge file can't exhaust memory.
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER")

@@ -24,11 +24,18 @@ def create_app(config_name: str | None = None) -> Flask:
             send_default_pii=False,
         )
 
-    if not app.config.get("DEBUG") and app.config.get("SECRET_KEY") == "dev-only-change-me":
-        raise RuntimeError(
-            "SECRET_KEY is not set. Set the SECRET_KEY environment variable "
-            "to a secure random value before starting in production."
-        )
+    if not app.config.get("DEBUG"):
+        if app.config.get("SECRET_KEY") == "dev-only-change-me":
+            raise RuntimeError(
+                "SECRET_KEY is not set. Set the SECRET_KEY environment variable "
+                "to a secure random value before starting in production."
+            )
+        _api_key = app.config.get("ADMIN_API_KEY")
+        if not _api_key or _api_key == "dev-admin-key":
+            raise RuntimeError(
+                "ADMIN_API_KEY is not set or is still the development default. "
+                "Set the ADMIN_API_KEY environment variable to a secure random value."
+            )
 
     # Behind a reverse proxy (Railway), trust X-Forwarded-Proto/Host so
     # request.host_url reflects the real https://<domain> — the config feed
@@ -85,6 +92,13 @@ def create_app(config_name: str | None = None) -> Flask:
     register_commands(app)
 
     # CORS for the browser clients (public site + admin panel on other ports).
+    # In production set ALLOWED_ORIGINS to a comma-separated list of exact
+    # origins (e.g. "https://youthscores.org,https://admin.youthscores.org").
+    # In development the wildcard is used as a fallback so the Next.js dev
+    # server (port 3000) can reach the Flask API (port 5000) without config.
+    _raw_origins = app.config.get("ALLOWED_ORIGINS") or ""
+    _origin_set = {o.strip() for o in _raw_origins.split(",") if o.strip()}
+
     @app.before_request
     def _preflight():
         if request.method == "OPTIONS":
@@ -92,9 +106,34 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.after_request
     def _cors(response):
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        origin = request.headers.get("Origin", "")
+        if _origin_set:
+            if origin in _origin_set:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Vary"] = "Origin"
+        else:
+            # Development fallback — wildcard is fine when DEBUG=True.
+            response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Key"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        return response
+
+    # Audit log: record every admin write operation (non-GET to /api/admin|manage|entry).
+    @app.after_request
+    def _audit_admin_mutations(response):
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            path = request.path
+            if path.startswith(("/api/admin/", "/api/manage/", "/api/entry/")):
+                try:
+                    from app.services import auth as _auth
+                    u = _auth.current_admin()
+                    actor = u.username if u else "master_key"
+                except Exception:
+                    actor = "unknown"
+                app.logger.info(
+                    "ADMIN_MUTATION %s %s → %d  actor=%s",
+                    request.method, path, response.status_code, actor,
+                )
         return response
 
     @app.get("/uploads/<path:filename>")

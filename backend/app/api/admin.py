@@ -45,8 +45,8 @@ def create_user():
 
     if len(username) < 3:
         return jsonify({"error": "اسم المستخدم يجب أن يكون 3 أحرف على الأقل"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "كلمة المرور يجب أن تكون 6 أحرف على الأقل"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "كلمة المرور يجب أن تكون 8 أحرف على الأقل"}), 400
     if role not in codes.ADMIN_ROLE:
         return jsonify({"error": f"صلاحية غير معروفة: {role}"}), 400
     if AdminUser.query.filter_by(username=username).first():

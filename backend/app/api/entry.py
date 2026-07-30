@@ -231,6 +231,14 @@ def create_match(cid: int):
     else:
         stage = _default_stage(comp)
     req_group_id = j.get("group_id") or None
+
+    # Prevent duplicate fixtures: same stage, same pair of teams.
+    duplicate = Match.query.filter_by(
+        stage_id=stage.id, home_team_id=home_id, away_team_id=away_id
+    ).first()
+    if duplicate:
+        return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
+
     week = (j.get("week") or "").strip() or None
     note = (j.get("note") or "").strip()[:255] or None
     m = Match(
@@ -334,6 +342,9 @@ def update_match(mid: int):
     if "date" in j:
         date_s = (j.get("date") or "").strip()
         if not date_s:
+            # Block clearing the date on a match that already has a result.
+            if m.home_score is not None or m.away_score is not None:
+                return jsonify({"error": "لا يمكن مسح تاريخ مباراة لها نتيجة مسجّلة"}), 400
             m.match_date = None  # cleared → back to TBD
         else:
             # Keep the existing time when only the date is edited; a TBD match

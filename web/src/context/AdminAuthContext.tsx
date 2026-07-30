@@ -28,24 +28,26 @@ export function AdminAuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // Restore a saved session and validate it against /me.
+  // sessionStorage is used instead of localStorage: the token is cleared when
+  // the browser tab closes, limiting the window in which a stolen token is valid.
   useEffect(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+    const saved = typeof window !== 'undefined' ? sessionStorage.getItem(TOKEN_KEY) : null;
     if (!saved) { setLoading(false); return; }
     setToken(saved);
     apiMe(saved)
-      .then(u => { if (u) setUser(u); else { localStorage.removeItem(TOKEN_KEY); setToken(null); } })
+      .then(u => { if (u) setUser(u); else { sessionStorage.removeItem(TOKEN_KEY); setToken(null); } })
       .finally(() => setLoading(false));
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     const { token: t, user: u } = await apiLogin(username, password);
-    localStorage.setItem(TOKEN_KEY, t);
+    sessionStorage.setItem(TOKEN_KEY, t);
     setToken(t);
     setUser(u);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
   }, []);
