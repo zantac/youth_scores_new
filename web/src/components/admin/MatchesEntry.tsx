@@ -7,9 +7,10 @@ import {
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
+  apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
   apiStages,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
-  type EntryCard, type EntrySub, type MStage,
+  type EntryCard, type EntrySub, type EntryShootoutKick, type MStage,
 } from '@/lib/adminApi';
 
 type Loc = { ar: string; en: string };
@@ -116,7 +117,12 @@ export default function MatchesEntry() {
             <p className="text-hint text-xs">
               {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
             </p>
-            <button onClick={() => setShowNew(s => !s)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-2 rounded-xl">
+            <button onClick={() => setShowNew(s => !s)}
+              className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
+                showNew
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
               {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
             </button>
           </div>
@@ -227,20 +233,24 @@ function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: n
   return (
     <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
       <div className="grid grid-cols-2 gap-3">
+        {/* Row 1: Stage + Group (group slot kept to hold the column even when empty) */}
+        {stages.length > 0 && <>
+          {field('الدور', (
+            <select value={f.stage_id} onChange={e => setF(p => ({ ...p, stage_id: e.target.value, group_id: '', home_team_id: '', away_team_id: '' }))} className={inputCls}>
+              <option value="">— اختر الدور</option>
+              {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
+            </select>
+          ))}
+          {isGroupStage && stageGroups.length > 0 ? field('المجموعة', (
+            <select value={f.group_id} onChange={e => setF(p => ({ ...p, group_id: e.target.value, home_team_id: '', away_team_id: '' }))} className={inputCls}>
+              <option value="">— اختر المجموعة</option>
+              {stageGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
+            </select>
+          )) : <div />}
+        </>}
+        {/* Row 2: Teams */}
         {field('الفريق المضيف', <select value={f.home_team_id} onChange={e => set('home_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
         {field('الفريق الضيف', <select value={f.away_team_id} onChange={e => set('away_team_id', e.target.value)} className={inputCls}><option value="">—</option>{teamOpts}</select>)}
-        {stages.length > 0 && field('الدور', (
-          <select value={f.stage_id} onChange={e => { set('stage_id', e.target.value); set('group_id', ''); }} className={inputCls}>
-            <option value="">— اختر الدور</option>
-            {stages.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en || s.type}</option>)}
-          </select>
-        ))}
-        {stageGroups.length > 0 && field('المجموعة', (
-          <select value={f.group_id} onChange={e => set('group_id', e.target.value)} className={inputCls}>
-            <option value="">— اختر المجموعة</option>
-            {stageGroups.map(g => <option key={g.id} value={g.id}>{g.name_ar || g.name_en || `Group ${g.id}`}</option>)}
-          </select>
-        ))}
         {field('التاريخ', <input type="date" value={f.date} disabled={tbd} onChange={e => set('date', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الوقت', <input type="time" value={f.time} disabled={tbd} onChange={e => set('time', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الجولة', <input value={f.week} onChange={e => set('week', e.target.value)} placeholder="27" className={inputCls} />)}
@@ -267,6 +277,8 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
   const [players, setPlayers] = useState<Record<number, string[]>>({});
   const [hs, setHs] = useState(match.home_score ?? '');
   const [as, setAs] = useState(match.away_score ?? '');
+  const [hp, setHp] = useState<string | number>(match.home_penalty_score ?? '');
+  const [ap, setAp] = useState<string | number>(match.away_penalty_score ?? '');
   const [status, setStatus] = useState(match.status);
   const [mDate, setMDate] = useState(match.date);
   const [mTime, setMTime] = useState(match.time);
@@ -288,6 +300,7 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
   const [editGoalId, setEditGoalId] = useState<number | null>(null);
   const [editCardId, setEditCardId] = useState<number | null>(null);
   const [editSubId, setEditSubId] = useState<number | null>(null);
+  const [editKickId, setEditKickId] = useState<number | null>(null);
 
   const editorStage = stages.find(s => s.id === Number(stageId));
   const editorGroups = editorStage?.groups ?? [];
@@ -316,6 +329,8 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
       const m = await apiUpdateMatch(token, match.id, {
         home_score: hs === '' ? null : Number(hs),
         away_score: as === '' ? null : Number(as),
+        home_penalty_score: hp === '' ? null : Number(hp),
+        away_penalty_score: ap === '' ? null : Number(ap),
         status,
       });
       onChange(m); setSaved(true); setTimeout(() => setSaved(false), 1500);
@@ -395,6 +410,23 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
           </div>
           <div className="text-sm font-bold">{loc(match.away.name)}</div>
         </div>
+        {/* Penalty shootout score — shown when the match ends level */}
+        {(hs !== '' && as !== '' && Number(hs) === Number(as)) || hp !== '' || ap !== '' ? (
+          <div className="mt-3 pt-3 border-t border-bdr/50">
+            <p className="text-hint text-[11px] mb-2">ركلات الترجيح (اختياري)</p>
+            <div className="flex items-center justify-center gap-3">
+              <input type="number" min="0" value={hp} onChange={e => setHp(e.target.value)}
+                placeholder="—" className="w-12 bg-darkBg border border-gold/40 rounded-lg px-1 py-2 text-center text-gold font-extrabold text-lg tnum outline-none focus:border-gold" />
+              <span className="text-hint text-sm">ر.ت</span>
+              <input type="number" min="0" value={ap} onChange={e => setAp(e.target.value)}
+                placeholder="—" className="w-12 bg-darkBg border border-gold/40 rounded-lg px-1 py-2 text-center text-gold font-extrabold text-lg tnum outline-none focus:border-gold" />
+              {(hp !== '' || ap !== '') && (
+                <button onClick={() => { setHp(''); setAp(''); }}
+                  className="text-loss text-[11px] font-bold border border-loss/40 rounded px-2 py-1">مسح</button>
+              )}
+            </div>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2 mt-3">
           <select value={status} onChange={e => setStatus(e.target.value)} className={inputCls + ' flex-1'}>
             {STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
@@ -491,6 +523,24 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
           editGoal={match.goals.find(g => g.id === editGoalId) ?? null}
           onCancelEdit={() => setEditGoalId(null)}
           onAdd={m => { onChange(m); setEditGoalId(null); }} />} />
+
+      {/* Penalty shootout kicks — only shown for draws with a penalty score set */}
+      {(match.home_penalty_score != null || match.away_penalty_score != null || (match.shootout?.length ?? 0) > 0) && (
+        <EventSection title="🥅 ركلات الترجيح"
+          items={(match.shootout ?? []).map(k => ({
+            id: k.id, side: k.side,
+            main: k.player || '—',
+            sub: k.result === 'scored' ? '✓ سجّل' : k.result === 'missed' ? '✗ أخطأ' : k.result === 'saved' ? '🧤 أوقفه الحارس' : '↗ خارج',
+            minute: null,
+          }))}
+          onDelete={async id => { setEditKickId(null); onChange(await apiDeleteShootoutKick(token, id)); }}
+          onEdit={setEditKickId} editingId={editKickId}
+          home={match.home.name} away={match.away.name}
+          form={<ShootoutKickForm token={token} match={match}
+            editKick={(match.shootout ?? []).find(k => k.id === editKickId) ?? null}
+            onCancelEdit={() => setEditKickId(null)}
+            onAdd={m => { onChange(m); setEditKickId(null); }} />} />
+      )}
 
       {/* Cards */}
       <EventSection title="🟨 البطاقات" items={match.cards.map(c => ({
@@ -803,6 +853,72 @@ function GoalForm({ token, match, players, onAdd, editGoal, onCancelEdit }: {
         {editGoal && <button onClick={onCancelEdit} className="ms-auto text-hint font-bold px-2">إلغاء</button>}
         <button onClick={submit} disabled={busy || !scorer.trim()} className={`${editGoal ? '' : 'ms-auto'} bg-gold/90 text-on-accent font-bold px-4 py-1.5 rounded-lg disabled:opacity-50`}>
           {editGoal ? 'حفظ التعديل' : '+ إضافة هدف'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const KICK_RESULTS = [
+  { v: 'scored',    l: '✓ سجّل' },
+  { v: 'missed',   l: '✗ أخطأ' },
+  { v: 'saved',    l: '🧤 أوقفه الحارس' },
+  { v: 'off_target', l: '↗ خارج الهدف' },
+];
+
+function ShootoutKickForm({ token, match, onAdd, editKick, onCancelEdit }: {
+  token: string; match: EntryMatch; onAdd: (m: EntryMatch) => void;
+  editKick?: EntryShootoutKick | null; onCancelEdit?: () => void;
+}) {
+  const [teamId, setTeamId] = useState(String(match.home.id));
+  const [player, setPlayer] = useState('');
+  const [result, setResult] = useState('scored');
+  const [winning, setWinning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (editKick) {
+      setTeamId(String(editKick.team_id)); setPlayer(editKick.player);
+      setResult(editKick.result); setWinning(editKick.is_winning_kick);
+    } else { setPlayer(''); setResult('scored'); setWinning(false); }
+    setErr(null);
+  }, [editKick]);
+
+  const submit = async () => {
+    if (!player.trim()) return;
+    setErr(null); setBusy(true);
+    try {
+      const body = { team_id: Number(teamId), player, result, is_winning_kick: winning };
+      onAdd(editKick
+        ? await apiUpdateShootoutKick(token, editKick.id, body)
+        : await apiAddShootoutKick(token, match.id, body));
+      if (!editKick) { setPlayer(''); setResult('scored'); setWinning(false); }
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className={`border-t pt-3 space-y-2 ${editKick ? 'border-aqua/40' : 'border-bdr/50'}`}>
+      {editKick && <p className="text-aqua text-[11px] font-bold">✎ تعديل ركلة</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <SideSelect match={match} value={teamId} onChange={v => { setTeamId(v); setPlayer(''); }} />
+        <input value={player} onChange={e => setPlayer(e.target.value)}
+          placeholder="اسم اللاعب" className={inputCls} />
+        <select value={result} onChange={e => setResult(e.target.value)} className={inputCls}>
+          {KICK_RESULTS.map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
+        </select>
+        <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
+          <input type="checkbox" checked={winning} onChange={e => setWinning(e.target.checked)} />
+          الركلة الحاسمة
+        </label>
+      </div>
+      {err && <p className="text-loss text-xs">{err}</p>}
+      <div className="flex items-center gap-2">
+        {editKick && <button onClick={onCancelEdit} className="text-hint text-xs font-bold px-2">إلغاء</button>}
+        <button onClick={submit} disabled={busy || !player.trim()}
+          className="flex-1 bg-gold/90 text-on-accent font-bold py-1.5 rounded-lg text-sm disabled:opacity-50">
+          {editKick ? 'حفظ التعديل' : '+ إضافة ركلة'}
         </button>
       </div>
     </div>

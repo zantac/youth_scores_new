@@ -287,6 +287,12 @@ def _match_detail(m: Match) -> dict:
             "starters": [_pname(r.player) for r in rows if r.is_starter],
             "bench": [_pname(r.player) for r in rows if not r.is_starter],
         }
+    shootout = [{
+        "id": k.id, "team_id": k.team_id, "side": _side(m, k.team_id),
+        "player": (k.player.full_name_ar or k.player.full_name_en) if k.player else "",
+        "kick_order": k.kick_order, "result": k.result,
+        "is_winning_kick": k.is_winning_kick,
+    } for k in m.shootout]
     row = _match_row(m)
     row.update({
         "home_penalty_score": m.home_penalty_score,
@@ -297,6 +303,7 @@ def _match_detail(m: Match) -> dict:
         # on site, the ground taken by another match, and so on.
         "note": m.note_ar or m.note_en or "",
         "goals": goals, "cards": cards, "subs": subs, "lineup": lineup,
+        "shootout": shootout,
     })
     return row
 
@@ -714,6 +721,70 @@ def delete_sub(sid: int):
         return jsonify({"error": "غير موجود"}), 404
     mid = s.match_id
     db.session.delete(s)
+    db.session.commit()
+    return jsonify(_match_detail(db.session.get(Match, mid)))
+
+
+# ── penalty shootout ─────────────────────────────────────────────────────────
+
+@entry_bp.post("/api/admin/matches/<int:mid>/shootout")
+@auth.login_required
+def add_shootout_kick(mid: int):
+    m = db.session.get(Match, mid)
+    if m is None:
+        return jsonify({"error": "المباراة غير موجودة"}), 404
+    j = request.get_json(silent=True) or {}
+    team_id = j.get("team_id")
+    if team_id not in (m.home_team_id, m.away_team_id):
+        return jsonify({"error": "الفريق ليس في هذه المباراة"}), 400
+    team = db.session.get(Team, team_id)
+    player = _resolve_player(j.get("player", ""), team)
+    if player is None:
+        return jsonify({"error": "اسم اللاعب مطلوب"}), 400
+    result = j.get("result", "scored")
+    if result not in codes.PENALTY_RESULT:
+        result = "scored"
+    kick_order = _as_int(j.get("kick_order"))
+    if kick_order is None:
+        kick_order = MatchPenaltyShootout.query.filter_by(match_id=mid, team_id=team_id).count() + 1
+    db.session.add(MatchPenaltyShootout(
+        match_id=mid, team_id=team_id, player_id=player.id,
+        kick_order=kick_order, result=result,
+        is_winning_kick=bool(j.get("is_winning_kick", False)),
+    ))
+    db.session.commit()
+    return jsonify(_match_detail(m)), 201
+
+
+@entry_bp.patch("/api/admin/shootout/<int:kid>")
+@auth.login_required
+def update_shootout_kick(kid: int):
+    k = db.session.get(MatchPenaltyShootout, kid)
+    if k is None:
+        return jsonify({"error": "الركلة غير موجودة"}), 404
+    m = k.match
+    j = request.get_json(silent=True) or {}
+    if "player" in j:
+        team = db.session.get(Team, k.team_id)
+        player = _resolve_player(j["player"], team)
+        if player:
+            k.player_id = player.id
+    if "result" in j and j["result"] in codes.PENALTY_RESULT:
+        k.result = j["result"]
+    if "is_winning_kick" in j:
+        k.is_winning_kick = bool(j["is_winning_kick"])
+    db.session.commit()
+    return jsonify(_match_detail(m))
+
+
+@entry_bp.delete("/api/admin/shootout/<int:kid>")
+@auth.login_required
+def delete_shootout_kick(kid: int):
+    k = db.session.get(MatchPenaltyShootout, kid)
+    if k is None:
+        return jsonify({"error": "الركلة غير موجودة"}), 404
+    mid = k.match_id
+    db.session.delete(k)
     db.session.commit()
     return jsonify(_match_detail(db.session.get(Match, mid)))
 

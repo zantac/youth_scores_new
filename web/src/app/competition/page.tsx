@@ -886,7 +886,6 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
   const team = teams.find(t => t.id === teamId);
   const isAr = locale === 'ar';
   const teamMatches = useMemo(() => matches.filter(m => m.homeTeamId === teamId || m.awayTeamId === teamId), [matches, teamId]);
-  const [matchDetail, setMatchDetail] = useState<string | null>(null);
   const [playerModal, setPlayerModal] = useState<{ name: string; count: number; statType: StatType } | null>(null);
 
   const scorers  = useMemo(() => aggregateTeamPlayers(teamMatches, teamId, true),  [teamMatches, teamId]);
@@ -920,15 +919,11 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
     </div>
   );
 
-  const displayMatch = matchDetail ? matches.find(m => m.id === matchDetail) : null;
   // Club is the identity; the team's second name sits beneath it.
   const { primary, alias } = teamNameLines(team, locale);
 
   return (
     <div className="fixed inset-0 z-[200] bg-darkBg flex flex-col">
-      {displayMatch && <MatchDetail match={displayMatch} teams={teams} locale={locale} onClose={() => setMatchDetail(null)}
-        onTeamClick={id => { setMatchDetail(null); onTeamClick?.(id); }} />}
-
       <div className="flex items-center bg-cardBg border-b border-bdr px-4 py-3 gap-3">
         <button onClick={onClose} className="text-aqua text-xl font-bold">✕</button>
         <span className="flex-1 text-aqua font-bold text-sm truncate">{primary}</span>
@@ -1034,7 +1029,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
                   <MatchCard key={m.id} match={m}
                     homeTeam={teams.find(t => t.id === m.homeTeamId)}
                     awayTeam={teams.find(t => t.id === m.awayTeamId)}
-                    locale={locale} onClick={() => setMatchDetail(m.id)} />
+                    locale={locale} onClick={() => router.push(`/match?id=${m.id}`)} />
                 ))}
           </div>
         )}
@@ -1195,7 +1190,6 @@ function CompetitionPageInner() {
   const router  = useRouter();
   const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, locale } = useApp();
   const [mainTab, setMainTab] = useState(0);
-  const [matchDetail, setMatchDetail] = useState<string | null>(null);
   const [teamDetail,  setTeamDetail]  = useState<string | null>(null);
 
   // The sticky header (title bar + main tabs) can grow with the safe-area inset
@@ -1258,7 +1252,6 @@ function CompetitionPageInner() {
   if (!competition) return null;
 
   const { matches, teams } = competition;
-  const selectedMatch = matchDetail ? matches.find(m => m.id === matchDetail) : null;
 
   return (
     <>
@@ -1267,15 +1260,11 @@ function CompetitionPageInner() {
         <TabStrip tabs={mainTabs} current={mainTab} onChange={setMainTab} />
       </div>
 
-      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={setMatchDetail} stickyTop={headH} />}
+      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} />}
       {mainTab === 1 && <StandingsTab matches={matches} teams={teams} locale={locale} onTeamClick={setTeamDetail} serverStandings={competition.standings} />}
       {mainTab === 2 && <TeamsTab teams={teams} locale={locale} onTeamClick={setTeamDetail} />}
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}
 
-      {selectedMatch && (
-        <MatchDetail match={selectedMatch} teams={teams} locale={locale} onClose={() => setMatchDetail(null)}
-          onTeamClick={id => { setMatchDetail(null); setTeamDetail(id); }} />
-      )}
       {teamDetail && (
         <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} onClose={() => setTeamDetail(null)} onTeamClick={setTeamDetail} />
       )}

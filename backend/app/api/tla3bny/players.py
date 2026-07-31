@@ -160,7 +160,7 @@ def player_stats(player_id: int):
         .filter(
             Tla3bnyMatchEvent.player_id == player_id,
             Tla3bnyMatch.status.in_(_FINISHED),
-            Tla3bnyMatchEvent.event_type.in_(["goal", "assist", "yellow", "red"]),
+            Tla3bnyMatchEvent.event_type.in_(["goal", "assist", "yellow", "second_yellow", "red"]),
             # Own goals are not credited to the scorer, matching youthscores.
             sa.or_(
                 Tla3bnyMatchEvent.event_type != "goal",
@@ -190,7 +190,7 @@ def player_stats(player_id: int):
     # Aggregate into {comp_id: {stat: count}}.
     per_comp: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for comp_id, etype, cnt in event_rows:
-        key = {"goal": "goals", "assist": "assists", "yellow": "yellow_cards", "red": "red_cards"}[etype]
+        key = {"goal": "goals", "assist": "assists", "yellow": "yellow_cards", "second_yellow": "red_cards", "red": "red_cards"}[etype]
         per_comp[comp_id][key] += cnt
     for comp_id, cnt in appearance_rows:
         per_comp[comp_id]["appearances"] += cnt
