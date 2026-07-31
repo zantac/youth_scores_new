@@ -85,6 +85,7 @@ TLA3BNY_EVENT_TYPE = (
     "goal",
     "assist",
     "yellow",
+    "second_yellow",  # second bookable offence → results in a red
     "red",
     "substitution_in",
     "substitution_out",

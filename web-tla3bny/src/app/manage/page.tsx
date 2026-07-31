@@ -345,6 +345,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
     Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
+  const [formationRequired, setFormationRequired] = useState(age.formation_required ?? false);
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedGuard(isDirty);
@@ -359,6 +360,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
       ...f,
       required_documents: docList,
       replacements_open: replacementsOpen,
+      formation_required: formationRequired,
     });
     setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
@@ -393,6 +395,15 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
               className="w-full bg-darkBg border border-bdr rounded-lg px-2 py-1.5 text-text text-sm outline-none focus:border-aqua tnum" />
           </label>
         ))}
+      </div>
+
+      {/* Formation requirement */}
+      <div className="border-t border-bdr/50 pt-3">
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input type="checkbox" checked={formationRequired}
+            onChange={e => { setFormationRequired(e.target.checked); setIsDirty(true); }} />
+          {tt('إلزام المدرب بإرسال التشكيلة (الخطة والمراكز)', 'Require coach to submit formation (positions)')}
+        </label>
       </div>
 
       {/* Replacement window */}
@@ -879,7 +890,11 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
 
       {/* Add match */}
       <button onClick={() => setShowNew(s => !s)}
-        className="w-full border border-dashed border-bdr text-teal text-sm font-bold rounded-xl py-2.5 hover:border-aqua hover:text-aqua transition-colors">
+        className={`w-full border text-sm font-bold rounded-xl py-2.5 transition-colors ${
+          showNew
+            ? 'border-loss text-loss hover:bg-loss/10'
+            : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+        }`}>
         {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
       </button>
 
@@ -930,7 +945,7 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
                 </Field>
               )}
               <Field label={tt('التاريخ', 'Date')}><input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} className={inputCls} /></Field>
-              <Field label={tt('الوقت', 'Time')}><input value={f.time} onChange={e => setF({ ...f, time: e.target.value })} placeholder="18:00" className={inputCls} /></Field>
+              <Field label={tt('الوقت', 'Time')}><input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الجولة', 'Round')}><input value={f.round} onChange={e => setF({ ...f, round: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الملعب', 'Venue')}><input value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} className={inputCls} /></Field>
             </div>

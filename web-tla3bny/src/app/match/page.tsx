@@ -59,13 +59,15 @@ function fmtDraftTime(iso: string) {
 // ── helpers ───────────────────────────────────────────────────────────────────
 type EvType = TMatchEvent['event_type'];
 const EV_ICON: Record<string, string> = {
-  goal: '⚽', assist: '🅰️', yellow: '🟨', red: '🟥',
+  goal: '⚽', assist: '🅰️', yellow: '🟨', second_yellow: '🟨🟥', red: '🟥',
   substitution_in: '🔺', substitution_out: '🔻',
   penalty_scored: '✅', penalty_missed: '❌',
 };
 const EV_LABEL_AR: Record<string, [string, string]> = {
   goal: ['هدف', 'Goal'], assist: ['صناعة', 'Assist'],
-  yellow: ['بطاقة صفراء', 'Yellow card'], red: ['بطاقة حمراء', 'Red card'],
+  yellow: ['بطاقة صفراء', 'Yellow card'],
+  second_yellow: ['صفراء ثانية (طرد)', 'Second yellow (red)'],
+  red: ['بطاقة حمراء', 'Red card'],
   substitution_in: ['دخول', 'Sub in'], substitution_out: ['خروج', 'Sub out'],
   penalty_scored: ['ضربة جزاء مسجّلة', 'Penalty scored'],
   penalty_missed: ['ضربة جزاء مُضاعة', 'Penalty missed'],
@@ -82,10 +84,6 @@ function matchScoreLabel(m: TMatch) {
 
 const goals      = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'goal');
 const assists    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'assist');
-const yellows    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'yellow');
-const reds       = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'red');
-const subsIn     = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'substitution_in');
-const subsOut    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'substitution_out');
 
 function teamLabel(m: TMatch, teamId: number) {
   return teamId === m.home_team_id ? m.home_team_name : m.away_team_name;
@@ -207,7 +205,9 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
             l.slots.filter(s => !s.is_substitute && s.position_slot).forEach(s => {
               filled[s.position_slot!] = { playerId: s.player_id, playerName: s.player_name, photoPath: s.photo_path };
             });
-            const subs = l.slots.filter(s => s.is_substitute);
+            const subs = l.slots.filter(s => s.is_substitute && s.player_id != null);
+            const unpositioned = l.slots.filter(s => !s.is_substitute && !s.position_slot && s.player_id != null);
+            const hasFormation = l.formation && Object.keys(filled).length > 0;
             return (
               <Card key={tid} className="overflow-hidden">
                 <div className="flex items-center justify-between px-4 pt-4 pb-2">
@@ -222,9 +222,27 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
                     </Link>
                   )}
                 </div>
-                <div className="max-w-sm mx-auto px-2 pb-2">
-                  <PitchView formation={l.formation} filled={filled} />
-                </div>
+                {hasFormation ? (
+                  <div className="max-w-sm mx-auto px-2 pb-2">
+                    <PitchView formation={l.formation} filled={filled} />
+                  </div>
+                ) : unpositioned.length > 0 ? (
+                  <div className="px-4 pb-3">
+                    <p className="text-[11px] text-teal font-bold mb-2">{tt('الأساسيون', 'Starters')}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {unpositioned.map(s => (
+                        <span key={s.id} className="flex items-center gap-1 bg-cardBg2 border border-bdr rounded-full ps-1 pe-2 py-0.5">
+                          <LogoAvatar src={s.photo_path} name={s.player_name} size={18} />
+                          <span className="text-[11px] font-bold text-text">{s.player_name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-sm mx-auto px-2 pb-2">
+                    <PitchView formation={l.formation} filled={filled} />
+                  </div>
+                )}
                 {subs.length > 0 && (
                   <div className="border-t border-bdr/50 px-4 py-3">
                     <p className="text-[11px] text-teal font-bold mb-2">{tt('البدلاء', 'Substitutes')}</p>
@@ -247,100 +265,91 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
   );
 }
 
-// Generic event list row
-function EvRow({ e, m }: { e: TMatchEvent; m: TMatch }) {
-  const isHome = e.team_id === m.home_team_id;
+
+/** Unified event timeline — goals (with assist), cards, subs, penalties. */
+function EventsTab({ m }: { m: TMatch }) {
+  const tt = useTT();
+  const evs = m.events ?? [];
+  if (evs.length === 0) return <EmptyState icon="⚽" text={tt('لا أحداث بعد', 'No events yet')} />;
+
+  type Entry = {
+    id: number; minute: number | null; isHome: boolean;
+    icon: string; iconCls: string; main: string; playerId: number | null; sub?: string;
+  };
+
+  const usedIds = new Set<number>();
+  const entries: Entry[] = [];
+
+  for (const e of evs) {
+    if (usedIds.has(e.id)) continue;
+    usedIds.add(e.id);
+    const isHome = e.team_id === m.home_team_id;
+
+    if (e.event_type === 'goal') {
+      const assist = evs.find(a => a.event_type === 'assist' && a.team_id === e.team_id && a.minute === e.minute && !usedIds.has(a.id));
+      if (assist) usedIds.add(assist.id);
+      const tags = [
+        e.is_own_goal && tt('عكسي', 'OG'),
+        e.is_penalty && tt('ركلة جزاء', 'pen'),
+        assist && `🅰️ ${assist.player_name}`,
+      ].filter(Boolean).join(' · ');
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '⚽', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', playerId: e.player_id, sub: tags || undefined });
+
+    } else if (e.event_type === 'assist') {
+      // skip — consumed by goal above
+
+    } else if (e.event_type === 'yellow') {
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟨', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', playerId: e.player_id });
+
+    } else if (e.event_type === 'second_yellow') {
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟨🟥', iconCls: 'bg-loss/10 text-loss', main: e.player_name ?? '—', playerId: e.player_id, sub: tt('صفراء ثانية', '2nd yellow') });
+
+    } else if (e.event_type === 'red') {
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟥', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', playerId: e.player_id });
+
+    } else if (e.event_type === 'substitution_in') {
+      const out = evs.find(o => o.event_type === 'substitution_out' && o.team_id === e.team_id && o.minute === e.minute && !usedIds.has(o.id));
+      if (out) usedIds.add(out.id);
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🔁', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', playerId: e.player_id, sub: out ? `🔻 ${out.player_name}` : undefined });
+
+    } else if (e.event_type === 'substitution_out') {
+      // skip — consumed by substitution_in above
+
+    } else if (e.event_type === 'penalty_scored') {
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '✅', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', playerId: e.player_id, sub: e.kick_order != null ? `#${e.kick_order}${e.is_winning_kick ? ' ★' : ''}` : undefined });
+
+    } else if (e.event_type === 'penalty_missed') {
+      entries.push({ id: e.id, minute: e.minute, isHome, icon: '❌', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', playerId: e.player_id, sub: e.kick_order != null ? `#${e.kick_order}` : undefined });
+    }
+  }
+
+  entries.sort((a, b) => (b.minute ?? -1) - (a.minute ?? -1));
+
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-bdr/40 last:border-0">
-      <span className="text-lg">{EV_ICON[e.event_type] ?? '•'}</span>
-      <div className="flex-1 min-w-0">
-        {e.player_id
-          ? <Link href={`/player?id=${e.player_id}`} className="font-bold text-text text-sm hover:text-aqua">{e.player_name}</Link>
-          : <span className="font-bold text-text text-sm">{e.player_name}</span>}
-        <p className="text-[11px] text-hint">{isHome ? m.home_team_name : m.away_team_name}</p>
-      </div>
-      {e.minute != null && <span className="text-hint text-xs tabular-nums shrink-0">{e.minute}&apos;</span>}
+    <div className="relative">
+      <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-bdr to-transparent" />
+      {entries.map(e => (
+        <div key={e.id} className="grid grid-cols-[1fr_44px_1fr] items-center gap-2 py-1.5">
+          <div className={e.isHome ? 'col-start-1' : 'col-start-3'}>
+            <div className={`flex items-center gap-2 bg-cardBg border border-bdr rounded-xl px-3 py-2 ${e.isHome ? 'flex-row-reverse text-start' : ''}`}>
+              <span className={`w-6 h-6 rounded-lg grid place-items-center text-xs flex-shrink-0 ${e.iconCls}`}>{e.icon}</span>
+              <div className="min-w-0">
+                {e.playerId
+                  ? <Link href={`/player?id=${e.playerId}`} className="text-text text-xs font-bold truncate hover:text-aqua block">{e.main}</Link>
+                  : <p className="text-text text-xs font-bold truncate">{e.main}</p>}
+                {e.sub && <p className="text-hint text-[10px] truncate">{e.sub}</p>}
+              </div>
+            </div>
+          </div>
+          <span className="col-start-2 justify-self-center text-hint text-[11px] font-bold tnum bg-darkBg border border-bdr rounded-full w-10 text-center py-0.5 z-10">
+            {e.minute != null ? `${e.minute}'` : '—'}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
-function ScorersTab({ m }: { m: TMatch }) {
-  const tt = useTT();
-  const evs = goals(m.events ?? []);
-  if (evs.length === 0) return <EmptyState icon="⚽" text={tt('لا أهداف بعد', 'No goals yet')} />;
-  return <Card className="p-4">{evs.map(e => <EvRow key={e.id} e={e} m={m} />)}</Card>;
-}
-
-function GoalsTab({ m }: { m: TMatch }) {
-  const tt = useTT();
-  const evs = m.events ?? [];
-  const goalEvs = goals(evs);
-  if (goalEvs.length === 0) return <EmptyState icon="⚽" text={tt('لا أهداف بعد', 'No goals yet')} />;
-  return (
-    <Card className="p-4 space-y-3">
-      {goalEvs.map(g => {
-        const assist = assists(evs).find(a => a.team_id === g.team_id && a.minute === g.minute);
-        const isHome = g.team_id === m.home_team_id;
-        return (
-          <div key={g.id} className="flex items-start gap-3 pb-3 border-b border-bdr/40 last:border-0 last:pb-0">
-            <span className="text-xl mt-0.5">⚽</span>
-            <div className="flex-1 min-w-0">
-              {g.player_id
-                ? <Link href={`/player?id=${g.player_id}`} className="font-bold text-text hover:text-aqua">{g.player_name}</Link>
-                : <span className="font-bold text-text">{g.player_name}</span>}
-              <p className="text-[11px] text-hint">{isHome ? m.home_team_name : m.away_team_name}</p>
-              {assist && (
-                <p className="text-[11px] text-teal mt-0.5">🅰️ {tt('صناعة', 'Assist')}: {assist.player_name}</p>
-              )}
-            </div>
-            {g.minute != null && <span className="text-hint text-xs tabular-nums shrink-0">{g.minute}&apos;</span>}
-          </div>
-        );
-      })}
-    </Card>
-  );
-}
-
-function SubsTab({ m }: { m: TMatch }) {
-  const tt = useTT();
-  const ins = subsIn(m.events ?? []);
-  const outs = subsOut(m.events ?? []);
-  if (ins.length === 0 && outs.length === 0)
-    return <EmptyState icon="🔁" text={tt('لا تبديلات بعد', 'No substitutions yet')} />;
-  // Pair in/out events
-  const used = new Set<number>();
-  const pairs: { inEv: TMatchEvent; outEv?: TMatchEvent }[] = [];
-  for (const inEv of ins) {
-    const outEv = inEv.related_event_id
-      ? outs.find(o => o.id === inEv.related_event_id && !used.has(o.id))
-      : outs.find(o => o.team_id === inEv.team_id && o.minute === inEv.minute && !used.has(o.id));
-    pairs.push({ inEv, outEv });
-    if (outEv) used.add(outEv.id);
-  }
-  return (
-    <Card className="p-4 space-y-3">
-      {pairs.map(({ inEv, outEv }) => (
-        <div key={inEv.id} className="flex items-start gap-3 pb-3 border-b border-bdr/40 last:border-0 last:pb-0">
-          <span className="text-xl mt-0.5">🔁</span>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-hint mb-0.5">{teamLabel(m, inEv.team_id)}</p>
-            <p className="text-sm font-bold text-win">🔺 {inEv.player_name}</p>
-            {outEv && <p className="text-sm font-bold text-hint">🔻 {outEv.player_name}</p>}
-          </div>
-          {inEv.minute != null && <span className="text-hint text-xs tabular-nums shrink-0">{inEv.minute}&apos;</span>}
-        </div>
-      ))}
-    </Card>
-  );
-}
-
-function CardsTab({ m, type }: { m: TMatch; type: 'yellow' | 'red' }) {
-  const tt = useTT();
-  const evs = type === 'yellow' ? yellows(m.events ?? []) : reds(m.events ?? []);
-  const label = type === 'yellow' ? tt('لا بطاقات صفراء', 'No yellow cards') : tt('لا بطاقات حمراء', 'No red cards');
-  if (evs.length === 0) return <EmptyState icon={type === 'yellow' ? '🟨' : '🟥'} text={label} />;
-  return <Card className="p-4">{evs.map(e => <EvRow key={e.id} e={e} m={m} />)}</Card>;
-}
 
 // ── ── ── ADMIN PANEL ── ── ──
 function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
@@ -490,7 +499,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // Check that every player named in a goal/card event appears in their team's
   // submitted lineup. Returns warning strings; empty means all clear.
   const getLineupWarnings = (): string[] => {
-    const CHECK = new Set(['goal', 'assist', 'yellow', 'red'] as EvType[]);
+    const CHECK = new Set(['goal', 'assist', 'yellow', 'second_yellow', 'red'] as EvType[]);
     const seen = new Set<string>();
     const out: string[] = [];
     for (const ev of events) {
@@ -663,15 +672,6 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           </>)}
         </>)}
 
-        <Field label={tt('الحالة', 'Status')}>
-          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
-            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
-            <option value="live">{tt('مباشرة', 'Live')}</option>
-            <option value="completed">{tt('انتهت', 'Completed')}</option>
-            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
-            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
-          </select>
-        </Field>
         {lineupWarnings.length > 0 && (
           <div className="bg-gold/10 border border-gold/40 rounded-xl p-3 space-y-2">
             <p className="text-gold font-bold text-xs">
@@ -729,6 +729,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             </Field>
           )}
         </div>
+        <Field label={tt('الحالة', 'Status')}>
+          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
+            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
+            <option value="live">{tt('مباشرة', 'Live')}</option>
+            <option value="completed">{tt('انتهت', 'Completed')}</option>
+            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
+            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
+          </select>
+        </Field>
         <div className="flex items-center gap-2">
           <PrimaryButton onClick={saveInfo} disabled={infoBusy} className="text-sm">
             {infoBusy ? tt('…', '…') : tt('حفظ', 'Save')}
@@ -773,7 +782,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         title={tt('البطاقات', 'Cards')}
         icon="🟨"
         events={events}
-        types={['yellow', 'red']}
+        types={['yellow', 'second_yellow', 'red']}
         m={m}
         rosters={rosters}
         lineups={lineups}
@@ -1192,7 +1201,7 @@ function ShareSheet({ m, onClose }: { m: TMatch; onClose: () => void }) {
 }
 
 // ── ── ── MAIN CONTENT ── ── ──
-type PublicTab = 'lineup' | 'scorers' | 'goals' | 'subs' | 'yellow' | 'red';
+type PublicTab = 'lineup' | 'events';
 
 function MatchContent() {
   const tt = useTT();
@@ -1240,14 +1249,11 @@ function MatchContent() {
   const context = [m.competition_name, m.age_category, m.stage_name, m.group_name].filter(Boolean).join(' · ');
 
   // Build public tabs dynamically
-  const pubTabs: { key: PublicTab; ar: string; en: string; show: boolean }[] = [
-    { key: 'lineup',  ar: 'التشكيلة',         en: 'Lineup',       show: true },
-    { key: 'scorers', ar: 'الهدافون',          en: 'Scorers',      show: goals(evs).length > 0 },
-    { key: 'goals',   ar: 'الأهداف',           en: 'Goals',        show: goals(evs).length > 0 },
-    { key: 'subs',    ar: 'التبديلات',         en: 'Substitutes',  show: subsIn(evs).length > 0 || subsOut(evs).length > 0 },
-    { key: 'yellow',  ar: 'البطاقات الصفراء',  en: 'Yellow cards', show: yellows(evs).length > 0 },
-    { key: 'red',     ar: 'البطاقات الحمراء',  en: 'Red cards',    show: reds(evs).length > 0 },
-  ].filter(t => t.show);
+  const hasEvents = evs.some(e => e.event_type !== 'assist' && e.event_type !== 'substitution_out');
+  const pubTabs: { key: PublicTab; ar: string; en: string }[] = [
+    { key: 'lineup', ar: 'التشكيلة', en: 'Lineup' },
+    ...(hasEvents ? [{ key: 'events' as PublicTab, ar: 'الأحداث', en: 'Events' }] : []),
+  ];
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
@@ -1297,7 +1303,7 @@ function MatchContent() {
                       `${m.home_score}-${m.away_score} FT · a.e.t.`)}
                 </span>
               )}
-              </>)
+              </>
             ) : (
               <span className="text-aqua font-extrabold text-2xl tnum">{m.time || '--:--'}</span>
             )}
@@ -1338,12 +1344,8 @@ function MatchContent() {
           </div>
 
           <div className="p-4">
-            {pubTab === 'lineup'  && <LineupTab m={m} lineups={lineups} canEdit={canEditSide} />}
-            {pubTab === 'scorers' && <ScorersTab m={m} />}
-            {pubTab === 'goals'   && <GoalsTab m={m} />}
-            {pubTab === 'subs'    && <SubsTab m={m} />}
-            {pubTab === 'yellow'  && <CardsTab m={m} type="yellow" />}
-            {pubTab === 'red'     && <CardsTab m={m} type="red" />}
+            {pubTab === 'lineup' && <LineupTab m={m} lineups={lineups} canEdit={canEditSide} />}
+            {pubTab === 'events' && <EventsTab m={m} />}
           </div>
         </>
       )}

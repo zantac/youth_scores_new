@@ -28,13 +28,16 @@ def create_season():
         return _err("name_ar or name_en is required")
     if Tla3bnySeason.query.filter_by(name=name).first():
         return _err("Season already exists", 409)
+    new_active = bool(data.get("is_active", True))
+    if new_active:
+        Tla3bnySeason.query.update({"is_active": False})
     s = Tla3bnySeason(
         name=name,
         name_ar=name_ar or None,
         name_en=name_en or None,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
-        is_active=bool(data.get("is_active", True)),
+        is_active=new_active,
         sort_order=_int(data.get("sort_order"), 0),
     )
     db.session.add(s)
@@ -60,7 +63,10 @@ def update_season(season_id: int):
     if "end_date" in data:
         s.end_date = _parse_date(data.get("end_date"))
     if "is_active" in data:
-        s.is_active = bool(data.get("is_active"))
+        new_active = bool(data.get("is_active"))
+        if new_active:
+            Tla3bnySeason.query.filter(Tla3bnySeason.id != season_id).update({"is_active": False})
+        s.is_active = new_active
     if "sort_order" in data:
         s.sort_order = _int(data.get("sort_order"), s.sort_order)
     db.session.commit()

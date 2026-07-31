@@ -29,7 +29,7 @@ export type TCompStatus = 'draft' | 'active' | 'finished';
 export type TMatchStatus = 'scheduled' | 'live' | 'completed' | 'postponed' | 'cancelled' | 'finished';
 export type TStageType = 'group' | 'league' | 'knockout';
 export type TEventType =
-  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out'
+  | 'goal' | 'assist' | 'yellow' | 'second_yellow' | 'red' | 'substitution_in' | 'substitution_out'
   | 'penalty_scored' | 'penalty_missed';
 
 export interface TUser {
@@ -199,6 +199,7 @@ export interface TCompAge {
   lineup_deadline_minutes: number;
   replacements_open: boolean;
   max_replacements: number;
+  formation_required: boolean;
   stages?: TStage[];
 }
 
@@ -333,6 +334,7 @@ export interface TRules {
   lineup_deadline_minutes: number;
   max_players_per_team: number;
   oldest_birth_year: number | null;
+  formation_required: boolean;
 }
 
 export interface TMatchEvent {

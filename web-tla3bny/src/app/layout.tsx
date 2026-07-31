@@ -3,6 +3,7 @@ import './globals.css';
 import { AppProvider } from '@/context/AppContext';
 import { Tla3bnyAuthProvider } from '@/context/Tla3bnyAuthContext';
 import TopBar from '@/components/tla3bny/TopBar';
+import BottomNav from '@/components/tla3bny/BottomNav';
 
 export const metadata: Metadata = {
   title: 'تلاعبني | Tla3bny League',
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Tla3bnyAuthProvider>
             <TopBar />
             <main className="w-full max-w-3xl mx-auto px-3 py-4 pb-24">{children}</main>
+            <BottomNav />
           </Tla3bnyAuthProvider>
         </AppProvider>
       </body>
