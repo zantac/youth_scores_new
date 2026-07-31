@@ -941,7 +941,7 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
                 </Field>
               )}
               <Field label={tt('التاريخ', 'Date')}><input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} className={inputCls} /></Field>
-              <Field label={tt('الوقت', 'Time')}><input value={f.time} onChange={e => setF({ ...f, time: e.target.value })} placeholder="18:00" className={inputCls} /></Field>
+              <Field label={tt('الوقت', 'Time')}><input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الجولة', 'Round')}><input value={f.round} onChange={e => setF({ ...f, round: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الملعب', 'Venue')}><input value={f.venue} onChange={e => setF({ ...f, venue: e.target.value })} className={inputCls} /></Field>
             </div>
