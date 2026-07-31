@@ -247,7 +247,11 @@ def enter_result(match_id: int):
             )
         )
 
-    match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
+    # Only auto-finish a scheduled match. Live matches stay live (the admin
+    # updates status separately via the match-info save), and already-finished
+    # matches keep their status when a result is corrected.
+    if match.status == "scheduled":
+        match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
     event_type = "result_corrected" if was_finished else "result_entered"
     _log(event_type, "match", match.id, {
         "home_team_id": match.home_team_id,

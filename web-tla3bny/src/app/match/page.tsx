@@ -683,15 +683,6 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           </>)}
         </>)}
 
-        <Field label={tt('الحالة', 'Status')}>
-          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
-            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
-            <option value="live">{tt('مباشرة', 'Live')}</option>
-            <option value="completed">{tt('انتهت', 'Completed')}</option>
-            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
-            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
-          </select>
-        </Field>
         {lineupWarnings.length > 0 && (
           <div className="bg-gold/10 border border-gold/40 rounded-xl p-3 space-y-2">
             <p className="text-gold font-bold text-xs">
@@ -749,6 +740,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             </Field>
           )}
         </div>
+        <Field label={tt('الحالة', 'Status')}>
+          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
+            <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
+            <option value="live">{tt('مباشرة', 'Live')}</option>
+            <option value="completed">{tt('انتهت', 'Completed')}</option>
+            <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
+            <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
+          </select>
+        </Field>
         <div className="flex items-center gap-2">
           <PrimaryButton onClick={saveInfo} disabled={infoBusy} className="text-sm">
             {infoBusy ? tt('…', '…') : tt('حفظ', 'Save')}
