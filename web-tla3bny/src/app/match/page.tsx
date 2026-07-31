@@ -207,7 +207,9 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
             l.slots.filter(s => !s.is_substitute && s.position_slot).forEach(s => {
               filled[s.position_slot!] = { playerId: s.player_id, playerName: s.player_name, photoPath: s.photo_path };
             });
-            const subs = l.slots.filter(s => s.is_substitute);
+            const subs = l.slots.filter(s => s.is_substitute && s.player_id != null);
+            const unpositioned = l.slots.filter(s => !s.is_substitute && !s.position_slot && s.player_id != null);
+            const hasFormation = l.formation && Object.keys(filled).length > 0;
             return (
               <Card key={tid} className="overflow-hidden">
                 <div className="flex items-center justify-between px-4 pt-4 pb-2">
@@ -222,9 +224,27 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
                     </Link>
                   )}
                 </div>
-                <div className="max-w-sm mx-auto px-2 pb-2">
-                  <PitchView formation={l.formation} filled={filled} />
-                </div>
+                {hasFormation ? (
+                  <div className="max-w-sm mx-auto px-2 pb-2">
+                    <PitchView formation={l.formation} filled={filled} />
+                  </div>
+                ) : unpositioned.length > 0 ? (
+                  <div className="px-4 pb-3">
+                    <p className="text-[11px] text-teal font-bold mb-2">{tt('الأساسيون', 'Starters')}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {unpositioned.map(s => (
+                        <span key={s.id} className="flex items-center gap-1 bg-cardBg2 border border-bdr rounded-full ps-1 pe-2 py-0.5">
+                          <LogoAvatar src={s.photo_path} name={s.player_name} size={18} />
+                          <span className="text-[11px] font-bold text-text">{s.player_name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-sm mx-auto px-2 pb-2">
+                    <PitchView formation={l.formation} filled={filled} />
+                  </div>
+                )}
                 {subs.length > 0 && (
                   <div className="border-t border-bdr/50 px-4 py-3">
                     <p className="text-[11px] text-teal font-bold mb-2">{tt('البدلاء', 'Substitutes')}</p>
@@ -1297,7 +1317,7 @@ function MatchContent() {
                       `${m.home_score}-${m.away_score} FT · a.e.t.`)}
                 </span>
               )}
-              </>)
+              </>
             ) : (
               <span className="text-aqua font-extrabold text-2xl tnum">{m.time || '--:--'}</span>
             )}

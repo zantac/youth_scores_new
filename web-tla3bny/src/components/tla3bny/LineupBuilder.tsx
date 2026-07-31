@@ -88,8 +88,8 @@ export default function LineupBuilder({
 
   const playerById = useCallback((id: number) => players.find(p => p.player_id === id), [players]);
 
-  // IDs already used in some capacity (for mutual-exclusivity checks).
-  const allSelectedIds = useMemo(() => new Set<number>([...starters, ...subs]), [starters, subs]);
+  // IDs used across both groups — for mutual-exclusivity and slot-picker filtering.
+  const slotUsedIds = useMemo(() => new Set<number>([...Object.values(assign), ...subs]), [assign, subs]);
 
   // ── formation (step 2) helpers ──────────────────────────────────────────────
 
@@ -217,7 +217,6 @@ export default function LineupBuilder({
 
   // Players available for slot assignment in step 2 (only from selected starters).
   const starterPoolIds = new Set(starters);
-  const slotUsedIds = useMemo(() => new Set<number>([...Object.values(assign), ...subs]), [assign, subs]);
 
   return (
     <div className="space-y-4">
