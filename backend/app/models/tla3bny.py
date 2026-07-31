@@ -740,6 +740,11 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     max_replacements: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=5, server_default="5"
     )
+    # When True the coach must submit a formation (position assignments) with
+    # the lineup, not just a player list.
+    formation_required: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
 
     competition: Mapped["Tla3bnyCompetition"] = relationship(back_populates="ages")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -790,6 +795,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "lineup_deadline_minutes": self.lineup_deadline_minutes,
             "replacements_open": self.replacements_open,
             "max_replacements": self.max_replacements,
+            "formation_required": self.formation_required,
             "oldest_birth_year": (
                 self.age_category.oldest_birth_year if self.age_category else None
             ),

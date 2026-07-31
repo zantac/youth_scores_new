@@ -199,6 +199,7 @@ export interface TCompAge {
   lineup_deadline_minutes: number;
   replacements_open: boolean;
   max_replacements: number;
+  formation_required: boolean;
   stages?: TStage[];
 }
 
@@ -333,6 +334,7 @@ export interface TRules {
   lineup_deadline_minutes: number;
   max_players_per_team: number;
   oldest_birth_year: number | null;
+  formation_required: boolean;
 }
 
 export interface TMatchEvent {

@@ -345,6 +345,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
     Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
+  const [formationRequired, setFormationRequired] = useState(age.formation_required ?? false);
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedGuard(isDirty);
@@ -359,6 +360,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
       ...f,
       required_documents: docList,
       replacements_open: replacementsOpen,
+      formation_required: formationRequired,
     });
     setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
@@ -393,6 +395,15 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
               className="w-full bg-darkBg border border-bdr rounded-lg px-2 py-1.5 text-text text-sm outline-none focus:border-aqua tnum" />
           </label>
         ))}
+      </div>
+
+      {/* Formation requirement */}
+      <div className="border-t border-bdr/50 pt-3">
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input type="checkbox" checked={formationRequired}
+            onChange={e => { setFormationRequired(e.target.checked); setIsDirty(true); }} />
+          {tt('إلزام المدرب بإرسال التشكيلة (الخطة والمراكز)', 'Require coach to submit formation (positions)')}
+        </label>
       </div>
 
       {/* Replacement window */}
