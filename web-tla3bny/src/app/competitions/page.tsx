@@ -106,7 +106,7 @@ function CompetitionsContent() {
         })()}
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
-          {(['standings', 'matches', 'stats', 'bracket', 'news'] as Tab[]).map(t => (
+          {(['standings', 'matches', 'stats', 'bracket', 'news'] as Exclude<Tab, 'info'>[]).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
