@@ -890,7 +890,11 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
 
       {/* Add match */}
       <button onClick={() => setShowNew(s => !s)}
-        className="w-full border border-dashed border-bdr text-teal text-sm font-bold rounded-xl py-2.5 hover:border-aqua hover:text-aqua transition-colors">
+        className={`w-full border text-sm font-bold rounded-xl py-2.5 transition-colors ${
+          showNew
+            ? 'border-loss text-loss hover:bg-loss/10'
+            : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+        }`}>
         {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
       </button>
 
