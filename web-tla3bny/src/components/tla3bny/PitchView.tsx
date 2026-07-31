@@ -64,9 +64,10 @@ export default function PitchView({
                     style={{
                       width: 40, height: 40,
                       borderColor: 'rgba(255,255,255,0.85)',
-                      background: has ? '#fff' : 'rgba(255,255,255,0.18)',
-                      backgroundImage: url ? `url(${url})` : undefined,
-                      backgroundSize: 'cover', backgroundPosition: 'center',
+                      backgroundColor: has ? '#fff' : 'rgba(255,255,255,0.18)',
+                      backgroundImage: url ? `url(${url})` : 'none',
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
                     }}
                   >
                     {!url && (
