@@ -92,13 +92,17 @@ export interface EntrySub {
   id: number; team_id: number; side: string;
   player_out: string; player_in: string; minute: number | null;
 }
+export interface EntryShootoutKick {
+  id: number; team_id: number; side: string; player: string;
+  kick_order: number; result: string; is_winning_kick: boolean;
+}
 /** Who started and who was on the bench. Names only — no minutes or positions. */
 export interface EntrySide { team_id: number; starters: string[]; bench: string[] }
 
 export interface EntryMatch extends EntryMatchRow {
   home_penalty_score: number | null; away_penalty_score: number | null;
   venue: string; round: string; note: string; goals: EntryGoal[]; cards: EntryCard[];
-  subs: EntrySub[];
+  subs: EntrySub[]; shootout: EntryShootoutKick[];
   lineup: { home: EntrySide; away: EntrySide };
 }
 
@@ -134,6 +138,9 @@ export const apiSetLineup = (t: string, mid: number, teamId: number, starters: s
 export const apiAddSub = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/subs`, body);
 export const apiUpdateSub = (t: string, sid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/subs/${sid}`, body);
 export const apiDeleteSub = (t: string, sid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/subs/${sid}`);
+export const apiAddShootoutKick = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/shootout`, body);
+export const apiUpdateShootoutKick = (t: string, kid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/shootout/${kid}`, body);
+export const apiDeleteShootoutKick = (t: string, kid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/shootout/${kid}`);
 
 // ── content (news / venues) ──────────────────────────────────────────────────
 

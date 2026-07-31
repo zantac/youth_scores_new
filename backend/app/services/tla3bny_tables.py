@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.services.standings import Standing, calculate, team_form
 
-_FINISHED = "finished"
+_FINISHED = "completed"
 _KNOCKOUT = "knockout"
 
 
@@ -79,9 +79,14 @@ def deductions_of(
 
 
 def groups_of(cage: Tla3bnyCompetitionAge) -> list[Tla3bnyGroup]:
+    # Knockout stages organise the bracket, not the league table — exclude them
+    # so their groups don't create duplicate standing blocks.
     return (
         Tla3bnyGroup.query.join(Tla3bnyStage)
-        .filter(Tla3bnyStage.competition_age_id == cage.id)
+        .filter(
+            Tla3bnyStage.competition_age_id == cage.id,
+            Tla3bnyStage.type != _KNOCKOUT,
+        )
         .order_by(Tla3bnyGroup.name)
         .all()
     )
@@ -159,9 +164,18 @@ def standings_by_group(
     if not groups:
         return [{"group": None, "standings": rows(_calc(matches, teams, deductions=docked))}]
 
+    # Build a lookup of stage_id → stage_type to avoid lazy-load issues.
+    stage_types = {
+        s.id: s.type
+        for s in Tla3bnyStage.query.filter_by(competition_age_id=cage.id).all()
+    }
+
     out = []
     grouped: set[int] = set()
     for g in groups:
+        # Knockout-stage groups organise the bracket, not the league table.
+        if stage_types.get(g.stage_id) == _KNOCKOUT:
+            continue
         ids = {gt.team_id for gt in Tla3bnyGroupTeam.query.filter_by(group_id=g.id).all()}
         if not ids:
             continue

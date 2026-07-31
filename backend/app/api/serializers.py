@@ -61,7 +61,7 @@ def _loc(ar, en):
 
 def config_blob(base_url: str) -> dict:
     return {
-        "seasons": [_season(s, base_url) for s in Season.query.order_by(Season.id).all()],
+        "seasons": [_season(s, base_url) for s in Season.query.order_by(Season.id.desc()).all()],
         "venues": [_venue(v) for v in Venue.query.order_by(Venue.id).all()],
         "news": [_news(n) for n in News.query.order_by(News.date.desc()).all()],
         "Ads": [_ad(a) for a in Ad.query.order_by(Ad.id).all()],

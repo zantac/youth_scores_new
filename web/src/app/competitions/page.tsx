@@ -32,17 +32,25 @@ export default function CompetitionsPage() {
 
   const filteredSeasons = useMemo(() => {
     if (!config) return [];
-    if (!q.trim()) return config.seasons;
-    const lq = q.toLowerCase();
-    return config.seasons
-      .map(season => ({
-        ...season,
-        competitions: season.competitions.filter(comp => {
-          const name = getCompName(comp, locale).toLowerCase();
-          return name.includes(lq) || localize(season.name, locale).toLowerCase().includes(lq);
-        }),
-      }))
-      .filter(season => season.competitions.length > 0);
+    const lq = q.trim().toLowerCase();
+    const seasons = lq
+      ? config.seasons
+          .map(season => ({
+            ...season,
+            competitions: season.competitions.filter(comp => {
+              const name = getCompName(comp, locale).toLowerCase();
+              return name.includes(lq) || localize(season.name, locale).toLowerCase().includes(lq);
+            }),
+          }))
+          .filter(season => season.competitions.length > 0)
+      : config.seasons;
+    // Newest season first — season names are year ranges ("2025-2026") that sort
+    // lexicographically, so descending string order gives the current season at [0].
+    return [...seasons].sort((a, b) => {
+      const na = localize(a.name, 'en') || localize(a.name, 'ar') || '';
+      const nb = localize(b.name, 'en') || localize(b.name, 'ar') || '';
+      return nb.localeCompare(na);
+    });
   }, [config, q, locale]);
 
   const searchActive = q.trim().length > 0;

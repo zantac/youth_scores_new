@@ -792,37 +792,50 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [cageId, setCageId] = useState<number | null>(sortedMatchAges[0]?.id ?? null);
   const [statusFilter, setStatusFilter] = useState('');
   const [stageFilter, setStageFilter] = useState('');
+  const [teamFilter, setTeamFilter] = useState('');
   const cage = sortedMatchAges.find(a => a.id === cageId);
   const [entries, setEntries] = useState<TCompTeam[]>([]);
   const [matches, setMatches] = useState<TMatch[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [f, setF] = useState({ home: '', away: '', date: '', time: '', venue: '', round: '', stageId: '', groupId: '' });
   const reloadMatches = useCallback(() => {
-    if (cageId) tMatches({
+    if (!cageId) return;
+    tMatches({
       competition_id: comp.id,
       competition_age_id: cageId,
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(stageFilter ? { stage_id: Number(stageFilter) } : {}),
     }).then(setMatches);
   }, [comp.id, cageId, statusFilter, stageFilter]);
+
+  // Reset UI state when the sub-competition changes.
   useEffect(() => {
     if (cageId) tCompTeams(comp.id, undefined, false, undefined, cageId).then(setEntries);
-    reloadMatches();
     setF({ home: '', away: '', date: '', time: '', venue: '', round: '', stageId: '', groupId: '' });
     setStageFilter('');
+    setStatusFilter('');
+    setTeamFilter('');
     setShowNew(false);
-  }, [cageId, comp.id, reloadMatches]);
+  }, [cageId, comp.id]);
+
+  // Reload matches whenever any filter (or the cage) changes.
+  useEffect(() => { reloadMatches(); }, [reloadMatches]);
 
   const stages = cage?.stages ?? [];
   const selectedStage = stages.find(s => s.id === Number(f.stageId));
   const stageGroups = selectedStage?.groups ?? [];
 
-  // Teams in the selected stage (all team IDs across all its groups).
+  // All team IDs registered in the selected stage (across all its pool/groups).
   const stageTeamIds = selectedStage
     ? new Set((selectedStage.groups ?? []).flatMap(g => g.team_ids))
     : null;
-  const stageEntries = stageTeamIds
-    ? entries.filter(e => stageTeamIds.has(e.team_id))
+  // For group stages: further narrow to the selected group's teams.
+  const selectedGroupData = stageGroups.find(g => String(g.id) === f.groupId);
+  const activeTeamIds = (selectedStage?.type === 'group' && selectedGroupData)
+    ? new Set(selectedGroupData.team_ids)
+    : stageTeamIds;
+  const stageEntries = activeTeamIds
+    ? entries.filter(e => activeTeamIds.has(e.team_id))
     : entries;
 
   const create = async () => {
@@ -839,6 +852,13 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     setF({ home: '', away: '', date: '', time: '', venue: '', round: '', stageId: '', groupId: '' });
     setShowNew(false); reloadMatches();
   };
+
+  const q = teamFilter.trim().toLowerCase();
+  const shownMatches = q
+    ? matches.filter(m =>
+        m.home_team_name?.toLowerCase().includes(q) ||
+        m.away_team_name?.toLowerCase().includes(q))
+    : matches;
 
   return (
     <div className="space-y-3">
@@ -867,36 +887,26 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
           <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
           <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
         </select>
-        <span className="col-span-2 text-hint text-xs tabular-nums text-end">
-          {matches.length} {tt('مباراة', 'matches')}
-        </span>
+        <input
+          value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
+          placeholder={tt('ابحث باسم فريق…', 'Search by team…')}
+          className={inputCls + ' text-sm'} />
       </div>
 
-      {/* Match list — MatchRow cards + quick delete */}
-      {matches.length === 0 && <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />}
-      {matches.map(m => (
-        <div key={m.id} className="relative group">
-          <MatchRow m={m} />
-          <button
-            onClick={async e => {
-              e.preventDefault();
-              if (confirm(tt('حذف المباراة؟', 'Delete match?'))) { await tDeleteMatch(token, m.id); reloadMatches(); }
-            }}
-            className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
-            🗑
-          </button>
-        </div>
-      ))}
-
-      {/* Add match */}
-      <button onClick={() => setShowNew(s => !s)}
-        className={`w-full border text-sm font-bold rounded-xl py-2.5 transition-colors ${
-          showNew
-            ? 'border-loss text-loss hover:bg-loss/10'
-            : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
-        }`}>
-        {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
-      </button>
+      {/* Count + Add match button */}
+      <div className="flex items-center justify-between">
+        <span className="text-hint text-xs tabular-nums">
+          {q ? `${shownMatches.length} ${tt('من', 'of')} ` : ''}{matches.length} {tt('مباراة', 'matches')}
+        </span>
+        <button onClick={() => setShowNew(s => !s)}
+          className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
+            showNew
+              ? 'border-loss text-loss hover:bg-loss/10'
+              : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+          }`}>
+          {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
+        </button>
+      </div>
 
       {showNew && (
         <Card className="p-3 space-y-2">
@@ -907,19 +917,8 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-2">
-              <Field label={tt('المضيف', 'Home')}>
-                <select value={f.home} onChange={e => setF({ ...f, home: e.target.value })} className={inputCls}>
-                  <option value="">—</option>
-                  {stageEntries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
-                </select>
-              </Field>
-              <Field label={tt('الضيف', 'Away')}>
-                <select value={f.away} onChange={e => setF({ ...f, away: e.target.value })} className={inputCls}>
-                  <option value="">—</option>
-                  {stageEntries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
-                </select>
-              </Field>
-              {stages.length > 0 && (
+              {/* Row 1: Stage + Group (group slot is always present to hold the column) */}
+              {stages.length > 0 && <>
                 <Field label={tt('الدور', 'Stage')}>
                   <select value={f.stageId} onChange={e => setF({ ...f, stageId: e.target.value, groupId: '', home: '', away: '' })} className={inputCls}>
                     <option value="">— {tt('بدون دور', 'No stage')}</option>
@@ -933,17 +932,30 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
                     ))}
                   </select>
                 </Field>
-              )}
-              {f.stageId && stageGroups.length > 0 && (
-                <Field label={tt('المجموعة', 'Group')}>
-                  <select value={f.groupId} onChange={e => setF({ ...f, groupId: e.target.value })} className={inputCls}>
-                    <option value="">— {tt('بدون مجموعة', 'No group')}</option>
-                    {stageGroups.map(g => (
-                      <option key={g.id} value={g.id}>{g.name || `Group ${g.id}`}</option>
-                    ))}
-                  </select>
-                </Field>
-              )}
+                {f.stageId && stageGroups.length > 0 && selectedStage?.type !== 'knockout' ? (
+                  <Field label={tt('المجموعة', 'Group')}>
+                    <select value={f.groupId} onChange={e => setF({ ...f, groupId: e.target.value, home: '', away: '' })} className={inputCls}>
+                      <option value="">— {tt('بدون مجموعة', 'No group')}</option>
+                      {stageGroups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name || `Group ${g.id}`}</option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : <div />}
+              </>}
+              {/* Row 2: Home + Away (filtered to the chosen stage/group) */}
+              <Field label={tt('المضيف', 'Home')}>
+                <select value={f.home} onChange={e => setF({ ...f, home: e.target.value })} className={inputCls}>
+                  <option value="">—</option>
+                  {stageEntries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
+                </select>
+              </Field>
+              <Field label={tt('الضيف', 'Away')}>
+                <select value={f.away} onChange={e => setF({ ...f, away: e.target.value })} className={inputCls}>
+                  <option value="">—</option>
+                  {stageEntries.map(e => <option key={e.id} value={e.team_id}>{e.team_name}</option>)}
+                </select>
+              </Field>
               <Field label={tt('التاريخ', 'Date')}><input type="date" value={f.date} onChange={e => setF({ ...f, date: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الوقت', 'Time')}><input type="time" value={f.time} onChange={e => setF({ ...f, time: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الجولة', 'Round')}><input value={f.round} onChange={e => setF({ ...f, round: e.target.value })} className={inputCls} /></Field>
@@ -959,6 +971,22 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
           )}
         </Card>
       )}
+
+      {/* Match list — MatchRow cards + quick delete */}
+      {shownMatches.length === 0 && <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />}
+      {shownMatches.map(m => (
+        <div key={m.id} className="relative group">
+          <MatchRow m={m} />
+          <button
+            onClick={async e => {
+              e.preventDefault();
+              if (confirm(tt('حذف المباراة؟', 'Delete match?'))) { await tDeleteMatch(token, m.id); reloadMatches(); }
+            }}
+            className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
+            🗑
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

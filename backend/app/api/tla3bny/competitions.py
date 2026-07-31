@@ -24,6 +24,7 @@ from app.models import (
     Tla3bnyUser,
     Tla3bnyPlayerTeam,
 )
+from app.models import codes
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -690,12 +691,14 @@ def remove_group_team(group_id: int, team_id: int):
 @tla3bny_bp.post("/stages/<int:stage_id>/teams")
 @auth.login_required
 def add_stage_team(stage_id: int):
-    """Add a team directly to a knockout stage.
+    """Add a team to a league or knockout stage (flat pool, no named groups).
 
-    Uses an auto-created unnamed pool group so the data model stays consistent.
-    Only the competition admin may call this.
+    Group stages use named groups instead — assign teams there via the group-team
+    endpoints. Only the competition admin may call this.
     """
     stage = Tla3bnyStage.query.get_or_404(stage_id)
+    if stage.type == "group":
+        return _err("Group stages use named groups — add teams via the group-team endpoints", 400)
     if not auth.is_competition_admin(auth.current_user(), _stage_comp_id(stage)):
         return _forbid()
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
