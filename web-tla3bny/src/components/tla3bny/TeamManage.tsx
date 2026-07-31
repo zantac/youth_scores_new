@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tJoinableCompetitions, tRequestJoin,
   tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach, tReplaceCompPlayer,
-  type TTeam, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
+  type TTeam, type TMembership, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
@@ -121,7 +121,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   const [editDocFiles, setEditDocFiles] = useState<Record<string, File>>({});
   const [eBusy, setEBusy] = useState(false);
 
-  const startEdit = (p: TTeam['players'][number]) => {
+  const startEdit = (p: TMembership) => {
     setEditingId(p.player_id);
     setEf({
       name: p.player_name ?? '',
