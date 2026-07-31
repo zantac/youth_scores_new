@@ -128,14 +128,11 @@ export default function LineupBuilder({
         // Remove from subs if there, then toggle in starters. Keep picker open.
         setSubs(s => s.filter(id => id !== playerId));
         setStarters(s => s.includes(playerId) ? s.filter(id => id !== playerId) : [...s, playerId]);
-        // Also remove from assign if de-selected.
+        // Remove from assign if de-selected as starter.
         setAssign(a => {
-          if (s => s.includes(playerId)) {
-            const n = { ...a };
-            for (const k of Object.keys(n)) if (n[k] === playerId) delete n[k];
-            return n;
-          }
-          return a;
+          const n = { ...a };
+          for (const k of Object.keys(n)) if (n[k] === playerId) delete n[k];
+          return n;
         });
       }
     } else if (picker.kind === 'subs') {
