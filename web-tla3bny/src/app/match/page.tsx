@@ -59,13 +59,15 @@ function fmtDraftTime(iso: string) {
 // ── helpers ───────────────────────────────────────────────────────────────────
 type EvType = TMatchEvent['event_type'];
 const EV_ICON: Record<string, string> = {
-  goal: '⚽', assist: '🅰️', yellow: '🟨', red: '🟥',
+  goal: '⚽', assist: '🅰️', yellow: '🟨', second_yellow: '🟨🟥', red: '🟥',
   substitution_in: '🔺', substitution_out: '🔻',
   penalty_scored: '✅', penalty_missed: '❌',
 };
 const EV_LABEL_AR: Record<string, [string, string]> = {
   goal: ['هدف', 'Goal'], assist: ['صناعة', 'Assist'],
-  yellow: ['بطاقة صفراء', 'Yellow card'], red: ['بطاقة حمراء', 'Red card'],
+  yellow: ['بطاقة صفراء', 'Yellow card'],
+  second_yellow: ['صفراء ثانية (طرد)', 'Second yellow (red)'],
+  red: ['بطاقة حمراء', 'Red card'],
   substitution_in: ['دخول', 'Sub in'], substitution_out: ['خروج', 'Sub out'],
   penalty_scored: ['ضربة جزاء مسجّلة', 'Penalty scored'],
   penalty_missed: ['ضربة جزاء مُضاعة', 'Penalty missed'],
@@ -82,8 +84,8 @@ function matchScoreLabel(m: TMatch) {
 
 const goals      = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'goal');
 const assists    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'assist');
-const yellows    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'yellow');
-const reds       = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'red');
+const yellows    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'yellow' || e.event_type === 'second_yellow');
+const reds       = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'red' || e.event_type === 'second_yellow');
 const subsIn     = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'substitution_in');
 const subsOut    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'substitution_out');
 
@@ -359,7 +361,27 @@ function CardsTab({ m, type }: { m: TMatch; type: 'yellow' | 'red' }) {
   const evs = type === 'yellow' ? yellows(m.events ?? []) : reds(m.events ?? []);
   const label = type === 'yellow' ? tt('لا بطاقات صفراء', 'No yellow cards') : tt('لا بطاقات حمراء', 'No red cards');
   if (evs.length === 0) return <EmptyState icon={type === 'yellow' ? '🟨' : '🟥'} text={label} />;
-  return <Card className="p-4">{evs.map(e => <EvRow key={e.id} e={e} m={m} />)}</Card>;
+  return (
+    <Card className="p-4">
+      {evs.map(e => (
+        <div key={e.id} className="flex items-center gap-3 py-2 border-b border-bdr/40 last:border-0">
+          <span className="text-lg">{EV_ICON[e.event_type] ?? '•'}</span>
+          <div className="flex-1 min-w-0">
+            {e.player_id
+              ? <Link href={`/player?id=${e.player_id}`} className="font-bold text-text text-sm hover:text-aqua">{e.player_name}</Link>
+              : <span className="font-bold text-text text-sm">{e.player_name}</span>}
+            <p className="text-[11px] text-hint">
+              {e.team_id === m.home_team_id ? m.home_team_name : m.away_team_name}
+              {e.event_type === 'second_yellow' && (
+                <span className="ms-1 text-gold font-bold">{tt('· صفراء ثانية', '· 2nd yellow')}</span>
+              )}
+            </p>
+          </div>
+          {e.minute != null && <span className="text-hint text-xs tabular-nums shrink-0">{e.minute}&apos;</span>}
+        </div>
+      ))}
+    </Card>
+  );
 }
 
 // ── ── ── ADMIN PANEL ── ── ──
@@ -510,7 +532,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // Check that every player named in a goal/card event appears in their team's
   // submitted lineup. Returns warning strings; empty means all clear.
   const getLineupWarnings = (): string[] => {
-    const CHECK = new Set(['goal', 'assist', 'yellow', 'red'] as EvType[]);
+    const CHECK = new Set(['goal', 'assist', 'yellow', 'second_yellow', 'red'] as EvType[]);
     const seen = new Set<string>();
     const out: string[] = [];
     for (const ev of events) {
@@ -793,7 +815,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         title={tt('البطاقات', 'Cards')}
         icon="🟨"
         events={events}
-        types={['yellow', 'red']}
+        types={['yellow', 'second_yellow', 'red']}
         m={m}
         rosters={rosters}
         lineups={lineups}

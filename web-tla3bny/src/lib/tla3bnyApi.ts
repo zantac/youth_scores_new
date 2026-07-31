@@ -29,7 +29,7 @@ export type TCompStatus = 'draft' | 'active' | 'finished';
 export type TMatchStatus = 'scheduled' | 'live' | 'completed' | 'postponed' | 'cancelled' | 'finished';
 export type TStageType = 'group' | 'league' | 'knockout';
 export type TEventType =
-  | 'goal' | 'assist' | 'yellow' | 'red' | 'substitution_in' | 'substitution_out'
+  | 'goal' | 'assist' | 'yellow' | 'second_yellow' | 'red' | 'substitution_in' | 'substitution_out'
   | 'penalty_scored' | 'penalty_missed';
 
 export interface TUser {
