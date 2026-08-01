@@ -73,7 +73,8 @@ function CompetitionsContent() {
 
   useEffect(() => {
     const q = Number(params.get('comp'));
-    if (q) openComp(q);
+    const cage = Number(params.get('cage')) || undefined;
+    if (q) openComp(q, cage);
   }, [params, openComp]);
 
   if (loading) return <Spinner />;
@@ -249,7 +250,7 @@ function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
   const tt = useTT();
   const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
-  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
+  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
   if (!matches) return <Spinner />;
   if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
 
@@ -394,7 +395,7 @@ function StatsTab({ compId, ageId, cageId }: { compId: number; ageId: number; ca
   useEffect(() => {
     setA(null); setMatches(null);
     tAnalysis(compId, ageId).then(setA).catch(() => setA(null));
-    tMatches({ competition_id: compId, ...(cageId ? { competition_age_id: cageId } : { age_category_id: ageId }) })
+    tMatches({ competition_id: compId, ...(cageId ? { competition_age_id: cageId } : { age_category_id: ageId }), order: 'asc' })
       .then(setMatches).catch(() => setMatches([]));
   }, [compId, ageId, cageId]);
 

@@ -27,7 +27,7 @@ function TeamContent() {
 
   useEffect(() => {
     if (!id) return;
-    tMatches({ team_id: id }).then(setMatches).catch(() => setMatches([]));
+    tMatches({ team_id: id, order: 'asc' }).then(setMatches).catch(() => setMatches([]));
   }, [id]);
 
   if (loading) return <Spinner />;

@@ -8,7 +8,8 @@ import {
   tCompTeams, tRegisterTeam, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
-  tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam,
+  tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
+  type TGroupFixtureSetting, type TGroup,
   tUpdateCompetition, whatsappLink, mediaUrl,
   type TCompetition, type TCompAge, type TCompDashboard, type TCategory, type TAcademy, type TTeam,
   type TCompTeam, type TCompPlayer, type TMatch,
@@ -793,6 +794,8 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
+  const [roundFilter, setRoundFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const cage = sortedMatchAges.find(a => a.id === cageId);
   const [entries, setEntries] = useState<TCompTeam[]>([]);
   const [matches, setMatches] = useState<TMatch[]>([]);
@@ -805,8 +808,10 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
       competition_age_id: cageId,
       ...(statusFilter ? { status: statusFilter } : {}),
       ...(stageFilter ? { stage_id: Number(stageFilter) } : {}),
+      ...(dateFilter ? { date: dateFilter } : {}),
+      order: 'asc',
     }).then(setMatches);
-  }, [comp.id, cageId, statusFilter, stageFilter]);
+  }, [comp.id, cageId, statusFilter, stageFilter, dateFilter]);
 
   // Reset UI state when the sub-competition changes.
   useEffect(() => {
@@ -815,6 +820,8 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     setStageFilter('');
     setStatusFilter('');
     setTeamFilter('');
+    setRoundFilter('');
+    setDateFilter('');
     setShowNew(false);
   }, [cageId, comp.id]);
 
@@ -853,12 +860,17 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     setShowNew(false); reloadMatches();
   };
 
+  // Distinct round labels from loaded matches (preserving asc order).
+  const roundOptions = Array.from(
+    new Set(matches.map(m => m.round).filter(Boolean) as string[])
+  );
+
   const q = teamFilter.trim().toLowerCase();
-  const shownMatches = q
-    ? matches.filter(m =>
-        m.home_team_name?.toLowerCase().includes(q) ||
-        m.away_team_name?.toLowerCase().includes(q))
-    : matches;
+  const shownMatches = matches.filter(m => {
+    if (roundFilter && m.round !== roundFilter) return false;
+    if (q && !m.home_team_name?.toLowerCase().includes(q) && !m.away_team_name?.toLowerCase().includes(q)) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-3">
@@ -887,6 +899,15 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
           <option value="postponed">{tt('مؤجلة', 'Postponed')}</option>
           <option value="cancelled">{tt('ملغاة', 'Cancelled')}</option>
         </select>
+        {roundOptions.length > 0 && (
+          <select value={roundFilter} onChange={e => setRoundFilter(e.target.value)} className={inputCls + ' text-sm'}>
+            <option value="">{tt('كل الجولات', 'All rounds')}</option>
+            {roundOptions.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        )}
+        <input
+          type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+          className={inputCls + ' text-sm'} />
         <input
           value={teamFilter} onChange={e => setTeamFilter(e.target.value)}
           placeholder={tt('ابحث باسم فريق…', 'Search by team…')}
@@ -1043,6 +1064,269 @@ function StagesTab({ token, comp, reload }: { token: string; comp: TCompetition;
   );
 }
 
+const WEEKDAYS = [
+  { v: 5, ar: 'الجمعة', en: 'Fri' },
+  { v: 6, ar: 'السبت',  en: 'Sat' },
+  { v: 7, ar: 'الأحد',  en: 'Sun' },
+  { v: 1, ar: 'الاثنين', en: 'Mon' },
+  { v: 2, ar: 'الثلاثاء', en: 'Tue' },
+  { v: 3, ar: 'الأربعاء', en: 'Wed' },
+  { v: 4, ar: 'الخميس',  en: 'Thu' },
+];
+
+type GrpSetting = { match_days: number[]; matches_per_day: string; time: string; venue: string; interval: string };
+const DEFAULT_GRP_SETTING: GrpSetting = { match_days: [5, 6], matches_per_day: '2', time: '', venue: '', interval: '' };
+
+function DayPicker({ value, onChange }: { value: number[]; onChange: (v: number[]) => void }) {
+  const tt = useTT();
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {WEEKDAYS.map(d => (
+        <button key={d.v} type="button"
+          onClick={() => onChange(value.includes(d.v) ? value.filter(x => x !== d.v) : [...value, d.v])}
+          className={`px-2 py-0.5 text-xs rounded border font-bold transition-colors ${
+            value.includes(d.v) ? 'bg-aqua text-darkBg border-aqua' : 'text-hint border-bdr hover:border-aqua/50'
+          }`}>
+          {tt(d.ar, d.en)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, onDone }: {
+  token: string; stageId: number; stageType: string; teamCount: number;
+  groups: TGroup[]; onDone: () => void;
+}) {
+  const tt = useTT();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<'round_robin' | 'double_round_robin' | 'knockout'>('round_robin');
+  const [startDate, setStartDate] = useState('');
+  // Global (used for non-group stages, or as the single-group setting)
+  const [globalSetting, setGlobalSetting] = useState<GrpSetting>(DEFAULT_GRP_SETTING);
+  // Per-group settings keyed by group id (only used for multi-group stages)
+  const [grpSettings, setGrpSettings] = useState<Record<number, GrpSetting>>({});
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [needsForce, setNeedsForce] = useState(false);
+
+  // Groups that have ≥ 2 teams (can actually play)
+  const playableGroups = groups.filter(g => g.team_ids.length >= 2);
+  const isMultiGroup = stageType === 'group' && playableGroups.length > 1;
+
+  if (teamCount < 2) return null;
+
+  const openPanel = () => {
+    setOpen(true);
+    setMode(stageType === 'knockout' ? 'knockout' : 'round_robin');
+    setResult(null); setErr(null); setNeedsForce(false);
+    // Initialise per-group settings from global defaults
+    const init: Record<number, GrpSetting> = {};
+    playableGroups.forEach(g => { init[g.id] = { ...DEFAULT_GRP_SETTING }; });
+    setGrpSettings(init);
+    setGlobalSetting({ ...DEFAULT_GRP_SETTING });
+  };
+
+  const setGrp = (id: number, patch: Partial<GrpSetting>) =>
+    setGrpSettings(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+
+  const run = async (force = false) => {
+    setBusy(true); setErr(null); setResult(null); setNeedsForce(false);
+    try {
+      const body: Parameters<typeof tGenerateFixtures>[2] = { mode, force };
+      if (startDate) body.start_date = startDate;
+
+      if (isMultiGroup) {
+        // Send per-group settings; each group manages its own calendar
+        const group_settings: TGroupFixtureSetting[] = playableGroups.map(g => {
+          const gs = grpSettings[g.id] ?? DEFAULT_GRP_SETTING;
+          const pd = parseInt(gs.matches_per_day);
+          const iv = parseInt(gs.interval);
+          return {
+            group_id: g.id,
+            match_days: gs.match_days.length ? gs.match_days : undefined,
+            matches_per_day: !isNaN(pd) && pd > 0 ? pd : undefined,
+            default_time: gs.time || undefined,
+            default_venue: gs.venue || undefined,
+            time_interval_minutes: !isNaN(iv) && iv > 0 ? iv : undefined,
+          };
+        });
+        body.group_settings = group_settings;
+      } else {
+        // Single calendar for all teams
+        if (globalSetting.match_days.length) body.match_days = globalSetting.match_days;
+        const pd = parseInt(globalSetting.matches_per_day);
+        if (!isNaN(pd) && pd > 0) body.matches_per_day = pd;
+        if (globalSetting.time) body.default_time = globalSetting.time;
+        if (globalSetting.venue) body.default_venue = globalSetting.venue;
+        const iv = parseInt(globalSetting.interval);
+        if (!isNaN(iv) && iv > 0) body.time_interval_minutes = iv;
+      }
+
+      const r = await tGenerateFixtures(token, stageId, body);
+      setResult(tt(`تم إنشاء ${r.created} مباراة بنجاح`, `${r.created} matches created`));
+      setOpen(false);
+      onDone();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes('already exist') || msg.includes('409') || msg.includes('fixture')) {
+        setNeedsForce(true);
+      } else {
+        setErr(msg);
+      }
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-3 border-t border-bdr pt-3">
+      {result && <p className="text-[12px] font-bold text-win mb-2">{result}</p>}
+      {!open ? (
+        <button onClick={openPanel}
+          className="w-full text-sm font-bold text-aqua border border-aqua/40 rounded py-1.5 hover:bg-aqua/10 transition-colors">
+          ⚡ {tt('توليد جدول المباريات', 'Generate Fixtures')}
+        </button>
+      ) : (
+        <div className="space-y-3 bg-cardBg2 border border-bdr rounded-lg p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-black text-text">⚡ {tt('توليد الجدول', 'Generate Fixtures')}</span>
+            <button onClick={() => { setOpen(false); setErr(null); setNeedsForce(false); }}
+              className="text-hint hover:text-text text-lg leading-none">✕</button>
+          </div>
+
+          {/* Mode + start date (always global) */}
+          <Field label={tt('نظام البطولة', 'Format')}>
+            <select value={mode} onChange={e => setMode(e.target.value as typeof mode)} className={inputCls + ' text-sm'}>
+              <option value="round_robin">{tt('دوري (ذهاب فقط)', 'Round Robin (single leg)')}</option>
+              <option value="double_round_robin">{tt('دوري (ذهاب وإياب)', 'Round Robin (home & away)')}</option>
+              <option value="knockout">{tt('خروج المغلوب', 'Knockout')}</option>
+            </select>
+          </Field>
+          <Field label={tt('تاريخ البداية', 'Start date')}>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls + ' text-sm'} />
+          </Field>
+
+          {isMultiGroup ? (
+            /* ── Per-group settings ── */
+            <div className="space-y-3">
+              <p className="text-[11px] text-teal font-bold">
+                {tt('أيام وملاعب كل مجموعة على حدة — كل مجموعة لها تقويم مستقل', 'Each group has its own schedule — groups run on independent calendars')}
+              </p>
+              {playableGroups.map(g => {
+                const gs = grpSettings[g.id] ?? DEFAULT_GRP_SETTING;
+                return (
+                  <div key={g.id} className="border border-bdr rounded-lg p-2.5 space-y-2">
+                    <p className="text-xs font-black text-text">{g.name || tt('مجموعة', 'Group')}</p>
+                    <Field label={tt('أيام اللعب', 'Match days')}>
+                      <DayPicker value={gs.match_days} onChange={v => setGrp(g.id, { match_days: v })} />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label={tt('مباريات/يوم', 'Per day')}>
+                        <input type="number" min="1" max="20" value={gs.matches_per_day}
+                          onChange={e => setGrp(g.id, { matches_per_day: e.target.value })}
+                          className={inputCls + ' text-sm'} />
+                      </Field>
+                      <Field label={tt('الوقت الأول', 'First kickoff')}>
+                        <input type="time" value={gs.time}
+                          onChange={e => setGrp(g.id, { time: e.target.value })}
+                          className={inputCls + ' text-sm'} />
+                      </Field>
+                      <Field label={tt('فاصل بين المباريات (دقيقة)', 'Interval between matches (min)')}>
+                        <input type="number" min="0" max="300" value={gs.interval}
+                          onChange={e => setGrp(g.id, { interval: e.target.value })}
+                          placeholder="0"
+                          className={inputCls + ' text-sm'} />
+                      </Field>
+                      <Field label={tt('الملعب', 'Venue')}>
+                        <input value={gs.venue}
+                          onChange={e => setGrp(g.id, { venue: e.target.value })}
+                          placeholder={tt('اختياري', 'Optional')}
+                          className={inputCls + ' text-sm'} />
+                      </Field>
+                    </div>
+                    {gs.time && gs.interval && parseInt(gs.interval) > 0 && parseInt(gs.matches_per_day) > 1 && (
+                      <p className="text-[11px] text-teal">
+                        {tt(
+                          `مثال: م١ ${gs.time} ← م٢ ${(() => { const h = parseInt(gs.time.split(':')[0]); const m = parseInt(gs.time.split(':')[1]) + parseInt(gs.interval); return `${String(Math.floor((h*60+parseInt(gs.time.split(':')[1])+parseInt(gs.interval))/60)%24).padStart(2,'0')}:${String((parseInt(gs.time.split(':')[1])+parseInt(gs.interval))%60).padStart(2,'0')}`; })()}`,
+                          `E.g. match 1 at ${gs.time} → match 2 at ${(() => { const mins = parseInt(gs.time.split(':')[0])*60+parseInt(gs.time.split(':')[1])+parseInt(gs.interval); return `${String(Math.floor(mins/60)%24).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`; })()}`
+                        )}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ── Single / global settings ── */
+            <>
+              <Field label={tt('أيام اللعب', 'Match days')}>
+                <DayPicker value={globalSetting.match_days}
+                  onChange={v => setGlobalSetting(s => ({ ...s, match_days: v }))} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label={tt('مباريات/يوم', 'Per day')}>
+                  <input type="number" min="1" max="20" value={globalSetting.matches_per_day}
+                    onChange={e => setGlobalSetting(s => ({ ...s, matches_per_day: e.target.value }))}
+                    className={inputCls + ' text-sm'} />
+                </Field>
+                <Field label={tt('الوقت الأول', 'First kickoff')}>
+                  <input type="time" value={globalSetting.time}
+                    onChange={e => setGlobalSetting(s => ({ ...s, time: e.target.value }))}
+                    className={inputCls + ' text-sm'} />
+                </Field>
+                <Field label={tt('فاصل بين المباريات (دقيقة)', 'Interval between matches (min)')}>
+                  <input type="number" min="0" max="300" value={globalSetting.interval}
+                    onChange={e => setGlobalSetting(s => ({ ...s, interval: e.target.value }))}
+                    placeholder="0"
+                    className={inputCls + ' text-sm'} />
+                </Field>
+                <Field label={tt('الملعب', 'Venue')}>
+                  <input value={globalSetting.venue}
+                    onChange={e => setGlobalSetting(s => ({ ...s, venue: e.target.value }))}
+                    placeholder={tt('اختياري', 'Optional')}
+                    className={inputCls + ' text-sm'} />
+                </Field>
+              </div>
+              {globalSetting.time && globalSetting.interval && parseInt(globalSetting.interval) > 0 && parseInt(globalSetting.matches_per_day) > 1 && (
+                <p className="text-[11px] text-teal">
+                  {tt(
+                    `مثال: م١ ${globalSetting.time} ← م٢ ${(() => { const mins = parseInt(globalSetting.time.split(':')[0])*60+parseInt(globalSetting.time.split(':')[1])+parseInt(globalSetting.interval); return `${String(Math.floor(mins/60)%24).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`; })()}`,
+                    `E.g. match 1 at ${globalSetting.time} → match 2 at ${(() => { const mins = parseInt(globalSetting.time.split(':')[0])*60+parseInt(globalSetting.time.split(':')[1])+parseInt(globalSetting.interval); return `${String(Math.floor(mins/60)%24).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`; })()}`
+                  )}
+                </p>
+              )}
+            </>
+          )}
+
+          {err && <ErrorNote>{err}</ErrorNote>}
+
+          {needsForce ? (
+            <div className="space-y-2">
+              <p className="text-[12px] text-orange font-bold">
+                {tt('يوجد جدول مباريات بالفعل. هل تريد حذفه وإعادة التوليد؟', 'Fixtures already exist. Delete and regenerate?')}
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => run(true)} disabled={busy}
+                  className="flex-1 py-1.5 text-sm font-bold bg-loss/20 text-loss border border-loss/40 rounded hover:bg-loss/30 disabled:opacity-50">
+                  {busy ? tt('جارٍ…', 'Working…') : tt('نعم، أعد التوليد', 'Yes, regenerate')}
+                </button>
+                <button onClick={() => setNeedsForce(false)}
+                  className="flex-1 py-1.5 text-sm font-bold text-hint border border-bdr rounded hover:text-text">
+                  {tt('إلغاء', 'Cancel')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <PrimaryButton onClick={() => run(false)} disabled={busy} className="w-full">
+              {busy ? tt('جارٍ التوليد…', 'Generating…') : tt('توليد الجدول', 'Generate')}
+            </PrimaryButton>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload }: {
   token: string; stageId: number; stageType: string;
   groups: NonNullable<TCompAge['stages']>[number]['groups'];
@@ -1081,6 +1365,7 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
             </div>
           ))}
         </div>
+        <GenerateFixturesPanel token={token} stageId={stageId} stageType={stageType} teamCount={stageTeamIds.length} groups={groups ?? []} onDone={reload} />
       </div>
     );
   }
@@ -1143,6 +1428,12 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
           </div>
         </div>
       ))}
+      <GenerateFixturesPanel
+        token={token} stageId={stageId} stageType={stageType}
+        teamCount={(groups ?? []).reduce((acc, g) => acc + g.team_ids.length, 0)}
+        groups={groups ?? []}
+        onDone={reload}
+      />
     </div>
   );
 }
