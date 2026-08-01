@@ -50,7 +50,7 @@ function TeamAdminDashboard({ token, team, refresh }: { token: string; team: TTe
   const [matches, setMatches] = useState<TMatch[]>([]);
 
   useEffect(() => {
-    tMatches({ team_id: team.id }).then(setMatches).catch(() => setMatches([]));
+    tMatches({ team_id: team.id, order: 'asc' }).then(setMatches).catch(() => setMatches([]));
   }, [team.id]);
 
   const tabs: { key: 'squad' | 'matches'; ar: string; en: string }[] = [

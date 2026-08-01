@@ -260,7 +260,7 @@ function MatchesAdmin({ token }: { token: string }) {
     const params: Parameters<typeof tMatches>[0] = { competition_id: Number(compId) };
     if (ageId) params.age_category_id = ageId;
     if (statusFilter) params.status = statusFilter;
-    tMatches(params).then(setMatches).catch(() => setMatches([])).finally(() => setLoading(false));
+    tMatches({ ...params, order: 'asc' }).then(setMatches).catch(() => setMatches([])).finally(() => setLoading(false));
   }, [compId, ageId, statusFilter]);
 
   const ages = selComp?.ages ?? [];

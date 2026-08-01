@@ -847,6 +847,35 @@ export const tEligibleLineupPlayers = (matchId: number, teamId: number) =>
 export const tSaveLineup = (token: string, matchId: number, teamId: number, b: Record<string, unknown>) =>
   send<TLineup>('PUT', `/lineups/match/${matchId}/team/${teamId}`, b, token);
 
+// ── fixture generation ───────────────────────────────────────────────────────
+export interface TGenerateFixturesResult {
+  created: number;
+  matches: TMatch[];
+}
+export interface TGroupFixtureSetting {
+  group_id: number;
+  match_days?: number[];
+  matches_per_day?: number;
+  default_time?: string;
+  default_venue?: string;
+  time_interval_minutes?: number;
+}
+export const tGenerateFixtures = (
+  token: string,
+  stageId: number,
+  body: {
+    mode: 'round_robin' | 'double_round_robin' | 'knockout';
+    start_date?: string;
+    match_days?: number[];
+    matches_per_day?: number;
+    default_time?: string;
+    default_venue?: string;
+    time_interval_minutes?: number;
+    force?: boolean;
+    group_settings?: TGroupFixtureSetting[];
+  },
+) => send<TGenerateFixturesResult>('POST', `/stages/${stageId}/generate-fixtures`, body, token);
+
 // ── standings / bracket / analysis ────────────────────────────────────────
 export const tStandings = (compId: number, ageId: number, cageId?: number) =>
   get<TStandingGroup[]>(`/standings${qs({

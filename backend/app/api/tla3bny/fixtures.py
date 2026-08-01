@@ -71,7 +71,14 @@ def _advance(d: date, allowed: list[int]) -> date:
 # ── round-robin algorithm (circle method) ─────────────────────────────────────
 
 def _round_robin(teams: list[int]) -> list[list[tuple[int, int]]]:
-    """Return n-1 rounds for n teams, each round a list of (home, away) pairs.
+    """Return n-1 balanced rounds for n teams, each a list of (home, away) pairs.
+
+    The circle method fixes the pairings.  Home/away is then assigned greedily
+    so each team's home count stays as equal as possible across rounds: the team
+    with fewer home games so far gets home, with round-parity as the tiebreaker
+    (even-indexed rounds favour the first team in the canonical pair, odd rounds
+    favour the second).  This prevents any team from being home — or away — for
+    several consecutive rounds.
 
     A dummy None entry is appended when len(teams) is odd so the circle method
     still works; pairs involving None are dropped (bye rounds).
@@ -82,16 +89,36 @@ def _round_robin(teams: list[int]) -> list[list[tuple[int, int]]]:
     n = len(pool)
     fixed = pool[0]
     rotating = pool[1:]
+
+    home_count: dict[int, int] = {t: 0 for t in teams}
     rounds: list[list[tuple[int, int]]] = []
-    for _ in range(n - 1):
-        pairs: list[tuple[int, int]] = []
+
+    for r in range(n - 1):
+        # Build the canonical pairs for this round (circle method).
+        raw: list[tuple] = []
         for j in range(n // 2):
             a = fixed if j == 0 else rotating[j - 1]
             b = rotating[-1] if j == 0 else rotating[n - 2 - j]
-            if a is not None and b is not None:
+            raw.append((a, b))
+
+        # Assign home/away for each valid pair.
+        pairs: list[tuple[int, int]] = []
+        for a, b in raw:
+            if a is None or b is None:
+                continue
+            ha, hb = home_count[a], home_count[b]
+            # Give home to the team with fewer home games; break ties by round
+            # parity so the assignment pattern itself alternates each round.
+            if ha < hb or (ha == hb and r % 2 == 0):
                 pairs.append((a, b))
+                home_count[a] += 1
+            else:
+                pairs.append((b, a))
+                home_count[b] += 1
+
         rounds.append(pairs)
         rotating = [rotating[-1]] + rotating[:-1]
+
     return rounds
 
 
@@ -117,6 +144,30 @@ def _knockout_pairs(teams: list[int]) -> tuple[list[tuple[int, int]], str]:
     return pairs, label
 
 
+# ── time helpers ─────────────────────────────────────────────────────────────
+
+def _add_minutes(time_str: str, minutes: int) -> str:
+    """Offset an "HH:MM" string by ``minutes``, wrapping at midnight."""
+    try:
+        h, m = (int(x) for x in time_str.split(":")[:2])
+    except (ValueError, AttributeError):
+        return time_str
+    total = h * 60 + m + minutes
+    return f"{(total // 60) % 24:02d}:{total % 60:02d}"
+
+
+def _match_time(base: str | None, day_index: int, interval: int) -> str | None:
+    """Return the kickoff time for the nth match (0-based) on a day.
+
+    When ``interval`` is 0 or ``base`` is None every match gets the same
+    base time (or None).  Otherwise each successive match shifts forward
+    by ``interval`` minutes.
+    """
+    if not base or interval == 0 or day_index == 0:
+        return base
+    return _add_minutes(base, day_index * interval)
+
+
 # ── round label helpers ───────────────────────────────────────────────────────
 
 def _rr_label(n: int) -> str:
@@ -134,12 +185,19 @@ def generate_fixtures(stage_id: int):
     ---------
     mode             "round_robin" | "double_round_robin" | "knockout"
     start_date       "YYYY-MM-DD"  — omit to create fixtures without dates
-    match_days       [1-7]         — isoweekdays that matches are played;
-                                     omit or [] to allow any day
-    matches_per_day  int           — how many matches share one date (default: all)
-    default_time     "HH:MM"       — applied to every created match (optional)
-    default_venue    str           — applied to every created match (optional)
+    match_days       [1-7]         — isoweekdays that matches are played (global fallback)
+    matches_per_day  int           — how many matches share one date (global fallback)
+    default_time     "HH:MM"       — applied to every created match (global fallback)
+    default_venue    str           — applied to every created match (global fallback)
     force            bool          — delete existing fixtures and regenerate
+    time_interval_minutes  int     — minutes between consecutive matches on the same day
+                                     (global fallback).  Set alongside default_time so the
+                                     scheduler can calculate each match's kickoff.
+    group_settings   list          — per-group overrides for group-stage scheduling.
+                                     Each item: { group_id, match_days, matches_per_day,
+                                     default_time, default_venue, time_interval_minutes }.
+                                     When present the groups are scheduled independently
+                                     (each on its own calendar) rather than interleaved.
     """
     stage = (
         Tla3bnyStage.query
@@ -169,7 +227,22 @@ def generate_fixtures(stage_id: int):
     per_day: int = max(1, _int(data.get("matches_per_day"), 9999))
     default_time: str | None = (data.get("default_time") or "").strip() or None
     default_venue: str | None = (data.get("default_venue") or "").strip() or None
+    time_interval: int = max(0, _int(data.get("time_interval_minutes"), 0))
     force: bool = bool(data.get("force"))
+
+    # Per-group scheduling settings (group stage only).
+    # Maps group_id → { match_days, per_day, time, venue, interval }.
+    per_group: dict[int, dict] = {}
+    for gs in (data.get("group_settings") or []):
+        gid = _int(gs.get("group_id"))
+        if gid:
+            per_group[gid] = {
+                "match_days": [v for v in (_int(x) for x in (gs.get("match_days") or [])) if v],
+                "per_day": max(1, _int(gs.get("matches_per_day"), 9999)),
+                "time": (gs.get("default_time") or "").strip() or None,
+                "venue": (gs.get("default_venue") or "").strip() or None,
+                "interval": max(0, _int(gs.get("time_interval_minutes"), 0)),
+            }
 
     # Guard: existing fixtures.
     existing = Tla3bnyMatch.query.filter_by(stage_id=stage_id).count()
@@ -211,7 +284,9 @@ def generate_fixtures(stage_id: int):
                 day_count = 0
             created.append(_make_match(
                 cage, stage_id, pool_group_id,
-                home_id, away_id, current_date, default_time, default_venue, label,
+                home_id, away_id, current_date,
+                _match_time(default_time, day_count, time_interval),
+                default_venue, label,
             ))
             if current_date is not None:
                 day_count += 1
@@ -232,35 +307,81 @@ def generate_fixtures(stage_id: int):
         if not group_schedules:
             return _err("Need at least 2 teams in at least one group")
 
-        max_rounds = max(len(r) for _, r in group_schedules)
-
-        current_date = (
-            _next_allowed_day(start_date, match_days) if start_date else None
-        )
-        day_count = 0
-
-        for round_idx in range(max_rounds):
-            label = _rr_label(round_idx + 1)
-
+        if per_group:
+            # ── independent per-group scheduling ──────────────────────────────
+            # Each group runs on its own calendar so different groups can play
+            # on different weekdays / venues without interfering with each other.
             for group, rounds in group_schedules:
-                if round_idx >= len(rounds):
-                    continue
-                for home_id, away_id in rounds[round_idx]:
-                    if current_date is not None and day_count >= per_day:
-                        current_date = _advance(current_date, match_days)
-                        day_count = 0
-                    created.append(_make_match(
-                        cage, stage_id, group.id,
-                        home_id, away_id, current_date, default_time, default_venue, label,
-                    ))
-                    if current_date is not None:
-                        day_count += 1
+                gs = per_group.get(group.id, {
+                    "match_days": match_days,
+                    "per_day": per_day,
+                    "time": default_time,
+                    "venue": default_venue,
+                })
+                g_days = gs["match_days"]
+                g_per_day = gs["per_day"]
+                g_time = gs["time"]
+                g_venue = gs["venue"]
 
-            # Each round starts on a fresh date so fixtures from different
-            # rounds never share a calendar day.
-            if current_date is not None:
-                current_date = _advance(current_date, match_days)
-                day_count = 0
+                g_date = (
+                    _next_allowed_day(start_date, g_days) if start_date else None
+                )
+                g_interval = gs.get("interval", 0)
+                g_day_count = 0
+
+                for round_idx, round_pairs in enumerate(rounds):
+                    label = _rr_label(round_idx + 1)
+                    for home_id, away_id in round_pairs:
+                        if g_date is not None and g_day_count >= g_per_day:
+                            g_date = _advance(g_date, g_days)
+                            g_day_count = 0
+                        created.append(_make_match(
+                            cage, stage_id, group.id,
+                            home_id, away_id, g_date,
+                            _match_time(g_time, g_day_count, g_interval),
+                            g_venue, label,
+                        ))
+                        if g_date is not None:
+                            g_day_count += 1
+
+                    # New round → fresh date for this group.
+                    if g_date is not None:
+                        g_date = _advance(g_date, g_days)
+                        g_day_count = 0
+
+        else:
+            # ── interleaved scheduling (single set of days for all groups) ────
+            max_rounds = max(len(r) for _, r in group_schedules)
+
+            current_date = (
+                _next_allowed_day(start_date, match_days) if start_date else None
+            )
+            day_count = 0
+
+            for round_idx in range(max_rounds):
+                label = _rr_label(round_idx + 1)
+
+                for group, rounds in group_schedules:
+                    if round_idx >= len(rounds):
+                        continue
+                    for home_id, away_id in rounds[round_idx]:
+                        if current_date is not None and day_count >= per_day:
+                            current_date = _advance(current_date, match_days)
+                            day_count = 0
+                        created.append(_make_match(
+                            cage, stage_id, group.id,
+                            home_id, away_id, current_date,
+                            _match_time(default_time, day_count, time_interval),
+                            default_venue, label,
+                        ))
+                        if current_date is not None:
+                            day_count += 1
+
+                # Each round starts on a fresh date so fixtures from different
+                # rounds never share a calendar day.
+                if current_date is not None:
+                    current_date = _advance(current_date, match_days)
+                    day_count = 0
 
     for m in created:
         db.session.add(m)
