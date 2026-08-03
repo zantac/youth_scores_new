@@ -118,7 +118,7 @@ def _target_academy():
 def update_own_academy():
     academy = _target_academy()
     data, files = _read_payload()
-    for field in ("name", "phone", "facebook_url", "training_place", "address", "description"):
+    for field in ("name", "name_en", "phone", "facebook_url", "training_place", "address", "description"):
         if field in data:
             val = (data.get(field) or "").strip()
             setattr(academy, field, val or None)

@@ -9,6 +9,15 @@ export function useTT() {
   return (ar: string, en: string) => (locale === 'ar' ? ar : en);
 }
 
+/** Bilingual *data* helper for user-entered names. Pass the primary (Arabic)
+ *  value and the optional English one; returns the active locale's, falling
+ *  back to whichever is present: nm(a.name, a.name_en). */
+export function useName() {
+  const { locale } = useApp();
+  return (primary?: string | null, en?: string | null): string =>
+    ((locale === 'en' ? (en || primary) : (primary || en)) ?? '');
+}
+
 /** Round academy/club logo, falling back to initials on the accent gradient. */
 export function LogoAvatar({
   src, name, size = 40,

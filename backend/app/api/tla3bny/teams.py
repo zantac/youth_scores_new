@@ -57,6 +57,7 @@ def create_team(academy_id: int):
         age_category_id=age_id,
         class_label=(data.get("class_label") or "").strip() or None,
         name=(data.get("name") or "").strip() or None,
+        name_en=(data.get("name_en") or "").strip() or None,
     )
     db.session.add(team)
     db.session.commit()
@@ -74,6 +75,8 @@ def update_team(team_id: int):
         team.class_label = (data.get("class_label") or "").strip() or None
     if "name" in data:
         team.name = (data.get("name") or "").strip() or None
+    if "name_en" in data:
+        team.name_en = (data.get("name_en") or "").strip() or None
     if "age_category_id" in data and _int(data.get("age_category_id")):
         team.age_category_id = _int(data.get("age_category_id"))
     db.session.commit()
@@ -167,6 +170,7 @@ def add_coach(team_id: int):
     coach = Tla3bnyCoach(
         team_id=team_id,
         name=name,
+        name_en=(data.get("name_en") or "").strip() or None,
         role_ar=(data.get("role_ar") or "").strip() or None,
         phone=(data.get("phone") or "").strip() or None,
         photo_path=photo,
@@ -186,7 +190,7 @@ def update_coach(coach_id: int):
     if not auth.can_manage_team(auth.current_user(), coach.team_id):
         return _forbid()
     data, files = _read_payload()
-    for field in ("name", "role_ar", "phone"):
+    for field in ("name", "name_en", "role_ar", "phone"):
         if field in data:
             setattr(coach, field, (data.get(field) or "").strip() or None)
     if "start_date" in data:

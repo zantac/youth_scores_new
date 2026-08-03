@@ -6,7 +6,7 @@ import { useApp } from '@/context/AppContext';
 import { formatMatchDate, shiftDay, todayStr } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from './MatchRow';
-import { EmptyState, LogoAvatar, useTT } from './kit';
+import { EmptyState, LogoAvatar, useTT, useName } from './kit';
 
 /**
  * The home matches feed, built the way youthscores builds it: a window of
@@ -47,6 +47,7 @@ function groupByDateThenCompetition(matches: TMatch[]): DateGroup[] {
 
 function HeroCard({ m }: { m: TMatch }) {
   const tt = useTT();
+  const nm = useName();
   const { locale } = useApp();
   const isLive = m.status === 'live';
   const isFinished = m.status === 'completed' || m.status === 'finished';
@@ -68,8 +69,8 @@ function HeroCard({ m }: { m: TMatch }) {
       </div>
       <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
         <div className="flex flex-col items-center gap-2">
-          <LogoAvatar src={m.home_logo} name={m.home_team_name} size={56} />
-          <span className="text-sm font-bold leading-tight">{m.home_team_name}</span>
+          <LogoAvatar src={m.home_logo} name={nm(m.home_team_name, m.home_team_name_en)} size={56} />
+          <span className="text-sm font-bold leading-tight">{nm(m.home_team_name, m.home_team_name_en)}</span>
         </div>
         <div className="flex flex-col items-center min-w-[76px]">
           {(isFinished || isLive) && m.home_score != null
@@ -78,8 +79,8 @@ function HeroCard({ m }: { m: TMatch }) {
           <span className="text-hint text-[10px] mt-1">{formatMatchDate(m.date ?? '', locale)}</span>
         </div>
         <div className="flex flex-col items-center gap-2">
-          <LogoAvatar src={m.away_logo} name={m.away_team_name} size={56} />
-          <span className="text-sm font-bold leading-tight">{m.away_team_name}</span>
+          <LogoAvatar src={m.away_logo} name={nm(m.away_team_name, m.away_team_name_en)} size={56} />
+          <span className="text-sm font-bold leading-tight">{nm(m.away_team_name, m.away_team_name_en)}</span>
         </div>
       </div>
     </Link>

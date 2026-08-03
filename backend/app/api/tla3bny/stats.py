@@ -50,15 +50,29 @@ def stats():
                 Tla3bnyCompetitionPlayer.status == "pending",
             ).count()
         )
+        approved_in = (
+            Tla3bnyCompetitionPlayer.query
+            .join(Tla3bnyCompetitionTeam,
+                  Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id)
+            .filter(
+                Tla3bnyCompetitionTeam.competition_id == c.id,
+                Tla3bnyCompetitionPlayer.status == "approved",
+            ).count()
+        )
         per_comp.append({
             "id": c.id,
             "name": c.name,
+            "name_en": c.name_en,
             "season_name": c.season.name_ar or c.season.name if c.season else None,
             "status": c.status,
             "teams": comp_teams,
             "total_matches": tot,
             "played_matches": done,
             "pending_players": pending_in,
+            # For the priced player cap on the dashboard: approved players count
+            # against max_players (null = no cap set).
+            "approved_players": approved_in,
+            "max_players": c.max_players,
         })
 
     return jsonify({

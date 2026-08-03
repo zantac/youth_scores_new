@@ -10,7 +10,7 @@ export default function Tla3bnyRegisterPage() {
   const { register } = useTla3bnyAuth();
   const router = useRouter();
   const [f, setF] = useState({
-    name: '', username: '', password: '', phone: '', email: '', address: '',
+    name: '', name_en: '', username: '', password: '', phone: '', email: '', address: '',
     facebook_url: '', training_place: '',
   });
   const [logo, setLogo] = useState<File | null>(null);
@@ -52,6 +52,9 @@ export default function Tla3bnyRegisterPage() {
           className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-5 space-y-4 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.7)]">
           <Field label={tt('اسم الأكاديمية', 'Academy name')}>
             <input value={f.name} autoFocus onChange={set('name')} className={inputCls} />
+          </Field>
+          <Field label={tt('الاسم بالإنجليزية (اختياري)', 'Name in English (optional)')}>
+            <input value={f.name_en} onChange={set('name_en')} dir="ltr" className={inputCls} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label={tt('اسم المستخدم', 'Username')}>

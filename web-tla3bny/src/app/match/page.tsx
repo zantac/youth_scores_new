@@ -12,7 +12,7 @@ import { slotBase } from '@/lib/tla3bnyFormations';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import PitchView, { type SlotView } from '@/components/tla3bny/PitchView';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
 // ── draft auto-save ───────────────────────────────────────────────────────────
 const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
@@ -85,8 +85,13 @@ function matchScoreLabel(m: TMatch) {
 const goals      = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'goal');
 const assists    = (evs: TMatchEvent[]) => evs.filter(e => e.event_type === 'assist');
 
-function teamLabel(m: TMatch, teamId: number) {
-  return teamId === m.home_team_id ? m.home_team_name : m.away_team_name;
+function teamLabel(
+  m: TMatch, teamId: number,
+  nm?: (a?: string | null, b?: string | null) => string,
+) {
+  const home = nm ? nm(m.home_team_name, m.home_team_name_en) : m.home_team_name;
+  const away = nm ? nm(m.away_team_name, m.away_team_name_en) : m.away_team_name;
+  return teamId === m.home_team_id ? home : away;
 }
 
 // ── ── ── PUBLIC TABS ── ── ──
@@ -123,11 +128,12 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
 // Card/sheet view: photo grid for match-day identity verification.
 function SheetView({ m, lineups }: { m: TMatch; lineups: TLineup[] }) {
   const tt = useTT();
+  const nm = useName();
   return (
     <div className="space-y-8">
       {[m.home_team_id, m.away_team_id].map(tid => {
         const l = lineups.find(x => x.team_id === tid);
-        const name = teamLabel(m, tid);
+        const name = teamLabel(m, tid, nm);
         if (!l || l.slots.every(s => s.player_id == null)) {
           return (
             <p key={tid} className="text-hint text-sm text-center py-4">
@@ -164,6 +170,7 @@ function SheetView({ m, lineups }: { m: TMatch; lineups: TLineup[] }) {
 // Lineup tab: pitch view + card view toggle for both teams.
 function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; canEdit: (id: number) => boolean }) {
   const tt = useTT();
+  const nm = useName();
   const [view, setView] = useState<'pitch' | 'cards'>('pitch');
   const hasLineups = lineups.some(l => l.slots.some(s => s.player_id != null));
 
@@ -189,7 +196,7 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
                 <Link key={tid} href={`/lineup?match=${m.id}&team=${tid}`}
                   className="flex items-center justify-between bg-cardBg border border-dashed border-aqua/40 rounded-2xl px-4 py-4 hover:bg-aqua/5 transition-colors">
                   <div>
-                    <p className="font-bold text-text text-sm">{teamLabel(m, tid)}</p>
+                    <p className="font-bold text-text text-sm">{teamLabel(m, tid, nm)}</p>
                     <p className="text-hint text-xs mt-0.5">{tt('لا تشكيلة بعد', 'No lineup yet')}</p>
                   </div>
                   <span className="text-aqua text-sm font-bold">{tt('إضافة التشكيلة ←', 'Add lineup →')}</span>
@@ -357,6 +364,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   onUpdate: (m: TMatch) => void; onLineupsUpdate: () => void;
 }) {
   const tt = useTT();
+  const nm = useName();
 
   // Holds the current form values so the auto-save interval never captures stale
   // state via closure. Initialized with empty values; the sync useEffect keeps it
@@ -627,9 +635,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         {/* Regular time */}
         <p className="text-hint text-[11px] font-bold">{tt('الوقت الأصلي (90 دقيقة)', 'Regular time (90 min)')}</p>
         <div className="flex items-center justify-center gap-6 py-1">
-          <ScoreInput label={m.home_team_name ?? ''} value={homeScore} onChange={changeHomeScore} />
+          <ScoreInput label={nm(m.home_team_name, m.home_team_name_en)} value={homeScore} onChange={changeHomeScore} />
           <span className="text-hint font-black text-2xl">-</span>
-          <ScoreInput label={m.away_team_name ?? ''} value={awayScore} onChange={changeAwayScore} />
+          <ScoreInput label={nm(m.away_team_name, m.away_team_name_en)} value={awayScore} onChange={changeAwayScore} />
         </div>
 
         {/* Extra time toggle */}
@@ -646,9 +654,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             {tt('بعد الوقت الإضافي (النتيجة التراكمية)', 'After extra time (cumulative score)')}
           </p>
           <div className="flex items-center justify-center gap-6 py-1">
-            <ScoreInput label={m.home_team_name ?? ''} value={homeET} onChange={setHomeET} />
+            <ScoreInput label={nm(m.home_team_name, m.home_team_name_en)} value={homeET} onChange={setHomeET} />
             <span className="text-hint font-black text-2xl">-</span>
-            <ScoreInput label={m.away_team_name ?? ''} value={awayET} onChange={setAwayET} />
+            <ScoreInput label={nm(m.away_team_name, m.away_team_name_en)} value={awayET} onChange={setAwayET} />
           </div>
 
           {/* Penalty shootout toggle — only if ET ended in a draw */}
@@ -665,9 +673,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
               {tt('نتيجة ضربات الجزاء', 'Penalty shootout score')}
             </p>
             <div className="flex items-center justify-center gap-6 py-1">
-              <ScoreInput label={m.home_team_name ?? ''} value={homePen} onChange={setHomePen} />
+              <ScoreInput label={nm(m.home_team_name, m.home_team_name_en)} value={homePen} onChange={setHomePen} />
               <span className="text-hint font-black text-2xl">-</span>
-              <ScoreInput label={m.away_team_name ?? ''} value={awayPen} onChange={setAwayPen} />
+              <ScoreInput label={nm(m.away_team_name, m.away_team_name_en)} value={awayPen} onChange={setAwayPen} />
             </div>
           </>)}
         </>)}
@@ -838,7 +846,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             return (
               <Link key={tid} href={`/lineup?match=${m.id}&team=${tid}`}
                 className="flex items-center justify-between bg-darkBg border border-bdr rounded-xl px-3 py-2.5 hover:border-aqua/40 transition-colors">
-                <span className="text-text text-sm font-bold">{teamLabel(m, tid)}</span>
+                <span className="text-text text-sm font-bold">{teamLabel(m, tid, nm)}</span>
                 <span className="text-aqua text-xs font-bold">
                   {l ? `${tt('تعديل', 'Edit')} (${l.slots.filter(s => !s.is_substitute).length} ${tt('لاعب', 'players')})` : tt('إضافة ←', 'Add →')}
                 </span>
@@ -898,6 +906,9 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
   onSave: () => void; saving: boolean; ok: boolean;
   tt: (ar: string, en: string) => string;
 }) {
+  const nm = useName();
+  const homeName = nm(m.home_team_name, m.home_team_name_en);
+  const awayName = nm(m.away_team_name, m.away_team_name_en);
   const goalEvs  = events.filter(e => e.event_type === 'goal');
   const assistEvs = events.filter(e => e.event_type === 'assist');
 
@@ -957,7 +968,7 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
                     {g.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
                   </div>
                   <span className="text-[11px] text-hint tabular-nums">
-                    {g.team_id === m.home_team_id ? m.home_team_name?.slice(0, 10) : m.away_team_name?.slice(0, 10)}
+                    {(g.team_id === m.home_team_id ? homeName : awayName).slice(0, 10)}
                     {g.minute != null && ` · ${g.minute}'`}
                   </span>
                   <button onClick={() => { onRemove(g.id); if (assist) onRemove(assist.id); }}
@@ -976,8 +987,8 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('الفريق', 'Team')}>
             <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvScorer(''); setEvAssist(''); }} className={inputCls}>
-              <option value={m.home_team_id}>{m.home_team_name}</option>
-              <option value={m.away_team_id}>{m.away_team_name}</option>
+              <option value={m.home_team_id}>{homeName}</option>
+              <option value={m.away_team_id}>{awayName}</option>
             </select>
           </Field>
           <Field label={tt('الدقيقة', 'Minute')}>
@@ -1036,6 +1047,9 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
   onSave: () => void; saving: boolean; ok: boolean;
   tt: (ar: string, en: string) => string;
 }) {
+  const nm = useName();
+  const homeName = nm(m.home_team_name, m.home_team_name_en);
+  const awayName = nm(m.away_team_name, m.away_team_name_en);
   const shown = events.filter(e => types.includes(e.event_type));
   const [evType, setEvType] = useState<string>(types[0]);
   const [evTeam, setEvTeam] = useState(String(m.home_team_id));
@@ -1088,7 +1102,7 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
                 {e.is_winning_kick && <span className="text-[9px] text-gold">★</span>}
               </div>
               <span className="text-[11px] text-hint tabular-nums">
-                {e.team_id === m.home_team_id ? m.home_team_name?.slice(0, 8) : m.away_team_name?.slice(0, 8)}
+                {(e.team_id === m.home_team_id ? homeName : awayName).slice(0, 8)}
                 {e.minute != null && ` · ${e.minute}'`}
               </span>
               <button onClick={() => onRemove(e.id)} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
@@ -1109,8 +1123,8 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
           </Field>
           <Field label={tt('الفريق', 'Team')}>
             <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvPlayer(''); }} className={inputCls}>
-              <option value={m.home_team_id}>{m.home_team_name}</option>
-              <option value={m.away_team_id}>{m.away_team_name}</option>
+              <option value={m.home_team_id}>{homeName}</option>
+              <option value={m.away_team_id}>{awayName}</option>
             </select>
           </Field>
           <Field label={tt('اللاعب', 'Player')}>
@@ -1159,8 +1173,11 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
 // ── ── ── SHARE SHEET ── ── ──
 function ShareSheet({ m, onClose }: { m: TMatch; onClose: () => void }) {
   const tt = useTT();
+  const nm = useName();
+  const homeName = nm(m.home_team_name, m.home_team_name_en);
+  const awayName = nm(m.away_team_name, m.away_team_name_en);
   const scoreText = m.home_score != null ? `${m.home_score} - ${m.away_score}` : tt('ضد', 'vs');
-  const text = `${m.home_team_name} ${scoreText} ${m.away_team_name} · ${m.competition_name ?? 'tla3bny'}`;
+  const text = `${homeName} ${scoreText} ${awayName} · ${m.competition_name ?? 'tla3bny'}`;
   const url = typeof window !== 'undefined' ? window.location.href : '';
   return (
     <div className="fixed inset-0 z-[200] flex items-end" onClick={onClose}>
@@ -1175,13 +1192,13 @@ function ShareSheet({ m, onClose }: { m: TMatch; onClose: () => void }) {
           </div>
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-center">
             <div className="flex flex-col items-center gap-1">
-              <LogoAvatar src={m.home_logo} name={m.home_team_name} size={48} />
-              <span className="text-xs font-bold text-white">{m.home_team_name}</span>
+              <LogoAvatar src={m.home_logo} name={homeName} size={48} />
+              <span className="text-xs font-bold text-white">{homeName}</span>
             </div>
             <span className="text-3xl font-extrabold tnum text-gold">{scoreText}</span>
             <div className="flex flex-col items-center gap-1">
-              <LogoAvatar src={m.away_logo} name={m.away_team_name} size={48} />
-              <span className="text-xs font-bold text-white">{m.away_team_name}</span>
+              <LogoAvatar src={m.away_logo} name={awayName} size={48} />
+              <span className="text-xs font-bold text-white">{awayName}</span>
             </div>
           </div>
         </div>
@@ -1205,6 +1222,7 @@ type PublicTab = 'lineup' | 'events';
 
 function MatchContent() {
   const tt = useTT();
+  const nm = useName();
   const params = useSearchParams();
   const router = useRouter();
   const id = Number(params.get('id'));
@@ -1278,8 +1296,8 @@ function MatchContent() {
         </p>
         <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <Link href={`/team?id=${m.home_team_id}`} className="flex flex-col items-center gap-2 group">
-            <LogoAvatar src={m.home_logo} name={m.home_team_name} size={64} />
-            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua transition-colors">{m.home_team_name}</p>
+            <LogoAvatar src={m.home_logo} name={nm(m.home_team_name, m.home_team_name_en)} size={64} />
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua transition-colors">{nm(m.home_team_name, m.home_team_name_en)}</p>
           </Link>
           <div className="flex flex-col items-center gap-1 min-w-[100px]">
             {hasScore && (finished || live) ? (
@@ -1312,8 +1330,8 @@ function MatchContent() {
             </span>
           </div>
           <Link href={`/team?id=${m.away_team_id}`} className="flex flex-col items-center gap-2 group">
-            <LogoAvatar src={m.away_logo} name={m.away_team_name} size={64} />
-            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua transition-colors">{m.away_team_name}</p>
+            <LogoAvatar src={m.away_logo} name={nm(m.away_team_name, m.away_team_name_en)} size={64} />
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua transition-colors">{nm(m.away_team_name, m.away_team_name_en)}</p>
           </Link>
         </div>
         {m.venue && <p className="relative text-hint text-[11px] mt-4">🏟️ {m.venue}</p>}
