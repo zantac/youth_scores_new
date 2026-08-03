@@ -155,7 +155,10 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
     __tablename__ = "tla3bny_academies"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # ``name`` is the primary (Arabic) name; ``name_en`` is the optional English
+    # one. Display falls back to the other language when one is missing.
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(sa.String(255))
     logo_path: Mapped[str | None] = mapped_column(sa.String(512))
 
     # Public profile. A phone number is required at registration — it is how an
@@ -186,6 +189,7 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
         data = {
             "id": self.id,
             "name": self.name,
+            "name_en": self.name_en,
             "logo_path": self.logo_path,
             "phone": self.phone,
             "facebook_url": self.facebook_url,
@@ -201,7 +205,7 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
                 self.created_at.isoformat() if self.created_at else None
             )
         if with_teams:
-            data["teams"] = [t.to_dict() for t in self.teams]
+            data["teams"] = [t.to_dict() for t in teams_by_age(self.teams)]
         return data
 
     def __repr__(self) -> str:
@@ -297,6 +301,7 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
     class_label: Mapped[str | None] = mapped_column(sa.String(30))
     # Optional free-text override; otherwise the display name is derived.
     name: Mapped[str | None] = mapped_column(sa.String(255))
+    name_en: Mapped[str | None] = mapped_column(sa.String(255))
 
     academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="teams")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -307,11 +312,19 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
         back_populates="team", cascade="all, delete-orphan"
     )
 
-    def display_name(self) -> str:
-        if self.name:
-            return self.name
-        age = self.age_category.label if self.age_category else ""
-        acad = self.academy.name if self.academy else ""
+    def display_name(self, lang: str = "ar") -> str:
+        """The team's shown name. ``lang="en"`` prefers the English override /
+        academy / age label, falling back to the Arabic/primary when missing."""
+        if lang == "en":
+            if self.name_en or self.name:
+                return self.name_en or self.name
+            age = (self.age_category.label_en or self.age_category.label) if self.age_category else ""
+            acad = (self.academy.name_en or self.academy.name) if self.academy else ""
+        else:
+            if self.name:
+                return self.name
+            age = self.age_category.label if self.age_category else ""
+            acad = self.academy.name if self.academy else ""
         base = f"{acad} {age}".strip()
         if self.class_label:
             return f"{base} {self.class_label}".strip()
@@ -322,12 +335,15 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
             "id": self.id,
             "academy_id": self.academy_id,
             "academy_name": self.academy.name if self.academy else None,
+            "academy_name_en": self.academy.name_en if self.academy else None,
             "academy_logo": self.academy.logo_path if self.academy else None,
             "age_category_id": self.age_category_id,
             "age_category": self.age_category.label if self.age_category else None,
             "class_label": self.class_label,
             "name": self.name,
+            "name_en": self.name_en,
             "display_name": self.display_name(),
+            "display_name_en": self.display_name("en"),
         }
         if with_roster:
             data["coaches"] = [c.to_dict() for c in sorted_coaches(self.coaches)]
@@ -338,6 +354,28 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
 
     def __repr__(self) -> str:
         return f"<Tla3bnyTeam {self.id} {self.display_name()}>"
+
+
+def teams_by_age(teams: list["Tla3bnyTeam"]) -> list["Tla3bnyTeam"]:
+    """An academy's squads ordered by age, oldest players first.
+
+    Age labels are birth years (2013 is an older group than 2016), so "older to
+    younger" means ascending birth year. We sort on the age category's
+    ``oldest_birth_year``, falling back to the numeric label, and break ties by
+    class label so multiple squads in one age keep a stable order. Ages with no
+    year fall to the end.
+    """
+    def key(t: "Tla3bnyTeam"):
+        ac = t.age_category
+        year = ac.oldest_birth_year if ac else None
+        if year is None and ac and ac.label:
+            try:
+                year = int(ac.label)
+            except (TypeError, ValueError):
+                year = None
+        return (year is None, year or 0, t.class_label or "", t.display_name())
+
+    return sorted(teams, key=key)
 
 
 def sorted_coaches(coaches: list["Tla3bnyCoach"]) -> list["Tla3bnyCoach"]:
@@ -364,6 +402,7 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
         sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(sa.String(255))
     role_ar: Mapped[str | None] = mapped_column(sa.String(120))
     phone: Mapped[str | None] = mapped_column(sa.String(50))
     photo_path: Mapped[str | None] = mapped_column(sa.String(512))
@@ -378,6 +417,7 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
             "id": self.id,
             "team_id": self.team_id,
             "name": self.name,
+            "name_en": self.name_en,
             "role_ar": self.role_ar,
             "phone": self.phone,
             "photo_path": self.photo_path,
@@ -396,6 +436,7 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(sa.String(255))
     dob: Mapped[date | None] = mapped_column(sa.Date)
     position: Mapped[str | None] = mapped_column(sa.String(50))
     sub_position: Mapped[str | None] = mapped_column(sa.String(50))
@@ -424,6 +465,7 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
         data = {
             "id": self.id,
             "name": self.name,
+            "name_en": self.name_en,
             "dob": self.dob.isoformat() if self.dob else None,
             "position": self.position,
             "sub_position": self.sub_position,
@@ -504,6 +546,7 @@ class Tla3bnyPlayerTeam(TimestampMixin, db.Model):
             "id": self.id,
             "player_id": self.player_id,
             "player_name": self.player.name if self.player else None,
+            "player_name_en": self.player.name_en if self.player else None,
             "photo_path": self.player.photo_path if self.player else None,
             "position": self.player.position if self.player else None,
             "team_id": self.team_id,
@@ -559,6 +602,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
         sa.ForeignKey("tla3bny_seasons.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    name_en: Mapped[str | None] = mapped_column(sa.String(255))
     description: Mapped[str | None] = mapped_column(sa.Text)
     logo_path: Mapped[str | None] = mapped_column(sa.String(512))
     location: Mapped[str | None] = mapped_column(sa.String(255))
@@ -594,6 +638,11 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     registration_open: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=True
     )
+    # The cap on how many players may take part in this competition across every
+    # team. Set by the super admin at creation: tla3bny is billed on the number
+    # of contributing players, so this is the size the organiser is paying for.
+    # NULL means no cap has been set (unlimited / unpriced).
+    max_players: Mapped[int | None] = mapped_column(sa.Integer)
 
     season: Mapped["Tla3bnySeason"] = relationship(back_populates="competitions")
     admins: Mapped[list["Tla3bnyCompetitionAdmin"]] = relationship(
@@ -619,6 +668,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "season_id": self.season_id,
             "season_name": self.season.name if self.season else None,
             "name": self.name,
+            "name_en": self.name_en,
             "description": self.description,
             "logo_path": self.logo_path,
             "location": self.location,
@@ -634,6 +684,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "facebook_url": self.facebook_url,
             "location_url": self.location_url,
             "registration_open": self.registration_open,
+            "max_players": self.max_players,
         }
         if with_ages:
             data["ages"] = [a.to_dict() for a in self.ages]
@@ -971,9 +1022,13 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
             "competition_name": self.competition.name if self.competition else None,
             "team_id": self.team_id,
             "team_name": self.team.display_name() if self.team else None,
+            "team_name_en": self.team.display_name("en") if self.team else None,
             "academy_id": self.team.academy_id if self.team else None,
             "academy_name": (
                 self.team.academy.name if self.team and self.team.academy else None
+            ),
+            "academy_name_en": (
+                self.team.academy.name_en if self.team and self.team.academy else None
             ),
             "academy_logo": (
                 self.team.academy.logo_path
@@ -1031,6 +1086,7 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
             "competition_team_id": self.competition_team_id,
             "player_id": self.player_id,
             "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
             "photo_path": p.photo_path if p else None,
             "position": p.position if p else None,
             "dob": p.dob.isoformat() if p and p.dob else None,
@@ -1173,6 +1229,8 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "away_team_id": self.away_team_id,
             "home_team_name": home.display_name() if home else None,
             "away_team_name": away.display_name() if away else None,
+            "home_team_name_en": home.display_name("en") if home else None,
+            "away_team_name_en": away.display_name("en") if away else None,
             "home_academy_id": home.academy_id if home else None,
             "away_academy_id": away.academy_id if away else None,
             "home_logo": home.academy.logo_path if home and home.academy else None,
@@ -1244,6 +1302,7 @@ class Tla3bnyMatchEvent(TimestampMixin, db.Model):
             "match_id": self.match_id,
             "player_id": self.player_id,
             "player_name": self.player.name if self.player else None,
+            "player_name_en": self.player.name_en if self.player else None,
             "team_id": self.team_id,
             "event_type": self.event_type,
             "minute": self.minute,

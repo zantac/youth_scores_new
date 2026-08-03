@@ -6,7 +6,7 @@ import {
   tStats, tSeasons, tCreateSeason, tUpdateSeason, tDeleteSeason,
   tCategories, tCreateCategory, tUpdateCategory, tDeleteCategory,
   tManageAcademies, tRestoreAcademy, tSuspendAcademy, tSetAcademyAccount,
-  tCompetitions, tCompetition, tCreateCompetition, tDeleteCompetition, tCloneCompetition, tAddCompAdmin, tRemoveCompAdmin,
+  tCompetitions, tCompetition, tCreateCompetition, tUpdateCompetition, tDeleteCompetition, tCloneCompetition, tAddCompAdmin, tRemoveCompAdmin,
   tMatches,
   type TStats, type TSeason, type TCategory, type TAcademy, type TCompetition, type TMatch,
 } from '@/lib/tla3bnyApi';
@@ -16,12 +16,13 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
-import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
 type Tab = 'dashboard' | 'matches' | 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
 
 export default function AdminPage() {
   const tt = useTT();
+  const nm = useName();
   const router = useRouter();
   const { user, token, loading, isSuperAdmin, isCompetitionAdmin, competitions } = useTla3bnyAuth();
   const [tab, setTab] = useState<Tab>('dashboard');
@@ -43,7 +44,7 @@ export default function AdminPage() {
             {competitions.map(c => (
               <Link key={c.id} href={`/manage?comp=${c.id}`}>
                 <Card className="p-3 flex items-center justify-between hover:border-aqua/50">
-                  <span className="font-bold text-text">{c.name}</span>
+                  <span className="font-bold text-text">{nm(c.name, c.name_en)}</span>
                   <span className="text-xs text-aqua font-bold">{tt('إدارة ←', 'Manage →')}</span>
                 </Card>
               </Link>
@@ -100,6 +101,7 @@ function StatCard({ icon, label, value, tone = 'text-text' }: {
 
 function Dashboard({ token, user }: { token: string; user: import('@/lib/tla3bnyApi').TUser }) {
   const tt = useTT();
+  const nm = useName();
   const [s, setS] = useState<TStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -188,7 +190,7 @@ function Dashboard({ token, user }: { token: string; user: import('@/lib/tla3bny
                 <div key={c.id} className="border-t border-bdr/50 pt-3 first:border-t-0 first:pt-0">
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <div className="min-w-0">
-                      <span className="font-bold text-text text-sm truncate block">{c.name}</span>
+                      <span className="font-bold text-text text-sm truncate block">{nm(c.name, c.name_en)}</span>
                       <span className="text-[11px] text-hint">{c.season_name}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 text-[11px]">
@@ -215,6 +217,25 @@ function Dashboard({ token, user }: { token: string; user: import('@/lib/tla3bny
                       </div>
                     )}
                   </div>
+                  {/* Priced participating-player cap: approved players vs limit. */}
+                  {c.max_players != null && (() => {
+                    const used = c.approved_players;
+                    const cap = c.max_players!;
+                    const capPct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+                    const full = used >= cap;
+                    const near = !full && cap > 0 && used / cap >= 0.8;
+                    const barColor = full ? 'bg-loss' : near ? 'bg-gold' : 'bg-win';
+                    const numColor = full ? 'text-loss' : near ? 'text-gold' : 'text-win';
+                    return (
+                      <div className="flex items-center gap-2 text-[11px] text-hint tabular-nums mt-1">
+                        <span className={`${numColor} font-bold shrink-0`}>🎟️ {used}/{cap} {tt('لاعب', 'players')}</span>
+                        <div className="flex-1 h-1.5 bg-darkBg rounded-full overflow-hidden">
+                          <div className={`h-full ${barColor} rounded-full`} style={{ width: `${capPct}%` }} />
+                        </div>
+                        {full && <span className="text-loss font-bold shrink-0">{tt('مكتمل', 'Full')}</span>}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })
@@ -667,7 +688,7 @@ function Competitions({ token }: { token: string }) {
   const [items, setItems] = useState<TCompetition[]>([]);
   const [filterSeason, setFilterSeason] = useState('');
   const [q, setQ] = useState('');
-  const [f, setF] = useState({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS });
+  const [f, setF] = useState({ season_id: '', name: '', name_en: '', location: '', max_players: '', docs: DEFAULT_DOCS });
   const reload = useCallback(() => { tCompetitions(undefined, token).then(setItems).catch(() => setItems([])); }, [token]);
   useEffect(() => {
     tSeasons().then(ss => {
@@ -682,10 +703,13 @@ function Competitions({ token }: { token: string }) {
     if (!f.season_id || !f.name) return;
     await tCreateCompetition(
       token,
-      { season_id: Number(f.season_id), name: f.name, location: f.location || undefined },
+      {
+        season_id: Number(f.season_id), name: f.name, name_en: f.name_en || undefined, location: f.location || undefined,
+        max_players: f.max_players ? Number(f.max_players) : undefined,
+      },
       null, toLines(f.docs),
     );
-    setF({ season_id: '', name: '', location: '', docs: DEFAULT_DOCS }); reload();
+    setF({ season_id: '', name: '', name_en: '', location: '', max_players: '', docs: DEFAULT_DOCS }); reload();
   };
   const visible = items.filter(c =>
     (!filterSeason || String(c.season_id) === filterSeason) &&
@@ -726,7 +750,19 @@ function Competitions({ token }: { token: string }) {
           </Field>
           <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} className={inputCls} /></Field>
         </div>
+        <Field label={tt('الاسم بالإنجليزية (اختياري)', 'Name in English (optional)')}><input value={f.name_en} onChange={e => setF({ ...f, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
         <Field label={tt('المكان', 'Location')}><input value={f.location} onChange={e => setF({ ...f, location: e.target.value })} className={inputCls} /></Field>
+        <Field label={tt('الحد الأقصى لعدد اللاعبين المشاركين', 'Max participating players')}>
+          <input
+            type="number" min={1} inputMode="numeric" value={f.max_players}
+            onChange={e => setF({ ...f, max_players: e.target.value })}
+            placeholder={tt('بدون حد', 'No limit')} className={inputCls}
+          />
+        </Field>
+        <p className="text-[10px] text-hint -mt-1">
+          {tt('يحدد سعر استخدام تلاعبني حسب عدد اللاعبين المشاركين في البطولة. اتركه فارغًا لعدم وضع حد.',
+              'Sets the tla3bny price by the number of players taking part in the competition. Leave empty for no limit.')}
+        </p>
         <Field label={tt('أوراق اللاعبين المطلوبة (سطر لكل ورقة)', 'Required player papers (one per line)')}>
           <textarea value={f.docs} onChange={e => setF({ ...f, docs: e.target.value })} rows={4} className={inputCls} />
         </Field>
@@ -742,16 +778,32 @@ function Competitions({ token }: { token: string }) {
 
 function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string; seasons: TSeason[]; reload: () => void }) {
   const tt = useTT();
+  const nm = useName();
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneSeason, setCloneSeason] = useState('');
   const [cloneBusy, setCloneBusy] = useState(false);
   const [cloneMsg, setCloneMsg] = useState<string | null>(null);
+  const [limitOpen, setLimitOpen] = useState(false);
+  const [limitVal, setLimitVal] = useState(c.max_players == null ? '' : String(c.max_players));
+  const [limitBusy, setLimitBusy] = useState(false);
+  const [limitMsg, setLimitMsg] = useState<string | null>(null);
   const [af, setAf] = useState({ username: '', password: '', name: '' });
   const [msg, setMsg] = useState<string | null>(null);
 
   const otherSeasons = seasons.filter(s => s.id !== c.season_id);
+
+  const saveLimit = async () => {
+    setLimitBusy(true); setLimitMsg(null);
+    try {
+      // '' clears the cap (unlimited); a number sets it.
+      await tUpdateCompetition(token, c.id, { max_players: limitVal === '' ? '' : Number(limitVal) });
+      setLimitMsg(tt('✓ تم الحفظ', '✓ Saved'));
+      reload();
+    } catch (e) { setLimitMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setLimitBusy(false); }
+  };
 
   const addAdmin = async () => {
     try {
@@ -776,15 +828,38 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
   return (
     <Card className="p-3">
       <div className="flex items-center justify-between">
-        <span className="font-bold text-text">{c.name} <span className="text-[11px] text-hint">· {c.season_name}</span></span>
+        <span className="font-bold text-text">{nm(c.name, c.name_en)} <span className="text-[11px] text-hint">· {c.season_name}</span></span>
         <div className="flex items-center gap-2">
           <button onClick={() => setDocsOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('الأوراق', 'Papers')}</button>
+          <button onClick={() => { setLimitOpen(o => !o); setLimitMsg(null); }} className="text-xs text-teal font-bold hover:underline">
+            {tt('حد اللاعبين', 'Player limit')}{c.max_players != null && <span className="text-hint font-normal"> · {c.max_players}</span>}
+          </button>
           <button onClick={() => setAdminOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('المنظمون', 'Organizers')}</button>
           <button onClick={() => { setCloneOpen(o => !o); setCloneMsg(null); }} className="text-xs text-gold font-bold hover:underline">{tt('نسخ لموسم', 'Clone')}</button>
           <Link href={`/manage?comp=${c.id}`} className="text-xs text-aqua font-bold hover:underline">{tt('إدارة', 'Manage')}</Link>
           <button onClick={async () => { if (confirm(tt('حذف البطولة؟', 'Delete competition?'))) { await tDeleteCompetition(token, c.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
         </div>
       </div>
+
+      {limitOpen && (
+        <div className="mt-2 pt-2 border-t border-bdr/50 space-y-2">
+          <p className="text-[11px] text-hint">
+            {tt('الحد الأقصى لعدد اللاعبين المشاركين في البطولة كلها — يُحدد سعر تلاعبني. اتركه فارغًا لعدم وضع حد.',
+                'Max players taking part across the whole competition — sets the tla3bny price. Leave empty for no limit.')}
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="number" min={1} inputMode="numeric" value={limitVal}
+              onChange={e => setLimitVal(e.target.value)}
+              placeholder={tt('بدون حد', 'No limit')} className={inputCls + ' flex-1 text-sm'}
+            />
+            <PrimaryButton onClick={saveLimit} disabled={limitBusy} className="text-sm shrink-0">
+              {limitBusy ? tt('…', '…') : tt('حفظ', 'Save')}
+            </PrimaryButton>
+          </div>
+          {limitMsg && <p className={`text-[11px] ${limitMsg.startsWith('✓') ? 'text-win' : 'text-loss'}`}>{limitMsg}</p>}
+        </div>
+      )}
 
       {cloneOpen && (
         <div className="mt-2 pt-2 border-t border-bdr/50 space-y-2">

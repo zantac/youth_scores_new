@@ -21,12 +21,13 @@ import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
 type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
 
 function ManageContent() {
   const tt = useTT();
+  const nm = useName();
   const params = useSearchParams();
   const router = useRouter();
   const compId = Number(params.get('comp'));
@@ -56,7 +57,7 @@ function ManageContent() {
   return (
     <div className="space-y-4">
       <Link href="/admin" className="text-sm text-hint hover:text-aqua">← {tt('الإدارة', 'Admin')}</Link>
-      <h1 className="text-xl font-black text-text">{comp.name}</h1>
+      <h1 className="text-xl font-black text-text">{nm(comp.name, comp.name_en)}</h1>
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
         {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -157,6 +158,35 @@ function DashboardTab({ token, comp, onNavigate }: {
           <p className="text-gold font-extrabold text-xl tabular-nums">{counts.goals}</p>
         </Card>
       </div>
+
+      {/* Participating-player limit — the priced cap the super admin set.
+          Approved players count against it (see approval enforcement). */}
+      {comp.max_players != null && (() => {
+        const used = counts.players_approved;
+        const cap = comp.max_players!;
+        const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+        const full = used >= cap;
+        const near = !full && cap > 0 && used / cap >= 0.8;
+        const barColor = full ? 'bg-loss' : near ? 'bg-gold' : 'bg-win';
+        const numColor = full ? 'text-loss' : near ? 'text-gold' : 'text-win';
+        return (
+          <Card className="p-4 space-y-2">
+            <div className="flex items-baseline justify-between">
+              <p className="text-text font-bold text-sm">🎟️ {tt('حد اللاعبين المشاركين', 'Participating-player limit')}</p>
+              <p className={`${numColor} font-extrabold tabular-nums`}>{used} / {cap}</p>
+            </div>
+            <div className="h-2 bg-darkBg rounded-full overflow-hidden">
+              <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+            </div>
+            <p className={`text-[11px] tabular-nums ${full ? 'text-loss' : 'text-hint'}`}>
+              {full
+                ? tt('اكتمل الحد — لا يمكن اعتماد لاعبين جدد حتى ترفع الحد أو تزيل لاعبًا معتمدًا',
+                      'Limit reached — no more players can be approved until you raise the limit or remove an approved player')
+                : tt(`متبقي ${cap - used} لاعب`, `${cap - used} player slots remaining`)}
+            </p>
+          </Card>
+        );
+      })()}
 
       {/* Match progress */}
       {counts.matches_total > 0 && (
@@ -454,6 +484,7 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
 
 function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
+  const nm = useName();
   const [entries, setEntries] = useState<TCompTeam[]>([]);
   const [academies, setAcademies] = useState<TAcademy[]>([]);
   const [acadId, setAcadId] = useState('');
@@ -524,9 +555,9 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
             <Card key={e.id} className="p-3 border-gold/30">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="font-bold text-text text-sm">{e.team_name}</div>
+                  <div className="font-bold text-text text-sm">{nm(e.team_name, e.team_name_en)}</div>
                   <div className="text-[11px] text-hint">
-                    {e.academy_name}
+                    {nm(e.academy_name, e.academy_name_en)}
                     {e.sub_competition_name && <span className="ms-1 text-teal font-bold">· {e.sub_competition_name}</span>}
                     {ageLabel[e.age_category_id] && <span className="ms-1 text-hint">· {ageLabel[e.age_category_id]}</span>}
                   </div>
@@ -551,9 +582,9 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
       {active.map(e => (
         <Card key={e.id} className="p-3 flex items-center justify-between">
           <Link href={`/team?id=${e.team_id}`} className="min-w-0">
-            <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{e.team_name}</div>
+            <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{nm(e.team_name, e.team_name_en)}</div>
             <div className="text-[11px] text-hint">
-              {e.academy_name}
+              {nm(e.academy_name, e.academy_name_en)}
               {e.sub_competition_name && <span className="ms-1 text-teal font-bold">· {e.sub_competition_name}</span>}
               {ageLabel[e.age_category_id] && (
                 <span className="ms-1 text-teal">· {ageLabel[e.age_category_id]}</span>
@@ -583,7 +614,7 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
                 <option value="">—</option>
                 {eligibleTeams.map(t => (
                   <option key={t.id} value={t.id}>
-                    {t.display_name} · {ageLabel[t.age_category_id] ?? t.age_category}
+                    {nm(t.display_name, t.display_name_en)} · {ageLabel[t.age_category_id] ?? t.age_category}
                   </option>
                 ))}
               </select>
@@ -630,6 +661,7 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 
 function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
+  const nm = useName();
   const [entries, setEntries] = useState<TCompTeam[]>([]);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [filterAge, setFilterAge] = useState('');
@@ -677,8 +709,8 @@ function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
             <button onClick={() => toggle(e.id)}
               className="w-full flex items-center justify-between gap-2 text-start">
               <div className="min-w-0">
-                <span className="font-bold text-text text-sm">{e.team_name}</span>
-                <span className="text-[11px] text-hint ms-1">· {e.academy_name}</span>
+                <span className="font-bold text-text text-sm">{nm(e.team_name, e.team_name_en)}</span>
+                <span className="text-[11px] text-hint ms-1">· {nm(e.academy_name, e.academy_name_en)}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {pending > 0 && (
@@ -718,6 +750,7 @@ function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
  */
 function RosterPlayerRow({ token, p, onDone }: { token: string; p: TCompPlayer; onDone: () => void }) {
   const tt = useTT();
+  const nm = useName();
   const [reason, setReason] = useState(p.rejection_reason ?? '');
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -734,7 +767,7 @@ function RosterPlayerRow({ token, p, onDone }: { token: string; p: TCompPlayer; 
     <div className="border-t border-bdr pt-2 first:border-t-0 first:pt-0">
       <div className="flex items-center justify-between gap-2">
         <Link href={`/player?id=${p.player_id}`} className="text-text text-sm font-bold hover:text-aqua truncate">
-          {p.player_name} <span className="text-[11px] text-hint font-normal">{p.position}</span>
+          {nm(p.player_name, p.player_name_en)} <span className="text-[11px] text-hint font-normal">{p.position}</span>
         </Link>
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={p.status} label={{
@@ -1447,6 +1480,7 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const tt = useTT();
   const [f, setF] = useState({
     name: comp.name,
+    name_en: comp.name_en ?? '',
     description: comp.description ?? '',
     info: comp.info ?? '',
     location: comp.location ?? '',
@@ -1493,6 +1527,7 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
         <h2 className="font-black text-text">{tt('صفحة البطولة', 'Competition page')}</h2>
         <div className="grid grid-cols-2 gap-3">
           <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={set('name')} className={inputCls} /></Field>
+          <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={f.name_en} onChange={set('name_en')} dir="ltr" className={inputCls} /></Field>
           <Field label={tt('المنظم', 'Organizer')}><input value={f.organizer_name} onChange={set('organizer_name')} className={inputCls} /></Field>
         </div>
         <Field label={tt('وصف مختصر (يظهر على الكارت)', 'Short blurb (shown on cards)')}>

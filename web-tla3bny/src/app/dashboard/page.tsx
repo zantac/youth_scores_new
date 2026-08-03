@@ -11,10 +11,11 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import TeamManage from '@/components/tla3bny/TeamManage';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, LogoAvatar, EmptyState, useTT } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, LogoAvatar, EmptyState, useTT, useName } from '@/components/tla3bny/kit';
 
 export default function DashboardPage() {
   const tt = useTT();
+  const nm = useName();
   const router = useRouter();
   const { user, academy, team, token, loading, isAcademy, isTeam, refresh } = useTla3bnyAuth();
 
@@ -31,7 +32,7 @@ export default function DashboardPage() {
       return (
         <Card className="p-6 text-center">
           <div className="text-4xl mb-2">🚫</div>
-          <h1 className="font-black text-text">{academy.name}</h1>
+          <h1 className="font-black text-text">{nm(academy.name, academy.name_en)}</h1>
           <div className="mt-2"><StatusBadge status="rejected" label={tt('الحساب موقوف', 'Account suspended')} /></div>
           {academy.rejection_reason && <p className="text-loss text-sm mt-3">{academy.rejection_reason}</p>}
           <p className="text-hint text-xs mt-3">{tt('تواصل مع إدارة الموقع.', 'Contact the site administrators.')}</p>
@@ -46,6 +47,7 @@ export default function DashboardPage() {
 
 function TeamAdminDashboard({ token, team, refresh }: { token: string; team: TTeam; refresh: () => Promise<void> }) {
   const tt = useTT();
+  const nm = useName();
   const [tab, setTab] = useState<'squad' | 'matches'>('squad');
   const [matches, setMatches] = useState<TMatch[]>([]);
 
@@ -61,9 +63,9 @@ function TeamAdminDashboard({ token, team, refresh }: { token: string; team: TTe
   return (
     <div className="space-y-4">
       <Card className="p-4 flex items-center gap-4">
-        <LogoAvatar src={team.academy_logo} name={team.display_name} size={48} />
+        <LogoAvatar src={team.academy_logo} name={nm(team.display_name, team.display_name_en)} size={48} />
         <div>
-          <h1 className="text-lg font-black text-text">{team.display_name}</h1>
+          <h1 className="text-lg font-black text-text">{nm(team.display_name, team.display_name_en)}</h1>
           <p className="text-xs text-teal font-bold">{team.age_category}</p>
         </div>
       </Card>
@@ -149,7 +151,7 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
   const tt = useTT();
   const { academy } = useTla3bnyAuth();
   const [f, setF] = useState({
-    name: academy?.name ?? '', phone: academy?.phone ?? '', facebook_url: academy?.facebook_url ?? '',
+    name: academy?.name ?? '', name_en: academy?.name_en ?? '', phone: academy?.phone ?? '', facebook_url: academy?.facebook_url ?? '',
     training_place: academy?.training_place ?? '', address: academy?.address ?? '', description: academy?.description ?? '',
   });
   const [logo, setLogo] = useState<File | null>(null);
@@ -167,6 +169,7 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} className={inputCls} /></Field>
+        <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={f.name_en} onChange={e => setF({ ...f, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
         <Field label={tt('الهاتف', 'Phone')}><input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} className={inputCls} /></Field>
         <Field label={tt('مكان التدريب', 'Training place')}><input value={f.training_place} onChange={e => setF({ ...f, training_place: e.target.value })} className={inputCls} /></Field>
         <Field label={tt('فيسبوك', 'Facebook')}><input value={f.facebook_url} onChange={e => setF({ ...f, facebook_url: e.target.value })} className={inputCls} /></Field>
@@ -284,6 +287,7 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
   team: TTeam; token: string; refresh: () => Promise<void>; open: boolean; onToggle: () => void;
 }) {
   const tt = useTT();
+  const nm = useName();
   const [acc, setAcc] = useState({ username: '', password: '' });
   const [accOpen, setAccOpen] = useState(false);
   const [existing, setExisting] = useState<string | null>(null);
@@ -313,7 +317,7 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
         <div className="flex items-center gap-2 min-w-0">
           <button onClick={onToggle} className="text-hint text-sm shrink-0">{open ? '▾' : '▸'}</button>
           <Link href={`/team?id=${team.id}`} className="font-bold text-text text-sm hover:text-aqua truncate">
-            {team.display_name}
+            {nm(team.display_name, team.display_name_en)}
           </Link>
         </div>
         <div className="flex items-center gap-2 shrink-0">

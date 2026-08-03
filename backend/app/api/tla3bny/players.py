@@ -306,6 +306,7 @@ def create_player(team_id: int):
 
     player = Tla3bnyPlayer(
         name=name,
+        name_en=(data.get("name_en") or "").strip() or None,
         dob=_parse_date(data.get("dob")),
         position=(data.get("position") or "").strip() or None,
         sub_position=(data.get("sub_position") or "").strip() or None,
@@ -441,6 +442,8 @@ def update_player(player_id: int):
         if len(new_name) > 200:
             return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
         player.name = new_name
+    if "name_en" in data:
+        player.name_en = (data.get("name_en") or "").strip() or None
     if "dob" in data:
         player.dob = _parse_date(data.get("dob"))
     if "position" in data:

@@ -8,11 +8,12 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT } from './kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
 /** Players + coaches management for a single team (used by academy + team logins). */
 export default function TeamManage({ token, teamId }: { token: string; teamId: number }) {
   const tt = useTT();
+  const nm = useName();
   const [team, setTeam] = useState<TTeam | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -89,7 +90,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   }, null);
 
   // player add form
-  const [pf, setPf] = useState({ name: '', position: '', jersey_number: '', dob: '' });
+  const [pf, setPf] = useState({ name: '', name_en: '', position: '', jersey_number: '', dob: '' });
   const [photo, setPhoto] = useState<File | null>(null);
   const [docFiles, setDocFiles] = useState<Record<string, File>>({});
   const [pBusy, setPBusy] = useState(false);
@@ -98,7 +99,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
     try {
       const documents: LabeledDoc[] = Object.entries(docFiles).map(([label, file]) => ({ label, file }));
       await tCreatePlayer(token, teamId, pf, photo, documents);
-      setPf({ name: '', position: '', jersey_number: '', dob: '' }); setPhoto(null); setDocFiles({});
+      setPf({ name: '', name_en: '', position: '', jersey_number: '', dob: '' }); setPhoto(null); setDocFiles({});
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setPBusy(false); }
   };
@@ -116,7 +117,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
 
   // player edit state
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [ef, setEf] = useState({ name: '', position: '', jersey_number: '', dob: '' });
+  const [ef, setEf] = useState({ name: '', name_en: '', position: '', jersey_number: '', dob: '' });
   const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [editDocFiles, setEditDocFiles] = useState<Record<string, File>>({});
   const [eBusy, setEBusy] = useState(false);
@@ -125,6 +126,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
     setEditingId(p.player_id);
     setEf({
       name: p.player_name ?? '',
+      name_en: p.player_name_en ?? '',
       position: p.position ?? '',
       jersey_number: p.jersey_number != null ? String(p.jersey_number) : '',
       dob: '',
@@ -155,14 +157,14 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   );
 
   // coach form
-  const [cf, setCf] = useState({ name: '', role_ar: '', phone: '' });
+  const [cf, setCf] = useState({ name: '', name_en: '', role_ar: '', phone: '' });
   const [cPhoto, setCPhoto] = useState<File | null>(null);
   const [cBusy, setCBusy] = useState(false);
   const addCoach = async () => {
     setErr(null); setCBusy(true);
     try {
       await tAddCoach(token, teamId, cf, cPhoto);
-      setCf({ name: '', role_ar: '', phone: '' }); setCPhoto(null);
+      setCf({ name: '', name_en: '', role_ar: '', phone: '' }); setCPhoto(null);
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setCBusy(false); }
   };
@@ -280,9 +282,9 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           ) : (team.players ?? []).map(p => (
             <Card key={p.id} className={`p-2 ${rejectedPlayerIds.has(p.player_id) ? 'border-loss/40' : ''}`}>
               <div className="flex items-center gap-3">
-                <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
+                <LogoAvatar src={p.photo_path} name={nm(p.player_name, p.player_name_en)} size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
+                  <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
                   <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
                 {rejectedPlayerIds.has(p.player_id) && (
@@ -309,6 +311,9 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                   <div className="grid grid-cols-2 gap-2">
                     <Field label={tt('الاسم', 'Name')}>
                       <input value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })} className={inputCls} />
+                    </Field>
+                    <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}>
+                      <input value={ef.name_en} onChange={e => setEf({ ...ef, name_en: e.target.value })} dir="ltr" className={inputCls} />
                     </Field>
                     <Field label={tt('المركز', 'Position')}>
                       <input value={ef.position} onChange={e => setEf({ ...ef, position: e.target.value })} className={inputCls} placeholder="ST / GK …" />
@@ -355,6 +360,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           <Card className="p-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
+              <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={pf.name_en} onChange={e => setPf({ ...pf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
               <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
               <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
               <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
@@ -481,9 +487,9 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
         <div className="space-y-2 mb-3">
           {(team.coaches ?? []).map(c => (
             <Card key={c.id} className="p-2 flex items-center gap-3">
-              <LogoAvatar src={c.photo_path} name={c.name} size={32} />
+              <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={32} />
               <div className="min-w-0 flex-1">
-                <div className="font-bold text-text text-sm truncate">{c.name}</div>
+                <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
                 <div className="text-[11px] text-hint">{c.role_ar}</div>
               </div>
               <button onClick={async () => { if (confirm(tt('حذف؟', 'Delete?'))) { await tDeleteCoach(token, c.id); reload(); } }}
@@ -494,6 +500,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
         <Card className="p-3 space-y-3">
           <div className="grid grid-cols-3 gap-3">
             <Field label={tt('الاسم', 'Name')}><input value={cf.name} onChange={e => setCf({ ...cf, name: e.target.value })} className={inputCls} /></Field>
+            <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={cf.name_en} onChange={e => setCf({ ...cf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
             <Field label={tt('الوظيفة', 'Role')}><input value={cf.role_ar} onChange={e => setCf({ ...cf, role_ar: e.target.value })} className={inputCls} placeholder={tt('مدرب', 'Coach')} /></Field>
             <Field label={tt('الهاتف', 'Phone')}><input value={cf.phone} onChange={e => setCf({ ...cf, phone: e.target.value })} className={inputCls} /></Field>
           </div>

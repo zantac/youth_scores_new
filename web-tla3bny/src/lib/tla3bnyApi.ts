@@ -59,6 +59,7 @@ export interface TManager {
 export interface TAcademy {
   id: number;
   name: string;
+  name_en: string | null;
   logo_path: string | null;
   phone: string | null;
   facebook_url: string | null;
@@ -76,6 +77,7 @@ export interface TCoach {
   id: number;
   team_id: number;
   name: string;
+  name_en: string | null;
   role_ar: string | null;
   phone: string | null;
   photo_path: string | null;
@@ -88,6 +90,7 @@ export interface TMembership {
   id: number;
   player_id: number;
   player_name: string | null;
+  player_name_en: string | null;
   photo_path: string | null;
   position: string | null;
   team_id: number;
@@ -102,12 +105,15 @@ export interface TTeam {
   id: number;
   academy_id: number;
   academy_name: string | null;
+  academy_name_en: string | null;
   academy_logo: string | null;
   age_category_id: number;
   age_category: string | null;
   class_label: string | null;
   name: string | null;
+  name_en: string | null;
   display_name: string;
+  display_name_en: string;
   coaches?: TCoach[];
   players?: TMembership[];
 }
@@ -123,6 +129,7 @@ export interface TPlayerFile {
 export interface TPlayer {
   id: number;
   name: string;
+  name_en: string | null;
   dob: string | null;
   position: string | null;
   sub_position: string | null;
@@ -219,6 +226,7 @@ export interface TCompetition {
   season_id: number;
   season_name: string | null;
   name: string;
+  name_en: string | null;
   description: string | null;
   logo_path: string | null;
   location: string | null;
@@ -238,6 +246,9 @@ export interface TCompetition {
   facebook_url: string | null;
   location_url: string | null;
   registration_open: boolean;
+  /** Cap on total contributing players across the whole competition, set by the
+   *  super admin — tla3bny is priced by this count. null means uncapped. */
+  max_players: number | null;
   ages?: TCompAge[];
   admins?: TCompAdmin[];
 }
@@ -275,6 +286,7 @@ export interface TCompPlayer {
   competition_team_id: number;
   player_id: number;
   player_name: string | null;
+  player_name_en?: string | null;
   photo_path: string | null;
   position: string | null;
   dob?: string | null;
@@ -304,8 +316,10 @@ export interface TCompTeam {
   competition_name: string | null;
   team_id: number;
   team_name: string | null;
+  team_name_en: string | null;
   academy_id: number | null;
   academy_name: string | null;
+  academy_name_en: string | null;
   academy_logo: string | null;
   age_category_id: number;
   competition_age_id: number | null;
@@ -374,6 +388,8 @@ export interface TMatch {
   away_team_id: number;
   home_team_name: string | null;
   away_team_name: string | null;
+  home_team_name_en: string | null;
+  away_team_name_en: string | null;
   home_academy_id: number | null;
   away_academy_id: number | null;
   home_logo: string | null;
@@ -519,7 +535,7 @@ export const tLogin = (login: string, password: string) =>
   send<{ token: string; user: TUser }>('POST', '/auth/login', { login, password });
 
 export function tRegister(fd: {
-  name: string; username: string; password: string; phone: string;
+  name: string; name_en?: string; username: string; password: string; phone: string;
   email?: string; facebook_url?: string; training_place?: string; address?: string;
   description?: string; logo?: File | null;
 }) {
@@ -943,12 +959,17 @@ export const tHome = () => get<THome>('/home');
 export interface TCompStat {
   id: number;
   name: string;
+  name_en: string | null;
   season_name: string | null;
   status: TCompStatus;
   teams: number;
   total_matches: number;
   played_matches: number;
   pending_players: number;
+  /** Approved players in this competition — counts against max_players. */
+  approved_players: number;
+  /** The priced participating-player cap, or null if none set. */
+  max_players: number | null;
 }
 export interface TStats {
   counts: {
