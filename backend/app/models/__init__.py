@@ -18,6 +18,8 @@ from app.models.match import (
 )
 from app.models.team import ClubStaff, PlayerTeam, Team, TeamCoach
 from app.models.tla3bny import (
+    Tla3bnyAd,
+    Tla3bnyAdSettings,
     Tla3bnyAuditLog,
     Tla3bnyAcademy,
     Tla3bnyAcademyManager,
@@ -77,6 +79,8 @@ __all__ = [
     # auth
     "AdminUser",
     # tla3bny (youth-academy competitions subdomain)
+    "Tla3bnyAd",
+    "Tla3bnyAdSettings",
     "Tla3bnyAuditLog",
     "Tla3bnyUser",
     "Tla3bnyAcademy",

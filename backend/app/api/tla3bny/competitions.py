@@ -289,6 +289,8 @@ def clone_competition(comp_id: int):
         location_url=source.location_url,
         registration_open=False,
         max_players=source.max_players,
+        max_ads=source.max_ads,
+        ads_enabled=source.ads_enabled,
     )
     db.session.add(new_comp)
     db.session.flush()
@@ -364,9 +366,23 @@ def create_competition():
     err = _apply_max_players(comp, data)
     if err:
         return err
+    _apply_ad_controls(comp, data)  # creator is the super admin
     db.session.add(comp)
     db.session.commit()
     return jsonify(comp.to_dict()), 201
+
+
+def _apply_ad_controls(comp: Tla3bnyCompetition, data) -> None:
+    """Apply the super-admin sponsor-ad controls (``max_ads`` allowance and the
+    ``ads_enabled`` kill switch). Only the super admin may change these — a
+    competition admin must not raise their own paid allowance."""
+    user = auth.current_user()
+    if not (user and user.role == "super_admin"):
+        return
+    if "max_ads" in data:
+        comp.max_ads = max(0, _int(data.get("max_ads"), comp.max_ads) or 0)
+    if "ads_enabled" in data:
+        comp.ads_enabled = _bool(data.get("ads_enabled"), comp.ads_enabled)
 
 
 def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
@@ -418,6 +434,7 @@ def update_competition(comp_id: int):
     err = _apply_max_players(comp, data)
     if err:
         return err
+    _apply_ad_controls(comp, data)  # no-op unless the caller is the super admin
     present, docs = _docs_field(data)
     if present:
         comp.required_documents = docs

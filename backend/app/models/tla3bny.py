@@ -644,6 +644,18 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     # NULL means no cap has been set (unlimited / unpriced).
     max_players: Mapped[int | None] = mapped_column(sa.Integer)
 
+    # ── sponsor ads (super-admin controlled, a paid feature) ────────────────
+    # ``max_ads`` is how many sponsor ads this competition's admin may run —
+    # the allowance the super admin grants per fees (0 = none yet).
+    # ``ads_enabled`` is the instant kill switch: when False none of this
+    # competition's ads show publicly, even if some exist (e.g. fees unpaid).
+    max_ads: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=0, server_default="0"
+    )
+    ads_enabled: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=True, server_default=sa.true()
+    )
+
     season: Mapped["Tla3bnySeason"] = relationship(back_populates="competitions")
     admins: Mapped[list["Tla3bnyCompetitionAdmin"]] = relationship(
         back_populates="competition", cascade="all, delete-orphan"
@@ -655,6 +667,9 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
         back_populates="competition", cascade="all, delete-orphan"
     )
     news: Mapped[list["Tla3bnyNews"]] = relationship(
+        back_populates="competition", cascade="all, delete-orphan"
+    )
+    ads: Mapped[list["Tla3bnyAd"]] = relationship(
         back_populates="competition", cascade="all, delete-orphan"
     )
 
@@ -685,6 +700,8 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "location_url": self.location_url,
             "registration_open": self.registration_open,
             "max_players": self.max_players,
+            "max_ads": self.max_ads,
+            "ads_enabled": self.ads_enabled,
         }
         if with_ages:
             data["ages"] = [a.to_dict() for a in self.ages]
@@ -1444,6 +1461,108 @@ class Tla3bnyNews(TimestampMixin, db.Model):
 
     def __repr__(self) -> str:
         return f"<Tla3bnyNews {self.id} {self.title}>"
+
+
+class Tla3bnyAd(TimestampMixin, db.Model):
+    """A sponsor advertisement: a poster plus contact/social buttons.
+
+    ``competition_id`` is optional. NULL is a **home-screen ad**, owned by the
+    super admin and shown to everyone alongside the cross-competition matches
+    feed. A set ``competition_id`` is that competition's ad, managed by its
+    admin and shown on the competition's match page and on the profiles of
+    players entered in it — but only while the competition's ``ads_enabled`` is
+    on and within its ``max_ads`` allowance (a paid feature the super admin
+    controls).
+
+    Only the fields a sponsor supplies are shown: each of the WhatsApp / phone /
+    Facebook / Instagram / website buttons appears only when it has a value.
+    """
+
+    __tablename__ = "tla3bny_ads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), index=True
+    )
+    sponsor_name: Mapped[str | None] = mapped_column(sa.String(255))
+    caption: Mapped[str | None] = mapped_column(sa.String(512))
+    poster_path: Mapped[str] = mapped_column(sa.String(512), nullable=False)
+
+    # Contact / social. whatsapp_number and phone are digits; the rest are URLs.
+    whatsapp_number: Mapped[str | None] = mapped_column(sa.String(50))
+    phone: Mapped[str | None] = mapped_column(sa.String(50))
+    facebook_url: Mapped[str | None] = mapped_column(sa.String(512))
+    instagram_url: Mapped[str | None] = mapped_column(sa.String(512))
+    website_url: Mapped[str | None] = mapped_column(sa.String(512))
+    # A map link (typically a Google Maps URL) for the sponsor's location.
+    location_url: Mapped[str | None] = mapped_column(sa.String(512))
+
+    # Optional last day the ad is shown; NULL never expires. Past this date the
+    # public reads drop the ad, but the owner still sees it (to renew or delete).
+    expires_at: Mapped[date | None] = mapped_column(sa.Date)
+
+    # The owner's own show/hide toggle (distinct from the super admin's
+    # per-competition ads_enabled kill switch). sort_order ranks sponsors.
+    is_active: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=True, server_default=sa.true()
+    )
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    competition: Mapped["Tla3bnyCompetition | None"] = relationship(
+        back_populates="ads"
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_name": self.competition.name if self.competition else None,
+            "sponsor_name": self.sponsor_name,
+            "caption": self.caption,
+            "poster_path": self.poster_path,
+            "whatsapp_number": self.whatsapp_number,
+            "phone": self.phone,
+            "facebook_url": self.facebook_url,
+            "instagram_url": self.instagram_url,
+            "website_url": self.website_url,
+            "location_url": self.location_url,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "is_active": self.is_active,
+            "sort_order": self.sort_order,
+        }
+
+    def __repr__(self) -> str:
+        return f"<Tla3bnyAd {self.id} {self.sponsor_name or ''}>"
+
+
+class Tla3bnyAdSettings(TimestampMixin, db.Model):
+    """How the sponsor carousels display, as a single shared row (id=1): how many
+    seconds each ad stays before rotating, and the poster size as a percentage.
+    The super admin and competition admins both adjust these; they apply to every
+    ad carousel (home and competition)."""
+
+    __tablename__ = "tla3bny_ad_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rotation_seconds: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=3, server_default="3"
+    )
+    poster_scale: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=100, server_default="100"
+    )
+
+    def to_dict(self) -> dict:
+        return {"rotation_seconds": self.rotation_seconds, "poster_scale": self.poster_scale}
+
+    @classmethod
+    def get(cls) -> "Tla3bnyAdSettings":
+        """The singleton settings row, created with defaults on first access."""
+        obj = db.session.get(cls, 1)
+        if obj is None:
+            obj = cls(id=1)
+            db.session.add(obj)
+            db.session.commit()
+        return obj
 
 
 class Tla3bnyAuditLog(db.Model):

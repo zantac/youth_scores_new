@@ -16,9 +16,10 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
+import AdsManager from '@/components/tla3bny/AdsManager';
 import { Card, Field, inputCls, PrimaryButton, StatusBadge, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'matches' | 'competitions' | 'news' | 'academies' | 'seasons' | 'ages';
+type Tab = 'dashboard' | 'matches' | 'competitions' | 'news' | 'ads' | 'academies' | 'seasons' | 'ages';
 
 export default function AdminPage() {
   const tt = useTT();
@@ -55,7 +56,7 @@ export default function AdminPage() {
     );
   }
 
-  const tabs: Tab[] = ['dashboard', 'matches', 'competitions', 'news', 'academies', 'seasons', 'ages'];
+  const tabs: Tab[] = ['dashboard', 'matches', 'competitions', 'news', 'ads', 'academies', 'seasons', 'ages'];
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Dashboard'],
     matches: ['المباريات', 'Matches'],
@@ -64,6 +65,7 @@ export default function AdminPage() {
     academies: ['الأكاديميات', 'Academies'],
     competitions: ['البطولات', 'Competitions'],
     news: ['📰 الأخبار', '📰 News'],
+    ads: ['📣 إعلانات الرئيسية', '📣 Home ads'],
   };
   return (
     <div className="space-y-4">
@@ -83,6 +85,7 @@ export default function AdminPage() {
       {tab === 'academies' && <Academies token={token} />}
       {tab === 'competitions' && <Competitions token={token} />}
       {tab === 'news' && <NewsAdmin token={token} compId={null} />}
+      {tab === 'ads' && <AdsManager token={token} />}
     </div>
   );
 }
@@ -789,10 +792,25 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
   const [limitVal, setLimitVal] = useState(c.max_players == null ? '' : String(c.max_players));
   const [limitBusy, setLimitBusy] = useState(false);
   const [limitMsg, setLimitMsg] = useState<string | null>(null);
+  const [adsOpen, setAdsOpen] = useState(false);
+  const [adsEnabled, setAdsEnabled] = useState(c.ads_enabled);
+  const [maxAds, setMaxAds] = useState(String(c.max_ads));
+  const [adsBusy, setAdsBusy] = useState(false);
+  const [adsMsg, setAdsMsg] = useState<string | null>(null);
   const [af, setAf] = useState({ username: '', password: '', name: '' });
   const [msg, setMsg] = useState<string | null>(null);
 
   const otherSeasons = seasons.filter(s => s.id !== c.season_id);
+
+  const saveAds = async () => {
+    setAdsBusy(true); setAdsMsg(null);
+    try {
+      await tUpdateCompetition(token, c.id, { ads_enabled: adsEnabled ? 'true' : 'false', max_ads: Number(maxAds) || 0 });
+      setAdsMsg(tt('✓ تم الحفظ', '✓ Saved'));
+      reload();
+    } catch (e) { setAdsMsg(e instanceof Error ? e.message : String(e)); }
+    finally { setAdsBusy(false); }
+  };
 
   const saveLimit = async () => {
     setLimitBusy(true); setLimitMsg(null);
@@ -834,6 +852,9 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
           <button onClick={() => { setLimitOpen(o => !o); setLimitMsg(null); }} className="text-xs text-teal font-bold hover:underline">
             {tt('حد اللاعبين', 'Player limit')}{c.max_players != null && <span className="text-hint font-normal"> · {c.max_players}</span>}
           </button>
+          <button onClick={() => { setAdsOpen(o => !o); setAdsMsg(null); }} className="text-xs text-teal font-bold hover:underline">
+            {tt('الإعلانات', 'Ads')}<span className="text-hint font-normal"> · {c.ads_enabled ? c.max_ads : tt('موقوف', 'off')}</span>
+          </button>
           <button onClick={() => setAdminOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('المنظمون', 'Organizers')}</button>
           <button onClick={() => { setCloneOpen(o => !o); setCloneMsg(null); }} className="text-xs text-gold font-bold hover:underline">{tt('نسخ لموسم', 'Clone')}</button>
           <Link href={`/manage?comp=${c.id}`} className="text-xs text-aqua font-bold hover:underline">{tt('إدارة', 'Manage')}</Link>
@@ -858,6 +879,31 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
             </PrimaryButton>
           </div>
           {limitMsg && <p className={`text-[11px] ${limitMsg.startsWith('✓') ? 'text-win' : 'text-loss'}`}>{limitMsg}</p>}
+        </div>
+      )}
+
+      {adsOpen && (
+        <div className="mt-2 pt-2 border-t border-bdr/50 space-y-2">
+          <p className="text-[11px] text-hint">
+            {tt('تحكّم في إعلانات هذه البطولة: عدد الإعلانات المسموح به للمنظّم، ومفتاح إظهار/إخفاء الكل (استخدمه لو لم تُدفع رسوم الإعلانات).',
+                "Control this competition's ads: how many the organiser may run, and a master show/hide switch (use it if ad fees are unpaid).")}
+          </p>
+          <label className="flex items-center gap-2 text-sm text-text">
+            <input type="checkbox" checked={adsEnabled} onChange={e => setAdsEnabled(e.target.checked)} />
+            {tt('الإعلانات ظاهرة للجمهور', 'Ads visible to the public')}
+          </label>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-hint shrink-0">{tt('عدد الإعلانات المسموح', 'Ads allowed')}</label>
+            <input
+              type="number" min={0} inputMode="numeric" value={maxAds}
+              onChange={e => setMaxAds(e.target.value)}
+              className={inputCls + ' flex-1 text-sm'}
+            />
+            <PrimaryButton onClick={saveAds} disabled={adsBusy} className="text-sm shrink-0">
+              {adsBusy ? tt('…', '…') : tt('حفظ', 'Save')}
+            </PrimaryButton>
+          </div>
+          {adsMsg && <p className={`text-[11px] ${adsMsg.startsWith('✓') ? 'text-win' : 'text-loss'}`}>{adsMsg}</p>}
         </div>
       )}
 

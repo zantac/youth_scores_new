@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -10,11 +10,13 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
-import { formatMatchDate, sortAges, subCompLabel } from '@/lib/utils';
+import { formatMatchDate, sortAges, subCompLabel, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
 import NewsList from '@/components/tla3bny/NewsList';
+import { AdStrip } from '@/components/tla3bny/AdCard';
+import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
 import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
 type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news' | 'info';
@@ -245,36 +247,86 @@ function StandingsTab({ compId, ageId, cageId }: { compId: number; ageId: number
   );
 }
 
-/** Matches grouped by date, newest block first — the youthscores match list. */
+/** Matches grouped by date, oldest first, scrolled to the day nearest today —
+ *  the same "land on the current matches" behaviour as the home feed. */
 function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
   const tt = useTT();
   const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
-  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
-  if (!matches) return <Spinner />;
-  if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
+  const [ads, setAds] = useState<TAd[]>([]);
+  const [today, setToday] = useState<string | null>(null);
 
-  const days: { date: string | null; matches: TMatch[] }[] = [];
-  for (const m of matches) {
-    const last = days[days.length - 1];
-    if (last && last.date === m.date) last.matches.push(m);
-    else days.push({ date: m.date, matches: [m] });
-  }
+  useEffect(() => { setToday(todayStr()); }, []);
+
+  const didScroll = useRef(false);
+  useEffect(() => {
+    didScroll.current = false;   // re-scroll when the competition/age changes
+    setMatches(null);
+    tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' })
+      .then(setMatches).catch(() => setMatches([]));
+  }, [compId, cageId]);
+  useEffect(() => { tCompetitionAds(compId).then(setAds).catch(() => setAds([])); }, [compId]);
+
+  const days = useMemo(() => {
+    const out: { date: string | null; matches: TMatch[] }[] = [];
+    for (const m of matches ?? []) {
+      const last = out[out.length - 1];
+      if (last && last.date === m.date) last.matches.push(m);
+      else out.push({ date: m.date, matches: [m] });
+    }
+    return out;
+  }, [matches]);
+
+  // The day to land on: the first one today or later, else the most recent.
+  const anchorDate = useMemo(() => {
+    if (!today || days.length === 0) return null;
+    const upcoming = days.find(d => d.date && d.date >= today);
+    return upcoming ? upcoming.date : days[days.length - 1].date;
+  }, [today, days]);
+
+  // Scroll that day into view once, after the matches land.
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (didScroll.current || !anchorDate || !anchorRef.current) return;
+    didScroll.current = true;
+    const el = anchorRef.current;
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+  }, [anchorDate]);
+
+  if (!matches) return <Spinner />;
+  if (matches.length === 0) return (
+    <div className="space-y-4">
+      <AdStrip ads={ads} />
+      <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />
+    </div>
+  );
 
   return (
     <div className="space-y-5">
-      {days.map((d, i) => (
-        <div key={d.date ?? `tbd-${i}`} className="space-y-2">
-          <div className="flex items-center gap-2 py-1">
-            <span className="text-aqua">📅</span>
-            <h3 className="font-bold text-sm text-text">
-              {d.date ? formatMatchDate(d.date, locale) : tt('لم تحدد', 'Date TBD')}
-            </h3>
-            <span className="flex-1 h-px bg-bdr" />
+      {days.map((d, di) => {
+        // Drop the sponsor strip a few matches into each day so it is on-screen
+        // when the page lands on that day, sitting between matches.
+        const adAfter = ads.length ? Math.min(3, Math.ceil(d.matches.length / 2)) : -1;
+        return (
+          <div key={d.date ?? `tbd-${di}`}
+            ref={d.date === anchorDate ? anchorRef : undefined}
+            className="space-y-2 scroll-mt-20">
+            <div className="flex items-center gap-2 py-1">
+              <span className="text-aqua">📅</span>
+              <h3 className={`font-bold text-sm ${d.date === today ? 'text-aqua' : 'text-text'}`}>
+                {d.date ? formatMatchDate(d.date, locale) : tt('لم تحدد', 'Date TBD')}
+              </h3>
+              <span className="flex-1 h-px bg-bdr" />
+            </div>
+            {d.matches.map((m, mi) => (
+              <Fragment key={m.id}>
+                <MatchRow m={m} />
+                {mi + 1 === adAfter && <AdStrip ads={ads} className="py-1" />}
+              </Fragment>
+            ))}
           </div>
-          {d.matches.map(m => <MatchRow key={m.id} m={m} />)}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

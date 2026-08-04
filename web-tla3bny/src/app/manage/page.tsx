@@ -20,10 +20,11 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
+import AdsManager from '@/components/tla3bny/AdsManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news' | 'ads';
 
 function ManageContent() {
   const tt = useTT();
@@ -43,7 +44,7 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'news'];
+  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'news', 'ads'];
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Overview'],
     info: ['صفحة البطولة', 'Page'],
@@ -53,6 +54,7 @@ function ManageContent() {
     matches: ['المباريات', 'Matches'],
     stages: ['الأدوار', 'Stages'],
     news: ['📰 الأخبار', '📰 News'],
+    ads: ['📣 الإعلانات', '📣 Ads'],
   };
   return (
     <div className="space-y-4">
@@ -74,6 +76,7 @@ function ManageContent() {
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
+      {tab === 'ads' && <AdsManager token={token} competitionId={comp.id} />}
     </div>
   );
 }

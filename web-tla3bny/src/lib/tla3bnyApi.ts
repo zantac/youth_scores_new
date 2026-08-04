@@ -249,8 +249,32 @@ export interface TCompetition {
   /** Cap on total contributing players across the whole competition, set by the
    *  super admin — tla3bny is priced by this count. null means uncapped. */
   max_players: number | null;
+  /** Super-admin sponsor-ad controls: how many ads the competition admin may run,
+   *  and the master on/off switch that hides them all when off. */
+  max_ads: number;
+  ads_enabled: boolean;
   ages?: TCompAge[];
   admins?: TCompAdmin[];
+}
+
+/** A sponsor advertisement: a poster plus whichever contact buttons are set. */
+export interface TAd {
+  id: number;
+  competition_id: number | null;
+  competition_name: string | null;
+  sponsor_name: string | null;
+  caption: string | null;
+  poster_path: string;
+  whatsapp_number: string | null;
+  phone: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
+  website_url: string | null;
+  location_url: string | null;
+  /** Last day the ad shows (YYYY-MM-DD), or null to never expire. */
+  expires_at: string | null;
+  is_active: boolean;
+  sort_order: number;
 }
 
 /** A chat link for a competition's WhatsApp number, or null when it has none. */
@@ -954,6 +978,53 @@ export const tUpdateNews = (token: string, id: number, fd: TNewsInput) =>
 export const tDeleteNews = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/news/${id}`, undefined, token);
 export const tHome = () => get<THome>('/home');
+
+// ── sponsor ads ──────────────────────────────────────────────────────────────
+export interface TAdInput {
+  sponsor_name?: string; caption?: string;
+  whatsapp_number?: string; phone?: string;
+  facebook_url?: string; instagram_url?: string; website_url?: string;
+  location_url?: string; expires_at?: string;
+  is_active?: boolean; sort_order?: number;
+}
+/** What a competition admin's ad panel gets back: the ads plus the super-admin
+ *  gate (whether ads are enabled and how many are allowed). */
+export interface TCompetitionAdsAdmin {
+  ads: TAd[]; ads_enabled: boolean; max_ads: number; used: number;
+}
+function adBody(fd: TAdInput, poster?: File | null) {
+  const body = new FormData();
+  Object.entries(fd).forEach(([k, v]) => { if (v != null && v !== '') body.append(k, String(v)); });
+  if (poster) body.append('poster', poster);
+  return body;
+}
+/** How the sponsor carousels rotate and size their posters (shared, global). */
+export interface TAdSettings { rotation_seconds: number; poster_scale: number }
+export const tAdSettings = () => get<TAdSettings>('/ads/settings');
+export const tUpdateAdSettings = (token: string, s: Partial<TAdSettings>) =>
+  send<TAdSettings>('PUT', '/ads/settings', s, token);
+
+/** Active home-screen ads (super admin's), shown on the home page. */
+export const tHomeAds = () => get<TAd[]>('/ads/home');
+/** The super admin's management view: every home ad, including hidden/expired. */
+export const tHomeAdsAdmin = (token: string) => get<TAd[]>('/ads/home/all', token);
+/** A competition's public ads (respects the super-admin on/off switch). */
+export const tCompetitionAds = (compId: number) =>
+  get<TAd[]>(`/competitions/${compId}/ads`);
+/** The competition admin's view: all ads plus the gate state and allowance. */
+export const tCompetitionAdsAdmin = (compId: number, token: string) =>
+  get<TCompetitionAdsAdmin>(`/competitions/${compId}/ads`, token);
+/** Ads to show on a player's profile (pooled from their competitions). */
+export const tPlayerAds = (playerId: number) =>
+  get<TAd[]>(`/players/${playerId}/ads`);
+export const tCreateHomeAd = (token: string, fd: TAdInput, poster: File) =>
+  sendForm<TAd>('POST', '/ads', adBody(fd, poster), token);
+export const tCreateCompetitionAd = (token: string, compId: number, fd: TAdInput, poster: File) =>
+  sendForm<TAd>('POST', `/competitions/${compId}/ads`, adBody(fd, poster), token);
+export const tUpdateAd = (token: string, id: number, fd: TAdInput, poster?: File | null) =>
+  sendForm<TAd>('PUT', `/ads/${id}`, adBody(fd, poster), token);
+export const tDeleteAd = (token: string, id: number) =>
+  send<{ message: string }>('DELETE', `/ads/${id}`, undefined, token);
 
 // ── super-admin dashboard stats ──────────────────────────────────────────────
 export interface TCompStat {
