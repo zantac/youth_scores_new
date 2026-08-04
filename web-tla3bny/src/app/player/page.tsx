@@ -2,12 +2,13 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats,
+  tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds,
   mediaUrl,
-  type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals,
+  type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TAd,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
+import AdCard from '@/components/tla3bny/AdCard';
 import { PapersUploader, PapersReview, PapersProgress } from '@/components/tla3bny/PlayerPapers';
 import { Card, EmptyState, LogoAvatar, StatusBadge, useTT } from '@/components/tla3bny/kit';
 
@@ -20,6 +21,8 @@ function PlayerContent() {
   const [regs, setRegs] = useState<TPlayerRegistration[]>([]);
   const [docs, setDocs] = useState<TRequiredDocs>({ documents: [], sources: [] });
   const [stats, setStats] = useState<TPlayerStatTotals | null>(null);
+  const [ads, setAds] = useState<TAd[]>([]);
+  const [adIdx, setAdIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -38,6 +41,15 @@ function PlayerContent() {
     } catch { setNotFound(true); } finally { setLoading(false); }
   }, [id, token]);
   useEffect(() => { load(); }, [load]);
+
+  // Sponsor ads pooled from the player's competitions. When several run, rotate
+  // the single large poster so each sponsor gets a turn.
+  useEffect(() => { if (id) tPlayerAds(id).then(setAds).catch(() => setAds([])); }, [id]);
+  useEffect(() => {
+    if (ads.length <= 1) return;
+    const t = setInterval(() => setAdIdx(i => (i + 1) % ads.length), 6000);
+    return () => clearInterval(t);
+  }, [ads.length]);
 
   const refreshPapers = useCallback(async () => {
     if (!id) return;
@@ -113,6 +125,8 @@ function PlayerContent() {
           ))}
         </dl>
       </Card>
+
+      {ads.length > 0 && <AdCard ad={ads[adIdx % ads.length]} variant="poster" />}
 
       {/* Registration papers — never rendered for a public visitor. */}
       {canSeePapers && (

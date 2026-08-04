@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import type { TMatch } from '@/lib/tla3bnyApi';
 import { formatMatchDate, countdownLabel } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
-import { LogoAvatar, useTT } from './kit';
+import { LogoAvatar, useTT, useName } from './kit';
 
 /**
  * One match, presented the way youthscores presents one: crest + name on each
@@ -14,6 +14,9 @@ import { LogoAvatar, useTT } from './kit';
 export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?: boolean }) {
   const { locale } = useApp();
   const tt = useTT();
+  const nm = useName();
+  const homeName = nm(m.home_team_name, m.home_team_name_en);
+  const awayName = nm(m.away_team_name, m.away_team_name_en);
   const finished = m.status === 'completed' || m.status === 'finished';
   const live = m.status === 'live';
   const postponed = m.status === 'postponed';
@@ -48,9 +51,9 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
 
       <div className="flex items-center gap-2">
         <div className="flex-1 flex flex-col items-center gap-1">
-          <LogoAvatar src={m.home_logo} name={m.home_team_name} size={40} />
+          <LogoAvatar src={m.home_logo} name={homeName} size={40} />
           <p className={`text-xs text-center leading-tight ${homeWon ? 'text-gold font-bold' : 'text-text'}`}>
-            {m.home_team_name}
+            {homeName}
           </p>
         </div>
 
@@ -107,9 +110,9 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
         </div>
 
         <div className="flex-1 flex flex-col items-center gap-1">
-          <LogoAvatar src={m.away_logo} name={m.away_team_name} size={40} />
+          <LogoAvatar src={m.away_logo} name={awayName} size={40} />
           <p className={`text-xs text-center leading-tight ${awayWon ? 'text-gold font-bold' : 'text-text'}`}>
-            {m.away_team_name}
+            {awayName}
           </p>
         </div>
       </div>

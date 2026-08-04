@@ -4,10 +4,11 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tAcademy, mediaUrl, type TAcademy } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
-import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
 function AcademyContent() {
   const tt = useTT();
+  const nm = useName();
   const params = useSearchParams();
   const id = Number(params.get('id'));
   const [a, setA] = useState<TAcademy | null>(null);
@@ -28,9 +29,9 @@ function AcademyContent() {
 
       <Card className="p-5">
         <div className="flex items-center gap-4">
-          <LogoAvatar src={a.logo_path} name={a.name} size={72} />
+          <LogoAvatar src={a.logo_path} name={nm(a.name, a.name_en)} size={72} />
           <div className="min-w-0">
-            <h1 className="text-xl font-black text-text">{a.name}</h1>
+            <h1 className="text-xl font-black text-text">{nm(a.name, a.name_en)}</h1>
             {a.training_place && <p className="text-sm text-hint">📍 {a.training_place}</p>}
           </div>
         </div>
@@ -62,7 +63,7 @@ function AcademyContent() {
             {a.teams.map(t => (
               <Link key={t.id} href={`/team?id=${t.id}`}>
                 <Card className="p-3 flex items-center justify-between hover:border-aqua/50 transition-colors">
-                  <span className="font-bold text-text text-sm">{t.display_name}</span>
+                  <span className="font-bold text-text text-sm">{nm(t.display_name, t.display_name_en)}</span>
                   <span className="text-[11px] text-teal font-bold">{t.age_category}</span>
                 </Card>
               </Link>

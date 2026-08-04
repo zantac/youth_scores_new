@@ -1,6 +1,6 @@
 'use client';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   tSeasons, tCompetitions, tCompetition, tStandings, tMatches, tAnalysis, tBracket, tNews,
@@ -10,18 +10,30 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
-import { formatMatchDate, sortAges, subCompLabel } from '@/lib/utils';
+import { formatMatchDate, sortAges, subCompLabel, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
 import NewsList from '@/components/tla3bny/NewsList';
+import { AdStrip } from '@/components/tla3bny/AdCard';
+import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
 import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
 type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news' | 'info';
 
+/** The shareable URL for an open competition: ?comp, plus ?cage / ?tab when they
+ *  are not the defaults. Loading it reopens the same view. */
+function compUrl(id: number, cage: number | null, t: Tab): string {
+  const p = new URLSearchParams({ comp: String(id) });
+  if (cage) p.set('cage', String(cage));
+  if (t !== 'matches') p.set('tab', t);
+  return `/competitions?${p.toString()}`;
+}
+
 function CompetitionsContent() {
   const tt = useTT();
   const params = useSearchParams();
+  const router = useRouter();
   const [seasons, setSeasons] = useState<TSeason[]>([]);
   const [comp, setComp] = useState<TCompetition | null>(null);
   const [cageId, setCageId] = useState<number | null>(null);
@@ -63,27 +75,48 @@ function CompetitionsContent() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const openComp = useCallback((id: number, initialCageId?: number) => {
+  const openComp = useCallback((id: number, initialCageId?: number, initialTab?: Tab) => {
     tCompetition(id).then(c => {
-      setComp(c);
-      setCageId(initialCageId ?? sortAges(c.ages ?? [])[0]?.id ?? null);
-      setTab('standings');
+      const cage = initialCageId ?? sortAges(c.ages ?? [])[0]?.id ?? null;
+      const koAge = sortAges(c.ages ?? []).find(a => a.id === cage);
+      const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
+      let t = initialTab ?? 'matches';
+      if (t === 'bracket' && !hasKnockout) t = 'matches';   // no bracket tab to land on
+      setComp(c); setCageId(cage); setTab(t);
+      // Reflect the open competition in the address bar so it can be shared.
+      router.replace(compUrl(id, cage, t), { scroll: false });
     });
-  }, []);
+  }, [router]);
 
+  // Keep the view in sync with the URL: open the competition the address names
+  // (on first load or a shared link), and close when it goes away. Guarded by
+  // the currently-open id so our own URL writes don't re-trigger a reload.
+  const compIdRef = useRef<number | null>(null);
+  compIdRef.current = comp?.id ?? null;
   useEffect(() => {
-    const q = Number(params.get('comp'));
+    const q = Number(params.get('comp')) || null;
     const cage = Number(params.get('cage')) || undefined;
-    if (q) openComp(q, cage);
+    const t = (params.get('tab') as Tab) || undefined;
+    if (q && q !== compIdRef.current) openComp(q, cage, t);
+    else if (!q && compIdRef.current != null) setComp(null);
   }, [params, openComp]);
 
   if (loading) return <Spinner />;
 
   // ── competition open: drill-down view ──
   if (comp) {
+    const selectTab = (t: Tab) => {
+      setTab(t);
+      router.replace(compUrl(comp.id, cageId, t), { scroll: false });
+    };
+    const closeComp = () => { setComp(null); router.replace('/competitions', { scroll: false }); };
+    // Bracket only shows when the selected age actually has a knockout stage.
+    const koAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
+    const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
+    const tabs = ['matches', 'standings', 'stats', ...(hasKnockout ? ['bracket'] : []), 'news'] as Exclude<Tab, 'info'>[];
     return (
       <div className="space-y-4">
-        <button onClick={() => setComp(null)} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
+        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
         {(() => {
           const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
           return (
@@ -95,7 +128,7 @@ function CompetitionsContent() {
                   {[comp.season_name, selectedAge ? subCompLabel(selectedAge) : null, comp.location].filter(Boolean).join(' · ')}
                 </p>
               </div>
-              <button onClick={() => setTab(tab === 'info' ? 'standings' : 'info')}
+              <button onClick={() => selectTab(tab === 'info' ? 'matches' : 'info')}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border transition-colors ${
                   tab === 'info' ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 border-bdr text-teal hover:border-aqua/50'
                 }`}
@@ -107,8 +140,8 @@ function CompetitionsContent() {
         })()}
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
-          {(['standings', 'matches', 'stats', 'bracket', 'news'] as Exclude<Tab, 'info'>[]).map(t => (
-            <button key={t} onClick={() => setTab(t)}
+          {tabs.map(t => (
+            <button key={t} onClick={() => selectTab(t)}
               className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
               {tt(
@@ -245,36 +278,86 @@ function StandingsTab({ compId, ageId, cageId }: { compId: number; ageId: number
   );
 }
 
-/** Matches grouped by date, newest block first — the youthscores match list. */
+/** Matches grouped by date, oldest first, scrolled to the day nearest today —
+ *  the same "land on the current matches" behaviour as the home feed. */
 function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
   const tt = useTT();
   const { locale } = useApp();
   const [matches, setMatches] = useState<TMatch[] | null>(null);
-  useEffect(() => { setMatches(null); tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' }).then(setMatches).catch(() => setMatches([])); }, [compId, cageId]);
-  if (!matches) return <Spinner />;
-  if (matches.length === 0) return <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />;
+  const [ads, setAds] = useState<TAd[]>([]);
+  const [today, setToday] = useState<string | null>(null);
 
-  const days: { date: string | null; matches: TMatch[] }[] = [];
-  for (const m of matches) {
-    const last = days[days.length - 1];
-    if (last && last.date === m.date) last.matches.push(m);
-    else days.push({ date: m.date, matches: [m] });
-  }
+  useEffect(() => { setToday(todayStr()); }, []);
+
+  const didScroll = useRef(false);
+  useEffect(() => {
+    didScroll.current = false;   // re-scroll when the competition/age changes
+    setMatches(null);
+    tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' })
+      .then(setMatches).catch(() => setMatches([]));
+  }, [compId, cageId]);
+  useEffect(() => { tCompetitionAds(compId).then(setAds).catch(() => setAds([])); }, [compId]);
+
+  const days = useMemo(() => {
+    const out: { date: string | null; matches: TMatch[] }[] = [];
+    for (const m of matches ?? []) {
+      const last = out[out.length - 1];
+      if (last && last.date === m.date) last.matches.push(m);
+      else out.push({ date: m.date, matches: [m] });
+    }
+    return out;
+  }, [matches]);
+
+  // The day to land on: the first one today or later, else the most recent.
+  const anchorDate = useMemo(() => {
+    if (!today || days.length === 0) return null;
+    const upcoming = days.find(d => d.date && d.date >= today);
+    return upcoming ? upcoming.date : days[days.length - 1].date;
+  }, [today, days]);
+
+  // Scroll that day into view once, after the matches land.
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (didScroll.current || !anchorDate || !anchorRef.current) return;
+    didScroll.current = true;
+    const el = anchorRef.current;
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+  }, [anchorDate]);
+
+  if (!matches) return <Spinner />;
+  if (matches.length === 0) return (
+    <div className="space-y-4">
+      <AdStrip ads={ads} />
+      <EmptyState icon="📅" text={tt('لا مباريات', 'No matches')} />
+    </div>
+  );
 
   return (
     <div className="space-y-5">
-      {days.map((d, i) => (
-        <div key={d.date ?? `tbd-${i}`} className="space-y-2">
-          <div className="flex items-center gap-2 py-1">
-            <span className="text-aqua">📅</span>
-            <h3 className="font-bold text-sm text-text">
-              {d.date ? formatMatchDate(d.date, locale) : tt('لم تحدد', 'Date TBD')}
-            </h3>
-            <span className="flex-1 h-px bg-bdr" />
+      {days.map((d, di) => {
+        // Drop the sponsor strip a few matches into each day so it is on-screen
+        // when the page lands on that day, sitting between matches.
+        const adAfter = ads.length ? Math.min(3, Math.ceil(d.matches.length / 2)) : -1;
+        return (
+          <div key={d.date ?? `tbd-${di}`}
+            ref={d.date === anchorDate ? anchorRef : undefined}
+            className="space-y-2 scroll-mt-20">
+            <div className="flex items-center gap-2 py-1">
+              <span className="text-aqua">📅</span>
+              <h3 className={`font-bold text-sm ${d.date === today ? 'text-aqua' : 'text-text'}`}>
+                {d.date ? formatMatchDate(d.date, locale) : tt('لم تحدد', 'Date TBD')}
+              </h3>
+              <span className="flex-1 h-px bg-bdr" />
+            </div>
+            {d.matches.map((m, mi) => (
+              <Fragment key={m.id}>
+                <MatchRow m={m} />
+                {mi + 1 === adAfter && <AdStrip ads={ads} className="py-1" />}
+              </Fragment>
+            ))}
           </div>
-          {d.matches.map(m => <MatchRow key={m.id} m={m} />)}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

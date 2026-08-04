@@ -45,6 +45,7 @@ def register():
 
     academy = Tla3bnyAcademy(
         name=name,
+        name_en=(data.get("name_en") or "").strip() or None,
         logo_path=logo_path,
         phone=phone,
         facebook_url=(data.get("facebook_url") or "").strip() or None,
