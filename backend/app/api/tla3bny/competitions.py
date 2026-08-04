@@ -384,7 +384,6 @@ def _apply_ad_controls(comp: Tla3bnyCompetition, data) -> None:
     if "ads_enabled" in data:
         comp.ads_enabled = _bool(data.get("ads_enabled"), comp.ads_enabled)
 
-
 def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
     """Set the competition-wide contributor cap if the caller sent it. An empty
     value clears the cap (unlimited). Returns an error response on a bad value,

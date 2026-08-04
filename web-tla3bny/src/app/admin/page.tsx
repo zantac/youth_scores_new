@@ -811,7 +811,6 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
     } catch (e) { setAdsMsg(e instanceof Error ? e.message : String(e)); }
     finally { setAdsBusy(false); }
   };
-
   const saveLimit = async () => {
     setLimitBusy(true); setLimitMsg(null);
     try {
@@ -906,7 +905,6 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
           {adsMsg && <p className={`text-[11px] ${adsMsg.startsWith('✓') ? 'text-win' : 'text-loss'}`}>{adsMsg}</p>}
         </div>
       )}
-
       {cloneOpen && (
         <div className="mt-2 pt-2 border-t border-bdr/50 space-y-2">
           <p className="text-[11px] text-hint">
