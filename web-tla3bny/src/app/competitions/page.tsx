@@ -1,6 +1,6 @@
 'use client';
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   tSeasons, tCompetitions, tCompetition, tStandings, tMatches, tAnalysis, tBracket, tNews,
@@ -21,9 +21,19 @@ import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
 
 type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news' | 'info';
 
+/** The shareable URL for an open competition: ?comp, plus ?cage / ?tab when they
+ *  are not the defaults. Loading it reopens the same view. */
+function compUrl(id: number, cage: number | null, t: Tab): string {
+  const p = new URLSearchParams({ comp: String(id) });
+  if (cage) p.set('cage', String(cage));
+  if (t !== 'matches') p.set('tab', t);
+  return `/competitions?${p.toString()}`;
+}
+
 function CompetitionsContent() {
   const tt = useTT();
   const params = useSearchParams();
+  const router = useRouter();
   const [seasons, setSeasons] = useState<TSeason[]>([]);
   const [comp, setComp] = useState<TCompetition | null>(null);
   const [cageId, setCageId] = useState<number | null>(null);
@@ -65,27 +75,48 @@ function CompetitionsContent() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const openComp = useCallback((id: number, initialCageId?: number) => {
+  const openComp = useCallback((id: number, initialCageId?: number, initialTab?: Tab) => {
     tCompetition(id).then(c => {
-      setComp(c);
-      setCageId(initialCageId ?? sortAges(c.ages ?? [])[0]?.id ?? null);
-      setTab('standings');
+      const cage = initialCageId ?? sortAges(c.ages ?? [])[0]?.id ?? null;
+      const koAge = sortAges(c.ages ?? []).find(a => a.id === cage);
+      const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
+      let t = initialTab ?? 'matches';
+      if (t === 'bracket' && !hasKnockout) t = 'matches';   // no bracket tab to land on
+      setComp(c); setCageId(cage); setTab(t);
+      // Reflect the open competition in the address bar so it can be shared.
+      router.replace(compUrl(id, cage, t), { scroll: false });
     });
-  }, []);
+  }, [router]);
 
+  // Keep the view in sync with the URL: open the competition the address names
+  // (on first load or a shared link), and close when it goes away. Guarded by
+  // the currently-open id so our own URL writes don't re-trigger a reload.
+  const compIdRef = useRef<number | null>(null);
+  compIdRef.current = comp?.id ?? null;
   useEffect(() => {
-    const q = Number(params.get('comp'));
+    const q = Number(params.get('comp')) || null;
     const cage = Number(params.get('cage')) || undefined;
-    if (q) openComp(q, cage);
+    const t = (params.get('tab') as Tab) || undefined;
+    if (q && q !== compIdRef.current) openComp(q, cage, t);
+    else if (!q && compIdRef.current != null) setComp(null);
   }, [params, openComp]);
 
   if (loading) return <Spinner />;
 
   // ── competition open: drill-down view ──
   if (comp) {
+    const selectTab = (t: Tab) => {
+      setTab(t);
+      router.replace(compUrl(comp.id, cageId, t), { scroll: false });
+    };
+    const closeComp = () => { setComp(null); router.replace('/competitions', { scroll: false }); };
+    // Bracket only shows when the selected age actually has a knockout stage.
+    const koAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
+    const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
+    const tabs = ['matches', 'standings', 'stats', ...(hasKnockout ? ['bracket'] : []), 'news'] as Exclude<Tab, 'info'>[];
     return (
       <div className="space-y-4">
-        <button onClick={() => setComp(null)} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
+        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
         {(() => {
           const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
           return (
@@ -97,7 +128,7 @@ function CompetitionsContent() {
                   {[comp.season_name, selectedAge ? subCompLabel(selectedAge) : null, comp.location].filter(Boolean).join(' · ')}
                 </p>
               </div>
-              <button onClick={() => setTab(tab === 'info' ? 'standings' : 'info')}
+              <button onClick={() => selectTab(tab === 'info' ? 'matches' : 'info')}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border transition-colors ${
                   tab === 'info' ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 border-bdr text-teal hover:border-aqua/50'
                 }`}
@@ -109,8 +140,8 @@ function CompetitionsContent() {
         })()}
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
-          {(['standings', 'matches', 'stats', 'bracket', 'news'] as Exclude<Tab, 'info'>[]).map(t => (
-            <button key={t} onClick={() => setTab(t)}
+          {tabs.map(t => (
+            <button key={t} onClick={() => selectTab(t)}
               className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
               {tt(

@@ -1189,8 +1189,16 @@ function CompetitionPageInner() {
   const params = useSearchParams();
   const router  = useRouter();
   const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, locale } = useApp();
-  const [mainTab, setMainTab] = useState(0);
-  const [teamDetail,  setTeamDetail]  = useState<string | null>(null);
+  // The tab and the open team live in the URL, so a competition view can be
+  // shared and reopened exactly (e.g. ?url=...&tab=2&team=t001).
+  const mainTab = Number(params.get('tab')) || 0;
+  const teamDetail = params.get('team');
+  const setView = (patch: { tab?: number; team?: string | null }) => {
+    const p = new URLSearchParams(params.toString());
+    if ('tab' in patch) { if (patch.tab) p.set('tab', String(patch.tab)); else p.delete('tab'); }
+    if ('team' in patch) { if (patch.team) p.set('team', patch.team); else p.delete('team'); }
+    router.replace(`/competition?${p.toString()}`, { scroll: false });
+  };
 
   // The sticky header (title bar + main tabs) can grow with the safe-area inset
   // and font, so its height is measured rather than assumed — the per-tab second
@@ -1257,16 +1265,16 @@ function CompetitionPageInner() {
     <>
       <div ref={setHeadEl} className="sticky top-0 z-40">
         <AppBar title={title || compTitle} back embedded />
-        <TabStrip tabs={mainTabs} current={mainTab} onChange={setMainTab} />
+        <TabStrip tabs={mainTabs} current={mainTab} onChange={i => setView({ tab: i })} />
       </div>
 
       {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} />}
-      {mainTab === 1 && <StandingsTab matches={matches} teams={teams} locale={locale} onTeamClick={setTeamDetail} serverStandings={competition.standings} />}
-      {mainTab === 2 && <TeamsTab teams={teams} locale={locale} onTeamClick={setTeamDetail} />}
+      {mainTab === 1 && <StandingsTab matches={matches} teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} serverStandings={competition.standings} />}
+      {mainTab === 2 && <TeamsTab teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} />}
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}
 
       {teamDetail && (
-        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} onClose={() => setTeamDetail(null)} onTeamClick={setTeamDetail} />
+        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} onClose={() => setView({ team: null })} onTeamClick={t => setView({ team: t })} />
       )}
     </>
   );
