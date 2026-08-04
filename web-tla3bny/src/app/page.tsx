@@ -1,14 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { tNews, mediaUrl, type TNews } from '@/lib/tla3bnyApi';
+import { tNews, tHomeAds, mediaUrl, type TNews, type TAd } from '@/lib/tla3bnyApi';
 import MatchesFeed from '@/components/tla3bny/MatchesFeed';
 import { Card, useTT } from '@/components/tla3bny/kit';
 
 export default function HomePage() {
   const tt = useTT();
   const [news, setNews] = useState<TNews[]>([]);
+  const [ads, setAds] = useState<TAd[]>([]);
   useEffect(() => { tNews({ limit: 4 }).then(setNews).catch(() => setNews([])); }, []);
+  useEffect(() => { tHomeAds().then(setAds).catch(() => setAds([])); }, []);
 
   return (
     <div className="space-y-6">
@@ -56,7 +58,7 @@ export default function HomePage() {
 
       <section>
         <h2 className="text-lg font-black text-text mb-2">{tt('المباريات', 'Matches')}</h2>
-        <MatchesFeed />
+        <MatchesFeed ads={ads} />
       </section>
     </div>
   );

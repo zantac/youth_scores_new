@@ -72,6 +72,9 @@ html.dark body::before {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Crossfade for the rotating sponsor banner. */
+  @keyframes adFade { from { opacity: 0; } to { opacity: 1; } }
+  .ad-fade { animation: adFade 0.5s ease; }
   /* Line up columns of digits (scores, standings). */
   .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 

@@ -7,10 +7,11 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
-import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
 function TeamContent() {
   const tt = useTT();
+  const nm = useName();
   const params = useSearchParams();
   const id = Number(params.get('id'));
   const { academy, team: myTeam, token, isAcademy, isTeam, isSuperAdmin } = useTla3bnyAuth();
@@ -48,14 +49,14 @@ function TeamContent() {
     <div className="space-y-4">
       {t.academy_id && (
         <Link href={`/academy?id=${t.academy_id}`} className="text-sm text-hint hover:text-aqua">
-          {'←'} {t.academy_name}
+          {'←'} {nm(t.academy_name, t.academy_name_en)}
         </Link>
       )}
 
       <Card className="p-5 flex items-center gap-4">
-        <LogoAvatar src={t.academy_logo} name={t.academy_name} size={60} />
+        <LogoAvatar src={t.academy_logo} name={nm(t.academy_name, t.academy_name_en)} size={60} />
         <div>
-          <h1 className="text-xl font-black text-text">{t.display_name}</h1>
+          <h1 className="text-xl font-black text-text">{nm(t.display_name, t.display_name_en)}</h1>
           <p className="text-sm text-teal font-bold">{t.age_category}</p>
         </div>
       </Card>
@@ -79,9 +80,9 @@ function TeamContent() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {t.coaches.map(c => (
                   <Card key={c.id} className="p-3 flex items-center gap-3">
-                    <LogoAvatar src={c.photo_path} name={c.name} size={40} />
+                    <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={40} />
                     <div className="min-w-0">
-                      <div className="font-bold text-text text-sm truncate">{c.name}</div>
+                      <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
                       <div className="text-[11px] text-hint">{c.role_ar}</div>
                     </div>
                   </Card>
@@ -97,9 +98,9 @@ function TeamContent() {
                 {t.players.map(p => (
                   <Link key={p.id} href={`/player?id=${p.player_id}`}>
                     <Card className="p-3 flex items-center gap-3 hover:border-aqua/50 transition-colors">
-                      <LogoAvatar src={p.photo_path} name={p.player_name} size={40} />
+                      <LogoAvatar src={p.photo_path} name={nm(p.player_name, p.player_name_en)} size={40} />
                       <div className="min-w-0 flex-1">
-                        <div className="font-bold text-text text-sm truncate">{p.player_name}</div>
+                        <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
                         <div className="text-[11px] text-hint">{p.position}</div>
                       </div>
                       {p.jersey_number != null && (

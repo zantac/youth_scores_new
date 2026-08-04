@@ -47,6 +47,7 @@ from .players import _player_team_id
 # create and update always take the same set.
 COMPETITION_TEXT_FIELDS = (
     "name",
+    "name_en",
     "description",
     "location",
     "info",
@@ -271,6 +272,7 @@ def clone_competition(comp_id: int):
     new_comp = Tla3bnyCompetition(
         season_id=season_id,
         name=source.name,
+        name_en=source.name_en,
         description=source.description,
         logo_path=source.logo_path,
         location=source.location,
@@ -286,6 +288,9 @@ def clone_competition(comp_id: int):
         facebook_url=source.facebook_url,
         location_url=source.location_url,
         registration_open=False,
+        max_players=source.max_players,
+        max_ads=source.max_ads,
+        ads_enabled=source.ads_enabled,
     )
     db.session.add(new_comp)
     db.session.flush()
@@ -358,9 +363,42 @@ def create_competition():
     _apply_competition_text(comp, data)
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), True)
+    err = _apply_max_players(comp, data)
+    if err:
+        return err
+    _apply_ad_controls(comp, data)  # creator is the super admin
     db.session.add(comp)
     db.session.commit()
     return jsonify(comp.to_dict()), 201
+
+
+def _apply_ad_controls(comp: Tla3bnyCompetition, data) -> None:
+    """Apply the super-admin sponsor-ad controls (``max_ads`` allowance and the
+    ``ads_enabled`` kill switch). Only the super admin may change these — a
+    competition admin must not raise their own paid allowance."""
+    user = auth.current_user()
+    if not (user and user.role == "super_admin"):
+        return
+    if "max_ads" in data:
+        comp.max_ads = max(0, _int(data.get("max_ads"), comp.max_ads) or 0)
+    if "ads_enabled" in data:
+        comp.ads_enabled = _bool(data.get("ads_enabled"), comp.ads_enabled)
+
+def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
+    """Set the competition-wide contributor cap if the caller sent it. An empty
+    value clears the cap (unlimited). Returns an error response on a bad value,
+    else None."""
+    if "max_players" not in data:
+        return None
+    raw = data.get("max_players")
+    if raw is None or str(raw).strip() == "":
+        comp.max_players = None
+        return None
+    value = _int(raw)
+    if value is None or value < 1:
+        return _err("'max_players' must be a positive whole number", 400)
+    comp.max_players = value
+    return None
 
 
 def _apply_competition_text(comp: Tla3bnyCompetition, data) -> None:
@@ -392,6 +430,10 @@ def update_competition(comp_id: int):
         comp.start_date = _parse_date(data.get("start_date"))
     if "end_date" in data:
         comp.end_date = _parse_date(data.get("end_date"))
+    err = _apply_max_players(comp, data)
+    if err:
+        return err
+    _apply_ad_controls(comp, data)  # no-op unless the caller is the super admin
     present, docs = _docs_field(data)
     if present:
         comp.required_documents = docs
@@ -918,6 +960,23 @@ def remove_roster_player(cp_id: int):
     return jsonify({"message": "deleted"})
 
 
+def _approved_player_count(comp_id: int) -> int:
+    """Players currently approved across the whole competition — the number
+    tla3bny is priced on, and the count the ``max_players`` cap limits."""
+    return (
+        db.session.query(func.count(Tla3bnyCompetitionPlayer.id))
+        .join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        )
+        .filter(
+            Tla3bnyCompetitionTeam.competition_id == comp_id,
+            Tla3bnyCompetitionPlayer.status == "approved",
+        )
+        .scalar()
+    ) or 0
+
+
 @tla3bny_bp.post("/competition-players/<int:cp_id>/approve")
 @auth.login_required
 def approve_roster_player(cp_id: int):
@@ -944,6 +1003,18 @@ def approve_roster_player(cp_id: int):
             return _err(
                 f"Missing documents: {', '.join(missing)}. "
                 'Pass "force": true to approve without them.',
+                409,
+            )
+
+    # Competition-wide player cap — the priced limit the super admin set.
+    # Approving a not-yet-approved player must not push the competition's
+    # approved-player count past it. This is a hard limit, not force-overridable.
+    comp = entry.competition if entry else None
+    if comp and comp.max_players is not None and cp.status != "approved":
+        if _approved_player_count(comp.id) >= comp.max_players:
+            return _err(
+                f"Competition player limit reached ({comp.max_players} players). "
+                "Raise the limit or remove an approved player first.",
                 409,
             )
 
@@ -1039,6 +1110,18 @@ def bulk_approve_roster_players():
 
     approved, skipped, errors = [], [], []
 
+    # Competition-wide caps: seed each competition's current approved count and
+    # its priced limit once, then spend the headroom as we approve within this
+    # call so a bulk approve can't overshoot the limit.
+    comp_counts: dict[int, int] = {}
+    comp_caps: dict[int, int | None] = {}
+    for cp in cps:
+        entry = cp.entry
+        if entry and entry.competition_id not in comp_counts:
+            cid = entry.competition_id
+            comp_counts[cid] = _approved_player_count(cid)
+            comp_caps[cid] = entry.competition.max_players if entry.competition else None
+
     for cp in cps:
         if cp.status == "approved":
             skipped.append(cp.id)
@@ -1064,6 +1147,18 @@ def bulk_approve_roster_players():
                 })
                 continue
 
+        # Competition-wide player cap (the priced limit). Stop approving into a
+        # competition once its approved count reaches max_players.
+        cid = entry.competition_id if entry else None
+        cap = comp_caps.get(cid)
+        if cap is not None and comp_counts.get(cid, 0) >= cap:
+            errors.append({
+                "id": cp.id,
+                "player_name": player.name if player else None,
+                "competition_limit": cap,
+            })
+            continue
+
         cp.status = "approved"
         cp.rejection_reason = None
         cp.approved_by_user_id = user.id
@@ -1075,6 +1170,8 @@ def bulk_approve_roster_players():
             "bulk": True,
         }, competition_id=entry.competition_id if entry else None)
         approved.append(cp.id)
+        if cid is not None:
+            comp_counts[cid] = comp_counts.get(cid, 0) + 1
 
     db.session.commit()
     return jsonify({"approved": approved, "skipped": skipped, "errors": errors})
