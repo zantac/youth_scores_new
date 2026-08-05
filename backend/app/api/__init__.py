@@ -7,6 +7,23 @@ from app.api import serializers
 api_bp = Blueprint("api", __name__)
 
 
+@api_bp.after_request
+def _public_cache(response):
+    """Let browsers and any CDN in front of Railway cache the public read feed.
+
+    Everything under this blueprint is public, unauthenticated read data (the
+    config/data feed, matches, clubs, teams, players). A short max-age with a
+    longer stale-while-revalidate means repeat visits and CDN hits are served
+    without re-running the queries, while updates still appear within a minute.
+    Only successful GETs are cached; writes never reach this blueprint.
+    """
+    if request.method == "GET" and response.status_code == 200:
+        response.headers.setdefault(
+            "Cache-Control", "public, max-age=60, stale-while-revalidate=300"
+        )
+    return response
+
+
 def _base_url() -> str:
     # Absolute URLs are embedded in the config so the clients can fetch each
     # competition directly. Honour a configured base (behind a proxy / real

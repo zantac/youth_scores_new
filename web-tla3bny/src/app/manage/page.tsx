@@ -19,6 +19,7 @@ import { sortAges, subCompLabel } from '@/lib/utils';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
+import DocumentsManager from '@/components/tla3bny/DocumentsManager';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import AdsManager from '@/components/tla3bny/AdsManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
@@ -298,6 +299,8 @@ const RULE_FIELDS: [keyof TCompAge, string, string][] = [
 
 function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
   const tt = useTT();
+  const { isSuperAdmin } = useTla3bnyAuth();
+  const finished = comp.status === 'finished';
   const [cats, setCats] = useState<TCategory[]>([]);
   const [ageId, setAgeId] = useState('');
   const [newName, setNewName] = useState('');
@@ -339,7 +342,23 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
           </select>
         </div>
       )}
-      {visibleAges.map(a => <AgeRuleCard key={a.id} token={token} age={a} reload={reload} />)}
+      {visibleAges.map(a => (
+        <AgeRuleCard key={a.id} token={token} age={a} reload={reload}
+          finished={finished} canDelete={isSuperAdmin} />
+      ))}
+      {finished && (
+        <Card className="p-3 space-y-2 border-aqua/30">
+          <div>
+            <p className="font-black text-text text-sm">{tt('أوراق البطولة كاملة', 'All competition documents')}</p>
+            <p className="text-[11px] text-hint">
+              {tt('تنزيل أوراق كل البطولات الفرعية دفعة واحدة، أو حذف المتبقي بعد التسليم (كنس نهائي).',
+                  'Download every sub-competition’s papers at once, or delete what remains after handover (final sweep).')}
+            </p>
+          </div>
+          <DocumentsManager token={token} scope={{ kind: 'comp', id: comp.id }}
+            finished={finished} canDelete={isSuperAdmin} />
+        </Card>
+      )}
       <Card className="p-3 space-y-2">
         <p className="font-black text-text text-sm">{tt('إضافة بطولة فرعية', 'Add sub-competition')}</p>
         <div className="grid grid-cols-2 gap-2">
@@ -371,7 +390,9 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   );
 }
 
-function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; reload: () => void }) {
+function AgeRuleCard({ token, age, reload, finished, canDelete }: {
+  token: string; age: TCompAge; reload: () => void; finished: boolean; canDelete: boolean;
+}) {
   const tt = useTT();
   const [name, setName] = useState(age.name ?? '');
   const [deadline, setDeadline] = useState(age.player_registration_deadline ?? '');
@@ -480,6 +501,15 @@ function AgeRuleCard({ token, age, reload }: { token: string; age: TCompAge; rel
         <PrimaryButton onClick={save} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
         {ok && <span className="text-win text-sm">✓</span>}
         <UnsavedBadge isDirty={isDirty} />
+      </div>
+
+      {/* Registration documents: export to CD/flash, then delete to reclaim storage */}
+      <div className="border-t border-bdr/50 pt-3">
+        <span className="block text-teal text-[10px] font-bold mb-2">
+          {tt('أوراق التسجيل', 'Registration documents')}
+        </span>
+        <DocumentsManager token={token} scope={{ kind: 'sub', id: age.id }}
+          finished={finished} canDelete={canDelete} />
       </div>
     </Card>
   );

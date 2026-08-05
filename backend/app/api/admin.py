@@ -130,7 +130,10 @@ def upload_image():
         name = images.process_upload(fs)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify({"url": f"{_base_url()}/uploads/{name}"})
+    # process_upload returns a full URL when S3/R2 is configured, else a bare
+    # local filename served by the /uploads/ route.
+    url = name if name.startswith("http") else f"{_base_url()}/uploads/{name}"
+    return jsonify({"url": url})
 
 
 @admin_bp.get("/api/admin/news")

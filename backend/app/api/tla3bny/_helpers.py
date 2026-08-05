@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 
 from app.extensions import db
 from app.models import Tla3bnyUser
+from app.services import storage
 
 # Images are resized / recompressed to stay within this budget.
 _IMAGE_MAX_BYTES = 500 * 1024   # 500 KB
@@ -123,58 +124,6 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     return out, ext
 
 
-# MIME types for S3 Content-Type header.
-_CONTENT_TYPE = {
-    "jpg": "image/jpeg",
-    "png": "image/png",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "pdf": "application/pdf",
-}
-
-
-def _s3_upload(data: bytes, filename: str, ext: str) -> str:
-    """Upload bytes to S3 (or any S3-compatible store) and return the public URL.
-
-    Tries to set ACL=public-read; silently skips the ACL parameter for
-    providers that do not support it (Cloudflare R2, MinIO with no ACL plugin).
-    Configure a public bucket policy on those providers instead.
-    """
-    import boto3  # lazy import — only needed when S3 is configured
-
-    cfg = current_app.config
-    client = boto3.client(
-        "s3",
-        region_name=cfg.get("AWS_S3_REGION", "us-east-1"),
-        aws_access_key_id=cfg.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=cfg.get("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url=cfg.get("AWS_S3_ENDPOINT_URL"),
-    )
-    bucket: str = cfg["AWS_S3_BUCKET"]
-    content_type = _CONTENT_TYPE.get(ext, "application/octet-stream")
-
-    try:
-        client.put_object(
-            Bucket=bucket, Key=filename, Body=data,
-            ContentType=content_type, ACL="public-read",
-        )
-    except Exception:
-        # ACL not supported by this provider — upload without it.
-        client.put_object(
-            Bucket=bucket, Key=filename, Body=data, ContentType=content_type,
-        )
-
-    # Resolve the public URL: custom CDN prefix → endpoint → standard AWS URL.
-    public_url = (cfg.get("AWS_S3_PUBLIC_URL") or "").rstrip("/")
-    if public_url:
-        return f"{public_url}/{filename}"
-    endpoint = (cfg.get("AWS_S3_ENDPOINT_URL") or "").rstrip("/")
-    if endpoint:
-        return f"{endpoint}/{bucket}/{filename}"
-    region = cfg.get("AWS_S3_REGION", "us-east-1")
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{filename}"
-
-
 def save_upload(file_storage, kind: str = "image") -> str | None:
     """Save an uploaded file and return its URL or local path.
 
@@ -225,8 +174,8 @@ def save_upload(file_storage, kind: str = "image") -> str | None:
 
     filename = secure_filename(f"{uuid.uuid4().hex}.{final_ext}")
 
-    if current_app.config.get("AWS_S3_BUCKET"):
-        return _s3_upload(data, filename, final_ext)
+    if storage.s3_enabled():
+        return storage.s3_upload(data, filename, final_ext)
 
     folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(folder, exist_ok=True)

@@ -1,9 +1,16 @@
-import sqlalchemy as sa
+import csv
+import io
+import os
+import re
+import tempfile
+import zipfile
 from collections import defaultdict
-from sqlalchemy import func
-from sqlalchemy.orm import selectinload
 
-from flask import jsonify, request
+import sqlalchemy as sa
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload, selectinload
+
+from flask import after_this_request, jsonify, request, send_file
 
 from app.extensions import db
 from app.models import (
@@ -18,6 +25,7 @@ from app.models import (
     Tla3bnyMatch,
     Tla3bnyMatchEvent,
     Tla3bnyPlayer,
+    Tla3bnyPlayerFile,
     Tla3bnySeason,
     Tla3bnyStage,
     Tla3bnyTeam,
@@ -25,6 +33,7 @@ from app.models import (
     Tla3bnyPlayerTeam,
 )
 from app.models import codes
+from app.services import storage
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -1218,3 +1227,303 @@ def bulk_reject_roster_players():
 
     db.session.commit()
     return jsonify({"rejected": rejected})
+
+
+# ── registration documents: bulk export & cleanup ────────────────────────────
+# Registration papers are stored on the player row (one file per required label),
+# but in practice they belong to a competition: a player is not entered in two
+# competitions at once. The only real sharing is a player who plays in two
+# *sub-competitions* of the same competition (same papers). A single competition's
+# papers can run to gigabytes, so the primary tools work per **sub-competition**
+# (Tla3bnyCompetitionAge): once the parent competition is ``finished``, download
+# that sub-competition's papers as one right-sized ZIP (to burn to CD/flash), then
+# delete them to stop paying to store them. Competition-level variants export or
+# sweep everything at once. Deletion always protects a player whose papers another
+# not-yet-cleaned scope still needs, and never touches player photos.
+
+def _document_regs_query():
+    """Base query: registrations joined to their team entry, with player+files,
+    team and academy eager-loaded (so an export is a few queries, not N+1)."""
+    return (
+        Tla3bnyCompetitionPlayer.query
+        .join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        )
+        .options(
+            joinedload(Tla3bnyCompetitionPlayer.player).selectinload(
+                Tla3bnyPlayer.files
+            ),
+            joinedload(Tla3bnyCompetitionPlayer.entry)
+            .joinedload(Tla3bnyCompetitionTeam.team)
+            .joinedload(Tla3bnyTeam.academy),
+        )
+    )
+
+
+def _cage_match(cage: Tla3bnyCompetitionAge):
+    """SQL condition selecting the team entries that belong to sub-competition
+    ``cage`` — by the explicit link, or (for legacy rows without it) by the
+    competition + age category."""
+    return sa.or_(
+        Tla3bnyCompetitionTeam.competition_age_id == cage.id,
+        sa.and_(
+            Tla3bnyCompetitionTeam.competition_age_id.is_(None),
+            Tla3bnyCompetitionTeam.competition_id == cage.competition_id,
+            Tla3bnyCompetitionTeam.age_category_id == cage.age_category_id,
+        ),
+    )
+
+
+def _safe_segment(value: str | None, fallback: str) -> str:
+    """A filename-safe path segment. Keeps Arabic/word characters, spaces, dot
+    and dash; replaces path separators and anything else with '_'."""
+    cleaned = re.sub(r"[^\w\-. ]", "_", (value or "").strip(), flags=re.UNICODE)
+    return cleaned or fallback
+
+
+def _build_documents_zip(regs) -> tuple[str, int, int]:
+    """Write every distinct player's papers in ``regs`` to a temp ZIP, organised
+    academy/team/player, plus a manifest.csv. Returns (temp_path, files, players).
+    The caller streams the file and is responsible for deleting it afterwards."""
+    tmp = tempfile.NamedTemporaryFile(prefix="tla3bny_docs_", suffix=".zip", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+
+    manifest = [(
+        "academy", "team", "player", "player_id",
+        "label", "original_name", "stored_path", "status",
+    )]
+    seen: set[int] = set()
+    file_count = 0
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for reg in regs:
+                player = reg.player
+                if not player or player.id in seen:
+                    continue
+                seen.add(player.id)
+                entry = reg.entry
+                team = entry.team if entry else None
+                academy = team.academy if team else None
+                acad = _safe_segment(academy.name if academy else None, "no_academy")
+                team_name = _safe_segment(
+                    team.display_name() if team else None, "no_team"
+                )
+                pname = _safe_segment(player.name, f"player_{player.id}")
+                folder = f"{acad}/{team_name}/{pname}"
+                for f in player.files:
+                    ext = os.path.splitext(f.file_path)[1] or os.path.splitext(
+                        f.original_name or ""
+                    )[1]
+                    label = _safe_segment(f.label, f"document_{f.id}")
+                    base = _safe_segment(f.original_name, f"{label}{ext}")
+                    arcname = f"{folder}/{f.id}_{label}__{base}"
+                    try:
+                        data = storage.read_bytes(f.file_path)
+                    except Exception:  # noqa: BLE001 - a missing object mustn't abort the whole export
+                        manifest.append((acad, team_name, pname, player.id,
+                                         f.label or "", f.original_name or "",
+                                         f.file_path, "MISSING"))
+                        continue
+                    zf.writestr(arcname, data)
+                    manifest.append((acad, team_name, pname, player.id,
+                                     f.label or "", f.original_name or "",
+                                     f.file_path, "ok"))
+                    file_count += 1
+
+            buf = io.StringIO()
+            csv.writer(buf).writerows(manifest)
+            # utf-8-sig so Excel opens the Arabic labels correctly.
+            zf.writestr("manifest.csv", buf.getvalue().encode("utf-8-sig"))
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+    return tmp_path, file_count, len(seen)
+
+
+def _send_documents_zip(regs, competition_id, cage_id, download_name):
+    """Build, log, stream and clean up a documents archive for a set of regs."""
+    tmp_path, file_count, players = _build_documents_zip(regs)
+
+    @after_this_request
+    def _cleanup(response):
+        # The response holds an open fd to the file; on the Linux host unlinking
+        # it now is safe (the inode lives until the stream finishes).
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return response
+
+    _log(
+        "documents_exported",
+        "competition_age" if cage_id else "competition",
+        cage_id or competition_id,
+        {"files": file_count, "players": players},
+        competition_id=competition_id,
+    )
+    db.session.commit()
+    return send_file(
+        tmp_path, mimetype="application/zip",
+        as_attachment=True, download_name=download_name,
+    )
+
+
+def _delete_documents(player_ids, protected, names, competition_id, cage_id, skip_reason):
+    """Delete the papers of every player in ``player_ids`` except the protected
+    set. Returns the JSON response body."""
+    deletable = player_ids - protected
+    files = (
+        Tla3bnyPlayerFile.query.filter(
+            Tla3bnyPlayerFile.player_id.in_(deletable)
+        ).all()
+        if deletable
+        else []
+    )
+    deleted_files = 0
+    failed: list[str] = []
+    for f in files:
+        try:
+            ok = storage.delete_file(f.file_path)
+        except Exception:  # noqa: BLE001 - one bad object mustn't abort the batch
+            ok = False
+        if ok:
+            db.session.delete(f)
+            deleted_files += 1
+        else:
+            failed.append(f.file_path)
+
+    skipped_players = [
+        {"player_id": pid, "player_name": names.get(pid), "reason": skip_reason}
+        for pid in protected
+    ]
+    _log(
+        "documents_deleted",
+        "competition_age" if cage_id else "competition",
+        cage_id or competition_id,
+        {"deleted_files": deleted_files, "skipped_players": len(protected),
+         "failed": len(failed)},
+        competition_id=competition_id,
+    )
+    db.session.commit()
+    return jsonify({
+        "deleted_files": deleted_files,
+        "skipped_players": skipped_players,
+        "failed": failed,
+    })
+
+
+# ── sub-competition (primary: right-sized per age) ───────────────────────────
+@tla3bny_bp.get("/competition-ages/<int:cage_id>/documents/archive")
+def download_subcompetition_documents(cage_id: int):
+    """ZIP of one sub-competition's registration papers (parent must be finished).
+    Keeps each archive small enough to download and burn to CD/flash."""
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
+        return _forbid()
+    if not cage.competition or cage.competition.status != "finished":
+        return _err("يمكن تنزيل المستندات بعد انتهاء البطولة فقط", 409)
+    regs = _document_regs_query().filter(_cage_match(cage)).all()
+    name = f"competition_{cage.competition_id}_sub_{cage_id}_documents.zip"
+    return _send_documents_zip(regs, cage.competition_id, cage_id, name)
+
+
+@tla3bny_bp.delete("/competition-ages/<int:cage_id>/documents")
+@auth.super_admin_required
+def delete_subcompetition_documents(cage_id: int):
+    """Delete one sub-competition's registration papers to reclaim storage. A
+    player who is also registered anywhere outside this sub-competition (another
+    sub-competition or competition) is skipped and reported — their shared papers
+    stay until that other scope is handled (or the competition-level sweep runs).
+    Player photos are never touched."""
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    if not cage.competition or cage.competition.status != "finished":
+        return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
+
+    regs = _document_regs_query().filter(_cage_match(cage)).all()
+    player_ids = {r.player_id for r in regs if r.player_id}
+    names = {r.player.id: r.player.name for r in regs if r.player}
+    if not player_ids:
+        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
+                        "message": "لا توجد مستندات لهذه البطولة الفرعية"})
+
+    # The team entries that make up this sub-competition.
+    cage_team_ids = [
+        ct.id for ct in Tla3bnyCompetitionTeam.query
+        .filter(Tla3bnyCompetitionTeam.competition_id == cage.competition_id)
+        .filter(_cage_match(cage)).all()
+    ]
+    # Protect any of these players who ALSO have a registration outside this
+    # sub-competition (their papers are shared and may still be needed there).
+    protected = {
+        pid for (pid,) in db.session.query(Tla3bnyCompetitionPlayer.player_id)
+        .filter(Tla3bnyCompetitionPlayer.player_id.in_(player_ids))
+        .filter(Tla3bnyCompetitionPlayer.competition_team_id.notin_(cage_team_ids))
+        .distinct().all()
+    }
+    return _delete_documents(
+        player_ids, protected, names, cage.competition_id, cage_id,
+        "مسجّل في بطولة فرعية أخرى — سيُحذف عند معالجتها",
+    )
+
+
+# ── whole competition (export all at once / final sweep) ─────────────────────
+@tla3bny_bp.get("/competitions/<int:comp_id>/documents/archive")
+def download_competition_documents(comp_id: int):
+    """ZIP of every registration paper in a finished competition (all
+    sub-competitions at once). For large competitions prefer the per-
+    sub-competition archive above."""
+    if not auth.is_competition_admin(auth.current_user(), comp_id):
+        return _forbid()
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
+    if comp.status != "finished":
+        return _err("يمكن تنزيل المستندات بعد انتهاء البطولة فقط", 409)
+    regs = _document_regs_query().filter(
+        Tla3bnyCompetitionTeam.competition_id == comp_id
+    ).all()
+    return _send_documents_zip(regs, comp_id, None, f"competition_{comp_id}_documents.zip")
+
+
+@tla3bny_bp.delete("/competitions/<int:comp_id>/documents")
+@auth.super_admin_required
+def delete_competition_documents(comp_id: int):
+    """Sweep every registration paper of a finished competition. Protects only
+    players still registered in another competition that is not finished (in
+    practice none — a player is not in two competitions at once), so this also
+    clears players who spanned several sub-competitions of this one. Player
+    photos are never touched."""
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
+    if comp.status != "finished":
+        return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
+
+    regs = _document_regs_query().filter(
+        Tla3bnyCompetitionTeam.competition_id == comp_id
+    ).all()
+    player_ids = {r.player_id for r in regs if r.player_id}
+    names = {r.player.id: r.player.name for r in regs if r.player}
+    if not player_ids:
+        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
+                        "message": "لا توجد مستندات لهذه البطولة"})
+
+    protected = {
+        pid for (pid,) in db.session.query(Tla3bnyCompetitionPlayer.player_id)
+        .join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        )
+        .join(
+            Tla3bnyCompetition,
+            Tla3bnyCompetitionTeam.competition_id == Tla3bnyCompetition.id,
+        )
+        .filter(Tla3bnyCompetition.status != "finished")
+        .filter(Tla3bnyCompetitionPlayer.player_id.in_(player_ids))
+        .distinct().all()
+    }
+    return _delete_documents(
+        player_ids, protected, names, comp_id, None,
+        "مسجّل في بطولة أخرى لم تنتهِ بعد",
+    )

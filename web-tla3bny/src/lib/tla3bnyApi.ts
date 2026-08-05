@@ -814,6 +814,50 @@ export const tUpdateCompAge = (token: string, id: number, b: Record<string, unkn
 export const tDeleteCompAge = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/competition-ages/${id}`, undefined, token);
 
+// ── registration documents: export & cleanup ────────────────────────────────
+export interface TDocDeleteResult {
+  deleted_files: number;
+  skipped_players: { player_id: number; player_name: string | null; reason: string }[];
+  failed: string[];
+  message?: string;
+}
+
+/** Fetch a protected file with the bearer token and save it via the browser.
+ * A plain <a href> can't carry the Authorization header, so we stream the blob
+ * and trigger the download ourselves. */
+async function downloadAuthed(path: string, token: string, fallbackName: string): Promise<void> {
+  const res = await fetch(`${T_BASE}${path}`, { headers: authHeaders(token), cache: 'no-store' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  const name = m ? decodeURIComponent(m[1]) : fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Download one sub-competition's registration documents as a ZIP (finished only). */
+export const tDownloadSubCompDocs = (token: string, cageId: number) =>
+  downloadAuthed(`/competition-ages/${cageId}/documents/archive`, token, `sub_${cageId}_documents.zip`);
+/** Delete one sub-competition's documents; shared players are skipped & reported. */
+export const tDeleteSubCompDocs = (token: string, cageId: number) =>
+  send<TDocDeleteResult>('DELETE', `/competition-ages/${cageId}/documents`, undefined, token);
+/** Download every registration document in a competition as one ZIP (finished only). */
+export const tDownloadCompDocs = (token: string, compId: number) =>
+  downloadAuthed(`/competitions/${compId}/documents/archive`, token, `competition_${compId}_documents.zip`);
+/** Final sweep: delete all remaining documents of a finished competition. */
+export const tDeleteCompDocs = (token: string, compId: number) =>
+  send<TDocDeleteResult>('DELETE', `/competitions/${compId}/documents`, undefined, token);
+
 // ── stages + groups ─────────────────────────────────────────────────────────
 export const tAddStage = (token: string, cageId: number, b: Record<string, unknown>) =>
   send<TStage>('POST', `/competition-ages/${cageId}/stages`, b, token);
