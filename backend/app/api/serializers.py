@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime, time as day_time
 
 import sqlalchemy as sa
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models import (
     Ad,
@@ -27,6 +27,8 @@ from app.models import (
     Match,
     MatchCard,
     MatchGoal,
+    MatchPlayer,
+    MatchSubstitution,
     News,
     Player,
     PlayerTeam,
@@ -189,6 +191,19 @@ def competition_data(competition_id: int) -> dict | None:
 
     matches = (
         Match.query.join(Stage)
+        # Eager-load everything _match() reads, so serializing a competition's
+        # fixtures is a fixed handful of queries instead of ~10 per match (N+1).
+        # Collections use selectinload (a separate IN query, no row blow-up);
+        # each collection's player links are joined onto that same query.
+        .options(
+            joinedload(Match.stage),
+            selectinload(Match.goals).joinedload(MatchGoal.scorer),
+            selectinload(Match.goals).joinedload(MatchGoal.assist),
+            selectinload(Match.cards).joinedload(MatchCard.player),
+            selectinload(Match.substitutions).joinedload(MatchSubstitution.player_in),
+            selectinload(Match.substitutions).joinedload(MatchSubstitution.player_out),
+            selectinload(Match.lineup).joinedload(MatchPlayer.player),
+        )
         .filter(Stage.competition_id == competition_id)
         .filter(Match.deleted_at.is_(None))
         # Undated (TBD) fixtures sort last; is_(None) orders False<True.
@@ -285,6 +300,7 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
+           .options(joinedload(TeamCoach.coach))
            .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all() if tc.coach]
     coaches = [
         c.coach.full_name_ar or c.coach.full_name_en
@@ -300,6 +316,7 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
     } for tc in tcs]
 
     regs = (PlayerTeam.query.filter_by(team_id=t.id)
+            .options(joinedload(PlayerTeam.player))
             .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
             .all())
     roster = [{
@@ -398,8 +415,9 @@ def _name(player) -> str:
 
 def _feed_squad(m: Match, team_id: int) -> list[str]:
     """The team's XI then its bench, as the flat name list the feed uses."""
-    from app.models import MatchPlayer
-    rows = MatchPlayer.query.filter_by(match_id=m.id, team_id=team_id).all()
+    # Read the eager-loaded lineup relationship rather than issuing a fresh
+    # per-team query, so a competition's fixtures don't add 2 queries per match.
+    rows = [r for r in m.lineup if r.team_id == team_id]
     return ([_name(r.player) for r in rows if r.is_starter]
             + [_name(r.player) for r in rows if not r.is_starter])
 
@@ -704,8 +722,10 @@ def team_public(t: Team) -> dict:
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
+           .options(joinedload(TeamCoach.coach))
            .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all() if tc.coach]
     regs = (PlayerTeam.query.filter_by(team_id=t.id)
+            .options(joinedload(PlayerTeam.player))
             .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
             .all())
     return {

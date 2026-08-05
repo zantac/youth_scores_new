@@ -4,9 +4,14 @@ import os
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
 from flask import Flask, abort, request, send_from_directory
+from flask_compress import Compress
 
 from app.config import CONFIGS
 from app.extensions import db, migrate, limiter
+
+# Gzip responses over ~500 bytes (JSON feed + static JS/CSS). Shared instance,
+# bound to the app in create_app() like the other extensions.
+compress = Compress()
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -62,6 +67,7 @@ def create_app(config_name: str | None = None) -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
     limiter.init_app(app)
+    compress.init_app(app)
 
     from flask import jsonify as _jsonify
     from werkzeug.exceptions import TooManyRequests
@@ -138,7 +144,13 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.get("/uploads/<path:filename>")
     def uploaded_file(filename):
-        return send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+        # Uploads are stored under a random uuid name and never rewritten, so the
+        # bytes for a given URL never change — cache them hard to keep repeat
+        # image loads off Railway. (When S3/R2 is configured, files are served
+        # straight from the bucket/CDN and never reach this route at all.)
+        resp = send_from_directory(app.config["UPLOAD_FOLDER"], filename)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
 
     @app.get("/health")
     def health():
@@ -189,10 +201,23 @@ def create_app(config_name: str | None = None) -> Flask:
         if not os.path.isdir(root):
             abort(404)
         if path and os.path.isfile(os.path.join(root, path)):
-            return send_from_directory(root, path)
+            resp = send_from_directory(root, path)
+            # Next.js content-hashes everything under _next/static, so the URL
+            # changes whenever the file does — safe to cache forever. Other
+            # assets (icons, manifest) get a modest cache. This keeps repeat
+            # asset loads off Railway's compute and egress.
+            if path.startswith("_next/static/"):
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                resp.headers.setdefault("Cache-Control", "public, max-age=3600")
+            return resp
         index = os.path.join(path, "index.html") if path else "index.html"
         if os.path.isfile(os.path.join(root, index)):
-            return send_from_directory(root, index)
+            # HTML shells must revalidate so a deploy's new asset hashes are
+            # picked up promptly rather than served from a stale cache.
+            resp = send_from_directory(root, index)
+            resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+            return resp
         if os.path.isfile(os.path.join(root, "404.html")):
             return send_from_directory(root, "404.html"), 404
         abort(404)

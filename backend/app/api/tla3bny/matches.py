@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from flask import jsonify, request
 from sqlalchemy import func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
 from app.models import (
@@ -34,7 +34,25 @@ _FINISHED = ("finished", "completed")
 
 @tla3bny_bp.get("/matches")
 def list_matches():
-    q = Tla3bnyMatch.query
+    # Eager-load every relationship Tla3bnyMatch.to_dict() touches, so a list of
+    # N matches costs a handful of queries instead of ~10 per match (N+1). The
+    # collection (competition.ages, used by the `rules` property) is loaded with
+    # selectinload to avoid multiplying the row count; the rest are 1:1 joins.
+    q = Tla3bnyMatch.query.options(
+        joinedload(Tla3bnyMatch.competition)
+        .selectinload(Tla3bnyCompetition.ages)
+        .joinedload(Tla3bnyCompetitionAge.age_category),
+        joinedload(Tla3bnyMatch.age_category),
+        joinedload(Tla3bnyMatch.competition_age).joinedload(
+            Tla3bnyCompetitionAge.age_category
+        ),
+        joinedload(Tla3bnyMatch.stage),
+        joinedload(Tla3bnyMatch.group),
+        joinedload(Tla3bnyMatch.home_team).joinedload(Tla3bnyTeam.academy),
+        joinedload(Tla3bnyMatch.home_team).joinedload(Tla3bnyTeam.age_category),
+        joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.academy),
+        joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.age_category),
+    )
     for field in ("competition_id", "age_category_id", "competition_age_id", "stage_id", "group_id"):
         val = request.args.get(field, type=int)
         if val:
