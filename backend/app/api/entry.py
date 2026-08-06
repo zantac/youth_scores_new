@@ -836,6 +836,35 @@ def search_players():
     ]})
 
 
+@entry_bp.get("/api/admin/players/<int:pid>/summary")
+@auth.login_required
+def player_summary(pid: int):
+    """Compact profile for the merge tool — birth year, teams (with age, guest
+    and goals), and totals — so an admin can confirm two records are the same
+    person before merging them."""
+    from app.api import serializers
+
+    p = db.session.get(Player, pid)
+    if p is None:
+        return jsonify({"error": "غير موجود"}), 404
+    full = serializers.player_full(p)
+    return jsonify({
+        "id": p.id,
+        "name": p.full_name_ar or p.full_name_en,
+        "birth_year": p.birth_year,
+        "goals": full["goals"],
+        "assists": full["assists"],
+        "appearances": full["appearances"],
+        "teams": [{
+            "club": c["club"],
+            "age": (c["age"] or {}).get("ar") or (c["age"] or {}).get("en") if c["age"] else None,
+            "current": c["current"],
+            "guest": c.get("is_guest", False),
+            "goals": c["goals"],
+        } for c in full["career"]],
+    })
+
+
 @entry_bp.post("/api/admin/players/<int:source_id>/merge-into/<int:target_id>")
 @auth.login_required
 def merge_players(source_id: int, target_id: int):

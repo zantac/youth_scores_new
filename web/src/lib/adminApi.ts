@@ -135,6 +135,12 @@ export const apiRestoreMatch = (t: string, mid: number) => send<EntryMatch>(t, '
 export interface PlayerSearchResult { id: number; name: string; birth_year: number; }
 export const apiSearchPlayers = (t: string, q: string) =>
   get<{ players: PlayerSearchResult[] }>(t, `/api/admin/players/search?q=${encodeURIComponent(q)}`).then(d => d.players);
+
+// Compact profile for the merge preview (confirm two records are the same person).
+export interface PlayerMergeTeam { club: string; age: string | null; current: boolean; guest: boolean; goals: number }
+export interface PlayerMergeSummary { id: number; name: string; birth_year: number; goals: number; assists: number; appearances: number; teams: PlayerMergeTeam[] }
+export const apiPlayerSummary = (t: string, id: number) =>
+  get<PlayerMergeSummary>(t, `/api/admin/players/${id}/summary`);
 export const apiMergePlayer = (t: string, sourceId: number, targetId: number) =>
   send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/players/${sourceId}/merge-into/${targetId}`);
 export const apiAddGoal = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/goals`, body);
