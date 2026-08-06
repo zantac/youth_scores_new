@@ -29,7 +29,9 @@ def _serializer() -> URLSafeTimedSerializer:
 
 
 def generate_token(user: AdminUser) -> str:
-    return _serializer().dumps({"uid": user.id, "role": user.role})
+    return _serializer().dumps(
+        {"uid": user.id, "role": user.role, "v": user.token_version}
+    )
 
 
 def verify_token(token: str) -> AdminUser | None:
@@ -38,7 +40,14 @@ def verify_token(token: str) -> AdminUser | None:
     except (BadSignature, SignatureExpired):
         return None
     user = db.session.get(AdminUser, data.get("uid"))
-    return user if user and user.is_active else None
+    if user is None or not user.is_active:
+        return None
+    # A token issued before a password change carries an older version and is
+    # rejected. Legacy tokens without "v" get 0, matching the column default, so
+    # sessions that predate this change survive until their own password reset.
+    if data.get("v", 0) != (user.token_version or 0):
+        return None
+    return user
 
 
 def _bearer_token() -> str | None:

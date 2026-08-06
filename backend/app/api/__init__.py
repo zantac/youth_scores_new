@@ -58,12 +58,15 @@ def matches():
     order = request.args.get("order", "desc")
     if order not in ("asc", "desc"):
         order = "desc"
+    # Always bound the feed so a no-arg call can't stream every match ever.
+    raw_limit = request.args.get("limit", type=int)
+    limit = min(raw_limit, 2000) if raw_limit and raw_limit > 0 else 1000
     return jsonify(
         serializers.all_matches(
             _base_url(),
             date_from=_parse_date(request.args.get("from")),
             date_to=_parse_date(request.args.get("to")),
-            limit=request.args.get("limit", type=int),
+            limit=limit,
             order=order,
         )
     )

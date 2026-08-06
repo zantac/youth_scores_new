@@ -515,7 +515,17 @@ def update_competition(cid: int):
     if "sector_ar" in j or "sector_en" in j:
         c.sector_key = _norm(c.sector_ar or c.sector_en or "")
     if j.get("season_id"): c.season_id = j["season_id"]
-    if "age_group_id" in j: c.age_group_id = j.get("age_group_id") or None
+    if "age_group_id" in j:
+        new_age = j.get("age_group_id") or None
+        # The age gates which teams may enrol; changing it after teams are in
+        # would leave enrolled teams inconsistent with the competition's age.
+        if new_age != c.age_group_id and CompetitionTeam.query.filter_by(
+            competition_id=cid
+        ).first():
+            return jsonify(
+                {"error": "لا يمكن تغيير المرحلة السنية بعد تسجيل فرق في البطولة"}
+            ), 409
+        c.age_group_id = new_age
     db.session.commit()
     return jsonify({"competition": _comp_dto(c)})
 
@@ -528,10 +538,17 @@ def delete_competition(cid: int):
         return jsonify({"error": "البطولة غير موجودة"}), 404
     if (bad := _password_ok()) is not None:
         return bad
-    # Stages and entries cascade; matches are what must not be lost, and they
-    # hold the stage back with RESTRICT anyway.
-    matches = Match.query.join(Stage).filter(Stage.competition_id == cid).count()
-    refusal = _delete_guarded(c, "البطولة", [(matches, "مباراة")])
+    # Stages and entries cascade; live matches are what must not be lost, and
+    # they hold the stage back with RESTRICT anyway.
+    base = Match.query.join(Stage).filter(Stage.competition_id == cid)
+    live = base.filter(Match.deleted_at.is_(None)).count()
+    if live:
+        return jsonify({"error": f"لا يمكن حذف البطولة: مرتبط بـ {live} مباراة"}), 409
+    # Purge already soft-deleted matches (never auto-purged) so their RESTRICT FK
+    # to the stage doesn't wedge the delete; their child events cascade.
+    for dm in base.filter(Match.deleted_at.isnot(None)).all():
+        db.session.delete(dm)
+    refusal = _delete_guarded(c, "البطولة", [])
     return refusal or jsonify({"deleted": cid})
 
 
@@ -793,9 +810,13 @@ def enroll_team(cid: int):
     if not age_id:
         return jsonify({"error": "هذه البطولة مفتوحة لعدة مراحل — حدّد المرحلة السنية"}), 400
 
-    # Already enrolled?
+    # Already enrolled? Scope by age too: a multi-age competition may legitimately
+    # take the same club's teams in different age groups, so a club-only check
+    # would wrongly reject the second age.
     existing = (Team.query.join(CompetitionTeam)
-                .filter(CompetitionTeam.competition_id == comp.id, Team.club_id == club.id).first())
+                .filter(CompetitionTeam.competition_id == comp.id,
+                        Team.club_id == club.id,
+                        Team.age_group_id == age_id).first())
     if existing:
         return jsonify({"error": "النادي مسجّل بالفعل في هذه البطولة"}), 409
 
@@ -845,6 +866,7 @@ def unenroll_team(cid: int, tid: int):
         played = Match.query.filter(
             Match.stage_id.in_(stage_ids),
             sa.or_(Match.home_team_id == tid, Match.away_team_id == tid),
+            Match.deleted_at.is_(None),
         ).count()
         if played:
             return jsonify({"error": f"لا يمكن الإزالة: للفريق {played} مباراة في هذه البطولة"}), 409
@@ -913,13 +935,18 @@ def delete_team(tid: int):
         return jsonify({"error": "الفريق غير موجود"}), 404
     if (bad := _password_ok()) is not None:
         return bad
-    # Coaches and roster cascade through the ORM. A match is the one thing that
-    # outlives the team, so it blocks.
-    matches = Match.query.filter(
+    # Coaches and roster cascade through the ORM. A live match is the one thing
+    # that outlives the team, so it blocks.
+    team_matches = Match.query.filter(
         sa.or_(Match.home_team_id == tid, Match.away_team_id == tid)
-    ).count()
-    if matches:
-        return jsonify({"error": f"لا يمكن حذف الفريق: مرتبط بـ {matches} مباراة"}), 409
+    )
+    live = team_matches.filter(Match.deleted_at.is_(None)).count()
+    if live:
+        return jsonify({"error": f"لا يمكن حذف الفريق: مرتبط بـ {live} مباراة"}), 409
+    # Purge already soft-deleted matches (never auto-purged) so their RESTRICT FK
+    # to the team doesn't wedge the delete; their child events cascade.
+    for dm in team_matches.filter(Match.deleted_at.isnot(None)).all():
+        db.session.delete(dm)
     # Team has no relationship to these two join tables, so nothing would clear
     # them — and with SQLite's foreign_keys off the schema's CASCADE will not
     # either. Removing them here keeps the delete from leaving orphans.

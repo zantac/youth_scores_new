@@ -22,6 +22,7 @@ from app.models import (
     AgeGroup,
     Competition,
     CompetitionTeam,
+    Group,
     MatchCard,
     MatchGoal,
     MatchPenaltyShootout,
@@ -221,9 +222,20 @@ def create_match(cid: int):
         return jsonify({"error": "البطولة غير موجودة"}), 404
     j = request.get_json(silent=True) or {}
 
-    home_id, away_id = j.get("home_team_id"), j.get("away_team_id")
+    home_id, away_id = _as_int(j.get("home_team_id")), _as_int(j.get("away_team_id"))
     if not home_id or not away_id or home_id == away_id:
         return jsonify({"error": "اختر فريقين مختلفين"}), 400
+    # Both teams must be enrolled in this competition — otherwise an arbitrary
+    # (or non-existent) team id lands in the competition's standings and public
+    # feed. Enrolment already implies the right age group.
+    enrolled = {
+        ct.team_id for ct in CompetitionTeam.query.filter(
+            CompetitionTeam.competition_id == cid,
+            CompetitionTeam.team_id.in_([home_id, away_id]),
+        ).all()
+    }
+    if home_id not in enrolled or away_id not in enrolled:
+        return jsonify({"error": "أحد الفريقين غير مسجَّل في هذه البطولة"}), 400
     # A confirmed fixture may have no date yet (TBD). Only a date that was given
     # but does not parse is an error; a blank date stores NULL.
     date_s = (j.get("date") or "").strip()
@@ -236,12 +248,16 @@ def create_match(cid: int):
         stage = Stage.query.filter_by(id=req_stage_id, competition_id=cid).first() or _default_stage(comp)
     else:
         stage = _default_stage(comp)
-    req_group_id = j.get("group_id") or None
+    req_group_id = _as_int(j.get("group_id")) or None
+    # A group must belong to this match's stage, else its standings are skewed.
+    if req_group_id and not Group.query.filter_by(id=req_group_id, stage_id=stage.id).first():
+        return jsonify({"error": "المجموعة لا تنتمي لهذا الدور"}), 400
 
-    # Prevent duplicate fixtures: same stage, same pair of teams.
+    # Prevent duplicate fixtures: same stage, same pair of teams. Ignore
+    # soft-deleted matches so a deleted fixture can be re-created.
     duplicate = Match.query.filter_by(
         stage_id=stage.id, home_team_id=home_id, away_team_id=away_id
-    ).first()
+    ).filter(Match.deleted_at.is_(None)).first()
     if duplicate:
         return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
 
@@ -324,6 +340,15 @@ def _as_int(v):
         return None
 
 
+def _clamp_int(v, lo: int, hi: int):
+    """Parse and clamp an int into [lo, hi]; None stays None. Keeps a stray
+    negative/huge score or minute from corrupting the standings that these feed."""
+    n = _as_int(v)
+    if n is None:
+        return None
+    return max(lo, min(hi, n))
+
+
 @entry_bp.patch("/api/admin/matches/<int:mid>")
 @auth.login_required
 def update_match(mid: int):
@@ -335,13 +360,13 @@ def update_match(mid: int):
     if "status" in j and j["status"] in codes.MATCH_STATUS:
         m.status = j["status"]
     if "home_score" in j:
-        m.home_score = _as_int(j["home_score"])
+        m.home_score = _clamp_int(j["home_score"], 0, 99)
     if "away_score" in j:
-        m.away_score = _as_int(j["away_score"])
+        m.away_score = _clamp_int(j["away_score"], 0, 99)
     if "home_penalty_score" in j:
-        m.home_penalty_score = _as_int(j["home_penalty_score"])
+        m.home_penalty_score = _clamp_int(j["home_penalty_score"], 0, 99)
     if "away_penalty_score" in j:
-        m.away_penalty_score = _as_int(j["away_penalty_score"])
+        m.away_penalty_score = _clamp_int(j["away_penalty_score"], 0, 99)
     if "week" in j:
         m.week = (j["week"] or "").strip() or None
     if "round" in j:
@@ -437,9 +462,9 @@ def add_goal(mid: int):
     db.session.add(MatchGoal(
         match_id=m.id, team_id=team_id, scorer_id=scorer.id,
         assist_id=assist.id if assist else None,
-        minute=_as_int(j.get("minute")),
+        minute=_clamp_int(j.get("minute"), 0, 130),
         is_own_goal=is_own_goal,
-        is_penalty=bool(j.get("is_penalty")),
+        is_penalty=False if is_own_goal else bool(j.get("is_penalty")),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -479,7 +504,7 @@ def update_goal(gid: int):
     g.team_id = team_id
     g.scorer_id = scorer.id
     g.assist_id = assist.id if assist else None
-    g.minute = _as_int(j.get("minute"))
+    g.minute = _clamp_int(j.get("minute"), 0, 130)
     g.is_own_goal = is_own_goal
     g.is_penalty = False if is_own_goal else bool(j.get("is_penalty"))
     db.session.commit()
@@ -517,7 +542,7 @@ def add_card(mid: int):
 
     db.session.add(MatchCard(
         match_id=m.id, team_id=team_id, player_id=player.id,
-        card_type=j["card_type"], minute=_as_int(j.get("minute")),
+        card_type=j["card_type"], minute=_clamp_int(j.get("minute"), 0, 130),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -544,7 +569,7 @@ def update_card(card_id: int):
     c.team_id = team_id
     c.player_id = player.id
     c.card_type = card_type
-    c.minute = _as_int(j.get("minute"))
+    c.minute = _clamp_int(j.get("minute"), 0, 130)
     db.session.commit()
     return jsonify(_match_detail(m))
 
@@ -660,7 +685,7 @@ def add_sub(mid: int):
     db.session.add(MatchSubstitution(
         match_id=mid, team_id=team_id,
         player_out_id=out_p.id, player_in_id=in_p.id,
-        minute=_as_int(j.get("minute")),
+        minute=_clamp_int(j.get("minute"), 0, 130),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -708,7 +733,7 @@ def update_sub(sid: int):
     s.team_id = team_id
     s.player_out_id = out_p.id
     s.player_in_id = in_p.id
-    s.minute = _as_int(j.get("minute"))
+    s.minute = _clamp_int(j.get("minute"), 0, 130)
     db.session.commit()
     return jsonify(_match_detail(m))
 
@@ -840,6 +865,13 @@ def merge_players(source_id: int, target_id: int):
         {"scorer_id": target_id}, synchronize_session=False)
     MatchGoal.query.filter_by(assist_id=source_id).update(
         {"assist_id": target_id}, synchronize_session=False)
+    # A goal where the two merged players were scorer and assister now has
+    # scorer_id == assist_id (a player assisting his own goal — forbidden and
+    # double-crediting the merged player). Clear the assist in that case.
+    MatchGoal.query.filter(
+        MatchGoal.scorer_id == target_id,
+        MatchGoal.assist_id == target_id,
+    ).update({"assist_id": None}, synchronize_session=False)
     MatchCard.query.filter_by(player_id=source_id).update(
         {"player_id": target_id}, synchronize_session=False)
     MatchPenaltyShootout.query.filter_by(player_id=source_id).update(

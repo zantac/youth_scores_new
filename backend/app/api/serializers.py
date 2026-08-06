@@ -557,6 +557,7 @@ def player_full(p) -> dict:
             MatchGoal.scorer_id == p.id,
             MatchGoal.is_own_goal == False,   # noqa: E712
             Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
         )
         .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchGoal.team_id, Stage.competition_id)
@@ -566,7 +567,11 @@ def player_full(p) -> dict:
         MatchGoal.query
         .join(Match, Match.id == MatchGoal.match_id)
         .join(Stage, Stage.id == Match.stage_id)
-        .filter(MatchGoal.assist_id == p.id, Match.deleted_at.is_(None))
+        .filter(
+            MatchGoal.assist_id == p.id,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
         .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchGoal.team_id, Stage.competition_id)
         .all()
@@ -575,7 +580,11 @@ def player_full(p) -> dict:
         MatchPlayer.query
         .join(Match, Match.id == MatchPlayer.match_id)
         .join(Stage, Stage.id == Match.stage_id)
-        .filter(MatchPlayer.player_id == p.id, Match.deleted_at.is_(None))
+        .filter(
+            MatchPlayer.player_id == p.id,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
         .with_entities(MatchPlayer.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchPlayer.team_id, Stage.competition_id)
         .all()

@@ -13,7 +13,7 @@ from datetime import date
 
 from flask import Blueprint, current_app, jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import Ad, AdminUser, News, Venue
 from app.models import codes
 from app.services import auth, images, notifications
@@ -35,6 +35,7 @@ def list_users():
 
 
 @admin_bp.post("/api/admin/users")
+@limiter.limit("20 per hour")
 @auth.role_required("superadmin")
 def create_user():
     j = request.get_json(silent=True) or {}
@@ -60,6 +61,7 @@ def create_user():
 
 
 @admin_bp.patch("/api/admin/users/<int:user_id>")
+@limiter.limit("30 per hour")
 @auth.role_required("superadmin")
 def update_user(user_id: int):
     user = db.session.get(AdminUser, user_id)
@@ -85,8 +87,8 @@ def update_user(user_id: int):
             return jsonify({"error": "لا يمكنك تعطيل حسابك"}), 400
         user.is_active = active
     if j.get("password"):
-        if len(j["password"]) < 6:
-            return jsonify({"error": "كلمة المرور يجب أن تكون 6 أحرف على الأقل"}), 400
+        if len(j["password"]) < 8:
+            return jsonify({"error": "كلمة المرور يجب أن تكون 8 أحرف على الأقل"}), 400
         user.set_password(j["password"])
 
     db.session.commit()
@@ -121,6 +123,7 @@ def _news_dto(n: News) -> dict:
 
 
 @admin_bp.post("/api/admin/upload")
+@limiter.limit("120 per hour")
 @auth.role_required("editor")
 def upload_image():
     fs = request.files.get("file")
@@ -296,11 +299,14 @@ def delete_ad(aid: int):
 
 
 @admin_bp.post("/api/push/subscribe")
+@limiter.limit("30 per minute")
 def push_subscribe():
     """Public: a web client posts its FCM token to join the broadcast topics."""
     j = request.get_json(silent=True) or {}
     token = (j.get("token") or "").strip()
-    if not token:
+    # FCM registration tokens are ~140-200 char URL-safe strings. Reject anything
+    # implausible before spending two FCM API calls on it (abuse/amplification).
+    if not token or not (100 <= len(token) <= 400):
         return jsonify({"error": "token is required"}), 400
     results = {
         topic: notifications.subscribe_token_to_topic(token, topic)
@@ -323,9 +329,17 @@ def stats():
     from app.models import (AgeGroup, Club, Coach, Competition, Match,
                             MatchGoal, Player, Season, Stage, Team)
 
-    total_matches = Match.query.count()
-    played = Match.query.filter_by(status=codes.MATCH_STATUS_COMPLETED).count()
-    goals = MatchGoal.query.count()
+    # Exclude soft-deleted matches so the dashboard matches what the app shows.
+    total_matches = Match.query.filter(Match.deleted_at.is_(None)).count()
+    played = Match.query.filter(
+        Match.deleted_at.is_(None),
+        Match.status == codes.MATCH_STATUS_COMPLETED,
+    ).count()
+    goals = (
+        MatchGoal.query.join(Match, MatchGoal.match_id == Match.id)
+        .filter(Match.deleted_at.is_(None))
+        .count()
+    )
     teams = Team.query.count()
     players = Player.query.count()
 
@@ -337,7 +351,9 @@ def stats():
     for c in Competition.query.order_by(Competition.code, Competition.id).all():
         stage_ids = [s.id for s in Stage.query.filter_by(competition_id=c.id).all()]
         if stage_ids:
-            q = Match.query.filter(Match.stage_id.in_(stage_ids))
+            q = Match.query.filter(
+                Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None)
+            )
             tot = q.count()
             done = q.filter_by(status=codes.MATCH_STATUS_COMPLETED).count()
         else:
