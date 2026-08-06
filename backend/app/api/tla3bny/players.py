@@ -28,7 +28,16 @@ from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _err, _forbid, _int, _parse_date, _read_payload, _utcnow, save_upload
+from ._helpers import (
+    _err,
+    _forbid,
+    _int,
+    _parse_date,
+    _parse_date_or_error,
+    _read_payload,
+    _utcnow,
+    save_upload,
+)
 
 
 def _can_view_player_files(player: Tla3bnyPlayer) -> bool:
@@ -296,6 +305,9 @@ def create_player(team_id: int):
         return _err("name is required")
     if len(name) > 200:
         return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
+    dob, dob_err = _parse_date_or_error(data.get("dob"))
+    if dob_err:
+        return _err(dob_err, 400)
 
     photo = None
     try:
@@ -307,7 +319,7 @@ def create_player(team_id: int):
     player = Tla3bnyPlayer(
         name=name,
         name_en=(data.get("name_en") or "").strip() or None,
-        dob=_parse_date(data.get("dob")),
+        dob=dob,
         position=(data.get("position") or "").strip() or None,
         sub_position=(data.get("sub_position") or "").strip() or None,
         photo_path=photo,
@@ -445,7 +457,10 @@ def update_player(player_id: int):
     if "name_en" in data:
         player.name_en = (data.get("name_en") or "").strip() or None
     if "dob" in data:
-        player.dob = _parse_date(data.get("dob"))
+        dob, dob_err = _parse_date_or_error(data.get("dob"))
+        if dob_err:
+            return _err(dob_err, 400)
+        player.dob = dob
     if "position" in data:
         player.position = (data.get("position") or "").strip() or None
     if "sub_position" in data:
@@ -512,10 +527,16 @@ def move_player(player_id: int):
     dest = Tla3bnyTeam.query.get(dest_team_id) if dest_team_id else None
     if dest is None:
         return _err("valid destination team_id is required")
-    if not auth.can_manage_academy(auth.current_user(), dest.academy_id):
+    user = auth.current_user()
+    if not auth.can_manage_academy(user, dest.academy_id):
         return _forbid()
     today = _utcnow().date()
     cur = player.current_membership()
+    # The mover must also control the player's *current* team — otherwise an
+    # academy could pull another academy's player into its own team, ending the
+    # victim's membership and deleting their roster entries. Super admin passes both.
+    if cur and not auth.can_manage_team(user, cur.team_id):
+        return _forbid()
     if cur:
         if cur.team_id == dest_team_id:
             return _err("Player is already on that team")

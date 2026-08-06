@@ -1,7 +1,13 @@
 from flask import jsonify, request
 
 from app.extensions import db
-from app.models import Tla3bnyAgeCategory, Tla3bnyCompetitionAge, Tla3bnyTeam
+from app.models import (
+    Tla3bnyAgeCategory,
+    Tla3bnyCompetitionAge,
+    Tla3bnyCompetitionTeam,
+    Tla3bnyMatch,
+    Tla3bnyTeam,
+)
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -67,12 +73,17 @@ def update_category(cat_id: int):
 @auth.super_admin_required
 def delete_category(cat_id: int):
     cat = Tla3bnyAgeCategory.query.get_or_404(cat_id)
+    # Every FK to age_category is RESTRICT, so a category referenced by *any* of
+    # these blocks deletion at the DB layer with a raw IntegrityError. Check them
+    # all (not just team/cage) and report cleanly instead.
     in_use = (
         Tla3bnyTeam.query.filter_by(age_category_id=cat_id).first()
         or Tla3bnyCompetitionAge.query.filter_by(age_category_id=cat_id).first()
+        or Tla3bnyCompetitionTeam.query.filter_by(age_category_id=cat_id).first()
+        or Tla3bnyMatch.query.filter_by(age_category_id=cat_id).first()
     )
     if in_use:
-        return _err("Age is in use by a team or competition and cannot be deleted", 409)
+        return _err("Age is in use by a team, competition or match and cannot be deleted", 409)
     db.session.delete(cat)
     db.session.commit()
     return jsonify({"message": "deleted"})

@@ -15,6 +15,15 @@ from app.services import storage
 _IMAGE_MAX_BYTES = 500 * 1024   # 500 KB
 # Longest side (px) before we scale the image down first.
 _IMAGE_MAX_SIDE = 1920
+# Hard ceiling on decoded pixels — a decompression-bomb guard. A tiny highly
+# compressed file can claim enormous dimensions; decoding it would allocate the
+# full bitmap (many GB) and OOM the worker. 40 MP ≈ a 7000×5700 photo.
+_MAX_IMAGE_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS  # make PIL itself raise on decode
+# Largest PDF we store (PDFs skip image compression, so cap them explicitly).
+_PDF_MAX_BYTES = 5 * 1024 * 1024   # 5 MB
+# Minimum length for any account password (every set-password path).
+_MIN_PASSWORD_LEN = 8
 # PIL format name keyed by canonical extension.
 _PIL_FMT = {"jpg": "JPEG", "png": "PNG", "gif": "GIF", "webp": "WEBP"}
 
@@ -77,7 +86,15 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     if ext == "gif":
         return raw, ext
 
-    img = Image.open(io.BytesIO(raw))
+    try:
+        img = Image.open(io.BytesIO(raw))
+        w, h = img.size
+    except Exception:
+        raise ValueError("File content is not a readable image")
+    # Reject decompression bombs *before* the decode below allocates the full
+    # bitmap. Image.open only reads the header, so img.size is available cheaply.
+    if w * h > _MAX_IMAGE_PIXELS:
+        raise ValueError("Image dimensions are too large")
 
     # Flatten transparency so JPEG output never errors on RGBA / palette images.
     if img.mode not in ("RGB", "L"):
@@ -166,10 +183,13 @@ def save_upload(file_storage, kind: str = "image") -> str | None:
 
     raw = file_storage.read()
 
-    # Compress images; PDFs are stored as-is.
+    # Compress images; PDFs are stored as-is (but size-capped, since they skip
+    # the image compression that would otherwise bound their size).
     if real_ext != "pdf":
         data, final_ext = _compress_image(raw, claimed_ext)
     else:
+        if len(raw) > _PDF_MAX_BYTES:
+            raise ValueError("PDF is too large (max 5 MB)")
         data, final_ext = raw, claimed_ext
 
     filename = secure_filename(f"{uuid.uuid4().hex}.{final_ext}")
@@ -199,6 +219,54 @@ def _parse_date(value):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
+
+
+def _parse_date_or_error(value):
+    """Like ``_parse_date`` but distinguishes "absent/empty" from "present but
+    malformed". Returns (date_or_None, error_or_None): an empty value clears the
+    field (None, None); a non-empty unparseable value is an error rather than a
+    silent None that would wipe a stored date on a typo."""
+    if value in (None, ""):
+        return None, None
+    d = _parse_date(value)
+    if d is None:
+        return None, "Invalid date (expected YYYY-MM-DD)"
+    return d, None
+
+
+def _validate_password(password: str) -> str | None:
+    """Shared password-strength check for every set-password path. Returns an
+    error message, or None when acceptable."""
+    if not password or len(password) < _MIN_PASSWORD_LEN:
+        return f"Password must be at least {_MIN_PASSWORD_LEN} characters"
+    return None
+
+
+def _clean_url(value):
+    """Normalise a user-supplied URL. Returns an https-prefixed URL, or None for
+    empty/unsafe values — blocks ``javascript:``/``data:`` and other non-http
+    schemes that become stored-XSS vectors when rendered as an href."""
+    if not value:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    if v.lower().startswith(("http://", "https://")):
+        return v
+    # Any other explicit scheme (javascript:, data:, vbscript:, …) is rejected.
+    if "://" in v or ":" in v.split("/", 1)[0]:
+        return None
+    # Bare domain like "facebook.com/page" — assume https.
+    return "https://" + v
+
+
+def _clip(value, maxlen: int):
+    """Trim a user string to ``maxlen`` chars — protects String(n) columns from
+    500s and caps otherwise-unbounded Text fields. Returns None for empty."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s[:maxlen] or None
 
 
 def _int(value, default=None):

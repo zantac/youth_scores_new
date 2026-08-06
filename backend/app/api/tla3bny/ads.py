@@ -31,7 +31,17 @@ from app.models import (
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
-from ._helpers import _bool, _err, _forbid, _int, _parse_date, _read_payload, save_upload
+from ._helpers import (
+    _bool,
+    _clean_url,
+    _clip,
+    _err,
+    _forbid,
+    _int,
+    _parse_date,
+    _read_payload,
+    save_upload,
+)
 
 
 def _not_expired():
@@ -69,12 +79,19 @@ def _digits(value: str | None) -> str | None:
     return kept or None
 
 
+_AD_URL_FIELDS = {"facebook_url", "instagram_url", "website_url", "location_url"}
+
+
 def _apply_ad_text(ad: Tla3bnyAd, data) -> None:
     """Copy whichever text/link fields the caller sent onto the ad."""
     for field in _AD_TEXT_FIELDS:
         if field not in data:
             continue
-        value = (data.get(field) or "").strip() or None
+        raw = data.get(field)
+        if field in _AD_URL_FIELDS:
+            value = _clean_url(raw)
+        else:
+            value = _clip(raw, 512)
         if field in ("whatsapp_number", "phone"):
             value = _digits(value)
         setattr(ad, field, value)

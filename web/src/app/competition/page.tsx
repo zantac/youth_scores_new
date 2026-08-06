@@ -13,6 +13,7 @@ import {
   yellowCards, redCards, teamGoalStats, splitScorers,
   formatMatchDate, todayStr, localize, groupKey, teamNameLines,
 } from '@/lib/utils';
+import { competitionDataUrl } from '@/lib/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -879,7 +880,7 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
 
 // ── Team Detail Modal ─────────────────────────────────────────────────────────
 
-function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void }) {
+function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, compTitle }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void; compTitle?: string }) {
   const router = useRouter();
   const [tab, setTab] = useState(0);
   const [statsSub, setStatsSub] = useState(0);
@@ -926,7 +927,10 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
     <div className="fixed inset-0 z-[200] bg-darkBg flex flex-col">
       <div className="flex items-center bg-cardBg border-b border-bdr px-4 py-3 gap-3">
         <button onClick={onClose} className="text-aqua text-xl font-bold">✕</button>
-        <span className="flex-1 text-aqua font-bold text-sm truncate">{primary}</span>
+        <div className="flex-1 min-w-0">
+          <span className="block text-aqua font-bold text-sm truncate">{primary}</span>
+          {compTitle && <span className="block text-hint text-[11px] truncate">{compTitle}</span>}
+        </div>
       </div>
 
       <div className="relative bg-gradient-to-b from-cardBg to-cardBg2 border-b border-bdr p-4 overflow-hidden">
@@ -1214,16 +1218,22 @@ function CompetitionPageInner() {
     return () => ro.disconnect();
   }, [headEl]);
 
-  const url     = params.get('url')     ?? '';
+  // A competition is opened by id (?id=3) — the compact, shareable form. The
+  // data URL is derived from it; the older ?url=&titleAr=&titleEn= links still
+  // work for backward compatibility.
+  const idParam  = params.get('id')      ?? '';
+  const url      = idParam ? competitionDataUrl(idParam) : (params.get('url') ?? '');
   const rawTitle = params.get('title')   ?? '';
   const titleAr  = params.get('titleAr') ?? '';
   const titleEn  = params.get('titleEn') ?? '';
 
-  // Localize the heading reactively so it follows the language toggle, instead
-  // of freezing whatever locale was active when the competition was opened.
+  // Localize the heading reactively so it follows the language toggle. Prefer a
+  // title passed in the URL (legacy links); otherwise use the one the loaded
+  // data blob carries, so an ?id= link needs no title in the URL.
+  const metaTitle = competition?.competition ? localize(competition.competition.title, locale) : '';
   const title = (titleAr || titleEn)
     ? (localize({ ar: titleAr, en: titleEn }, locale) || rawTitle)
-    : rawTitle;
+    : (rawTitle || metaTitle);
 
   useEffect(() => {
     if (url) loadCompetition(url, rawTitle);
@@ -1274,7 +1284,7 @@ function CompetitionPageInner() {
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}
 
       {teamDetail && (
-        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} onClose={() => setView({ team: null })} onTeamClick={t => setView({ team: t })} />
+        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} compTitle={title} onClose={() => setView({ team: null })} onTeamClick={t => setView({ team: t })} />
       )}
     </>
   );

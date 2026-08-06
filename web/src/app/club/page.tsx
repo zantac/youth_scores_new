@@ -98,7 +98,6 @@ function ClubProfile() {
                   <button key={t.id} onClick={() => router.push(`/team?id=${t.id}`)}
                     className="bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                     <p className="text-text text-sm font-bold truncate">{localize(t.age, locale) || localize(t.name, locale)}</p>
-                    <p className="text-hint text-[11px] truncate">{t.seasons.map(s => localize(s, locale)).join('، ')}</p>
                   </button>
                 ))}
               </div>

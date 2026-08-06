@@ -10,6 +10,12 @@ const CONFIG_URL = process.env.NEXT_PUBLIC_CONFIG_URL ?? '/api/config';
 // Empty string when CONFIG_URL is relative → fetches stay same-origin.
 const API_ORIGIN = CONFIG_URL.replace(/\/api\/config\/?$/, '');
 
+/** Absolute (dev) or same-origin (prod) URL of a competition's data blob — the
+ *  `url` the /competition page fetches. Built from API_ORIGIN, NOT the browser
+ *  origin, so it hits the backend even when the app is served from another port. */
+export const competitionDataUrl = (id: number | string) =>
+  `${API_ORIGIN}/api/competitions/${id}/data`;
+
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 function parseLocalized(raw: unknown): string | Localized | undefined {
@@ -339,6 +345,15 @@ export async function fetchClub(id: string | number) {
   return (await res.json()) as import('./types').ClubPublic;
 }
 
+export async function fetchSearch(q: string): Promise<import('./types').SearchResults> {
+  const empty = { clubs: [], players: [], coaches: [] };
+  const term = q.trim();
+  if (term.length < 2) return empty;
+  const res = await fetch(`${API_ORIGIN}/api/search?q=${encodeURIComponent(term)}`, { cache: 'no-store' });
+  if (!res.ok) return empty;
+  return (await res.json()) as import('./types').SearchResults;
+}
+
 export async function fetchClubs() {
   const res = await fetch(`${API_ORIGIN}/api/clubs`, { next: { revalidate: 300 } });
   if (!res.ok) return [];
@@ -346,8 +361,9 @@ export async function fetchClubs() {
   return (j.clubs ?? []) as import('./types').ClubListItem[];
 }
 
-export async function fetchTeam(id: string | number) {
-  const res = await fetch(`${API_ORIGIN}/api/teams/${id}`, { cache: 'no-store' });
+export async function fetchTeam(id: string | number, seasonId?: string | number | null) {
+  const q = seasonId ? `?season_id=${seasonId}` : '';
+  const res = await fetch(`${API_ORIGIN}/api/teams/${id}${q}`, { cache: 'no-store' });
   if (!res.ok) return null;
   return (await res.json()) as import('./types').TeamPublic;
 }
@@ -379,7 +395,11 @@ function parseStandings(raw: unknown): CompetitionData['standings'] {
 export async function fetchCompetition(url: string): Promise<CompetitionData> {
   const res = await fetch(url, { next: { revalidate: 120 } });
   const j = await res.json();
+  const meta = j.competition as { id?: number; title?: Localized } | undefined;
   return {
+    competition: meta && meta.id != null
+      ? { id: Number(meta.id), title: (meta.title ?? { ar: '', en: '' }) as Localized }
+      : undefined,
     matches: (Array.isArray(j.matches) ? j.matches : [])
       .filter((m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null)
       .map(parseMatch),

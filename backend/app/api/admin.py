@@ -13,7 +13,7 @@ from datetime import date
 
 from flask import Blueprint, current_app, jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import Ad, AdminUser, News, Venue
 from app.models import codes
 from app.services import auth, images, notifications
@@ -35,6 +35,7 @@ def list_users():
 
 
 @admin_bp.post("/api/admin/users")
+@limiter.limit("20 per hour")
 @auth.role_required("superadmin")
 def create_user():
     j = request.get_json(silent=True) or {}
@@ -60,6 +61,7 @@ def create_user():
 
 
 @admin_bp.patch("/api/admin/users/<int:user_id>")
+@limiter.limit("30 per hour")
 @auth.role_required("superadmin")
 def update_user(user_id: int):
     user = db.session.get(AdminUser, user_id)
@@ -85,8 +87,8 @@ def update_user(user_id: int):
             return jsonify({"error": "لا يمكنك تعطيل حسابك"}), 400
         user.is_active = active
     if j.get("password"):
-        if len(j["password"]) < 6:
-            return jsonify({"error": "كلمة المرور يجب أن تكون 6 أحرف على الأقل"}), 400
+        if len(j["password"]) < 8:
+            return jsonify({"error": "كلمة المرور يجب أن تكون 8 أحرف على الأقل"}), 400
         user.set_password(j["password"])
 
     db.session.commit()
@@ -121,6 +123,7 @@ def _news_dto(n: News) -> dict:
 
 
 @admin_bp.post("/api/admin/upload")
+@limiter.limit("120 per hour")
 @auth.role_required("editor")
 def upload_image():
     fs = request.files.get("file")
@@ -296,17 +299,106 @@ def delete_ad(aid: int):
 
 
 @admin_bp.post("/api/push/subscribe")
+@limiter.limit("30 per minute")
 def push_subscribe():
     """Public: a web client posts its FCM token to join the broadcast topics."""
     j = request.get_json(silent=True) or {}
     token = (j.get("token") or "").strip()
-    if not token:
+    # FCM registration tokens are ~140-200 char URL-safe strings. Reject anything
+    # implausible before spending two FCM API calls on it (abuse/amplification).
+    if not token or not (100 <= len(token) <= 400):
         return jsonify({"error": "token is required"}), 400
     results = {
         topic: notifications.subscribe_token_to_topic(token, topic)
         for topic in (notifications.TOPIC_NEWS, notifications.TOPIC_VENUES)
     }
     return jsonify({"subscribed": results})
+
+
+# ── global admin search ───────────────────────────────────────────────────────
+
+@admin_bp.get("/api/admin/search")
+@auth.login_required
+def admin_search():
+    """Find a club, team or player by name — so an admin can jump straight to it
+    to edit or remove. A team has no name of its own (it is a club + age group),
+    so teams are matched by their club's name."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"clubs": [], "teams": [], "players": [], "coaches": []})
+
+    from app.models import Club, Coach, Player, Team
+
+    like = f"%{q}%"
+    clubs = (
+        Club.query
+        .filter(db.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar)
+        .limit(15).all()
+    )
+    teams = (
+        Team.query.join(Club, Team.club_id == Club.id)
+        .filter(db.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar)
+        .limit(20).all()
+    )
+    players = (
+        Player.query
+        .filter(db.or_(Player.full_name_ar.ilike(like), Player.full_name_en.ilike(like)))
+        .order_by(Player.full_name_ar)
+        .limit(20).all()
+    )
+    coaches = (
+        Coach.query
+        .filter(db.or_(Coach.full_name_ar.ilike(like), Coach.full_name_en.ilike(like)))
+        .order_by(Coach.full_name_ar)
+        .limit(20).all()
+    )
+
+    def team_label(t) -> str:
+        club = (t.club.name_ar or t.club.name_en) if t.club else ""
+        age = (t.age_group.name_ar or t.age_group.name_en) if t.age_group else ""
+        return " — ".join(x for x in (club, age) if x)
+
+    def current_team_id(p):
+        cur = next((r for r in p.registrations if r.end_date is None), None)
+        return cur.team_id if cur else None
+
+    def coach_team_id(c):
+        # Current stint if any, else the most recent one — the team page where
+        # this coach is edited (in the technical-staff section).
+        cur = next((tc for tc in c.team_roles if tc.end_date is None), None)
+        if cur:
+            return cur.team_id
+        stints = sorted(c.team_roles, key=lambda tc: tc.start_date or date.min, reverse=True)
+        return stints[0].team_id if stints else None
+
+    return jsonify({
+        "clubs": [{
+            "id": c.id,
+            "name": c.name_ar or c.name_en or "",
+            "city": c.city_ar or c.city_en or "",
+            "logo": c.logo_url,
+        } for c in clubs],
+        "teams": [{
+            "id": t.id,
+            "name": team_label(t),
+            "logo": t.club.logo_url if t.club else None,
+        } for t in teams],
+        "players": [{
+            "id": p.id,
+            "name": p.full_name_ar or p.full_name_en or "",
+            "birth_year": p.birth_year,
+            # Players are edited/removed from their team's roster.
+            "team_id": current_team_id(p),
+        } for p in players],
+        "coaches": [{
+            "id": c.id,
+            "name": c.full_name_ar or c.full_name_en or "",
+            # The team whose technical-staff section edits this coach.
+            "team_id": coach_team_id(c),
+        } for c in coaches],
+    })
 
 
 # ── dashboard statistics ─────────────────────────────────────────────────────
@@ -323,9 +415,17 @@ def stats():
     from app.models import (AgeGroup, Club, Coach, Competition, Match,
                             MatchGoal, Player, Season, Stage, Team)
 
-    total_matches = Match.query.count()
-    played = Match.query.filter_by(status=codes.MATCH_STATUS_COMPLETED).count()
-    goals = MatchGoal.query.count()
+    # Exclude soft-deleted matches so the dashboard matches what the app shows.
+    total_matches = Match.query.filter(Match.deleted_at.is_(None)).count()
+    played = Match.query.filter(
+        Match.deleted_at.is_(None),
+        Match.status == codes.MATCH_STATUS_COMPLETED,
+    ).count()
+    goals = (
+        MatchGoal.query.join(Match, MatchGoal.match_id == Match.id)
+        .filter(Match.deleted_at.is_(None))
+        .count()
+    )
     teams = Team.query.count()
     players = Player.query.count()
 
@@ -337,7 +437,9 @@ def stats():
     for c in Competition.query.order_by(Competition.code, Competition.id).all():
         stage_ids = [s.id for s in Stage.query.filter_by(competition_id=c.id).all()]
         if stage_ids:
-            q = Match.query.filter(Match.stage_id.in_(stage_ids))
+            q = Match.query.filter(
+                Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None)
+            )
             tot = q.count()
             done = q.filter_by(status=codes.MATCH_STATUS_COMPLETED).count()
         else:

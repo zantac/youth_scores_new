@@ -18,6 +18,11 @@ from app.services import storage
 
 MAX_DIM = 1600      # longest side, px
 JPEG_QUALITY = 82
+# Hard ceiling on decoded pixels — a decompression-bomb guard. A tiny highly
+# compressed file can claim enormous dimensions; decoding it allocates the full
+# bitmap (many GB) and OOM-kills the worker. 40 MP ≈ a 7000×5700 photo.
+_MAX_IMAGE_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS  # make PIL itself raise on decode
 
 
 def process_upload(file_storage) -> str:
@@ -29,7 +34,14 @@ def process_upload(file_storage) -> str:
     """
     try:
         img = Image.open(file_storage.stream)
+        # Reject decompression bombs before img.load() allocates the full bitmap.
+        # Image.open only reads the header, so img.size is available cheaply.
+        w, h = img.size
+        if w * h > _MAX_IMAGE_PIXELS:
+            raise ValueError("الصورة كبيرة جدًا")
         img.load()
+    except ValueError:
+        raise
     except Exception as exc:  # noqa: BLE001 - anything Pillow can't open isn't an image
         raise ValueError("الملف ليس صورة صالحة") from exc
 

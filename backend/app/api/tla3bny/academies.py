@@ -1,12 +1,23 @@
 from flask import jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import Tla3bnyAcademy, Tla3bnyAcademyManager, Tla3bnyUser
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _credentials, _claim_login, _err, _forbid, _int, save_upload, _read_payload
+from ._helpers import (
+    _credentials,
+    _claim_login,
+    _clean_url,
+    _clip,
+    _err,
+    _forbid,
+    _int,
+    _validate_password,
+    save_upload,
+    _read_payload,
+)
 
 
 @tla3bny_bp.get("/academies")
@@ -80,6 +91,7 @@ def suspend_academy(academy_id: int):
 
 
 @tla3bny_bp.post("/academies/<int:academy_id>/account")
+@limiter.limit("20 per hour")
 @auth.super_admin_required
 def set_academy_account(academy_id: int):
     """Create or reset the academy owner's login. Registration hands the owner
@@ -89,6 +101,9 @@ def set_academy_account(academy_id: int):
     username, password = _credentials(data)
     if not username or not password:
         return _err("username and password are required")
+    pw_err = _validate_password(password)
+    if pw_err:
+        return _err(pw_err)
 
     account = Tla3bnyUser.query.filter_by(role="academy", academy_id=academy.id).first()
     taken = _claim_login(username, None, exclude_id=account.id if account else None)
@@ -120,8 +135,11 @@ def update_own_academy():
     data, files = _read_payload()
     for field in ("name", "name_en", "phone", "facebook_url", "training_place", "address", "description"):
         if field in data:
-            val = (data.get(field) or "").strip()
-            setattr(academy, field, val or None)
+            if field == "facebook_url":
+                value = _clean_url(data.get(field))
+            else:
+                value = _clip(data.get(field), 20000 if field == "description" else 255)
+            setattr(academy, field, value)
     if not academy.name:
         return _err("name is required")
     logo = files.get("logo") if files is not None else None

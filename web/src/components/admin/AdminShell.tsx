@@ -1,9 +1,10 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import { ROLE_LABEL } from '@/lib/adminApi';
+import AdminSearchOverlay from './AdminSearchOverlay';
 
 function Spinner() {
   return (
@@ -30,6 +31,7 @@ export default function AdminShell({
   const router = useRouter();
   const pathname = usePathname();
   const headRef = useRef<HTMLElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -68,11 +70,16 @@ export default function AdminShell({
             <p className="text-text text-xs font-bold leading-none">{user.full_name || user.username}</p>
             <p className="text-gold text-[10px] mt-1">{ROLE_LABEL[user.role]?.ar ?? user.role}</p>
           </div>
+          <button onClick={() => setSearchOpen(true)} aria-label="بحث"
+            className="text-aqua text-base border border-aqua/40 bg-aqua/10 rounded-lg px-3 py-1.5 hover:bg-aqua/20 transition-colors">
+            🔍
+          </button>
           <button onClick={logout}
             className="text-loss text-xs font-bold border border-loss/40 bg-loss/10 rounded-lg px-3 py-1.5 hover:bg-loss/20 transition-colors">
             خروج
           </button>
         </div>
+        {searchOpen && <AdminSearchOverlay onClose={() => setSearchOpen(false)} />}
         {/* Nav */}
         <nav className="max-w-3xl mx-auto flex gap-1 px-2 overflow-x-auto no-scrollbar">
           {links.map(n => {

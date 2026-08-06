@@ -1,15 +1,18 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { useTT } from './kit';
+import SearchOverlay from './SearchOverlay';
 
 export default function TopBar() {
   const tt = useTT();
   const { locale, toggleLocale, isDark, toggleTheme } = useApp();
   const { user, isSuperAdmin, isCompetitionAdmin, logout } = useTla3bnyAuth();
   const router = useRouter();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const isStaff = isSuperAdmin || isCompetitionAdmin;
   const accountHref = isStaff ? '/admin' : '/dashboard';
@@ -34,7 +37,14 @@ export default function TopBar() {
               className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors">
               {isDark ? '☀️' : '🌙'}
             </button>
+            <button onClick={() => setSearchOpen(true)} title={tt('بحث', 'Search')}
+              aria-label={tt('بحث', 'Search')}
+              className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors">
+              🔍
+            </button>
           </div>
+
+          {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 
           {/* Center: logo */}
           <Link href="/" className="flex items-center gap-2 mx-auto shrink-0">

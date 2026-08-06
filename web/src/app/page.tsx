@@ -20,12 +20,12 @@ function CompPicker({ onClose, locale }: { onClose: () => void; locale: string }
 
   const go = (url: string, title: { ar: string; en: string }) => {
     onClose();
-    const p = new URLSearchParams({
-      url,
-      title: title.ar || title.en,
-      titleAr: title.ar,
-      titleEn: title.en,
-    });
+    // The data URL embeds the competition id (…/competitions/<id>/data) — open
+    // by that compact id; fall back to the legacy url+title form if it's absent.
+    const m = url.match(/\/competitions\/(\d+)\/data/);
+    const p = m
+      ? new URLSearchParams({ id: m[1] })
+      : new URLSearchParams({ url, title: title.ar || title.en, titleAr: title.ar, titleEn: title.en });
     router.push(`/competition?${p.toString()}`);
   };
 

@@ -219,7 +219,16 @@ def competition_data(competition_id: int) -> dict | None:
         docked[ct.team_id] = ct.point_deduction
         names[ct.team_id] = (ct.name_ar, ct.name_en)
 
+    # The competition's own identity + title, so a page opened by id alone can
+    # render its header without the caller passing the (Arabic) title in the URL.
+    ag = AgeGroup.query.get(comp.age_group_id) if comp.age_group_id else None
+    age_ar = (ag.name_ar or ag.name_en) if ag else ""
+    age_en = (ag.name_en or ag.name_ar) if ag else ""
     return {
+        "competition": {
+            "id": comp.id,
+            "title": _competition_title(comp, age_ar, age_en),
+        },
         "teams": [_team(t, groups_of.get(t.id) or [], docked.get(t.id, 0),
                         names.get(t.id, (None, None)))
                   for t in teams],
@@ -459,10 +468,16 @@ def match_full(m: Match) -> dict:
     cards = sorted(m.cards, key=lambda c: (c.minute if c.minute is not None else 999))
     subs = sorted(m.substitutions, key=lambda s: (s.minute if s.minute is not None else 999))
 
+    comp_age = (AgeGroup.query.get(comp.age_group_id)
+                if comp and comp.age_group_id else None)
     return {
         "id": m.id,
         "competition": (
-            {"id": comp.id, "name": _loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""}}
+            {
+                "id": comp.id,
+                "name": _loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""},
+                "age": _loc(comp_age.name_ar, comp_age.name_en) if comp_age else None,
+            }
             if comp else None
         ),
         "date": m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
@@ -541,6 +556,41 @@ def _team_seasons(t) -> list[dict]:
     return [_loc(s.name_ar, s.name_en) or {"ar": "", "en": ""} for s in seasons]
 
 
+def _team_season_list(t) -> list[Season]:
+    """The Season rows the team played, newest first — used to build the season
+    picker and to scope the team page's roster/staff to one season."""
+    return (Season.query.join(Competition, Competition.season_id == Season.id)
+            .join(CompetitionTeam, CompetitionTeam.competition_id == Competition.id)
+            .filter(CompetitionTeam.team_id == t.id)
+            .order_by(Season.start_date.desc()).distinct().all())
+
+
+def _team_competitions(t) -> list[dict]:
+    """Each competition the team entered, newest season first, with its full
+    title and season — so the team page can deep-link to that competition's
+    in-competition team view for the season."""
+    # The age label in the title is the team's own age group (the entry is for
+    # that age even when the competition itself spans several).
+    tag = t.age_group
+    age_ar = (tag.name_ar or tag.name_en) if tag else ""
+    age_en = (tag.name_en or tag.name_ar) if tag else ""
+    comps = (Competition.query
+             .join(CompetitionTeam, CompetitionTeam.competition_id == Competition.id)
+             .join(Season, Competition.season_id == Season.id)
+             .filter(CompetitionTeam.team_id == t.id)
+             .options(joinedload(Competition.season))
+             .order_by(Season.start_date.desc(), Competition.id.desc())
+             .all())
+    return [{
+        "competition_id": c.id,
+        "title": _competition_title(c, age_ar, age_en),
+        "season": (
+            _loc(c.season.name_ar, c.season.name_en) or {"ar": "", "en": ""}
+            if c.season else {"ar": "", "en": ""}
+        ),
+    } for c in comps]
+
+
 # ── player profile / journey ─────────────────────────────────────────────────
 
 def player_full(p) -> dict:
@@ -557,6 +607,7 @@ def player_full(p) -> dict:
             MatchGoal.scorer_id == p.id,
             MatchGoal.is_own_goal == False,   # noqa: E712
             Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
         )
         .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchGoal.team_id, Stage.competition_id)
@@ -566,7 +617,11 @@ def player_full(p) -> dict:
         MatchGoal.query
         .join(Match, Match.id == MatchGoal.match_id)
         .join(Stage, Stage.id == Match.stage_id)
-        .filter(MatchGoal.assist_id == p.id, Match.deleted_at.is_(None))
+        .filter(
+            MatchGoal.assist_id == p.id,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
         .with_entities(MatchGoal.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchGoal.team_id, Stage.competition_id)
         .all()
@@ -575,7 +630,11 @@ def player_full(p) -> dict:
         MatchPlayer.query
         .join(Match, Match.id == MatchPlayer.match_id)
         .join(Stage, Stage.id == Match.stage_id)
-        .filter(MatchPlayer.player_id == p.id, Match.deleted_at.is_(None))
+        .filter(
+            MatchPlayer.player_id == p.id,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
         .with_entities(MatchPlayer.team_id, Stage.competition_id, sa.func.count())
         .group_by(MatchPlayer.team_id, Stage.competition_id)
         .all()
@@ -628,19 +687,35 @@ def player_full(p) -> dict:
             for cid in comp_ids
         ], key=lambda x: -x["appearances"])
 
+        ag = t.age_group
         career.append({
             "club":         t.club.name_ar or t.club.name_en,
             "logo":         t.club.logo_url,
+            # The team's age group — so two stints at the same club in different
+            # ages (a player who plays up) are told apart, not just by season.
+            "age":          _loc(ag.name_ar, ag.name_en) if ag else None,
+            # "Playing up": a stint on a team older than the player (a guest for
+            # an older squad, same club) — not his real team, not a transfer.
+            "is_guest":     bool(ag and ag.oldest_birth_year is not None
+                                 and p.birth_year and ag.oldest_birth_year < p.birth_year),
             "season":       _season_on(r.start_date) or {"ar": "", "en": ""},
             "goals":        sum(goals_tc.get((tid, cid), 0)   for cid in comp_ids),
             "assists":      sum(assists_tc.get((tid, cid), 0)  for cid in comp_ids),
             "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in comp_ids),
             "current":      r.end_date is None,
+            # The leaving date for an ended stint (an old club), shown instead of
+            # a generic "transferred" label.
+            "end_date":     r.end_date.isoformat() if r.end_date else None,
             "status":       r.status,
             "competitions": competitions,
         })
 
-    current = career[0] if career else None
+    # His "current club" is his real (non-guest) team, not a play-up guest stint.
+    current = (
+        next((c for c in career if c["current"] and not c["is_guest"]), None)
+        or next((c for c in career if not c["is_guest"]), None)
+        or (career[0] if career else None)
+    )
     return {
         "id":           p.id,
         "name":         _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
@@ -717,7 +792,7 @@ def clubs_index() -> dict:
 
 # ── public team profile (staff + roster) ─────────────────────────────────────
 
-def team_public(t: Team) -> dict:
+def team_public(t: Team, season_id: int | None = None) -> dict:
     ag, club = t.age_group, t.club
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
@@ -728,6 +803,20 @@ def team_public(t: Team) -> dict:
             .options(joinedload(PlayerTeam.player))
             .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
             .all())
+
+    seasons = _team_season_list(t)
+    # Scope the roster/staff to one season when asked (and only if the team
+    # actually played it): keep the stints whose dates overlap the season window.
+    active = next((s for s in seasons if s.id == season_id), None) if season_id else None
+    if active is not None:
+        ss, se = active.start_date, active.end_date
+
+        def _overlaps(row) -> bool:
+            return row.start_date <= se and (row.end_date is None or row.end_date >= ss)
+
+        tcs = [tc for tc in tcs if _overlaps(tc)]
+        regs = [r for r in regs if _overlaps(r)]
+
     return {
         "id": t.id,
         "name": _team_name(t),
@@ -737,7 +826,12 @@ def team_public(t: Team) -> dict:
             "name": _loc(club.name_ar, club.name_en) or {"ar": "", "en": ""},
         },
         "age": _loc(ag.name_ar, ag.name_en) if ag else None,
-        "seasons": _team_seasons(t),
+        "season_id": active.id if active else None,
+        "seasons": [
+            {"id": s.id, "name": _loc(s.name_ar, s.name_en) or {"ar": "", "en": ""}}
+            for s in seasons
+        ],
+        "competitions": _team_competitions(t),
         "staff": [{
             "id": tc.coach_id,
             "name": _loc(tc.coach.full_name_ar, tc.coach.full_name_en) or {"ar": "", "en": ""},
@@ -753,6 +847,9 @@ def team_public(t: Team) -> dict:
             "position": _loc(r.player.position_ar, r.player.position_en),
             "birth_year": r.player.birth_year,
             "current": r.end_date is None,
+            # Younger player guesting up for this (older) team, same club.
+            "guest": bool(ag and ag.oldest_birth_year is not None and r.player.birth_year
+                          and ag.oldest_birth_year < r.player.birth_year),
         } for r in regs if r.player],
     }
 
@@ -795,6 +892,62 @@ def club_public(c: Club) -> dict:
             "age": _loc(t.age_group.name_ar, t.age_group.name_en) if t.age_group else None,
             "seasons": _team_seasons(t),
         } for t in teams],
+    }
+
+
+# ── global search ─────────────────────────────────────────────────────────────
+
+def search_all(q: str, limit: int = 12) -> dict:
+    """Free-text search across clubs, players and coaches by bilingual name.
+
+    Feeds the public search box; each hit carries just enough to render a row and
+    deep-link to the matching profile page (/club, /player, /coach).
+    """
+    from app.models import Club, Coach, Player
+
+    like = f"%{q}%"
+
+    clubs = (
+        Club.query
+        .filter(sa.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar, Club.name_en)
+        .limit(limit)
+        .all()
+    )
+    players = (
+        Player.query
+        .filter(sa.or_(Player.full_name_ar.ilike(like), Player.full_name_en.ilike(like)))
+        .order_by(Player.full_name_ar, Player.full_name_en)
+        .limit(limit)
+        .all()
+    )
+    coaches = (
+        Coach.query
+        .filter(sa.or_(Coach.full_name_ar.ilike(like), Coach.full_name_en.ilike(like)))
+        .order_by(Coach.full_name_ar, Coach.full_name_en)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "clubs": [{
+            "id": c.id,
+            "name": _loc(c.name_ar, c.name_en) or {"ar": "", "en": ""},
+            "city": _loc(c.city_ar, c.city_en),
+            "logo": c.logo_url,
+        } for c in clubs],
+        "players": [{
+            "id": p.id,
+            "name": _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
+            "birth_year": p.birth_year,
+            "position": _loc(p.position_ar, p.position_en),
+            "photo": p.profile_pic_url,
+        } for p in players],
+        "coaches": [{
+            "id": c.id,
+            "name": _loc(c.full_name_ar, c.full_name_en) or {"ar": "", "en": ""},
+            "photo": c.profile_pic_url,
+        } for c in coaches],
     }
 
 

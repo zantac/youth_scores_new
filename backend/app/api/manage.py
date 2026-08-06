@@ -515,7 +515,17 @@ def update_competition(cid: int):
     if "sector_ar" in j or "sector_en" in j:
         c.sector_key = _norm(c.sector_ar or c.sector_en or "")
     if j.get("season_id"): c.season_id = j["season_id"]
-    if "age_group_id" in j: c.age_group_id = j.get("age_group_id") or None
+    if "age_group_id" in j:
+        new_age = j.get("age_group_id") or None
+        # The age gates which teams may enrol; changing it after teams are in
+        # would leave enrolled teams inconsistent with the competition's age.
+        if new_age != c.age_group_id and CompetitionTeam.query.filter_by(
+            competition_id=cid
+        ).first():
+            return jsonify(
+                {"error": "لا يمكن تغيير المرحلة السنية بعد تسجيل فرق في البطولة"}
+            ), 409
+        c.age_group_id = new_age
     db.session.commit()
     return jsonify({"competition": _comp_dto(c)})
 
@@ -528,10 +538,17 @@ def delete_competition(cid: int):
         return jsonify({"error": "البطولة غير موجودة"}), 404
     if (bad := _password_ok()) is not None:
         return bad
-    # Stages and entries cascade; matches are what must not be lost, and they
-    # hold the stage back with RESTRICT anyway.
-    matches = Match.query.join(Stage).filter(Stage.competition_id == cid).count()
-    refusal = _delete_guarded(c, "البطولة", [(matches, "مباراة")])
+    # Stages and entries cascade; live matches are what must not be lost, and
+    # they hold the stage back with RESTRICT anyway.
+    base = Match.query.join(Stage).filter(Stage.competition_id == cid)
+    live = base.filter(Match.deleted_at.is_(None)).count()
+    if live:
+        return jsonify({"error": f"لا يمكن حذف البطولة: مرتبط بـ {live} مباراة"}), 409
+    # Purge already soft-deleted matches (never auto-purged) so their RESTRICT FK
+    # to the stage doesn't wedge the delete; their child events cascade.
+    for dm in base.filter(Match.deleted_at.isnot(None)).all():
+        db.session.delete(dm)
+    refusal = _delete_guarded(c, "البطولة", [])
     return refusal or jsonify({"deleted": cid})
 
 
@@ -793,9 +810,13 @@ def enroll_team(cid: int):
     if not age_id:
         return jsonify({"error": "هذه البطولة مفتوحة لعدة مراحل — حدّد المرحلة السنية"}), 400
 
-    # Already enrolled?
+    # Already enrolled? Scope by age too: a multi-age competition may legitimately
+    # take the same club's teams in different age groups, so a club-only check
+    # would wrongly reject the second age.
     existing = (Team.query.join(CompetitionTeam)
-                .filter(CompetitionTeam.competition_id == comp.id, Team.club_id == club.id).first())
+                .filter(CompetitionTeam.competition_id == comp.id,
+                        Team.club_id == club.id,
+                        Team.age_group_id == age_id).first())
     if existing:
         return jsonify({"error": "النادي مسجّل بالفعل في هذه البطولة"}), 409
 
@@ -845,6 +866,7 @@ def unenroll_team(cid: int, tid: int):
         played = Match.query.filter(
             Match.stage_id.in_(stage_ids),
             sa.or_(Match.home_team_id == tid, Match.away_team_id == tid),
+            Match.deleted_at.is_(None),
         ).count()
         if played:
             return jsonify({"error": f"لا يمكن الإزالة: للفريق {played} مباراة في هذه البطولة"}), 409
@@ -913,13 +935,18 @@ def delete_team(tid: int):
         return jsonify({"error": "الفريق غير موجود"}), 404
     if (bad := _password_ok()) is not None:
         return bad
-    # Coaches and roster cascade through the ORM. A match is the one thing that
-    # outlives the team, so it blocks.
-    matches = Match.query.filter(
+    # Coaches and roster cascade through the ORM. A live match is the one thing
+    # that outlives the team, so it blocks.
+    team_matches = Match.query.filter(
         sa.or_(Match.home_team_id == tid, Match.away_team_id == tid)
-    ).count()
-    if matches:
-        return jsonify({"error": f"لا يمكن حذف الفريق: مرتبط بـ {matches} مباراة"}), 409
+    )
+    live = team_matches.filter(Match.deleted_at.is_(None)).count()
+    if live:
+        return jsonify({"error": f"لا يمكن حذف الفريق: مرتبط بـ {live} مباراة"}), 409
+    # Purge already soft-deleted matches (never auto-purged) so their RESTRICT FK
+    # to the team doesn't wedge the delete; their child events cascade.
+    for dm in team_matches.filter(Match.deleted_at.isnot(None)).all():
+        db.session.delete(dm)
     # Team has no relationship to these two join tables, so nothing would clear
     # them — and with SQLite's foreign_keys off the schema's CASCADE will not
     # either. Removing them here keeps the delete from leaving orphans.
@@ -1130,6 +1157,46 @@ def add_team_coach(tid: int):
     return jsonify({"coach": _coach_dto(tc)}), 201
 
 
+@manage_bp.post("/api/admin/teams/<int:tid>/coaches/attach")
+@auth.role_required("editor")
+def attach_team_coach(tid: int):
+    """Attach an EXISTING coach to this team (a new dated stint) instead of
+    creating a new person — a coach who moves between clubs stays one entity."""
+    t = db.session.get(Team, tid)
+    if t is None:
+        return jsonify({"error": "الفريق غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    coach = db.session.get(Coach, _int_or_none(j.get("coach_id")))
+    if coach is None:
+        return jsonify({"error": "اختر المدرّب"}), 400
+    if TeamCoach.query.filter_by(team_id=tid, coach_id=coach.id, end_date=None).first():
+        return jsonify({"error": "المدرّب مسجّل في هذا الفريق بالفعل"}), 409
+    tc = TeamCoach(team_id=tid, coach_id=coach.id,
+                   role_ar=_str(j.get("role_ar")), role_en=_str(j.get("role_en")),
+                   start_date=_pd(j.get("start_date")) or default_spell_start(),
+                   sort_order=_next_order(TeamCoach, "team_id", tid))
+    db.session.add(tc)
+    db.session.commit()
+    return jsonify({"coach": _coach_dto(tc)}), 201
+
+
+@manage_bp.get("/api/admin/coaches/search")
+@auth.role_required("editor")
+def search_coaches():
+    """Directory search over the coach entities — for attaching an existing coach
+    to a team."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"coaches": []})
+    pattern = f"%{q}%"
+    rows = (Coach.query
+            .filter(db.or_(Coach.full_name_ar.ilike(pattern), Coach.full_name_en.ilike(pattern)))
+            .order_by(Coach.full_name_ar).limit(20).all())
+    return jsonify({"coaches": [
+        {"id": c.id, "name": c.full_name_ar or c.full_name_en} for c in rows
+    ]})
+
+
 @manage_bp.post("/api/admin/teams/<int:tid>/coaches/reorder")
 @auth.role_required("editor")
 def reorder_team_coaches(tid: int):
@@ -1169,6 +1236,17 @@ def delete_team_coach(tcid: int):
 
 # ── team roster (player registrations) ───────────────────────────────────────
 
+def _plays_up(birth_year, age_group) -> bool:
+    """True when the player is younger than the team's age group — a guest
+    'playing up' for an older team (same club), not a squad member or a transfer.
+    Younger = born later, so birth_year greater than the group's baseline year."""
+    return bool(
+        age_group and birth_year
+        and age_group.oldest_birth_year is not None
+        and age_group.oldest_birth_year < birth_year
+    )
+
+
 def _reg_dto(pt: PlayerTeam):
     p = pt.player
     return {
@@ -1179,6 +1257,7 @@ def _reg_dto(pt: PlayerTeam):
         "shirt_number": pt.shirt_number, "status": pt.status,
         "start_date": pt.start_date.isoformat() if pt.start_date else None,
         "end_date": pt.end_date.isoformat() if pt.end_date else None,
+        "is_guest": _plays_up(p.birth_year, pt.team.age_group if pt.team else None),
     }
 
 
@@ -1233,6 +1312,33 @@ def add_team_player(tid: int):
     return jsonify({"registration": _reg_dto(pt)}), 201
 
 
+@manage_bp.post("/api/admin/teams/<int:tid>/roster/attach")
+@auth.role_required("editor")
+def attach_team_player(tid: int):
+    """Attach an EXISTING player to this team (a new dated stint) rather than
+    creating a new person — the way to register a transfer-in, or a player playing
+    up in another age, without duplicating him."""
+    t = db.session.get(Team, tid)
+    if t is None:
+        return jsonify({"error": "الفريق غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    p = db.session.get(Player, _int_or_none(j.get("player_id")))
+    if p is None:
+        return jsonify({"error": "اختر اللاعب"}), 400
+    if PlayerTeam.query.filter_by(team_id=tid, player_id=p.id, end_date=None).first():
+        return jsonify({"error": "اللاعب مسجّل في هذا الفريق بالفعل"}), 409
+    status = j.get("status") if j.get("status") in codes.PLAYER_TEAM_STATUS else "active"
+    pt = PlayerTeam(
+        player_id=p.id, team_id=tid,
+        shirt_number=_int_or_none(j.get("shirt_number")), status=status,
+        start_date=_pd(j.get("start_date")) or default_spell_start(),
+        sort_order=_next_order(PlayerTeam, "team_id", tid),
+    )
+    db.session.add(pt)
+    db.session.commit()
+    return jsonify({"registration": _reg_dto(pt)}), 201
+
+
 @manage_bp.post("/api/admin/teams/<int:tid>/roster/reorder")
 @auth.role_required("editor")
 def reorder_team_roster(tid: int):
@@ -1276,3 +1382,45 @@ def delete_team_player(ptid: int):
     db.session.delete(pt)
     db.session.commit()
     return jsonify({"deleted": ptid})
+
+
+@manage_bp.post("/api/admin/player-teams/<int:ptid>/transfer")
+@auth.role_required("editor")
+def transfer_team_player(ptid: int):
+    """Move the *same* player from this registration's team to another team:
+    close this stint (end_date + status="transferred") and open a new active
+    stint on the destination team — preserving the player's identity, goals and
+    history (unlike add-player, which would create a duplicate person)."""
+    pt = db.session.get(PlayerTeam, ptid)
+    if pt is None:
+        return jsonify({"error": "التسجيل غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    dest_id = _int_or_none(j.get("team_id"))
+    dest = db.session.get(Team, dest_id) if dest_id else None
+    if dest is None:
+        return jsonify({"error": "اختر الفريق الجديد"}), 400
+    if dest.id == pt.team_id:
+        return jsonify({"error": "اللاعب مسجّل في هذا الفريق بالفعل"}), 409
+
+    start = _pd(j.get("start_date")) or default_spell_start()
+    # Close the current stint on the old team (leave an already-ended one as is).
+    if pt.end_date is None:
+        pt.end_date = start
+        pt.status = "transferred"
+    # Reuse an existing active stint on the destination instead of duplicating it
+    # (the player may already be registered there); otherwise open a new one.
+    new_pt = PlayerTeam.query.filter_by(
+        team_id=dest.id, player_id=pt.player_id, end_date=None,
+    ).first()
+    if new_pt is None:
+        new_pt = PlayerTeam(
+            player_id=pt.player_id,
+            team_id=dest.id,
+            shirt_number=_int_or_none(j.get("shirt_number")),
+            status="active",
+            start_date=start,
+            sort_order=_next_order(PlayerTeam, "team_id", dest.id),
+        )
+        db.session.add(new_pt)
+    db.session.commit()
+    return jsonify({"registration": _reg_dto(new_pt), "team_id": dest.id}), 201

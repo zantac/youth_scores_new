@@ -57,6 +57,17 @@ export async function apiListUsers(token: string) {
   return (await parse<{ users: AdminUser[] }>(res)).users;
 }
 
+// ── global admin search (clubs / teams / players) ──────────────────────────────
+export interface AdminSearchClub { id: number; name: string; city: string; logo: string | null }
+export interface AdminSearchTeam { id: number; name: string; logo: string | null }
+export interface AdminSearchPlayer { id: number; name: string; birth_year: number; team_id: number | null }
+export interface AdminSearchCoach { id: number; name: string; team_id: number | null }
+export interface AdminSearchResults { clubs: AdminSearchClub[]; teams: AdminSearchTeam[]; players: AdminSearchPlayer[]; coaches: AdminSearchCoach[] }
+export async function apiAdminSearch(token: string, q: string): Promise<AdminSearchResults> {
+  const res = await fetch(`${API_ORIGIN}/api/admin/search?q=${encodeURIComponent(q)}`, { headers: headers(token) });
+  return parse<AdminSearchResults>(res);
+}
+
 export async function apiCreateUser(token: string, body: {
   username: string; password: string; role: string; full_name?: string;
 }) {
@@ -124,6 +135,12 @@ export const apiRestoreMatch = (t: string, mid: number) => send<EntryMatch>(t, '
 export interface PlayerSearchResult { id: number; name: string; birth_year: number; }
 export const apiSearchPlayers = (t: string, q: string) =>
   get<{ players: PlayerSearchResult[] }>(t, `/api/admin/players/search?q=${encodeURIComponent(q)}`).then(d => d.players);
+
+// Compact profile for the merge preview (confirm two records are the same person).
+export interface PlayerMergeTeam { club: string; age: string | null; current: boolean; guest: boolean; goals: number }
+export interface PlayerMergeSummary { id: number; name: string; birth_year: number; goals: number; assists: number; appearances: number; teams: PlayerMergeTeam[] }
+export const apiPlayerSummary = (t: string, id: number) =>
+  get<PlayerMergeSummary>(t, `/api/admin/players/${id}/summary`);
 export const apiMergePlayer = (t: string, sourceId: number, targetId: number) =>
   send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/players/${sourceId}/merge-into/${targetId}`);
 export const apiAddGoal = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/goals`, body);
@@ -261,6 +278,8 @@ export interface MRegistration {
   birth_year: number; birth_year_verified: boolean;
   position_ar: string | null; position_en: string | null;
   shirt_number: number | null; status: string; start_date: string | null; end_date: string | null;
+  /** A younger player guesting up for this older team (same club). */
+  is_guest: boolean;
 }
 
 export const apiClubTeams = (t: string, cid: number) => get<{ teams: MTeamFull[] }>(t, `/api/admin/clubs/${cid}/teams`).then(d => d.teams);
@@ -269,15 +288,27 @@ export const apiTeam = (t: string, tid: number) => get<{ team: MTeamFull }>(t, `
 
 export const apiTeamCoaches = (t: string, tid: number) => get<{ coaches: MTeamCoach[] }>(t, `/api/admin/teams/${tid}/coaches`).then(d => d.coaches);
 export const apiAddTeamCoach = (t: string, tid: number, b: Record<string, unknown>) => send<{ coach: MTeamCoach }>(t, 'POST', `/api/admin/teams/${tid}/coaches`, b).then(d => d.coach);
+/** Attach an EXISTING coach (by id) to a team, instead of creating a new one. */
+export const apiAttachCoach = (t: string, tid: number, b: { coach_id: number; role_ar?: string; role_en?: string; start_date?: string }) =>
+  send<{ coach: MTeamCoach }>(t, 'POST', `/api/admin/teams/${tid}/coaches/attach`, b).then(d => d.coach);
+export interface CoachSearchResult { id: number; name: string }
+export const apiSearchCoaches = (t: string, q: string) =>
+  get<{ coaches: CoachSearchResult[] }>(t, `/api/admin/coaches/search?q=${encodeURIComponent(q)}`).then(d => d.coaches);
 export const apiUpdateTeamCoach = (t: string, id: number, b: Record<string, unknown>) => send<{ coach: MTeamCoach }>(t, 'PATCH', `/api/admin/team-coaches/${id}`, b).then(d => d.coach);
 export const apiDeleteTeamCoach = (t: string, id: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/team-coaches/${id}`);
 export const apiReorderTeamCoaches = (t: string, tid: number, ids: number[]) => send<{ ok: boolean }>(t, 'POST', `/api/admin/teams/${tid}/coaches/reorder`, { ids });
 
 export const apiTeamRoster = (t: string, tid: number) => get<{ roster: MRegistration[] }>(t, `/api/admin/teams/${tid}/roster`).then(d => d.roster);
 export const apiAddTeamPlayer = (t: string, tid: number, b: Record<string, unknown>) => send<{ registration: MRegistration }>(t, 'POST', `/api/admin/teams/${tid}/roster`, b).then(d => d.registration);
+/** Attach an EXISTING player (by id) to a team, instead of creating a new one. */
+export const apiAttachPlayer = (t: string, tid: number, b: { player_id: number; shirt_number?: number | null; start_date?: string; status?: string }) =>
+  send<{ registration: MRegistration }>(t, 'POST', `/api/admin/teams/${tid}/roster/attach`, b).then(d => d.registration);
 export const apiUpdateTeamPlayer = (t: string, id: number, b: Record<string, unknown>) => send<{ registration: MRegistration }>(t, 'PATCH', `/api/admin/player-teams/${id}`, b).then(d => d.registration);
 export const apiDeleteTeamPlayer = (t: string, id: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/player-teams/${id}`);
 export const apiReorderTeamRoster = (t: string, tid: number, ids: number[]) => send<{ ok: boolean }>(t, 'POST', `/api/admin/teams/${tid}/roster/reorder`, { ids });
+/** Move the same player to another team: closes this stint, opens a new one. */
+export const apiTransferPlayer = (t: string, ptid: number, b: { team_id: number; start_date?: string; shirt_number?: number | null }) =>
+  send<{ registration: MRegistration; team_id: number }>(t, 'POST', `/api/admin/player-teams/${ptid}/transfer`, b);
 
 export const apiCompsManage = (t: string) => get<{ competitions: MComp[] }>(t, '/api/admin/competitions-manage').then(d => d.competitions);
 export const apiCreateComp = (t: string, b: Record<string, unknown>) => send<{ competition: MComp }>(t, 'POST', '/api/admin/competitions-manage', b).then(d => d.competition);

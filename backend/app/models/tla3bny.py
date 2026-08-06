@@ -1092,6 +1092,12 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
         sa.UniqueConstraint(
             "competition_team_id", "player_id", name="uq_tla3bny_comp_player"
         ),
+        # Backs the constant per-entry status counts (cap checks, dashboards,
+        # approved-player totals) — the most-counted table in the module.
+        sa.Index(
+            "ix_tla3bny_competition_players_entry_status",
+            "competition_team_id", "status",
+        ),
     )
 
     def to_dict(self, with_files: bool = False) -> dict:
@@ -1195,6 +1201,16 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     )
     lineups: Mapped[list["Tla3bnyLineup"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # The matches feed and dashboards filter by competition + age + status…
+        sa.Index(
+            "ix_tla3bny_matches_comp_age_status",
+            "competition_id", "age_category_id", "status",
+        ),
+        # …and order/range by date (no FK auto-index covers a plain column).
+        sa.Index("ix_tla3bny_matches_date", "date"),
     )
 
     @property
@@ -1312,6 +1328,13 @@ class Tla3bnyMatchEvent(TimestampMixin, db.Model):
 
     match: Mapped["Tla3bnyMatch"] = relationship(back_populates="events")
     player: Mapped["Tla3bnyPlayer | None"] = relationship()
+
+    __table_args__ = (
+        # Analysis / top-scorer boards filter a match's events by type.
+        sa.Index(
+            "ix_tla3bny_match_events_match_type", "match_id", "event_type"
+        ),
+    )
 
     def to_dict(self) -> dict:
         return {

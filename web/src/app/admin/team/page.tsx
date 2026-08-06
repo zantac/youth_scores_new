@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import AdminShell from '@/components/admin/AdminShell';
@@ -8,7 +8,10 @@ import {
   apiTeam, apiUploadImage,
   apiTeamCoaches, apiAddTeamCoach, apiUpdateTeamCoach, apiDeleteTeamCoach, apiReorderTeamCoaches,
   apiTeamRoster, apiAddTeamPlayer, apiUpdateTeamPlayer, apiDeleteTeamPlayer, apiReorderTeamRoster,
-  type MTeamFull, type MTeamCoach, type MRegistration,
+  apiTransferPlayer, apiAdminSearch,
+  apiAttachPlayer, apiSearchPlayers, apiAttachCoach, apiSearchCoaches,
+  type MTeamFull, type MTeamCoach, type MRegistration, type AdminSearchTeam,
+  type PlayerSearchResult, type CoachSearchResult,
 } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
@@ -122,10 +125,11 @@ function CoachForm({ token, tid, coach, onDone, onCancel }: {
   );
 }
 
-function CoachesSection({ token, tid }: { token: string; tid: number }) {
+function CoachesSection({ token, tid, focusCoach }: { token: string; tid: number; focusCoach?: number }) {
   const [items, setItems] = useState<MTeamCoach[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MTeamCoach | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
@@ -133,6 +137,13 @@ function CoachesSection({ token, tid }: { token: string; tid: number }) {
     apiTeamCoaches(token, tid).then(setItems).catch(e => setErr(e instanceof Error ? e.message : 'خطأ')).finally(() => setLoading(false));
   }, [token, tid]);
   useEffect(() => { reload(); }, [reload]);
+  // Auto-open the edit form for a coach linked from global search (once).
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current || !focusCoach || items.length === 0) return;
+    const target = items.find(c => c.coach_id === focusCoach);
+    if (target) { focused.current = true; setEditing(target); }
+  }, [items, focusCoach]);
   const remove = async (c: MTeamCoach) => { if (confirm('حذف هذا المدرّب؟')) { await apiDeleteTeamCoach(token, c.id); reload(); } };
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
@@ -147,9 +158,15 @@ function CoachesSection({ token, tid }: { token: string; tid: number }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-aqua font-bold text-sm">👔 الجهاز الفني</p>
-        {!adding && !editing && <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ مدرّب</button>}
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
+        )}
       </div>
       {adding && <CoachForm token={token} tid={tid} coach={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachCoachForm token={token} tid={tid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
       {loading ? <p className="text-hint text-sm text-center py-4">…</p>
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد مدرّبون بعد</p>
@@ -223,58 +240,304 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
   );
 }
 
-function RosterSection({ token, tid }: { token: string; tid: number }) {
+function AttachPlayerForm({ token, tid, onDone, onCancel }: {
+  token: string; tid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<PlayerSearchResult[]>([]);
+  const [sel, setSel] = useState<PlayerSearchResult | null>(null);
+  const [shirt, setShirt] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchPlayers(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر اللاعب'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiAttachPlayer(token, tid, { player_id: sel.id, shirt_number: shirt ? Number(shirt) : null, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة لاعب موجود إلى الفريق</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name} <span className="text-hint text-[11px]">مواليد {sel.birth_year}</span></span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن اسم اللاعب…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(p => (
+                <button key={p.id} onClick={() => { setSel(p); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {p.name} <span className="text-hint text-[11px]">· {p.birth_year}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="text-hint text-[10px] block mb-0.5">تاريخ الانضمام</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} /></div>
+        <div><label className="text-hint text-[10px] block mb-0.5">رقم القميص (اختياري)</label><input value={shirt} onChange={e => setShirt(e.target.value)} inputMode="numeric" className={inputCls} /></div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function AttachCoachForm({ token, tid, onDone, onCancel }: {
+  token: string; tid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<CoachSearchResult[]>([]);
+  const [sel, setSel] = useState<CoachSearchResult | null>(null);
+  const [roleAr, setRoleAr] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchCoaches(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر المدرّب'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiAttachCoach(token, tid, { coach_id: sel.id, role_ar: roleAr || undefined, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة مدرّب موجود إلى الفريق</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name}</span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن اسم المدرّب…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(c => (
+                <button key={c.id} onClick={() => { setSel(c); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="text-hint text-[10px] block mb-0.5">الدور (اختياري)</label><input value={roleAr} onChange={e => setRoleAr(e.target.value)} placeholder="مدرب عام" className={inputCls} /></div>
+        <div><label className="text-hint text-[10px] block mb-0.5">تاريخ الانضمام</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} /></div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function TransferForm({ token, reg, onDone, onCancel }: {
+  token: string; reg: MRegistration; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<AdminSearchTeam[]>([]);
+  const [dest, setDest] = useState<AdminSearchTeam | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [shirt, setShirt] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      apiAdminSearch(token, term).then(r => { if (alive) setResults(r.teams); }).catch(() => { if (alive) setResults([]); });
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!dest) { setErr('اختر الفريق الجديد'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiTransferPlayer(token, reg.id, {
+        team_id: dest.id,
+        start_date: startDate || undefined,
+        shirt_number: shirt ? Number(shirt) : null,
+      });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-gold font-bold text-xs">↪ نقل {reg.name_ar || reg.name_en} إلى فريق آخر</p>
+      {dest ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{dest.name}</span>
+          <button onClick={() => setDest(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن الفريق الجديد (باسم النادي)…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(tm => (
+                <button key={tm.id} onClick={() => { setDest(tm); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {tm.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">تاريخ الانتقال</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">رقم القميص (اختياري)</label>
+          <input value={shirt} onChange={e => setShirt(e.target.value)} inputMode="numeric" className={inputCls} />
+        </div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !dest} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">تأكيد النقل</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number; focusPlayer?: number }) {
   const [items, setItems] = useState<MRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MRegistration | null>(null);
+  const [transferring, setTransferring] = useState<MRegistration | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
     setLoading(true); setErr(null);
     apiTeamRoster(token, tid).then(setItems).catch(e => setErr(e instanceof Error ? e.message : 'خطأ')).finally(() => setLoading(false));
   }, [token, tid]);
   useEffect(() => { reload(); }, [reload]);
+  // Auto-open the edit form for a player linked from global search (once) —
+  // prefer their active stint on this team.
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current || !focusPlayer || items.length === 0) return;
+    const target = items.find(r => r.player_id === focusPlayer && !r.end_date)
+      ?? items.find(r => r.player_id === focusPlayer);
+    if (target) { focused.current = true; setEditing(target); }
+  }, [items, focusPlayer]);
   const remove = async (r: MRegistration) => { if (confirm('حذف هذا اللاعب من القائمة؟')) { await apiDeleteTeamPlayer(token, r.id); reload(); } };
+  // Squad = current players of this team's own age; guests = younger players
+  // playing up (same club); former = transferred/ended stints kept for history.
+  const active = items.filter(r => !r.end_date && !r.is_guest);
+  const guests = items.filter(r => !r.end_date && r.is_guest);
+  const former = items.filter(r => r.end_date);
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
+    if (j < 0 || j >= active.length) return;
+    const next = [...active];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setItems(next);
+    setItems([...next, ...former]);
     try { await apiReorderTeamRoster(token, tid, next.map(x => x.id)); } catch { reload(); }
   };
+
+  const renderRow = (r: MRegistration, idx: number, variant: 'active' | 'guest' | 'former') =>
+    editing?.id === r.id ? (
+      <PlayerForm key={r.id} token={token} tid={tid} reg={r} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+    ) : transferring?.id === r.id ? (
+      <TransferForm key={r.id} token={token} reg={r} onDone={() => { setTransferring(null); reload(); }} onCancel={() => setTransferring(null)} />
+    ) : (
+      <div key={r.id} className={card + ' flex items-center gap-3' + (variant === 'former' ? ' opacity-60' : '')}>
+        {variant === 'active' && active.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === active.length - 1} />}
+        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
+        <div className="flex-1 min-w-0">
+          <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
+          <p className="text-hint text-[11px] truncate">
+            {r.position_ar || r.position_en || ''}
+            {r.birth_year ? ` · ${r.birth_year}${r.birth_year_verified ? '' : '؟'}` : ''}
+            {r.status !== 'active' && variant === 'active' ? ` · ${statusLabel(r.status)}` : ''}
+          </p>
+        </div>
+        {variant === 'guest' && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">صاعد</span>}
+        {variant === 'former' && <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">{r.status === 'transferred' ? 'منتقل' : 'سابق'}</span>}
+        {variant === 'active' && <button onClick={() => setTransferring(r)} className="text-gold text-[11px] font-bold flex-shrink-0">نقل</button>}
+        <button onClick={() => setEditing(r)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
+        <button onClick={() => remove(r)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
+      </div>
+    );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-aqua font-bold text-sm">🧑‍🤝‍🧑 قائمة اللاعبين {items.length > 0 && <span className="text-hint text-xs">({items.length})</span>}</p>
-        {!adding && !editing && <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ لاعب</button>}
+        <p className="text-aqua font-bold text-sm">🧑‍🤝‍🧑 قائمة اللاعبين {active.length > 0 && <span className="text-hint text-xs">({active.length})</span>}</p>
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
+        )}
       </div>
       {adding && <PlayerForm token={token} tid={tid} reg={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachPlayerForm token={token} tid={tid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
       {loading ? <p className="text-hint text-sm text-center py-4">…</p>
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>
         : (
           <div className="space-y-2">
-            {items.map((r, idx) => editing?.id === r.id ? (
-              <PlayerForm key={r.id} token={token} tid={tid} reg={r} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
-            ) : (
-              <div key={r.id} className={card + ' flex items-center gap-3'}>
-                {items.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === items.length - 1} />}
-                <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
-                  <p className="text-hint text-[11px] truncate">
-                    {r.position_ar || r.position_en || ''}
-                    {r.birth_year ? ` · ${r.birth_year}${r.birth_year_verified ? '' : '؟'}` : ''}
-                    {r.status !== 'active' ? ` · ${statusLabel(r.status)}` : ''}
-                  </p>
-                </div>
-                {r.end_date && <span className="text-hint text-[10px] border border-bdr rounded px-2 py-0.5 flex-shrink-0">منتهٍ</span>}
-                <button onClick={() => setEditing(r)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
-                <button onClick={() => remove(r)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
-              </div>
-            ))}
+            {active.map((r, idx) => renderRow(r, idx, 'active'))}
+            {guests.length > 0 && (
+              <>
+                <p className="text-teal text-[11px] font-bold pt-3">⬆️ ضيوف — يلعبون صاعداً ({guests.length})</p>
+                {guests.map(r => renderRow(r, -1, 'guest'))}
+              </>
+            )}
+            {former.length > 0 && (
+              <>
+                <p className="text-hint text-[11px] font-bold pt-3">لاعبون سابقون / منتقلون ({former.length})</p>
+                {former.map(r => renderRow(r, -1, 'former'))}
+              </>
+            )}
+            {active.length === 0 && guests.length === 0 && former.length === 0 && <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>}
           </div>
         )}
     </div>
@@ -286,6 +549,10 @@ function TeamPageInner() {
   const { token, canEdit } = useAdminAuth();
   const params = useSearchParams();
   const id = Number(params.get('id') || 0);
+  // Coming from global search: focus (auto-open the edit form of) a specific
+  // player or coach so the admin can edit/remove them right away.
+  const focusPlayer = Number(params.get('player') || 0) || undefined;
+  const focusCoach = Number(params.get('coach') || 0) || undefined;
   const [team, setTeam] = useState<MTeamFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -320,8 +587,8 @@ function TeamPageInner() {
               </p>
             </div>
           </div>
-          <CoachesSection token={token!} tid={team.id} />
-          <RosterSection token={token!} tid={team.id} />
+          <CoachesSection token={token!} tid={team.id} focusCoach={focusCoach} />
+          <RosterSection token={token!} tid={team.id} focusPlayer={focusPlayer} />
         </div>
       )}
     </AdminShell>
