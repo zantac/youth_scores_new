@@ -703,6 +703,9 @@ def player_full(p) -> dict:
             "assists":      sum(assists_tc.get((tid, cid), 0)  for cid in comp_ids),
             "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in comp_ids),
             "current":      r.end_date is None,
+            # The leaving date for an ended stint (an old club), shown instead of
+            # a generic "transferred" label.
+            "end_date":     r.end_date.isoformat() if r.end_date else None,
             "status":       r.status,
             "competitions": competitions,
         })

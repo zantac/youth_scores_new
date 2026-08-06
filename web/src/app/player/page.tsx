@@ -97,7 +97,7 @@ function PlayerJourney() {
                         {c.age && <span className="text-aqua font-extrabold"> · {localize(c.age, locale)}</span>}
                         {c.is_guest && <span className="text-teal text-[10px] font-bold border border-teal/40 rounded px-1.5 py-0.5 ms-1 align-middle">{isAr ? 'ضيف صاعد' : 'guest'}</span>}
                       </p>
-                      <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}{c.status === 'transferred' ? ` · ${isAr ? 'انتقال' : 'transfer'}` : ''}</p>
+                      <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : c.end_date ? ` · ${isAr ? 'غادر' : 'left'} ${c.end_date}` : ''}</p>
                     </div>
                     <div className="flex gap-3">
                       {c.appearances > 0 && (

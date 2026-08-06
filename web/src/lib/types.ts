@@ -216,7 +216,7 @@ export interface PlayerCareerComp { name: string | Localized; goals: number; ass
 export interface PlayerCareer {
   club: string; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
   goals: number; assists: number; appearances: number;
-  current: boolean; status: string;
+  current: boolean; end_date?: string | null; status: string;
   competitions: PlayerCareerComp[];
 }
 export interface PlayerFull {
