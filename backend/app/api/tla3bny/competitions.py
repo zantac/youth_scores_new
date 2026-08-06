@@ -12,7 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from flask import after_this_request, jsonify, request, send_file
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import (
     Tla3bnyAgeCategory,
     Tla3bnyCompetition,
@@ -42,11 +42,15 @@ from ._helpers import (
     _bool,
     _clean_docs,
     _docs_field,
+    _clean_url,
+    _clip,
     _err,
     _forbid,
     _int,
     _parse_date,
+    _parse_date_or_error,
     _read_payload,
+    _validate_password,
     save_upload,
 )
 from .players import _player_team_id
@@ -179,8 +183,11 @@ def competition_dashboard(comp_id: int):
             total_counts[status] += cnt
 
     total_matches = Tla3bnyMatch.query.filter_by(competition_id=comp_id).count()
-    played_matches = Tla3bnyMatch.query.filter_by(
-        competition_id=comp_id, status="finished"
+    # A result-entered match has status "completed" (see enter_result); "finished"
+    # is an accepted synonym an admin can set manually. Count both.
+    played_matches = Tla3bnyMatch.query.filter(
+        Tla3bnyMatch.competition_id == comp_id,
+        Tla3bnyMatch.status.in_(("finished", "completed")),
     ).count()
     goals = (
         Tla3bnyMatchEvent.query.filter_by(event_type="goal")
@@ -225,7 +232,7 @@ def competition_dashboard(comp_id: int):
             "players_approved": p.get("approved", 0),
             "players_pending": p.get("pending", 0),
             "matches_total": sum(m.values()),
-            "matches_played": m.get("finished", 0),
+            "matches_played": m.get("completed", 0) + m.get("finished", 0),
         })
 
     # Teams with pending players — derived from pre-computed counts, no extra queries.
@@ -360,13 +367,16 @@ def create_competition():
     except ValueError as e:
         return _err(str(e))
     _, docs = _docs_field(data)
+    status = data.get("status") or "draft"
+    if status not in codes.TLA3BNY_COMPETITION_STATUS:
+        return _err("Invalid competition status", 400)
     comp = Tla3bnyCompetition(
         season_id=season_id,
         name=name,
         logo_path=logo,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
-        status=data.get("status") or "draft",
+        status=status,
         required_documents=docs,
     )
     _apply_competition_text(comp, data)
@@ -410,12 +420,22 @@ def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
     return None
 
 
+# URL fields get scheme-sanitized (block javascript:/data:); long-form fields
+# get a generous length ceiling, the rest a short single-line cap.
+_COMPETITION_URL_FIELDS = {"whatsapp_group_url", "facebook_url", "location_url"}
+_COMPETITION_TEXT_MAX = {"description": 20000, "info": 20000}
+
+
 def _apply_competition_text(comp: Tla3bnyCompetition, data) -> None:
     """Copy whichever info-page fields the caller sent onto the competition."""
     for field in COMPETITION_TEXT_FIELDS:
         if field not in data:
             continue
-        value = (data.get(field) or "").strip() or None
+        raw = data.get(field)
+        if field in _COMPETITION_URL_FIELDS:
+            value = _clean_url(raw)
+        else:
+            value = _clip(raw, _COMPETITION_TEXT_MAX.get(field, 255))
         if field == "whatsapp_number":
             value = _digits(value)
         setattr(comp, field, value)
@@ -432,13 +452,21 @@ def update_competition(comp_id: int):
     if not comp.name:
         return _err("name is required")
     if "status" in data and data.get("status"):
+        if data.get("status") not in codes.TLA3BNY_COMPETITION_STATUS:
+            return _err("Invalid competition status", 400)
         comp.status = data.get("status")
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), comp.registration_open)
     if "start_date" in data:
-        comp.start_date = _parse_date(data.get("start_date"))
+        sd, sd_err = _parse_date_or_error(data.get("start_date"))
+        if sd_err:
+            return _err(sd_err, 400)
+        comp.start_date = sd
     if "end_date" in data:
-        comp.end_date = _parse_date(data.get("end_date"))
+        ed, ed_err = _parse_date_or_error(data.get("end_date"))
+        if ed_err:
+            return _err(ed_err, 400)
+        comp.end_date = ed
     err = _apply_max_players(comp, data)
     if err:
         return err
@@ -482,6 +510,9 @@ def add_competition_admin(comp_id: int):
     if user is None:
         if not password:
             return _err("password is required for a new organizer")
+        pw_err = _validate_password(password)
+        if pw_err:
+            return _err(pw_err)
         user = Tla3bnyUser(
             username=username,
             email=username if "@" in username else None,
@@ -494,9 +525,13 @@ def add_competition_admin(comp_id: int):
         db.session.flush()
     elif user.role not in ("competition_admin", "super_admin"):
         return _err("That account is not a competition admin", 409)
-    elif password:
+    elif password and user.role == "competition_admin":
         # Re-assigning with a password doubles as "reset their password", which
-        # is the only way an organiser who forgot theirs gets back in.
+        # is the only way an organiser who forgot theirs gets back in. Never
+        # reset another super_admin's password through this organiser path.
+        pw_err = _validate_password(password)
+        if pw_err:
+            return _err(pw_err)
         user.set_password(password)
     if not Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user.id
@@ -529,7 +564,9 @@ _RULE_FIELDS = (
     "max_replacements",
 )
 
-# Minimum allowed value for each numeric rule field.
+# Minimum and maximum allowed value for each numeric rule field. Upper bounds
+# stop an absurd value (e.g. a billion-player cap) from turning team registration
+# into a mass-insert, or breaking lineup/period logic.
 _RULE_MINIMUMS = {
     "max_players_per_team": 1,
     "lineup_size": 1,
@@ -540,14 +577,31 @@ _RULE_MINIMUMS = {
     "lineup_deadline_minutes": 0,
     "max_replacements": 0,
 }
+_RULE_MAXIMUMS = {
+    "max_players_per_team": 100,
+    "lineup_size": 40,
+    "players_on_pitch": 25,
+    "max_substitutes": 40,
+    "num_periods": 10,
+    "period_minutes": 120,
+    "lineup_deadline_minutes": 100_000,  # ~10 weeks, in minutes
+    "max_replacements": 100,
+}
 
 
 def _validate_rule_fields(data: dict) -> str | None:
     """Return an error message if any rule field is out of range, else None."""
     for f, minimum in _RULE_MINIMUMS.items():
+        if f not in data:
+            continue
         val = _int(data.get(f))
-        if f in data and val is not None and val < minimum:
+        if val is None:
+            continue
+        if val < minimum:
             return f"'{f}' must be ≥ {minimum} (got {val})"
+        maximum = _RULE_MAXIMUMS.get(f)
+        if maximum is not None and val > maximum:
+            return f"'{f}' must be ≤ {maximum} (got {val})"
     return None
 
 
@@ -683,6 +737,25 @@ def _stage_comp_id(stage: Tla3bnyStage) -> int:
     return stage.competition_age.competition_id
 
 
+def _validate_stage_team(stage: Tla3bnyStage, team_id: int) -> str | None:
+    """A team may only be placed in a stage/group if it is an active registered
+    entry in that stage's competition *and* its age. Without this, fixtures get
+    generated between teams that never registered / are the wrong age, corrupting
+    standings and the bracket. Returns an error message, or None if valid."""
+    cage = stage.competition_age
+    if cage is None:
+        return "Stage is not attached to a sub-competition"
+    entry = Tla3bnyCompetitionTeam.query.filter_by(
+        competition_id=cage.competition_id,
+        team_id=team_id,
+        age_category_id=cage.age_category_id,
+        status="active",
+    ).first()
+    if entry is None:
+        return "Team is not an active registered entry in this competition/age"
+    return None
+
+
 @tla3bny_bp.post("/stages/<int:stage_id>/groups")
 @auth.login_required
 def add_group(stage_id: int):
@@ -721,9 +794,16 @@ def add_group_team(group_id: int):
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
     if not team_id or not Tla3bnyTeam.query.get(team_id):
         return _err("valid team_id is required")
-    if not Tla3bnyGroupTeam.query.filter_by(group_id=group_id, team_id=team_id).first():
-        db.session.add(Tla3bnyGroupTeam(group_id=group_id, team_id=team_id))
-        db.session.commit()
+    err = _validate_stage_team(g.stage, team_id)
+    if err:
+        return _err(err, 409)
+    # A team may sit in only one group per stage — two groups would show it in
+    # two tables and generate its fixtures twice.
+    for other in g.stage.groups:
+        if Tla3bnyGroupTeam.query.filter_by(group_id=other.id, team_id=team_id).first():
+            return _err("Team is already in a group of this stage", 409)
+    db.session.add(Tla3bnyGroupTeam(group_id=group_id, team_id=team_id))
+    db.session.commit()
     return jsonify(g.to_dict()), 201
 
 
@@ -755,6 +835,9 @@ def add_stage_team(stage_id: int):
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
     if not team_id or not Tla3bnyTeam.query.get(team_id):
         return _err("valid team_id is required")
+    err = _validate_stage_team(stage, team_id)
+    if err:
+        return _err(err, 409)
     # Reject duplicate (team already in any group of this stage).
     for g in stage.groups:
         if Tla3bnyGroupTeam.query.filter_by(group_id=g.id, team_id=team_id).first():
@@ -820,16 +903,9 @@ def list_competition_teams(comp_id: int):
         else:
             q = q.filter_by(competition_age_id=cage_id)
     entries = q.all()
-    # Back-fill competition_age_id on any legacy rows (NULL) so that
-    # subsequent filtered queries work without the OR fallback.
-    if cage_id and cage:
-        dirty = False
-        for entry in entries:
-            if entry.competition_age_id is None:
-                entry.competition_age_id = cage_id
-                dirty = True
-        if dirty:
-            db.session.commit()
+    # NB: legacy rows with a NULL competition_age_id are matched by the OR
+    # fallback above; we deliberately do not back-fill/commit here — a GET must
+    # not write (it races concurrent readers and breaks on read replicas).
     with_roster = request.args.get("roster") == "1"
     # Papers are for this competition's admin panel only, never the public list.
     return jsonify(
@@ -936,12 +1012,25 @@ def add_roster_player(entry_id: int):
     ).first():
         return _err("Player already on the roster", 409)
 
-    cage = Tla3bnyCompetitionAge.query.filter_by(
+    # Use the entry's own sub-competition (fall back to age match only for legacy
+    # rows) so a cap from a different sub-competition sharing this age isn't applied.
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
         competition_id=entry.competition_id, age_category_id=entry.age_category_id
     ).first()
     cap = cage.max_players_per_team if cage else None
     if cap is not None:
-        count = Tla3bnyCompetitionPlayer.query.filter_by(competition_team_id=entry_id).count()
+        # Lock the entry row so concurrent adds to this roster serialize — the
+        # count-then-insert below would otherwise let two requests both pass the
+        # cap check and overshoot max_players_per_team.
+        db.session.query(Tla3bnyCompetitionTeam.id).filter_by(
+            id=entry_id
+        ).with_for_update().first()
+        # Count only active (pending + approved) rows — rejected/replaced players
+        # don't occupy a slot, matching every other cap check in the module.
+        count = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id == entry_id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+        ).count()
         if count >= cap:
             return _err(f"Roster is full (max {cap})", 409)
 
@@ -1020,6 +1109,12 @@ def approve_roster_player(cp_id: int):
     # approved-player count past it. This is a hard limit, not force-overridable.
     comp = entry.competition if entry else None
     if comp and comp.max_players is not None and cp.status != "approved":
+        # Lock the competition row so concurrent approvals serialize; otherwise
+        # two approvals both read the old count, both pass, and both commit —
+        # overshooting the priced cap the business bills on.
+        db.session.query(Tla3bnyCompetition.id).filter_by(
+            id=comp.id
+        ).with_for_update().first()
         if _approved_player_count(comp.id) >= comp.max_players:
             return _err(
                 f"Competition player limit reached ({comp.max_players} players). "
@@ -1121,15 +1216,22 @@ def bulk_approve_roster_players():
 
     # Competition-wide caps: seed each competition's current approved count and
     # its priced limit once, then spend the headroom as we approve within this
-    # call so a bulk approve can't overshoot the limit.
+    # call so a bulk approve can't overshoot the limit. Lock each competition row
+    # first (in id order to avoid deadlocks between concurrent bulk approvals) so
+    # the seeded count can't be raced by another approval running in parallel.
     comp_counts: dict[int, int] = {}
     comp_caps: dict[int, int | None] = {}
-    for cp in cps:
-        entry = cp.entry
-        if entry and entry.competition_id not in comp_counts:
-            cid = entry.competition_id
-            comp_counts[cid] = _approved_player_count(cid)
-            comp_caps[cid] = entry.competition.max_players if entry.competition else None
+    for cid in sorted({cp.entry.competition_id for cp in cps if cp.entry}):
+        comp = (
+            db.session.query(Tla3bnyCompetition)
+            .filter_by(id=cid)
+            .with_for_update()
+            .first()
+        )
+        if comp is None:
+            continue
+        comp_counts[cid] = _approved_player_count(cid)
+        comp_caps[cid] = comp.max_players
 
     for cp in cps:
         if cp.status == "approved":

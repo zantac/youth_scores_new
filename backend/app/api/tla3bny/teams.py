@@ -1,7 +1,8 @@
+import sqlalchemy as sa
 from flask import jsonify, request
 from sqlalchemy.orm import selectinload
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import (
     Tla3bnyAgeCategory,
     Tla3bnyCoach,
@@ -9,6 +10,7 @@ from app.models import (
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
     Tla3bnyCompetitionTeam,
+    Tla3bnyMatch,
     Tla3bnyPlayerTeam,
     Tla3bnyTeam,
     Tla3bnyUser,
@@ -24,7 +26,9 @@ from ._helpers import (
     _forbid,
     _int,
     _parse_date,
+    _parse_date_or_error,
     _read_payload,
+    _validate_password,
     save_upload,
 )
 from .academies import _resolve_academy_for_write
@@ -78,7 +82,27 @@ def update_team(team_id: int):
     if "name_en" in data:
         team.name_en = (data.get("name_en") or "").strip() or None
     if "age_category_id" in data and _int(data.get("age_category_id")):
-        team.age_category_id = _int(data.get("age_category_id"))
+        new_age = _int(data.get("age_category_id"))
+        if new_age != team.age_category_id:
+            # The team's age is copied into every competition entry and match at
+            # registration. Changing it after the team is in play would desync
+            # cap lookups, match-team validation and standings, so block it once
+            # the team has any entry or match.
+            in_play = (
+                Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id).first()
+                or Tla3bnyMatch.query.filter(
+                    sa.or_(
+                        Tla3bnyMatch.home_team_id == team_id,
+                        Tla3bnyMatch.away_team_id == team_id,
+                    )
+                ).first()
+            )
+            if in_play:
+                return _err(
+                    "لا يمكن تغيير الفئة السنية لفريق مسجّل في بطولة أو له مباريات.",
+                    409,
+                )
+            team.age_category_id = new_age
     db.session.commit()
     return jsonify(team.to_dict())
 
@@ -91,12 +115,26 @@ def delete_team(team_id: int):
     # Only the owning academy or super admin may delete a team (not the team login).
     if not auth.can_manage_academy(user, team.academy_id):
         return _forbid()
+    # The match team FKs are intentionally RESTRICT: a team that has played can't
+    # be removed without orphaning matches and the standings built from them.
+    # Report that clearly instead of letting the delete raise a raw IntegrityError.
+    if Tla3bnyMatch.query.filter(
+        sa.or_(
+            Tla3bnyMatch.home_team_id == team_id,
+            Tla3bnyMatch.away_team_id == team_id,
+        )
+    ).first():
+        return _err(
+            "لا يمكن حذف فريق له مباريات. احذف مبارياته أو أزله من البطولة أولًا.",
+            409,
+        )
     db.session.delete(team)
     db.session.commit()
     return jsonify({"message": "deleted"})
 
 
 @tla3bny_bp.post("/teams/<int:team_id>/account")
+@limiter.limit("20 per hour")
 @auth.login_required
 def set_team_account(team_id: int):
     """The owning academy (or super admin) creates/resets the team manager's
@@ -109,6 +147,9 @@ def set_team_account(team_id: int):
     username, password = _credentials(data)
     if not username or not password:
         return _err("username and password are required")
+    pw_err = _validate_password(password)
+    if pw_err:
+        return _err(pw_err)
 
     account = Tla3bnyUser.query.filter_by(role="team", team_id=team.id).first()
     taken = _claim_login(

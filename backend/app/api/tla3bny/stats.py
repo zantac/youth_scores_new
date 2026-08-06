@@ -25,7 +25,9 @@ from ._helpers import _forbid
 def stats():
     """Aggregate counts for the super-admin dashboard."""
     total_matches = Tla3bnyMatch.query.count()
-    played = Tla3bnyMatch.query.filter_by(status="finished").count()
+    # Result-entered matches are "completed" ("finished" is an accepted synonym).
+    _FINISHED = ("finished", "completed")
+    played = Tla3bnyMatch.query.filter(Tla3bnyMatch.status.in_(_FINISHED)).count()
     goals = Tla3bnyMatchEvent.query.filter_by(event_type="goal").count()
     teams = Tla3bnyTeam.query.count()
     players = Tla3bnyPlayer.query.count()
@@ -37,7 +39,7 @@ def stats():
     for c in Tla3bnyCompetition.query.order_by(Tla3bnyCompetition.id.desc()).all():
         m = Tla3bnyMatch.query.filter_by(competition_id=c.id)
         tot = m.count()
-        done = m.filter_by(status="finished").count()
+        done = m.filter(Tla3bnyMatch.status.in_(_FINISHED)).count()
         comp_teams = Tla3bnyCompetitionTeam.query.filter_by(
             competition_id=c.id, status="active"
         ).count()

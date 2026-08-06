@@ -7,7 +7,7 @@ from app.models import Tla3bnyCompetition, Tla3bnyMatch, Tla3bnyNews
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
-from ._helpers import _bool, _err, _forbid, _parse_date, _read_payload, _utcnow, save_upload
+from ._helpers import _bool, _clip, _err, _forbid, _parse_date, _read_payload, _utcnow, save_upload
 
 
 def _news_images(data, files) -> list[str] | None:
@@ -96,9 +96,9 @@ def _write_news(n: Tla3bnyNews, data, files, creating: bool) -> None:
     """Apply a submitted news form to the item (shared by create and edit, so
     the two cannot drift apart)."""
     if data.get("title"):
-        n.title = data.get("title").strip()
+        n.title = _clip(data.get("title"), 300) or n.title
     if "body" in data:
-        n.body = (data.get("body") or "").strip() or None
+        n.body = _clip(data.get("body"), 50000)
     if "date" in data:
         n.news_date = _parse_date(data.get("date"))
     elif creating:
