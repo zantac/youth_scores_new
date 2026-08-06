@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
 import {
-  apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers,
+  apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
@@ -46,8 +46,13 @@ export default function MatchesEntry() {
   const [fTeam, setFTeam] = useState('');
   const [fWeek, setFWeek] = useState('');
   const [fDate, setFDate] = useState('');
+  const [venues, setVenues] = useState<string[]>([]);
 
   useEffect(() => { if (token) apiCompetitions(token).then(setComps).catch(e => setErr(e.message)); }, [token]);
+  const refreshVenues = useCallback(() => {
+    if (token) apiMatchVenues(token).then(setVenues).catch(() => {});
+  }, [token]);
+  useEffect(() => { refreshVenues(); }, [refreshVenues]);
 
   const loadComp = useCallback((id: number) => {
     if (!token) return;
@@ -92,6 +97,7 @@ export default function MatchesEntry() {
 
   if (editing) {
     return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
+      venues={venues} onVenueSaved={refreshVenues}
       onChange={setEditing} onBack={() => { setEditing(null); refreshMatches(); }} />;
   }
 
@@ -144,7 +150,8 @@ export default function MatchesEntry() {
           </div>
 
           {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
-            onDone={() => { setShowNew(false); refreshMatches(); }} />}
+            venues={venues}
+            onDone={() => { setShowNew(false); refreshMatches(); refreshVenues(); }} />}
 
           <div className="space-y-2">
             {shown.map(m => (
@@ -203,7 +210,14 @@ function field(label: string, node: React.ReactNode) {
 }
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 
-function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; onDone: () => void }) {
+// Shared suggestion list of venue names already used on matches. A native
+// <datalist> filters as the user types yet still allows any new name through.
+const VENUES_LIST_ID = "match-venues";
+function VenuesDatalist({ venues }: { venues: string[] }) {
+  return <datalist id={VENUES_LIST_ID}>{venues.map(v => <option key={v} value={v} />)}</datalist>;
+}
+
+function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; venues: string[]; onDone: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled', stage_id: '', group_id: '' });
   const [tbd, setTbd] = useState(false);
@@ -255,8 +269,9 @@ function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: n
         {field('الوقت', <input type="time" value={f.time} disabled={tbd} onChange={e => set('time', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الجولة', <input value={f.week} onChange={e => set('week', e.target.value)} placeholder="27" className={inputCls} />)}
         {field('الحالة', <select value={f.status} onChange={e => set('status', e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}</select>)}
-        <div className="col-span-2">{field('الملعب', <input value={f.venue} onChange={e => set('venue', e.target.value)} placeholder="اسم الملعب (اختياري)" className={inputCls} />)}</div>
+        <div className="col-span-2">{field('الملعب', <input value={f.venue} onChange={e => set('venue', e.target.value)} list={VENUES_LIST_ID} placeholder="اسم الملعب (اختياري)" className={inputCls} />)}</div>
       </div>
+      <VenuesDatalist venues={venues} />
       <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
         <input type="checkbox" checked={tbd} onChange={e => setTbd(e.target.checked)} />
         التاريخ غير محدد بعد (مباراة مؤكدة بدون موعد)
@@ -270,8 +285,9 @@ function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: n
   );
 }
 
-function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
+function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChange, onBack }: {
   token: string; match: EntryMatch; teams: EntryTeam[]; stages: MStage[];
+  venues: string[]; onVenueSaved: () => void;
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
   const [players, setPlayers] = useState<Record<number, string[]>>({});
@@ -362,7 +378,7 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
     setErr(null);
     try {
       const m = await apiUpdateMatch(token, match.id, { venue });
-      onChange(m); setVenue(m.venue || '');
+      onChange(m); setVenue(m.venue || ''); onVenueSaved();
       setVenueSaved(true); setTimeout(() => setVenueSaved(false), 1500);
     } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
   };
@@ -464,12 +480,13 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
         </div>
         {/* Venue (الملعب). */}
         <div className="mt-3 flex items-end gap-2">
-          <div className="flex-1">{field('الملعب', <input value={venue} onChange={e => setVenue(e.target.value)} placeholder="اسم الملعب" className={inputCls} />)}</div>
+          <div className="flex-1">{field('الملعب', <input value={venue} onChange={e => setVenue(e.target.value)} list={VENUES_LIST_ID} placeholder="اسم الملعب" className={inputCls} />)}</div>
           <button onClick={saveVenue}
             className="bg-aqua text-on-accent font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">
             {venueSaved ? '✓ حُفظ' : 'حفظ الملعب'}
           </button>
         </div>
+        <VenuesDatalist venues={venues} />
       </div>
 
       {/* Stage / Group assignment */}

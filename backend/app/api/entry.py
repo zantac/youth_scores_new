@@ -200,6 +200,24 @@ def competition_matches(cid: int):
     return jsonify({"matches": [_match_row(m) for m in matches]})
 
 
+@entry_bp.get("/api/admin/match-venues")
+@auth.login_required
+def match_venues():
+    """Every distinct venue name already typed on a match, for the entry form's
+    autocomplete — so the same ground is spelled the same way each time."""
+    rows = (
+        db.session.query(Match.venue_ar)
+        .filter(Match.venue_ar.isnot(None), Match.venue_ar != "")
+        .union(
+            db.session.query(Match.venue_en)
+            .filter(Match.venue_en.isnot(None), Match.venue_en != "")
+        )
+        .all()
+    )
+    names = sorted({(r[0] or "").strip() for r in rows if (r[0] or "").strip()})
+    return jsonify({"venues": names})
+
+
 def _parse_dt(date_s: str, time_s: str) -> datetime | None:
     date_s = (date_s or "").strip()
     if not date_s:
