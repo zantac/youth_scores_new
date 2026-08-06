@@ -192,6 +192,15 @@ def get_team_account(team_id: int):
 
 
 # ── coaches ──────────────────────────────────────────────────────────────────
+@tla3bny_bp.get("/coaches/<int:coach_id>")
+def get_coach(coach_id: int):
+    """Public coach profile: the coach plus the team (and academy) they're on."""
+    coach = Tla3bnyCoach.query.get_or_404(coach_id)
+    data = coach.to_dict()
+    data["team"] = coach.team.to_dict() if coach.team else None
+    return jsonify(data)
+
+
 @tla3bny_bp.post("/teams/<int:team_id>/coaches")
 @auth.login_required
 def add_coach(team_id: int):

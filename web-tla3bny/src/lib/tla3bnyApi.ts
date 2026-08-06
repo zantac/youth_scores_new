@@ -707,6 +707,9 @@ export function tUpdateCoach(token: string, id: number, fd: Record<string, strin
 }
 export const tDeleteCoach = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/coaches/${id}`, undefined, token);
+/** Public coach profile: the coach plus the team (and academy) they're on. */
+export interface TCoachDetail extends TCoach { team: TTeam | null }
+export const tCoach = (id: number) => get<TCoachDetail>(`/coaches/${id}`);
 
 // ── players ─────────────────────────────────────────────────────────────────
 /** Pass the token to get the player's papers back (admins/owners only). */
@@ -1125,3 +1128,11 @@ export interface TCompDashboard {
 }
 export const tCompDashboard = (token: string, compId: number) =>
   get<TCompDashboard>(`/competitions/${compId}/dashboard`, token);
+
+// ── global search ─────────────────────────────────────────────────────────────
+export interface TSearchAcademy { id: number; name: string; name_en: string | null; logo_path: string | null }
+export interface TSearchPlayer { id: number; name: string; name_en: string | null; position: string | null; photo_path: string | null }
+export interface TSearchCoach { id: number; name: string; name_en: string | null; role_ar: string | null; photo_path: string | null; team_name: string | null }
+export interface TSearchResults { academies: TSearchAcademy[]; players: TSearchPlayer[]; coaches: TSearchCoach[] }
+/** Free-text search across academies, players and coaches (public). */
+export const tSearch = (q: string) => get<TSearchResults>(`/search${qs({ q })}`);
