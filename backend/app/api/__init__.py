@@ -107,6 +107,16 @@ def clubs_index():
     return jsonify(serializers.clubs_index())
 
 
+@api_bp.get("/api/search")
+def search():
+    # Free-text search across clubs, players and coaches. Needs at least two
+    # characters so a single keystroke doesn't scan the whole name tables.
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"clubs": [], "players": [], "coaches": []})
+    return jsonify(serializers.search_all(q))
+
+
 @api_bp.get("/api/teams/<int:team_id>")
 def team_detail(team_id: int):
     from app.models import Team

@@ -807,6 +807,62 @@ def club_public(c: Club) -> dict:
     }
 
 
+# ── global search ─────────────────────────────────────────────────────────────
+
+def search_all(q: str, limit: int = 12) -> dict:
+    """Free-text search across clubs, players and coaches by bilingual name.
+
+    Feeds the public search box; each hit carries just enough to render a row and
+    deep-link to the matching profile page (/club, /player, /coach).
+    """
+    from app.models import Club, Coach, Player
+
+    like = f"%{q}%"
+
+    clubs = (
+        Club.query
+        .filter(sa.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar, Club.name_en)
+        .limit(limit)
+        .all()
+    )
+    players = (
+        Player.query
+        .filter(sa.or_(Player.full_name_ar.ilike(like), Player.full_name_en.ilike(like)))
+        .order_by(Player.full_name_ar, Player.full_name_en)
+        .limit(limit)
+        .all()
+    )
+    coaches = (
+        Coach.query
+        .filter(sa.or_(Coach.full_name_ar.ilike(like), Coach.full_name_en.ilike(like)))
+        .order_by(Coach.full_name_ar, Coach.full_name_en)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "clubs": [{
+            "id": c.id,
+            "name": _loc(c.name_ar, c.name_en) or {"ar": "", "en": ""},
+            "city": _loc(c.city_ar, c.city_en),
+            "logo": c.logo_url,
+        } for c in clubs],
+        "players": [{
+            "id": p.id,
+            "name": _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
+            "birth_year": p.birth_year,
+            "position": _loc(p.position_ar, p.position_en),
+            "photo": p.profile_pic_url,
+        } for p in players],
+        "coaches": [{
+            "id": c.id,
+            "name": _loc(c.full_name_ar, c.full_name_en) or {"ar": "", "en": ""},
+            "photo": c.profile_pic_url,
+        } for c in coaches],
+    }
+
+
 # ── all matches, across every competition ────────────────────────────────────
 
 def _competition_title(c: Competition, age_ar: str, age_en: str) -> dict:

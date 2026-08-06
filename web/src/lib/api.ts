@@ -339,6 +339,15 @@ export async function fetchClub(id: string | number) {
   return (await res.json()) as import('./types').ClubPublic;
 }
 
+export async function fetchSearch(q: string): Promise<import('./types').SearchResults> {
+  const empty = { clubs: [], players: [], coaches: [] };
+  const term = q.trim();
+  if (term.length < 2) return empty;
+  const res = await fetch(`${API_ORIGIN}/api/search?q=${encodeURIComponent(term)}`, { cache: 'no-store' });
+  if (!res.ok) return empty;
+  return (await res.json()) as import('./types').SearchResults;
+}
+
 export async function fetchClubs() {
   const res = await fetch(`${API_ORIGIN}/api/clubs`, { next: { revalidate: 300 } });
   if (!res.ok) return [];
