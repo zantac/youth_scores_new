@@ -149,13 +149,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
   }, [past]);
 
   const openCompetition = (comp: HomeMatch['competition']) => {
-    const p = new URLSearchParams({
-      url: comp.dataUrl,
-      title: localize(comp.title, locale),
-      titleAr: comp.title.ar,
-      titleEn: comp.title.en,
-    });
-    router.push(`/competition?${p.toString()}`);
+    router.push(`/competition?id=${comp.id}`);
   };
 
   const loadOlder = () => { pendingOlder.current = document.body.scrollHeight; setPastLimit(l => l + STEP); };

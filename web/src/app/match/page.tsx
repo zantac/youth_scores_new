@@ -66,7 +66,8 @@ function MatchCenter() {
   const isCancelled = m.status === 'cancelled';
   const hasScore = m.home_score != null && m.away_score != null;
   const compName = m.competition ? localize(m.competition.name, locale) : '';
-  const context = [compName, m.week ? `${isAr ? 'الجولة' : 'Round'} ${m.week}` : null].filter(Boolean).join(' · ');
+  const compAge = m.competition?.age ? localize(m.competition.age, locale) : '';
+  const context = [compName, compAge, m.week ? `${isAr ? 'الجولة' : 'Round'} ${m.week}` : null].filter(Boolean).join(' · ');
 
   // Open a team's page *within this competition* — the same in-competition view
   // the standings/teams tabs open (not the global cross-competition profile), by
@@ -74,15 +75,7 @@ function MatchCenter() {
   const openTeam = (teamId?: number) => {
     const c = m.competition;
     if (!c || teamId == null) return;
-    const name = typeof c.name === 'string' ? { ar: c.name, en: c.name } : c.name;
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const p = new URLSearchParams({
-      url: `${origin}/api/competitions/${c.id}/data`,
-      title: compName,
-      titleAr: name.ar,
-      titleEn: name.en,
-      team: String(teamId),
-    });
+    const p = new URLSearchParams({ id: String(c.id), tab: '2', team: String(teamId) });
     router.push(`/competition?${p.toString()}`);
   };
 

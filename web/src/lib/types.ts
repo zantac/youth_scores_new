@@ -144,6 +144,9 @@ export interface StandingsBlock {
 }
 
 export interface CompetitionData {
+  // The competition's own id + title, so a page opened by ?id= can render its
+  // header without the title being passed in the URL.
+  competition?: { id: number; title: Localized };
   matches: Match[];
   teams: Team[];
   venues: string[];
@@ -200,7 +203,7 @@ export interface MatchSubEv  { side: 'home' | 'away'; minute: number | null; in:
 
 export interface MatchFull {
   id: number;
-  competition: { id: number; name: Localized } | null;
+  competition: { id: number; name: Localized; age?: Localized | null } | null;
   date: string; time: string; week: string | null; venue: string | null; note?: string | null; status: string;
   home: { id: number; name: Localized | string; logo?: string };
   away: { id: number; name: Localized | string; logo?: string };
@@ -211,7 +214,7 @@ export interface MatchFull {
 
 export interface PlayerCareerComp { name: string | Localized; goals: number; assists: number; appearances: number; }
 export interface PlayerCareer {
-  club: string; logo: string | null; season: string | { ar: string; en: string };
+  club: string; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
   goals: number; assists: number; appearances: number;
   current: boolean; status: string;
   competitions: PlayerCareerComp[];
@@ -259,7 +262,7 @@ export interface SearchCoach  { id: number; name: Localized; photo: string | nul
 export interface SearchResults { clubs: SearchClub[]; players: SearchPlayer[]; coaches: SearchCoach[]; }
 
 export interface TeamStaffMember { id: number; name: Localized; photo: string | null; role: Localized | null; current: boolean; }
-export interface TeamRosterPlayer { id: number; name: Localized; photo: string | null; shirt: number | null; position: Localized | null; birth_year: number; current: boolean; }
+export interface TeamRosterPlayer { id: number; name: Localized; photo: string | null; shirt: number | null; position: Localized | null; birth_year: number; current: boolean; guest?: boolean; }
 export interface TeamPublic {
   id: number;
   name: Localized;
@@ -268,7 +271,12 @@ export interface TeamPublic {
   age: Localized | null;
   // A team carries across seasons; these are the ones it actually played,
   // newest first, derived from the competitions it entered.
-  seasons: Localized[];
+  seasons: { id: number; name: Localized }[];
+  // The season the roster/staff below are scoped to, or null for all-time.
+  season_id?: number | null;
+  // Each competition the team entered (newest season first) — the season block
+  // links to that competition's in-competition team view.
+  competitions: { competition_id: number; title: Localized; season: Localized }[];
   staff: TeamStaffMember[];
   roster: TeamRosterPlayer[];
 }

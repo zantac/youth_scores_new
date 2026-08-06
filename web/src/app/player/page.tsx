@@ -92,7 +92,11 @@ function PlayerJourney() {
                   {/* Club + season + season totals */}
                   <div className="flex items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-text text-sm font-bold truncate">{c.club}</p>
+                      <p className="text-text text-sm font-bold truncate">
+                        {c.club}
+                        {c.age && <span className="text-aqua font-extrabold"> · {localize(c.age, locale)}</span>}
+                        {c.is_guest && <span className="text-teal text-[10px] font-bold border border-teal/40 rounded px-1.5 py-0.5 ms-1 align-middle">{isAr ? 'ضيف صاعد' : 'guest'}</span>}
+                      </p>
                       <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}{c.status === 'transferred' ? ` · ${isAr ? 'انتقال' : 'transfer'}` : ''}</p>
                     </div>
                     <div className="flex gap-3">
@@ -140,8 +144,8 @@ function PlayerJourney() {
           <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الأهداف لكل موسم' : 'Goals per season'}</h2>
           <div className="space-y-2">
             {p.career.map((c, i) => (
-              <div key={i} className="grid grid-cols-[64px_1fr_28px] items-center gap-2.5">
-                <span className="text-hint text-[11px] tnum">{localize(c.season, locale)}</span>
+              <div key={i} className="grid grid-cols-[92px_1fr_28px] items-center gap-2.5">
+                <span className="text-hint text-[11px] tnum truncate">{[localize(c.season, locale), c.age && localize(c.age, locale)].filter(Boolean).join(' · ')}</span>
                 <div className="h-2.5 rounded-full bg-cardBg2 overflow-hidden">
                   <div className="h-full rounded-full bg-gradient-to-l from-gold to-gold/70" style={{ width: `${(c.goals / maxGoals) * 100}%` }} />
                 </div>

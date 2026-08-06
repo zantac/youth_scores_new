@@ -124,7 +124,8 @@ def team_detail(team_id: int):
     t = Team.query.get(team_id)
     if t is None:
         return jsonify({"error": "not found"}), 404
-    return jsonify(serializers.team_public(t))
+    season_id = request.args.get("season_id", type=int)
+    return jsonify(serializers.team_public(t, season_id=season_id))
 
 
 @api_bp.get("/api/clubs/<int:club_id>")
