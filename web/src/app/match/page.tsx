@@ -68,6 +68,24 @@ function MatchCenter() {
   const compName = m.competition ? localize(m.competition.name, locale) : '';
   const context = [compName, m.week ? `${isAr ? 'الجولة' : 'Round'} ${m.week}` : null].filter(Boolean).join(' · ');
 
+  // Open a team's page *within this competition* — the same in-competition view
+  // the standings/teams tabs open (not the global cross-competition profile), by
+  // deep-linking into the competition page with ?team=.
+  const openTeam = (teamId?: number) => {
+    const c = m.competition;
+    if (!c || teamId == null) return;
+    const name = typeof c.name === 'string' ? { ar: c.name, en: c.name } : c.name;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const p = new URLSearchParams({
+      url: `${origin}/api/competitions/${c.id}/data`,
+      title: compName,
+      titleAr: name.ar,
+      titleEn: name.en,
+      team: String(teamId),
+    });
+    router.push(`/competition?${p.toString()}`);
+  };
+
   type Ev = { minute: number | null; side: 'home' | 'away'; main: string; sub?: string; icon: string; cls: string; playerId?: number | null };
   const events: Ev[] = [
     ...m.goals.map(g => ({
@@ -107,10 +125,11 @@ function MatchCenter() {
         <div className="absolute inset-x-0 top-0 h-32 bg-[radial-gradient(60%_100%_at_50%_0,rgb(var(--accent-rgb)/0.18),transparent_70%)] pointer-events-none" />
         {context && <p className="relative text-hint text-xs mb-5">{context}</p>}
         <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <div className="flex flex-col items-center gap-2">
+          <button onClick={() => openTeam(m.home.id)} aria-label={homeName}
+            className="flex flex-col items-center gap-2 group focus:outline-none">
             <TeamAvatar url={m.home.logo} name={homeName} size={64} />
-            <p className="text-sm font-bold leading-tight text-center">{homeName}</p>
-          </div>
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua group-active:opacity-80 transition-colors">{homeName}</p>
+          </button>
           <div className="flex flex-col items-center gap-1 min-w-[100px]">
             {hasScore && (isCompleted || isLive) ? (
               <div className="flex items-baseline gap-2 font-extrabold tnum">
@@ -140,10 +159,11 @@ function MatchCenter() {
                formatMatchDate(m.date, locale)}
             </span>
           </div>
-          <div className="flex flex-col items-center gap-2">
+          <button onClick={() => openTeam(m.away.id)} aria-label={awayName}
+            className="flex flex-col items-center gap-2 group focus:outline-none">
             <TeamAvatar url={m.away.logo} name={awayName} size={64} />
-            <p className="text-sm font-bold leading-tight text-center">{awayName}</p>
-          </div>
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua group-active:opacity-80 transition-colors">{awayName}</p>
+          </button>
         </div>
         {m.venue && <p className="relative text-hint text-[11px] mt-4">🏟️ {m.venue}</p>}
         {m.note && (
