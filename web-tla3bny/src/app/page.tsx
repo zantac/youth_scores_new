@@ -17,7 +17,7 @@ export default function HomePage() {
       <Card className="p-5 text-center">
         <h1 className="text-2xl font-black text-text">{tt('تلاعبني', 'Tla3bny')}</h1>
         <p className="text-hint text-sm mt-1">
-          {tt('بطولات ودية لأكاديميات الناشئين', 'Friendly competitions for youth academies')}
+          {tt('بطولات الأكاديميات', 'Academy competitions')}
         </p>
         <div className="grid grid-cols-2 gap-3 mt-4">
           <Link href="/competitions"

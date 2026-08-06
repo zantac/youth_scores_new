@@ -33,10 +33,11 @@ export default function AcademiesPage() {
                 <LogoAvatar src={a.logo_path} name={a.name} size={48} />
                 <div className="min-w-0">
                   <div className="font-bold text-text truncate">{a.name}</div>
-                  <div className="text-[11px] text-hint truncate">
-                    {[a.training_place, a.teams ? `${a.teams.length} ${tt('فرق', 'teams')}` : null]
-                      .filter(Boolean).join(' · ')}
-                  </div>
+                  {a.teams && a.teams.length > 0 && (
+                    <div className="text-[11px] text-hint truncate">
+                      {a.teams.length} {tt('فرق', 'teams')}
+                    </div>
+                  )}
                 </div>
               </Card>
             </Link>

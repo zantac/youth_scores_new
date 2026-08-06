@@ -56,19 +56,33 @@ export interface TManager {
   sort_order: number;
 }
 
+export interface TBranch {
+  id: number;
+  academy_id: number;
+  name: string;
+  address: string | null;
+  location_url: string | null;
+  phone: string | null;
+  sort_order: number;
+}
+
 export interface TAcademy {
   id: number;
   name: string;
   name_en: string | null;
   logo_path: string | null;
   phone: string | null;
+  whatsapp_number: string | null;
   facebook_url: string | null;
   training_place: string | null;
   address: string | null;
   description: string | null;
+  /** Up to 3 gallery photos (paths/URLs) for the advertising page. */
+  photos: string[];
   status: TAcademyStatus;
   rejection_reason?: string | null;
   managers: TManager[];
+  branches: TBranch[];
   teams?: TTeam[];
   created_at?: string;
 }
@@ -79,6 +93,8 @@ export interface TCoach {
   name: string;
   name_en: string | null;
   role_ar: string | null;
+  license: string | null;
+  bio: string | null;
   phone: string | null;
   photo_path: string | null;
   start_date: string | null;
@@ -560,7 +576,7 @@ export const tLogin = (login: string, password: string) =>
 
 export function tRegister(fd: {
   name: string; name_en?: string; username: string; password: string; phone: string;
-  email?: string; facebook_url?: string; training_place?: string; address?: string;
+  email?: string; facebook_url?: string; whatsapp_number?: string; address?: string;
   description?: string; logo?: File | null;
 }) {
   const body = new FormData();
@@ -620,16 +636,27 @@ export const tSetAcademyAccount = (
   token: string, id: number, b: { username: string; password: string },
 ) => send<{ message: string; username: string }>('POST', `/academies/${id}/account`, b, token);
 
-export function tUpdateAcademy(token: string, fd: Record<string, string | undefined>, logo?: File | null) {
+export function tUpdateAcademy(
+  token: string, fd: Record<string, string | undefined>, logo?: File | null, photos?: string[],
+) {
   const body = new FormData();
   Object.entries(fd).forEach(([k, v]) => { if (v != null) body.append(k, v); });
   if (logo) body.append('logo', logo);
+  // Sending photos (even empty) replaces the gallery; empty marker clears it.
+  if (photos) (photos.length ? photos : ['']).forEach(p => body.append('photos', p));
   return sendForm<TAcademy>('PUT', '/academies/me', body, token);
 }
 export const tAddManager = (token: string, academyId: number, b: Record<string, unknown>) =>
   send<TManager>('POST', `/academies/${academyId}/managers`, b, token);
 export const tDeleteManager = (token: string, academyId: number, id: number) =>
   send<{ message: string }>('DELETE', `/academies/${academyId}/managers/${id}`, undefined, token);
+// ── academy branches (locations) ──────────────────────────────────────────────
+export const tAddBranch = (token: string, academyId: number, b: Record<string, unknown>) =>
+  send<TBranch>('POST', `/academies/${academyId}/branches`, b, token);
+export const tUpdateBranch = (token: string, academyId: number, id: number, b: Record<string, unknown>) =>
+  send<TBranch>('PUT', `/academies/${academyId}/branches/${id}`, b, token);
+export const tDeleteBranch = (token: string, academyId: number, id: number) =>
+  send<{ message: string }>('DELETE', `/academies/${academyId}/branches/${id}`, undefined, token);
 
 // ── teams ───────────────────────────────────────────────────────────────────
 export const tAcademyTeams = (academyId: number) => get<TTeam[]>(`/academies/${academyId}/teams`);

@@ -164,10 +164,14 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
     # Public profile. A phone number is required at registration — it is how an
     # organiser reaches the academy about its entries.
     phone: Mapped[str | None] = mapped_column(sa.String(50))
+    # WhatsApp number for the chat button on the public advertising page.
+    whatsapp_number: Mapped[str | None] = mapped_column(sa.String(50))
     facebook_url: Mapped[str | None] = mapped_column(sa.String(512))
     training_place: Mapped[str | None] = mapped_column(sa.String(255))
     address: Mapped[str | None] = mapped_column(sa.String(255))
     description: Mapped[str | None] = mapped_column(sa.Text)
+    # Up to 3 gallery photos (list of stored image paths/URLs) for the ad page.
+    photos: Mapped[list | None] = mapped_column(sa.JSON)
 
     # Registration is open, so an academy starts "approved". The status is kept
     # so the super admin can still suspend one that misbehaves.
@@ -184,6 +188,11 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="Tla3bnyAcademyManager.sort_order",
     )
+    branches: Mapped[list["Tla3bnyAcademyBranch"]] = relationship(
+        back_populates="academy",
+        cascade="all, delete-orphan",
+        order_by="Tla3bnyAcademyBranch.sort_order",
+    )
 
     def to_dict(self, public: bool = False, with_teams: bool = False) -> dict:
         data = {
@@ -192,12 +201,15 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
             "name_en": self.name_en,
             "logo_path": self.logo_path,
             "phone": self.phone,
+            "whatsapp_number": self.whatsapp_number,
             "facebook_url": self.facebook_url,
             "training_place": self.training_place,
             "address": self.address,
             "description": self.description,
+            "photos": self.photos or [],
             "status": self.status,
             "managers": [m.to_dict() for m in self.managers],
+            "branches": [b.to_dict() for b in self.branches],
         }
         if not public:
             data["rejection_reason"] = self.rejection_reason
@@ -234,6 +246,37 @@ class Tla3bnyAcademyManager(TimestampMixin, db.Model):
             "academy_id": self.academy_id,
             "name": self.name,
             "role": self.role,
+            "phone": self.phone,
+            "sort_order": self.sort_order,
+        }
+
+
+class Tla3bnyAcademyBranch(TimestampMixin, db.Model):
+    """A branch/location of an academy, shown on its public advertising page —
+    a name plus where it is (address + map link) and an optional phone."""
+
+    __tablename__ = "tla3bny_academy_branches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    academy_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_academies.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    address: Mapped[str | None] = mapped_column(sa.String(512))
+    # A maps link (Google Maps, etc.) — scheme-sanitised on write.
+    location_url: Mapped[str | None] = mapped_column(sa.String(512))
+    phone: Mapped[str | None] = mapped_column(sa.String(50))
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="branches")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "academy_id": self.academy_id,
+            "name": self.name,
+            "address": self.address,
+            "location_url": self.location_url,
             "phone": self.phone,
             "sort_order": self.sort_order,
         }
@@ -404,6 +447,8 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
     role_ar: Mapped[str | None] = mapped_column(sa.String(120))
+    license: Mapped[str | None] = mapped_column(sa.String(255))
+    bio: Mapped[str | None] = mapped_column(sa.Text)
     phone: Mapped[str | None] = mapped_column(sa.String(50))
     photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     start_date: Mapped[date | None] = mapped_column(sa.Date)
@@ -419,6 +464,8 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
             "name": self.name,
             "name_en": self.name_en,
             "role_ar": self.role_ar,
+            "license": self.license,
+            "bio": self.bio,
             "phone": self.phone,
             "photo_path": self.photo_path,
             "start_date": self.start_date.isoformat() if self.start_date else None,

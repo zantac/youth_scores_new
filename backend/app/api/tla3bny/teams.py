@@ -22,6 +22,7 @@ from .audit import _log
 from ._helpers import (
     _credentials,
     _claim_login,
+    _clip,
     _err,
     _forbid,
     _int,
@@ -222,6 +223,8 @@ def add_coach(team_id: int):
         name=name,
         name_en=(data.get("name_en") or "").strip() or None,
         role_ar=(data.get("role_ar") or "").strip() or None,
+        license=_clip(data.get("license"), 255),
+        bio=_clip(data.get("bio"), 5000),
         phone=(data.get("phone") or "").strip() or None,
         photo_path=photo,
         start_date=_parse_date(data.get("start_date")),
@@ -243,6 +246,10 @@ def update_coach(coach_id: int):
     for field in ("name", "name_en", "role_ar", "phone"):
         if field in data:
             setattr(coach, field, (data.get(field) or "").strip() or None)
+    if "license" in data:
+        coach.license = _clip(data.get("license"), 255)
+    if "bio" in data:
+        coach.bio = _clip(data.get("bio"), 5000)
     if "start_date" in data:
         coach.start_date = _parse_date(data.get("start_date"))
     if "end_date" in data:

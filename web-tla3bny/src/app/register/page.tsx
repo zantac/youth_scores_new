@@ -10,8 +10,8 @@ export default function Tla3bnyRegisterPage() {
   const { register } = useTla3bnyAuth();
   const router = useRouter();
   const [f, setF] = useState({
-    name: '', name_en: '', username: '', password: '', phone: '', email: '', address: '',
-    facebook_url: '', training_place: '',
+    name: '', name_en: '', username: '', password: '', phone: '', email: '',
+    facebook_url: '', whatsapp_number: '',
   });
   const [logo, setLogo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,22 +76,17 @@ export default function Tla3bnyRegisterPage() {
               <input name="phone" type="tel" value={f.phone} onChange={set('phone')}
                 dir="ltr" inputMode="tel" autoComplete="tel" className={inputCls} />
             </Field>
-            <Field label={tt('العنوان', 'City / Address')}>
-              <input value={f.address} onChange={set('address')} className={inputCls} />
+            <Field label={tt('واتساب', 'WhatsApp')}>
+              <input value={f.whatsapp_number} onChange={set('whatsapp_number')} dir="ltr" className={inputCls} />
             </Field>
           </div>
           <p className="text-hint text-[11px] -mt-1">
             {tt('الهاتف مطلوب — منظم البطولة بيتواصل بيه معاك.',
                 'The phone number is required — it is how an organizer reaches you.')}
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={tt('مكان التدريب', 'Training place')}>
-              <input value={f.training_place} onChange={set('training_place')} className={inputCls} />
-            </Field>
-            <Field label={tt('صفحة فيسبوك', 'Facebook page')}>
-              <input value={f.facebook_url} onChange={set('facebook_url')} dir="ltr" className={inputCls} />
-            </Field>
-          </div>
+          <Field label={tt('صفحة فيسبوك', 'Facebook page')}>
+            <input value={f.facebook_url} onChange={set('facebook_url')} dir="ltr" className={inputCls} />
+          </Field>
           <Field label={tt('البريد الإلكتروني (اختياري)', 'Email (optional)')}>
             <input name="email" type="email" value={f.email} onChange={set('email')}
               dir="ltr" autoComplete="email" className={inputCls} />
