@@ -315,6 +315,92 @@ def push_subscribe():
     return jsonify({"subscribed": results})
 
 
+# ── global admin search ───────────────────────────────────────────────────────
+
+@admin_bp.get("/api/admin/search")
+@auth.login_required
+def admin_search():
+    """Find a club, team or player by name — so an admin can jump straight to it
+    to edit or remove. A team has no name of its own (it is a club + age group),
+    so teams are matched by their club's name."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"clubs": [], "teams": [], "players": [], "coaches": []})
+
+    from app.models import Club, Coach, Player, Team
+
+    like = f"%{q}%"
+    clubs = (
+        Club.query
+        .filter(db.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar)
+        .limit(15).all()
+    )
+    teams = (
+        Team.query.join(Club, Team.club_id == Club.id)
+        .filter(db.or_(Club.name_ar.ilike(like), Club.name_en.ilike(like)))
+        .order_by(Club.name_ar)
+        .limit(20).all()
+    )
+    players = (
+        Player.query
+        .filter(db.or_(Player.full_name_ar.ilike(like), Player.full_name_en.ilike(like)))
+        .order_by(Player.full_name_ar)
+        .limit(20).all()
+    )
+    coaches = (
+        Coach.query
+        .filter(db.or_(Coach.full_name_ar.ilike(like), Coach.full_name_en.ilike(like)))
+        .order_by(Coach.full_name_ar)
+        .limit(20).all()
+    )
+
+    def team_label(t) -> str:
+        club = (t.club.name_ar or t.club.name_en) if t.club else ""
+        age = (t.age_group.name_ar or t.age_group.name_en) if t.age_group else ""
+        return " — ".join(x for x in (club, age) if x)
+
+    def current_team_id(p):
+        cur = next((r for r in p.registrations if r.end_date is None), None)
+        return cur.team_id if cur else None
+
+    def coach_team_id(c):
+        # Current stint if any, else the most recent one — the team page where
+        # this coach is edited (in the technical-staff section).
+        cur = next((tc for tc in c.team_roles if tc.end_date is None), None)
+        if cur:
+            return cur.team_id
+        stints = sorted(c.team_roles, key=lambda tc: tc.start_date or date.min, reverse=True)
+        return stints[0].team_id if stints else None
+
+    return jsonify({
+        "clubs": [{
+            "id": c.id,
+            "name": c.name_ar or c.name_en or "",
+            "city": c.city_ar or c.city_en or "",
+            "logo": c.logo_url,
+        } for c in clubs],
+        "teams": [{
+            "id": t.id,
+            "name": team_label(t),
+            "logo": t.club.logo_url if t.club else None,
+        } for t in teams],
+        "players": [{
+            "id": p.id,
+            "name": p.full_name_ar or p.full_name_en or "",
+            "birth_year": p.birth_year,
+            # Players are edited/removed from their team's roster.
+            "team_id": current_team_id(p),
+        } for p in players],
+        "coaches": [{
+            "id": c.id,
+            "name": c.full_name_ar or c.full_name_en or "",
+            # The team whose technical-staff section edits this coach.
+            "team_id": coach_team_id(c),
+        } for c in coaches],
+    })
+
+
 # ── dashboard statistics ─────────────────────────────────────────────────────
 
 @admin_bp.get("/api/admin/stats")
