@@ -79,13 +79,15 @@ function TeamContent() {
               <h2 className="font-black text-text mb-2">{tt('الجهاز الفني', 'Coaching staff')}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {t.coaches.map(c => (
-                  <Card key={c.id} className="p-3 flex items-center gap-3">
-                    <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={40} />
-                    <div className="min-w-0">
-                      <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
-                      <div className="text-[11px] text-hint">{c.role_ar}</div>
-                    </div>
-                  </Card>
+                  <Link key={c.id} href={`/coach?id=${c.id}`}>
+                    <Card className="p-3 flex items-center gap-3 hover:border-aqua/50 transition-colors">
+                      <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={40} />
+                      <div className="min-w-0">
+                        <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
+                        <div className="text-[11px] text-hint">{c.role_ar}</div>
+                      </div>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             </section>

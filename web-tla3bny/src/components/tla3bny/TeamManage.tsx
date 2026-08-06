@@ -3,8 +3,8 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tJoinableCompetitions, tRequestJoin,
-  tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tDeleteCoach, tReplaceCompPlayer,
-  type TTeam, type TMembership, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
+  tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tUpdateCoach, tDeleteCoach, tReplaceCompPlayer,
+  type TTeam, type TCoach, type TMembership, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
@@ -157,14 +157,23 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   );
 
   // coach form
-  const [cf, setCf] = useState({ name: '', name_en: '', role_ar: '', phone: '' });
+  const emptyCf = { name: '', name_en: '', role_ar: '', license: '', bio: '', phone: '' };
+  const [cf, setCf] = useState(emptyCf);
   const [cPhoto, setCPhoto] = useState<File | null>(null);
   const [cBusy, setCBusy] = useState(false);
-  const addCoach = async () => {
+  const [cEditId, setCEditId] = useState<number | null>(null);
+  const startEditCoach = (c: TCoach) => {
+    setCEditId(c.id);
+    setCf({ name: c.name, name_en: c.name_en ?? '', role_ar: c.role_ar ?? '', license: c.license ?? '', bio: c.bio ?? '', phone: c.phone ?? '' });
+    setCPhoto(null);
+  };
+  const cancelEditCoach = () => { setCEditId(null); setCf(emptyCf); setCPhoto(null); };
+  const saveCoach = async () => {
     setErr(null); setCBusy(true);
     try {
-      await tAddCoach(token, teamId, cf, cPhoto);
-      setCf({ name: '', name_en: '', role_ar: '', phone: '' }); setCPhoto(null);
+      if (cEditId) await tUpdateCoach(token, cEditId, cf, cPhoto);
+      else await tAddCoach(token, teamId, cf, cPhoto);
+      cancelEditCoach();
       await reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setCBusy(false); }
   };
@@ -490,23 +499,34 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
               <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={32} />
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
-                <div className="text-[11px] text-hint">{c.role_ar}</div>
+                <div className="text-[11px] text-hint truncate">{[c.role_ar, c.license].filter(Boolean).join(' · ')}</div>
               </div>
+              <button onClick={() => cEditId === c.id ? cancelEditCoach() : startEditCoach(c)}
+                className={`text-xs font-bold px-1 shrink-0 ${cEditId === c.id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
+                {cEditId === c.id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
+              </button>
               <button onClick={async () => { if (confirm(tt('حذف؟', 'Delete?'))) { await tDeleteCoach(token, c.id); reload(); } }}
                 className="text-hint hover:text-loss text-sm px-2">🗑</button>
             </Card>
           ))}
         </div>
         <Card className="p-3 space-y-3">
+          {cEditId && <div className="text-[11px] font-bold text-aqua">{tt('تعديل المدرب', 'Editing coach')}</div>}
           <div className="grid grid-cols-3 gap-3">
             <Field label={tt('الاسم', 'Name')}><input value={cf.name} onChange={e => setCf({ ...cf, name: e.target.value })} className={inputCls} /></Field>
             <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={cf.name_en} onChange={e => setCf({ ...cf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
             <Field label={tt('الوظيفة', 'Role')}><input value={cf.role_ar} onChange={e => setCf({ ...cf, role_ar: e.target.value })} className={inputCls} placeholder={tt('مدرب', 'Coach')} /></Field>
+            <Field label={tt('الرخصة التدريبية', 'Coaching licence')}><input value={cf.license} onChange={e => setCf({ ...cf, license: e.target.value })} className={inputCls} placeholder={tt('مثال: رخصة B', 'e.g. Licence B')} /></Field>
             <Field label={tt('الهاتف', 'Phone')}><input value={cf.phone} onChange={e => setCf({ ...cf, phone: e.target.value })} className={inputCls} /></Field>
           </div>
+          <Field label={tt('نبذة عن المسيرة', 'Career brief')}>
+            <textarea value={cf.bio} onChange={e => setCf({ ...cf, bio: e.target.value })} className={inputCls} rows={3}
+              placeholder={tt('خبرة المدرب، الأندية السابقة، الإنجازات…', 'Experience, former clubs, achievements…')} />
+          </Field>
           <div className="flex items-center gap-3">
             <input type="file" accept="image/*" onChange={e => setCPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
-            <PrimaryButton onClick={addCoach} disabled={cBusy || !cf.name}>{cBusy ? tt('…', '…') : tt('إضافة', 'Add')}</PrimaryButton>
+            <PrimaryButton onClick={saveCoach} disabled={cBusy || !cf.name}>{cBusy ? tt('…', '…') : cEditId ? tt('حفظ', 'Save') : tt('إضافة', 'Add')}</PrimaryButton>
+            {cEditId && <button onClick={cancelEditCoach} className="text-sm text-hint">{tt('إلغاء', 'Cancel')}</button>}
           </div>
         </Card>
       </section>

@@ -39,9 +39,21 @@ function CoachContent() {
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-black text-text">{coachName}</h1>
             <p className="text-sm text-teal font-bold">{c.role_ar || tt('مدرب', 'Coach')}</p>
+            {c.license && (
+              <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-aqua/10 text-aqua border border-aqua/30">
+                🎓 {c.license}
+              </span>
+            )}
           </div>
         </div>
       </Card>
+
+      {c.bio && (
+        <Card className="p-4">
+          <h2 className="font-black text-text text-sm mb-1.5">{tt('نبذة عن المسيرة', 'Career')}</h2>
+          <p className="text-sm text-text/90 leading-[1.9] whitespace-pre-line">{c.bio}</p>
+        </Card>
+      )}
 
       {team && (
         <Card className="p-4 space-y-3">

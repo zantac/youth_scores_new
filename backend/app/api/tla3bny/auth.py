@@ -61,7 +61,7 @@ def register():
         logo_path=logo_path,
         phone=_clip(phone, 50),
         facebook_url=_clean_url(data.get("facebook_url")),
-        training_place=_clip(data.get("training_place"), 255),
+        whatsapp_number=_clip(data.get("whatsapp_number"), 50),
         address=_clip(data.get("address"), 255),
         description=_clip(data.get("description"), 20000),
         status="approved",

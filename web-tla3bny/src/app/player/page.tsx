@@ -126,7 +126,11 @@ function PlayerContent() {
         </dl>
       </Card>
 
-      {ads.length > 0 && <AdCard ad={ads[adIdx % ads.length]} variant="poster" />}
+      {ads.length > 0 && (
+        <div className="max-w-[260px] mx-auto">
+          <AdCard ad={ads[adIdx % ads.length]} variant="poster" />
+        </div>
+      )}
 
       {/* Registration papers — never rendered for a public visitor. */}
       {canSeePapers && (

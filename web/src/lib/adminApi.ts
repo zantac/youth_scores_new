@@ -125,6 +125,7 @@ const send = <T,>(token: string, method: string, path: string, body?: unknown) =
 export const apiCompetitions = (t: string) => get<{ competitions: EntryCompetition[] }>(t, '/api/admin/competitions').then(d => d.competitions);
 export const apiCompetitionTeams = (t: string, cid: number) => get<{ teams: EntryTeam[] }>(t, `/api/admin/competitions/${cid}/teams`).then(d => d.teams);
 export const apiTeamPlayers = (t: string, teamId: number) => get<{ players: string[] }>(t, `/api/admin/teams/${teamId}/players`).then(d => d.players);
+export const apiMatchVenues = (t: string) => get<{ venues: string[] }>(t, '/api/admin/match-venues').then(d => d.venues);
 export const apiCompetitionMatches = (t: string, cid: number) => get<{ matches: EntryMatchRow[] }>(t, `/api/admin/competitions/${cid}/matches`).then(d => d.matches);
 export const apiCreateMatch = (t: string, cid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/competitions/${cid}/matches`, body);
 export const apiGetMatch = (t: string, mid: number) => get<EntryMatch>(t, `/api/admin/matches/${mid}`);

@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   tCategories, tCreateTeam, tDeleteTeam, tSetTeamAccount, tTeamAccount, tUpdateAcademy,
-  tAddManager, tDeleteManager, tUpdateCredentials, tMatches,
+  tAddManager, tDeleteManager, tAddBranch, tDeleteBranch, tUpdateCredentials, tMatches,
+  tUploadImage, mediaUrl,
   type TCategory, type TTeam, type TMatch,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -127,6 +128,7 @@ function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Pr
           <ProfileEditor token={token} refresh={refresh} />
           <CredentialsEditor token={token} refresh={refresh} />
           <ManagersEditor token={token} refresh={refresh} />
+          <BranchesEditor token={token} refresh={refresh} />
         </div>
       )}
 
@@ -151,15 +153,24 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
   const tt = useTT();
   const { academy } = useTla3bnyAuth();
   const [f, setF] = useState({
-    name: academy?.name ?? '', name_en: academy?.name_en ?? '', phone: academy?.phone ?? '', facebook_url: academy?.facebook_url ?? '',
-    training_place: academy?.training_place ?? '', address: academy?.address ?? '', description: academy?.description ?? '',
+    name: academy?.name ?? '', name_en: academy?.name_en ?? '', phone: academy?.phone ?? '',
+    whatsapp_number: academy?.whatsapp_number ?? '', facebook_url: academy?.facebook_url ?? '',
+    description: academy?.description ?? '',
   });
   const [logo, setLogo] = useState<File | null>(null);
+  const [photos, setPhotos] = useState<string[]>(academy?.photos ?? []);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState(false);
+  const addPhoto = async (file: File | null) => {
+    if (!file || photos.length >= 3) return;
+    setUploading(true);
+    try { const path = await tUploadImage(token, file); setPhotos(p => [...p, path].slice(0, 3)); }
+    finally { setUploading(false); }
+  };
   const save = async () => {
     setBusy(true); setOk(false);
-    try { await tUpdateAcademy(token, f, logo); await refresh(); setOk(true); } finally { setBusy(false); }
+    try { await tUpdateAcademy(token, f, logo, photos); await refresh(); setOk(true); } finally { setBusy(false); }
   };
   return (
     <Card className="p-4 space-y-3">
@@ -171,12 +182,33 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
         <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} className={inputCls} /></Field>
         <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={f.name_en} onChange={e => setF({ ...f, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
         <Field label={tt('الهاتف', 'Phone')}><input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} className={inputCls} /></Field>
-        <Field label={tt('مكان التدريب', 'Training place')}><input value={f.training_place} onChange={e => setF({ ...f, training_place: e.target.value })} className={inputCls} /></Field>
+        <Field label={tt('واتساب', 'WhatsApp')}><input value={f.whatsapp_number} onChange={e => setF({ ...f, whatsapp_number: e.target.value })} dir="ltr" className={inputCls} /></Field>
         <Field label={tt('فيسبوك', 'Facebook')}><input value={f.facebook_url} onChange={e => setF({ ...f, facebook_url: e.target.value })} className={inputCls} /></Field>
       </div>
-      <Field label={tt('نبذة', 'Description')}><textarea value={f.description} onChange={e => setF({ ...f, description: e.target.value })} className={inputCls} rows={2} /></Field>
-      <div className="flex items-center gap-3">
-        <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+      <Field label={tt('نبذة عن الأكاديمية', 'About the academy')}><textarea value={f.description} onChange={e => setF({ ...f, description: e.target.value })} className={inputCls} rows={3} /></Field>
+
+      <div>
+        <label className="text-teal text-[11px] font-bold block mb-1">{tt('صور الأكاديمية (حتى 3)', 'Academy photos (up to 3)')}</label>
+        <div className="flex gap-2 flex-wrap">
+          {photos.map((p, i) => (
+            <div key={i} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={mediaUrl(p) ?? ''} alt="" className="w-16 h-16 object-cover rounded-lg border border-bdr" />
+              <button onClick={() => setPhotos(ph => ph.filter((_, j) => j !== i))}
+                className="absolute -top-1.5 -end-1.5 bg-loss text-white rounded-full w-5 h-5 text-[11px] grid place-items-center">✕</button>
+            </div>
+          ))}
+          {photos.length < 3 && (
+            <label className="w-16 h-16 rounded-lg border border-dashed border-bdr grid place-items-center text-hint text-xl cursor-pointer hover:border-aqua/50">
+              {uploading ? '…' : '+'}
+              <input type="file" accept="image/*" className="hidden" onChange={e => { addPhoto(e.target.files?.[0] ?? null); e.target.value = ''; }} />
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-1">
+        <label className="text-xs text-hint">{tt('الشعار:', 'Logo:')}<input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)} className="ms-2 file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" /></label>
         <PrimaryButton onClick={save} disabled={busy}>{busy ? tt('…', '…') : tt('حفظ', 'Save')}</PrimaryButton>
         {ok && <span className="text-win text-sm font-bold">✓</span>}
       </div>
@@ -255,6 +287,41 @@ function ManagersEditor({ token, refresh }: { token: string; refresh: () => Prom
         <input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder={tt('الهاتف', 'Phone')} className={inputCls} />
       </div>
       <PrimaryButton onClick={add} disabled={!f.name} className="text-sm">{tt('إضافة مسؤول', 'Add manager')}</PrimaryButton>
+    </Card>
+  );
+}
+
+function BranchesEditor({ token, refresh }: { token: string; refresh: () => Promise<void> }) {
+  const tt = useTT();
+  const { academy } = useTla3bnyAuth();
+  const [f, setF] = useState({ name: '', address: '', location_url: '', phone: '' });
+  const add = async () => {
+    if (!academy || !f.name) return;
+    await tAddBranch(token, academy.id, f);
+    setF({ name: '', address: '', location_url: '', phone: '' });
+    await refresh();
+  };
+  if (!academy) return null;
+  return (
+    <Card className="p-4 space-y-2">
+      <h2 className="font-black text-text">{tt('الفروع', 'Branches')}</h2>
+      <p className="text-hint text-[11px]">{tt('أضِف فروع أكاديميتك وأماكنها لتظهر في صفحتك.', 'Add your academy branches and their locations to show on your page.')}</p>
+      {(academy.branches ?? []).map(b => (
+        <div key={b.id} className="flex items-center justify-between text-sm border-t border-bdr/40 pt-1.5">
+          <span className="min-w-0">
+            <span className="text-text font-bold">📍 {b.name}</span>
+            {b.address && <span className="text-hint text-[11px] block truncate">{b.address}</span>}
+          </span>
+          <button onClick={async () => { await tDeleteBranch(token, academy.id, b.id); refresh(); }} className="text-hint hover:text-loss flex-shrink-0">🗑</button>
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} placeholder={tt('اسم الفرع', 'Branch name')} className={inputCls} />
+        <input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder={tt('الهاتف', 'Phone')} className={inputCls} />
+        <input value={f.address} onChange={e => setF({ ...f, address: e.target.value })} placeholder={tt('العنوان', 'Address')} className={inputCls} />
+        <input value={f.location_url} onChange={e => setF({ ...f, location_url: e.target.value })} placeholder={tt('رابط الخريطة', 'Map link')} className={inputCls} />
+      </div>
+      <PrimaryButton onClick={add} disabled={!f.name} className="text-sm">{tt('إضافة فرع', 'Add branch')}</PrimaryButton>
     </Card>
   );
 }
