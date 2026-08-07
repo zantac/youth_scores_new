@@ -887,6 +887,16 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             return self.age_category.documents
         return list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
 
+    @property
+    def registration_deadline_passed(self) -> bool:
+        """True once the player-registration deadline is behind us. After it, a
+        team can no longer add, remove or register players in this
+        sub-competition (only the competition's admins still can)."""
+        return bool(
+            self.player_registration_deadline
+            and date.today() > self.player_registration_deadline
+        )
+
     def to_dict(self, with_stages: bool = False) -> dict:
         data = {
             "id": self.id,

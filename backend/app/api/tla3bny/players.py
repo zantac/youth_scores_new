@@ -271,7 +271,12 @@ def create_player(team_id: int):
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
-        in_registration = comp.registration_open
+        # Registration also closes once the sub-competition's deadline passes —
+        # the competition's own admins keep the window open for themselves.
+        admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+        in_registration = comp.registration_open and (
+            admin or not (cage and cage.registration_deadline_passed)
+        )
         in_replacement = cage and cage.replacements_open
         if not in_registration and not in_replacement:
             continue
@@ -349,7 +354,12 @@ def create_player(team_id: int):
         cage = Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id, age_category_id=entry.age_category_id
         ).first()
-        in_registration = comp.registration_open
+        # Registration also closes once the sub-competition's deadline passes —
+        # the competition's own admins keep the window open for themselves.
+        admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+        in_registration = comp.registration_open and (
+            admin or not (cage and cage.registration_deadline_passed)
+        )
         in_replacement = cage and cage.replacements_open
         if not in_registration and not in_replacement:
             continue
@@ -445,10 +455,6 @@ def update_player(player_id: int):
         return _forbid()
     data, files = _read_payload()
 
-    # Snapshot identity-critical fields before applying changes.
-    old_name = player.name
-    old_dob = player.dob
-
     if data.get("name"):
         new_name = data.get("name").strip()
         if len(new_name) > 200:
@@ -496,6 +502,15 @@ def update_player(player_id: int):
         return _err(str(e))
 
     cur = player.current_membership()
+    # Any real change to the player — name, DOB, position, jersey, photo or
+    # papers — invalidates existing approvals; the competition admin re-reviews.
+    # (Checked before the commit clears the change tracking; a no-op save that
+    # changed nothing leaves approvals untouched.)
+    player_changed = (
+        db.session.is_modified(player)
+        or (cur is not None and db.session.is_modified(cur))
+        or has_new_docs
+    )
     _log("player_updated", "player", player.id, {
         "player_name": player.name,
         "team_id": cur.team_id if cur else None,
@@ -503,11 +518,7 @@ def update_player(player_id: int):
     })
     db.session.commit()
 
-    # Reset to pending ONLY for identity-critical changes (name, DOB, papers).
-    # Position, jersey, photo changes don't warrant re-review.
-    name_changed = player.name != old_name
-    dob_changed = player.dob != old_dob
-    if name_changed or dob_changed or has_new_docs:
+    if player_changed:
         Tla3bnyCompetitionPlayer.query.filter(
             Tla3bnyCompetitionPlayer.player_id == player.id,
             Tla3bnyCompetitionPlayer.status.in_(("approved", "rejected")),

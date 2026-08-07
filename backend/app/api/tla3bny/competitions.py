@@ -1017,6 +1017,11 @@ def add_roster_player(entry_id: int):
     cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
         competition_id=entry.competition_id, age_category_id=entry.age_category_id
     ).first()
+    # Freeze the roster once the registration deadline passes; the competition's
+    # own admins may still add.
+    if (cage and cage.registration_deadline_passed
+            and not auth.is_competition_admin(auth.current_user(), entry.competition_id)):
+        return _err("انتهى موعد تسجيل اللاعبين في هذه البطولة", 403)
     cap = cage.max_players_per_team if cage else None
     if cap is not None:
         # Lock the entry row so concurrent adds to this roster serialize — the
@@ -1048,11 +1053,13 @@ def remove_roster_player(cp_id: int):
     cp = Tla3bnyCompetitionPlayer.query.get_or_404(cp_id)
     entry = cp.entry
     user = auth.current_user()
-    if not (
-        auth.is_competition_admin(user, entry.competition_id)
-        or auth.can_manage_team(user, entry.team_id)
-    ):
+    is_admin = auth.is_competition_admin(user, entry.competition_id)
+    if not (is_admin or auth.can_manage_team(user, entry.team_id)):
         return _forbid()
+    # Once the registration deadline passes the squad is frozen for the team;
+    # only the competition's admins can still change it.
+    if not is_admin and entry.competition_age and entry.competition_age.registration_deadline_passed:
+        return _err("انتهى موعد تعديل اللاعبين في هذه البطولة", 403)
     db.session.delete(cp)
     db.session.commit()
     return jsonify({"message": "deleted"})
