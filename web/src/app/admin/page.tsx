@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import { apiStats, type AdminStats } from '@/lib/adminApi';
@@ -26,15 +25,40 @@ function Stat({ icon, label, value, tone = 'text-text' }: {
   );
 }
 
+const selectCls = 'w-full bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-text text-sm outline-none focus:border-aqua';
+
 function Dashboard() {
-  const { token, user, isSuperadmin } = useAdminAuth();
+  const { token, user } = useAdminAuth();
   const [s, setS] = useState<AdminStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [seasonId, setSeasonId] = useState<number | null>(null);
+  const [competitionId, setCompetitionId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) return;
-    apiStats(token).then(setS).catch(e => setErr(e instanceof Error ? e.message : 'خطأ'));
-  }, [token]);
+    apiStats(token, { seasonId, competitionId })
+      .then(setS)
+      .catch(e => setErr(e instanceof Error ? e.message : 'خطأ'));
+  }, [token, seasonId, competitionId]);
+
+  const filtered = seasonId != null || competitionId != null;
+  // The dropdowns read the full lists from the last response, which stay
+  // complete under any filter. Competitions are narrowed to the chosen season.
+  const seasonOpts = s?.filters.seasons ?? [];
+  const compOpts = (s?.filters.competitions ?? [])
+    .filter(c => seasonId == null || c.season_id === seasonId);
+  const compLabel = (c: { name: string; sector: string; age: string }) =>
+    [c.name, c.age, c.sector].filter(Boolean).join(' · ');
+
+  const pickSeason = (id: number | null) => { setSeasonId(id); setCompetitionId(null); };
+  // Picking a competition also pins the season dropdown to its season.
+  const pickComp = (id: number | null) => {
+    setCompetitionId(id);
+    if (id != null) {
+      const c = s?.filters.competitions.find(x => x.id === id);
+      if (c) setSeasonId(c.season_id);
+    }
+  };
 
   const pct = s && s.matches.total
     ? Math.round((s.matches.played / s.matches.total) * 100) : 0;
@@ -51,6 +75,29 @@ function Dashboard() {
         <p className="text-text text-sm">أهلاً، <span className="text-aqua font-bold">{user?.full_name || user?.username}</span> 👋</p>
         {s?.active_season && <p className="text-hint text-xs mt-1">الموسم الحالي: {s.active_season}</p>}
       </div>
+
+      {/* Season / competition filter — scopes every figure below. */}
+      {s && (
+        <div className="bg-cardBg border border-bdr rounded-2xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-teal text-xs font-bold">🔎 تصفية حسب الموسم والبطولة</p>
+            {filtered && (
+              <button onClick={() => { setSeasonId(null); setCompetitionId(null); }}
+                className="text-hint text-[11px] font-bold hover:text-loss">✕ مسح</button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <select value={seasonId ?? ''} onChange={e => pickSeason(e.target.value ? Number(e.target.value) : null)} className={selectCls}>
+              <option value="">كل المواسم</option>
+              {seasonOpts.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+            <select value={competitionId ?? ''} onChange={e => pickComp(e.target.value ? Number(e.target.value) : null)} className={selectCls}>
+              <option value="">كل البطولات</option>
+              {compOpts.map(o => <option key={o.id} value={o.id}>{compLabel(o)}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       {err && <p className="text-loss text-xs bg-loss/10 border border-loss/30 rounded-lg px-3 py-2">{err}</p>}
       {!s && !err && <p className="text-hint text-sm text-center py-6">…</p>}
@@ -105,21 +152,6 @@ function Dashboard() {
             </div>
           )}
         </>
-      )}
-
-      {/* Competitions and news are one tap away in the nav bar, so only the
-          superadmin-only screen is surfaced here — the one that is easy to
-          forget exists. */}
-      {isSuperadmin && (
-        <Link href="/admin/users"
-          className="flex items-center gap-3 w-full bg-gradient-to-l from-aqua/15 to-aqua/[0.04] border border-aqua/30 rounded-2xl px-4 py-3.5 hover:border-aqua/60 transition-colors active:opacity-80">
-          <span className="w-10 h-10 rounded-xl bg-aqua/15 grid place-items-center text-lg flex-shrink-0">👥</span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-text font-bold text-sm">المستخدمون</span>
-            <span className="block text-hint text-[11px]">إضافة وإدارة المسؤولين</span>
-          </span>
-          <span className="text-aqua text-lg flex-shrink-0">‹</span>
-        </Link>
       )}
     </div>
   );

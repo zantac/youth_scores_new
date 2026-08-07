@@ -84,6 +84,13 @@ export async function apiUpdateUser(token: string, id: number, body: Record<stri
   return (await parse<{ user: AdminUser }>(res)).user;
 }
 
+export async function apiDeleteUser(token: string, id: number) {
+  const res = await fetch(`${API_ORIGIN}/api/admin/users/${id}`, {
+    method: 'DELETE', headers: headers(token),
+  });
+  return parse<{ deleted: number }>(res);
+}
+
 // ── match entry ────────────────────────────────────────────────────────────
 
 type Loc = { ar: string; en: string };
@@ -187,8 +194,20 @@ export interface AdminStats {
   averages: { goals_per_match: number; players_per_team: number; teams_per_competition: number };
   active_season: string | null;
   competitions: { id: number; name: string; sector: string; played: number; total: number }[];
+  // Full season/competition lists for the dashboard filter — always complete,
+  // regardless of which filter is currently applied.
+  filters: {
+    seasons: { id: number; name: string }[];
+    competitions: { id: number; season_id: number; name: string; sector: string; age: string }[];
+  };
 }
-export const apiStats = (t: string) => get<AdminStats>(t, '/api/admin/stats');
+export const apiStats = (t: string, f?: { seasonId?: number | null; competitionId?: number | null }) => {
+  const p = new URLSearchParams();
+  if (f?.seasonId) p.set('season_id', String(f.seasonId));
+  if (f?.competitionId) p.set('competition_id', String(f.competitionId));
+  const qs = p.toString();
+  return get<AdminStats>(t, `/api/admin/stats${qs ? `?${qs}` : ''}`);
+};
 
 export const apiListNews = (t: string) => get<{ news: AdminNews[] }>(t, '/api/admin/news').then(d => d.news);
 export const apiUpdateNews = (t: string, id: number, body: Record<string, unknown>) =>

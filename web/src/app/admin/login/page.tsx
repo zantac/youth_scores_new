@@ -41,9 +41,11 @@ export default function AdminLoginPage() {
 
       <div className="relative w-full max-w-sm">
         <div className="flex flex-col items-center mb-7">
-          <div className="w-14 h-14 rounded-2xl grid place-items-center font-black text-2xl text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_12px_30px_-8px_rgb(var(--accent-rgb))]">Y</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icons/icon-192.png" alt="youthscores"
+            className="w-14 h-14 rounded-2xl object-cover shadow-[0_12px_30px_-8px_rgb(var(--accent-rgb))]" />
           <h1 className="text-text font-extrabold text-xl mt-4">لوحة الإدارة</h1>
-          <p className="text-hint text-xs mt-1">يوث سكورز · دخول المسؤولين</p>
+          <p className="text-hint text-xs mt-1">دخول المسؤولين</p>
         </div>
 
         <form onSubmit={submit}
