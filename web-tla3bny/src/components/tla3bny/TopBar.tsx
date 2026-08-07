@@ -48,9 +48,8 @@ export default function TopBar() {
 
           {/* Center: logo */}
           <Link href="/" className="flex items-center gap-2 mx-auto shrink-0">
-            <div className="w-8 h-8 rounded-xl grid place-items-center font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_8px_20px_-8px_rgb(var(--accent-rgb))]">
-              ت
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="" className="w-8 h-8 rounded-xl shadow-[0_8px_20px_-8px_rgb(var(--accent-rgb))]" />
             <span className="font-extrabold text-text text-base">{tt('تلاعبني', 'Tla3bny')}</span>
           </Link>
 

@@ -2,13 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AppProvider } from '@/context/AppContext';
 import { Tla3bnyAuthProvider } from '@/context/Tla3bnyAuthContext';
-import TopBar from '@/components/tla3bny/TopBar';
-import BottomNav from '@/components/tla3bny/BottomNav';
+import Shell from '@/components/tla3bny/Shell';
 
 export const metadata: Metadata = {
   title: 'تلاعبني | Tla3bny League',
   description: 'إدارة ومتابعة دوري الأكاديميات — نتائج، ترتيب، إحصائيات، وتشكيلات',
-  icons: { icon: '/favicon.png' },
+  icons: { icon: '/icon.png', apple: '/icon.png' },
 };
 
 export const viewport: Viewport = {
@@ -27,9 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-arabic antialiased min-h-dvh" suppressHydrationWarning>
         <AppProvider>
           <Tla3bnyAuthProvider>
-            <TopBar />
-            <main className="w-full max-w-3xl mx-auto px-3 py-4 pb-24">{children}</main>
-            <BottomNav />
+            <Shell>{children}</Shell>
           </Tla3bnyAuthProvider>
         </AppProvider>
       </body>

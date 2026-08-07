@@ -9,7 +9,7 @@ import { Card, EmptyState, useTT } from './kit';
  * where it runs, which papers a player needs — and the buttons to reach the
  * organiser, WhatsApp chat first, which is how these are actually arranged.
  */
-export default function CompetitionInfo({ comp }: { comp: TCompetition }) {
+export default function CompetitionInfo({ comp, hideAbout = false }: { comp: TCompetition; hideAbout?: boolean }) {
   const tt = useTT();
   const { locale } = useApp();
 
@@ -32,8 +32,11 @@ export default function CompetitionInfo({ comp }: { comp: TCompetition }) {
   ];
   const shown = facts.filter(([, v]) => v);
 
+  // The competition page shows the short blurb (description) in its hero, so
+  // `hideAbout` drops it here — the long `info` still shows.
+  const aboutEmpty = hideAbout ? !comp.info : (!comp.info && !comp.description);
   const nothingToShow =
-    !comp.info && !comp.description && shown.length === 0 && !chat &&
+    aboutEmpty && shown.length === 0 && !chat &&
     !comp.contact_phone && !comp.facebook_url && !comp.whatsapp_group_url;
 
   if (nothingToShow) {
@@ -73,10 +76,10 @@ export default function CompetitionInfo({ comp }: { comp: TCompetition }) {
         </div>
       )}
 
-      {(comp.info || comp.description) && (
+      {(comp.info || (!hideAbout && comp.description)) && (
         <Card className="p-4 space-y-2">
           <h3 className="font-black text-text">{tt('عن البطولة', 'About the competition')}</h3>
-          {comp.description && <p className="text-sm text-teal">{comp.description}</p>}
+          {!hideAbout && comp.description && <p className="text-sm text-teal">{comp.description}</p>}
           {comp.info && <p className="text-sm text-hint whitespace-pre-line leading-relaxed">{comp.info}</p>}
         </Card>
       )}
