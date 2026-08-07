@@ -8,7 +8,7 @@ import {
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
-  apiStages,
+  apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
   type EntryCard, type EntrySub, type EntryShootoutKick, type MStage,
 } from '@/lib/adminApi';
@@ -34,7 +34,7 @@ const STATUS: { v: string; l: string }[] = [
 const STATUS_L: Record<string, string> = Object.fromEntries(STATUS.map(s => [s.v, s.l]));
 
 export default function MatchesEntry() {
-  const { token } = useAdminAuth();
+  const { token, canEdit } = useAdminAuth();
   const [comps, setComps] = useState<EntryCompetition[]>([]);
   const [cid, setCid] = useState<number | null>(null);
   const [teams, setTeams] = useState<EntryTeam[]>([]);
@@ -152,6 +152,9 @@ export default function MatchesEntry() {
               <button onClick={clear} className="text-hint text-[11px] font-bold">✕ مسح الفلاتر</button>
             )}
           </div>
+
+          {/* Broadcasting to users is editorial, so only editors+ see it. */}
+          {canEdit && <RoundNotify token={token!} cid={cid} matches={active} />}
 
           {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
             venues={venues}
@@ -648,6 +651,78 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
               </button>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Round-results notification ───────────────────────────────────────────────
+// After a round's results are entered, send ONE digest push to the competition's
+// followers (a round at a time is how entry works), instead of one per match.
+// Editors+ only; runs in dry-run until Firebase credentials are configured.
+function RoundNotify({ token, cid, matches }: {
+  token: string; cid: number; matches: EntryMatchRow[];
+}) {
+  const [week, setWeek] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const weeks = useMemo(() => {
+    const seen = [...new Set(matches.map(m => m.week).filter(Boolean))];
+    return seen.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+  }, [matches]);
+
+  const inWeek = useMemo(() => matches.filter(m => m.week === week), [matches, week]);
+  const done = inWeek.filter(m => m.status === 'completed').length;
+  const total = inWeek.length;
+  const allDone = total > 0 && done === total;
+
+  const send = async () => {
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const r = await apiNotifyRound(token, cid, week);
+      const dry = r.notification?.status === 'dry_run';
+      setMsg(dry
+        ? `✓ جُهّز الإشعار (وضع التجربة) — ${r.count} مباراة. يُرسل فعليًا بعد ربط Firebase.`
+        : `✓ أُرسل الإشعار — ${r.count} مباراة.`);
+      setConfirm(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+      <p className="text-text font-bold text-sm">🔔 إشعار نتائج الجولة</p>
+      <p className="text-hint text-[11px] leading-relaxed">
+        بعد إدخال نتائج الجولة، أرسِل إشعارًا واحدًا لمتابعي هذه البطولة — بدل إشعار لكل مباراة.
+      </p>
+      <select value={week} onChange={e => { setWeek(e.target.value); setMsg(null); setConfirm(false); }} className={inputCls}>
+        <option value="">— اختر الجولة —</option>
+        {weeks.map(w => <option key={w} value={w}>الجولة {w}</option>)}
+      </select>
+      {week && (
+        <p className={`text-[11px] font-bold ${allDone ? 'text-win' : 'text-gold'}`}>
+          {allDone ? '✅' : '⏳'} {done}/{total} مباراة لها نتيجة
+        </p>
+      )}
+      {err && <p className="text-loss text-xs">{err}</p>}
+      {msg && <p className="text-win text-[11px] bg-win/10 border border-win/30 rounded-lg px-3 py-2">{msg}</p>}
+      {!confirm ? (
+        <button onClick={() => setConfirm(true)} disabled={!week || done === 0}
+          className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+          🔔 أرسل إشعار نتائج الجولة
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-teal text-xs">إرسال إشعار بـ{done} نتيجة لمتابعي البطولة؟</span>
+          <button onClick={() => setConfirm(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
+          <button onClick={send} disabled={busy}
+            className="bg-aqua text-on-accent font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+            {busy ? '…' : 'تأكيد الإرسال'}
+          </button>
         </div>
       )}
     </div>

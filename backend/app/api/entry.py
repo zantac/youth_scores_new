@@ -38,7 +38,7 @@ from app.models import (
 )
 from app.models import codes
 from app.api.manage import default_spell_start
-from app.services import auth
+from app.services import auth, notifications
 
 entry_bp = Blueprint("entry", __name__)
 
@@ -259,6 +259,39 @@ def competition_match_venues(cid: int):
         rep.setdefault(key, canonical.get(key, spelling))
 
     return jsonify({"venues": sorted(rep.values())})
+
+
+@entry_bp.post("/api/admin/competitions/<int:cid>/notify-round")
+@auth.role_required("editor")
+def notify_round(cid: int):
+    """Send ONE round-results digest to this competition's followers.
+
+    The manual trigger the admin taps after entering a round's results — one
+    push per round beats one per match. Editor+, since it broadcasts to users.
+    Runs in dry-run (logs the payload) until Firebase credentials are set.
+    """
+    comp = db.session.get(Competition, cid)
+    if comp is None:
+        return jsonify({"error": "البطولة غير موجودة"}), 404
+    j = request.get_json(silent=True) or {}
+    week = (str(j.get("week") or "")).strip()
+    if not week:
+        return jsonify({"error": "اختر الجولة"}), 400
+
+    stage_ids = [s.id for s in Stage.query.filter_by(competition_id=cid).all()]
+    completed = (
+        Match.query.filter(
+            Match.stage_id.in_(stage_ids), Match.week == week,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        ).all()
+        if stage_ids else []
+    )
+    if not completed:
+        return jsonify({"error": "لا توجد مباريات مكتملة في هذه الجولة"}), 400
+
+    result = notifications.notify_round_results(comp, week, completed)
+    return jsonify({"notification": result, "count": len(completed)})
 
 
 def _parse_dt(date_s: str, time_s: str) -> datetime | None:
