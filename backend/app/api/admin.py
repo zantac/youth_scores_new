@@ -375,7 +375,11 @@ def push_subscribe():
         return jsonify({"error": "token is required"}), 400
     results = {
         topic: notifications.subscribe_token_to_topic(token, topic)
-        for topic in (notifications.TOPIC_NEWS, notifications.TOPIC_VENUES)
+        for topic in (
+            notifications.TOPIC_NEWS,
+            notifications.TOPIC_VENUES,
+            notifications.TOPIC_RESULTS,
+        )
     }
     return jsonify({"subscribed": results})
 

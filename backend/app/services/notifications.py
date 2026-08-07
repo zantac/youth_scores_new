@@ -24,11 +24,18 @@ SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 # Topics the clients subscribe to.
 TOPIC_NEWS = "news"
 TOPIC_VENUES = "venues"
+# Round-results digests go here for now: with no public accounts and no
+# favourites yet, every device subscribes to this one topic (Phase 1). Phase 2
+# adds an on-device "follow" that subscribes to competition_topic() instead, so
+# a digest reaches only that league's followers.
+TOPIC_RESULTS = "results"
 
 
 def competition_topic(competition_id: int) -> str:
-    """The per-competition topic — a client following one league subscribes to
-    this, so a round-results digest only reaches its own followers."""
+    """The per-competition topic for Phase 2's on-device follow — subscribing a
+    device to this means a round-results digest reaches only its followers.
+
+    Not used yet: results currently broadcast to TOPIC_RESULTS (see above)."""
     return f"comp_{competition_id}"
 
 # Cached OAuth token so we don't re-sign every send.
@@ -176,8 +183,12 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
         body = headline + (f" و{extra} مباراة أخرى" if extra > 0 else "")
     else:
         body = f"{n} مباراة — اضغط لعرض النتائج"
+    # Phase 1: broadcast to every device via TOPIC_RESULTS. The title carries the
+    # competition/age/sector, so users still know which league it is. Phase 2
+    # swaps this to competition_topic(competition.id) once follow exists; the
+    # competition_id in the payload is already here for the deep-link either way.
     return send_to_topic(
-        competition_topic(competition.id), title, body,
+        TOPIC_RESULTS, title, body,
         data={
             "type": "round",
             "competition_id": competition.id,
