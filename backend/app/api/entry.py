@@ -410,6 +410,44 @@ def update_match(mid: int):
             if dt:
                 m.match_date = dt
 
+    # Correcting the two teams (e.g. a fixture entered with the wrong side).
+    if "home_team_id" in j or "away_team_id" in j:
+        # Every event carries a team_id that must be one of the two sides
+        # (goals, cards, subs, shootout kicks, line-up rows). Swapping a side
+        # out would orphan those, so only allow this while none exist yet.
+        has_events = bool(
+            m.goals or m.cards or m.substitutions or m.shootout
+            or MatchPlayer.query.filter_by(match_id=m.id).first()
+        )
+        if has_events:
+            return jsonify({"error": "لا يمكن تغيير الفريقين بعد إدخال الأهداف أو البطاقات أو التبديلات أو التشكيلة — احذفها أولاً أو احذف المباراة وأنشئها من جديد"}), 400
+        new_home = _as_int(j.get("home_team_id", m.home_team_id)) or m.home_team_id
+        new_away = _as_int(j.get("away_team_id", m.away_team_id)) or m.away_team_id
+        if new_home == new_away:
+            return jsonify({"error": "اختر فريقين مختلفين"}), 400
+        cid = m.stage.competition_id
+        enrolled = {
+            ct.team_id for ct in CompetitionTeam.query.filter(
+                CompetitionTeam.competition_id == cid,
+                CompetitionTeam.team_id.in_([new_home, new_away]),
+            ).all()
+        }
+        if new_home not in enrolled or new_away not in enrolled:
+            return jsonify({"error": "أحد الفريقين غير مسجَّل في هذه البطولة"}), 400
+        # Same guard as creation: no duplicate fixture (same stage, same pair),
+        # ignoring this match itself and soft-deleted rows.
+        dup = Match.query.filter(
+            Match.stage_id == m.stage_id,
+            Match.home_team_id == new_home,
+            Match.away_team_id == new_away,
+            Match.id != m.id,
+            Match.deleted_at.is_(None),
+        ).first()
+        if dup:
+            return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
+        m.home_team_id = new_home
+        m.away_team_id = new_away
+
     db.session.commit()
     return jsonify(_match_detail(m))
 

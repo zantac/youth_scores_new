@@ -321,6 +321,14 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
   const editorStage = stages.find(s => s.id === Number(stageId));
   const editorGroups = editorStage?.groups ?? [];
 
+  // Teams may only be corrected while nothing is tied to a specific side yet:
+  // goals, cards, subs, shootout kicks and line-up rows all carry a team_id.
+  const matchHasEvents =
+    match.goals.length > 0 || match.cards.length > 0 || match.subs.length > 0 ||
+    (match.shootout?.length ?? 0) > 0 ||
+    match.lineup.home.starters.length + match.lineup.home.bench.length +
+    match.lineup.away.starters.length + match.lineup.away.bench.length > 0;
+
   const saveStage = async () => {
     setErr(null);
     const selectedGroup = editorGroups.find(g => g.id === Number(groupId));
@@ -489,6 +497,19 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
         <VenuesDatalist venues={venues} />
       </div>
 
+      {/* Teams — correct a fixture entered with the wrong side. */}
+      <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+        <p className="text-text font-bold text-sm">🔁 الفريقان</p>
+        {matchHasEvents ? (
+          <p className="text-hint text-[11px] leading-relaxed">
+            لتغيير الفريقين، احذف أولاً الأهداف والبطاقات والتبديلات والتشكيلة المسجّلة لهذه المباراة
+            (أو احذف المباراة وأنشئها من جديد) — فالفريقان مرتبطان بهذه الأحداث.
+          </p>
+        ) : (
+          <TeamsEditor token={token} match={match} teams={teams} onChange={onChange} />
+        )}
+      </div>
+
       {/* Stage / Group assignment */}
       {stages.length > 0 && (
         <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
@@ -625,6 +646,57 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Teams (correction) ───────────────────────────────────────────────────────
+// Fix a match saved with the wrong side. Only rendered while the match has no
+// team-bound events; the backend enforces the same rule.
+function TeamsEditor({ token, match, teams, onChange }: {
+  token: string; match: EntryMatch; teams: EntryTeam[]; onChange: (m: EntryMatch) => void;
+}) {
+  const [home, setHome] = useState(String(match.home.id));
+  const [away, setAway] = useState(String(match.away.id));
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Follow the server's teams if they change under us (e.g. after a save).
+  useEffect(() => {
+    setHome(String(match.home.id)); setAway(String(match.away.id));
+  }, [match.home.id, match.away.id]);
+
+  const dirty = home !== String(match.home.id) || away !== String(match.away.id);
+
+  const save = async () => {
+    if (home === away) { setErr('اختر فريقين مختلفين'); return; }
+    setErr(null); setBusy(true);
+    try {
+      const m = await apiUpdateMatch(token, match.id, { home_team_id: Number(home), away_team_id: Number(away) });
+      onChange(m); setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  const opts = teams.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>);
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        {field('المضيف', <select value={home} onChange={e => setHome(e.target.value)} className={inputCls}>{opts}</select>)}
+        {field('الضيف', <select value={away} onChange={e => setAway(e.target.value)} className={inputCls}>{opts}</select>)}
+      </div>
+      {err && <p className="text-loss text-xs">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button onClick={() => { const h = home; setHome(away); setAway(h); }}
+          className="text-teal text-xs font-bold border border-bdr rounded-lg px-3 py-1.5 hover:border-aqua/40">
+          ⇄ تبديل المضيف والضيف
+        </button>
+        <button onClick={save} disabled={busy || !dirty || home === away}
+          className="bg-aqua text-on-accent font-bold px-4 py-1.5 rounded-lg text-sm disabled:opacity-50">
+          {saved ? '✓ حُفظ' : 'حفظ الفريقين'}
+        </button>
+      </div>
     </div>
   );
 }

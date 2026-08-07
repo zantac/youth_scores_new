@@ -257,6 +257,36 @@ def create_venue():
     return jsonify({"id": venue.id, "notification": result}), 201
 
 
+def _venue_dto(v: Venue) -> dict:
+    return {"id": v.id, "name_ar": v.name_ar, "name_en": v.name_en, "url": v.url}
+
+
+@admin_bp.get("/api/admin/venues")
+@auth.role_required("editor")
+def list_venues():
+    items = Venue.query.order_by(Venue.name_ar, Venue.name_en, Venue.id).all()
+    return jsonify({"venues": [_venue_dto(v) for v in items]})
+
+
+@admin_bp.patch("/api/admin/venues/<int:vid>")
+@auth.role_required("editor")
+def update_venue(vid: int):
+    v = db.session.get(Venue, vid)
+    if v is None:
+        return jsonify({"error": "الملعب غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    if "name_ar" in j:
+        v.name_ar = (j.get("name_ar") or None)
+    if "name_en" in j:
+        v.name_en = (j.get("name_en") or None)
+    if "url" in j:
+        v.url = (j.get("url") or None)
+    if not (v.name_ar or v.name_en):
+        return jsonify({"error": "اسم الملعب مطلوب"}), 400
+    db.session.commit()
+    return jsonify({"venue": _venue_dto(v)})
+
+
 # ── ads ──────────────────────────────────────────────────────────────────────
 # The interstitial's fields: a name, an optional image, and any of several
 # contact/links shown as buttons. No notification — an ad is not news.

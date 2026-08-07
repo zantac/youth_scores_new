@@ -182,6 +182,12 @@ export const apiCreateNews = (t: string, body: Record<string, unknown>) =>
   send<{ id: number; notification: NotifyResult; news: AdminNews }>(t, 'POST', '/api/admin/news', body);
 export const apiCreateVenue = (t: string, body: Record<string, unknown>) =>
   send<{ id: number; notification: NotifyResult }>(t, 'POST', '/api/admin/venues', body);
+
+export interface AdminVenue { id: number; name_ar: string | null; name_en: string | null; url: string | null; }
+export const apiListVenues = (t: string) =>
+  get<{ venues: AdminVenue[] }>(t, '/api/admin/venues').then(d => d.venues);
+export const apiUpdateVenue = (t: string, id: number, body: Record<string, unknown>) =>
+  send<{ venue: AdminVenue }>(t, 'PATCH', `/api/admin/venues/${id}`, body);
 // Dashboard figures. No user counts: push goes to an FCM topic with no device
 // tokens stored, so the backend genuinely cannot count app users.
 export interface AdminStats {
