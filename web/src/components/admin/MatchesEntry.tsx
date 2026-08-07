@@ -49,9 +49,13 @@ export default function MatchesEntry() {
   const [venues, setVenues] = useState<string[]>([]);
 
   useEffect(() => { if (token) apiCompetitions(token).then(setComps).catch(e => setErr(e.message)); }, [token]);
+  // Venue suggestions are scoped to the chosen competition, so the list is the
+  // grounds used in it (empty until a match is entered) rather than every venue
+  // ever typed. Re-runs when the competition changes.
   const refreshVenues = useCallback(() => {
-    if (token) apiMatchVenues(token).then(setVenues).catch(() => {});
-  }, [token]);
+    if (token && cid) apiMatchVenues(token, cid).then(setVenues).catch(() => {});
+    else setVenues([]);
+  }, [token, cid]);
   useEffect(() => { refreshVenues(); }, [refreshVenues]);
 
   const loadComp = useCallback((id: number) => {

@@ -12,6 +12,7 @@ so saving a score updates every table that depends on it.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 
 import sqlalchemy as sa
@@ -33,6 +34,7 @@ from app.models import (
     PlayerTeam,
     Stage,
     Team,
+    Venue,
 )
 from app.models import codes
 from app.api.manage import default_spell_start
@@ -200,22 +202,63 @@ def competition_matches(cid: int):
     return jsonify({"matches": [_match_row(m) for m in matches]})
 
 
-@entry_bp.get("/api/admin/match-venues")
+def _venue_key(s: str) -> str:
+    """A spelling-insensitive key so the same ground groups together.
+
+    Folds the differences that made one ground show up several times in the
+    autocomplete: bidi marks and non-breaking space, tatweel, harakat, and the
+    alef / ya / ta-marbuta variants (أإآ→ا, ى→ي, ة→ه). Case and repeated
+    whitespace are folded too, which also handles Latin names.
+    """
+    s = s or ""
+    s = (s.replace("‏", "").replace("‎", "")
+          .replace(" ", " ").replace("ـ", ""))
+    s = re.sub(r"[ً-ْ]", "", s)  # harakat / tanwin / sukun / shadda
+    s = (s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+          .replace("ى", "ي").replace("ة", "ه"))
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+@entry_bp.get("/api/admin/competitions/<int:cid>/match-venues")
 @auth.login_required
-def match_venues():
-    """Every distinct venue name already typed on a match, for the entry form's
-    autocomplete — so the same ground is spelled the same way each time."""
-    rows = (
-        db.session.query(Match.venue_ar)
-        .filter(Match.venue_ar.isnot(None), Match.venue_ar != "")
-        .union(
-            db.session.query(Match.venue_en)
-            .filter(Match.venue_en.isnot(None), Match.venue_en != "")
-        )
-        .all()
-    )
-    names = sorted({(r[0] or "").strip() for r in rows if (r[0] or "").strip()})
-    return jsonify({"venues": names})
+def competition_match_venues(cid: int):
+    """Venue-name suggestions for the entry form, scoped to ONE competition.
+
+    Only the grounds already used on this competition's own matches, so the list
+    stays short and relevant — empty for a brand-new competition, growing as
+    fixtures are entered — instead of scanning every match in the database.
+    Spelling variants are collapsed (preferring the registered directory's
+    spelling), and the free-text field still accepts any new ground.
+    """
+    stage_ids = [s.id for s in Stage.query.filter_by(competition_id=cid).all()]
+    if not stage_ids:
+        return jsonify({"venues": []})
+
+    typed = []
+    for col in (Match.venue_ar, Match.venue_en):
+        typed += [
+            r[0].strip() for r in
+            db.session.query(col).filter(
+                Match.stage_id.in_(stage_ids), col.isnot(None), col != ""
+            ).all()
+            if r[0] and r[0].strip()
+        ]
+
+    # Canonical spelling per ground — the registered directory's wins.
+    canonical: dict[str, str] = {}
+    for n_ar, n_en in db.session.query(Venue.name_ar, Venue.name_en).all():
+        for n in (n_ar, n_en):
+            if n and n.strip():
+                canonical.setdefault(_venue_key(n), n.strip())
+
+    # One entry per ground used in this competition: the directory's spelling
+    # when it has one, otherwise the most common way it was typed here.
+    rep: dict[str, str] = {}
+    for spelling, _ in Counter(typed).most_common():
+        key = _venue_key(spelling)
+        rep.setdefault(key, canonical.get(key, spelling))
+
+    return jsonify({"venues": sorted(rep.values())})
 
 
 def _parse_dt(date_s: str, time_s: str) -> datetime | None:

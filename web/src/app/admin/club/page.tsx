@@ -288,7 +288,7 @@ function ClubPageInner() {
 
   return (
     <AdminShell title="النادي">
-      <Link href="/admin/structure" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع للهيكل</Link>
+      <Link href="/admin/structure" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">
           <p className="text-3xl mb-3">🔒</p><p className="text-text text-sm font-bold">تحتاج صلاحية «محرّر» أو أعلى</p>
