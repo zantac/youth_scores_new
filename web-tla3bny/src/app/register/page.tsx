@@ -40,7 +40,8 @@ export default function Tla3bnyRegisterPage() {
     <div className="min-h-full grid place-items-center py-8">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
-          <div className="w-14 h-14 rounded-2xl grid place-items-center font-black text-2xl text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_12px_30px_-8px_rgb(var(--accent-rgb))]">ت</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon.png" alt="تلاعبني" className="w-14 h-14 rounded-2xl shadow-[0_12px_30px_-8px_rgb(var(--accent-rgb))]" />
           <h1 className="text-text font-extrabold text-xl mt-4">{tt('تسجيل أكاديمية', 'Register academy')}</h1>
           <p className="text-hint text-xs mt-1 text-center">
             {tt('التسجيل متاح لأي أكاديمية — حسابك يشتغل فورًا',
