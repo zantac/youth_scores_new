@@ -14,6 +14,7 @@ import { formatMatchDate, sortAges, subCompLabel, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
+import CompetitionHero from '@/components/tla3bny/CompetitionHero';
 import NewsList from '@/components/tla3bny/NewsList';
 import { AdStrip } from '@/components/tla3bny/AdCard';
 import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
@@ -40,9 +41,8 @@ function CompetitionsContent() {
   const [tab, setTab] = useState<Tab>('standings');
   const [loading, setLoading] = useState(true);
 
-  // Accordion state — which seasons / competitions are expanded.
+  // Accordion state — which seasons are expanded.
   const [openSeasons, setOpenSeasons] = useState<Set<number>>(new Set());
-  const [openComps,   setOpenComps]   = useState<Set<number>>(new Set());
   // Lazily-loaded competitions keyed by season id.
   const [seasonComps, setSeasonComps] = useState<Record<number, TCompetition[]>>({});
 
@@ -59,9 +59,6 @@ function CompetitionsContent() {
       return next;
     });
   }, [loadSeasonComps]);
-
-  const toggleComp = useCallback((cid: number) =>
-    setOpenComps(prev => { const n = new Set(prev); n.has(cid) ? n.delete(cid) : n.add(cid); return n; }), []);
 
   useEffect(() => {
     tSeasons().then(ss => {
@@ -109,33 +106,29 @@ function CompetitionsContent() {
       setTab(t);
       router.replace(compUrl(comp.id, cageId, t), { scroll: false });
     };
-    const closeComp = () => { setComp(null); router.replace('/competitions', { scroll: false }); };
+    // Back goes to this competition's own page (where its sub-competitions live).
+    const closeComp = () => { router.push(`/competition?id=${comp.id}`); };
     // Bracket only shows when the selected age actually has a knockout stage.
     const koAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
     const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
     const tabs = ['matches', 'standings', 'stats', ...(hasKnockout ? ['bracket'] : []), 'news'] as Exclude<Tab, 'info'>[];
     return (
       <div className="space-y-4">
-        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
+        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">→ {comp.name}</button>
         {(() => {
           const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
           return (
-            <Card className="p-4 flex items-center gap-3">
-              <LogoAvatar src={comp.logo_path} name={comp.name} size={52} />
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg font-black text-text">{comp.name}</h1>
-                <p className="text-[11px] text-hint">
-                  {[comp.season_name, selectedAge ? subCompLabel(selectedAge) : null, comp.location].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-              <button onClick={() => selectTab(tab === 'info' ? 'matches' : 'info')}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border transition-colors ${
-                  tab === 'info' ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 border-bdr text-teal hover:border-aqua/50'
-                }`}
-                title={tt('عن البطولة', 'About')}>
-                ℹ️
-              </button>
-            </Card>
+            <CompetitionHero comp={comp}
+              ageLabel={selectedAge ? subCompLabel(selectedAge) : null}
+              action={
+                <button onClick={() => selectTab(tab === 'info' ? 'matches' : 'info')}
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border transition-colors ${
+                    tab === 'info' ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 border-bdr text-teal hover:border-aqua/50'
+                  }`}
+                  title={tt('عن البطولة', 'About')}>
+                  ℹ️
+                </button>
+              } />
           );
         })()}
 
@@ -152,7 +145,7 @@ function CompetitionsContent() {
           ))}
         </div>
 
-        {tab === 'info' ? <CompetitionInfo comp={comp} />
+        {tab === 'info' ? <CompetitionInfo comp={comp} hideAbout />
           : tab === 'news' ? <NewsList compId={comp.id} />
           : cageId == null
             ? <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
@@ -194,53 +187,21 @@ function CompetitionsContent() {
               <span className="text-aqua text-base flex-shrink-0">{seasonOpen ? '▲' : '▼'}</span>
             </button>
 
-            {/* Competitions within this season */}
+            {/* Competitions within this season — each a hero card that opens
+                its own page (info + المنافسات). */}
             {seasonOpen && (
-              <div className="bg-darkBg divide-y divide-bdr/60">
+              <div className="bg-darkBg p-3 space-y-3">
                 {comps.length === 0 && (
                   <p className="text-hint text-sm text-center py-6">
                     {tt('لا بطولات في هذا الموسم', 'No competitions this season')}
                   </p>
                 )}
-                {comps.map(c => {
-                  const compOpen = openComps.has(c.id);
-                  const ages = sortAges(c.ages ?? []);
-                  return (
-                    <div key={c.id}>
-                      {/* Competition row */}
-                      <button onClick={() => toggleComp(c.id)}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-aqua/[0.04] transition-colors">
-                        <LogoAvatar src={c.logo_path} name={c.name} size={32} />
-                        <div className="flex-1 text-start min-w-0">
-                          <p className="text-text font-semibold text-sm truncate">{c.name}</p>
-                          <p className="text-hint text-xs mt-0.5">
-                            {ages.length} {tt('فئة', 'age groups')}
-                          </p>
-                        </div>
-                        <span className="text-hint text-sm flex-shrink-0">{compOpen ? '▲' : '▼'}</span>
-                      </button>
-
-                      {/* Sub-competitions (ages) */}
-                      {compOpen && (
-                        <div className="bg-cardBg/60 border-t border-bdr/40">
-                          {ages.length === 0 && (
-                            <p className="text-hint text-xs text-center py-4">
-                              {tt('لا فئات', 'No age groups')}
-                            </p>
-                          )}
-                          {ages.map(a => (
-                            <button key={a.id} onClick={() => openComp(c.id, a.id)}
-                              className="w-full flex items-center gap-3 px-5 py-3 border-b border-bdr/30 last:border-0 active:bg-aqua/5 hover:bg-aqua/[0.04] transition-colors text-start">
-                              <span className="text-aqua text-xs flex-shrink-0">›</span>
-                              <span className="flex-1 text-teal text-sm font-medium">{subCompLabel(a)}</span>
-                              <span className="text-bdr text-xs flex-shrink-0">↗</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {comps.map(c => (
+                  <Link key={c.id} href={`/competition?id=${c.id}`}
+                    className="block hover:opacity-95 active:opacity-80 transition-opacity">
+                    <CompetitionHero comp={c} />
+                  </Link>
+                ))}
               </div>
             )}
           </div>
