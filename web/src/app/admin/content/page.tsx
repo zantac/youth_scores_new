@@ -3,9 +3,9 @@ import { useState, useEffect, useCallback } from 'react';
 import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
-  apiCreateNews, apiUpdateNews, apiCreateVenue, apiListNews, apiDeleteNews, apiUploadImage,
+  apiCreateNews, apiUpdateNews, apiCreateVenue, apiListVenues, apiUpdateVenue, apiListNews, apiDeleteNews, apiUploadImage,
   apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd,
-  type NotifyResult, type AdminNews, type AdminAd,
+  type NotifyResult, type AdminNews, type AdminAd, type AdminVenue,
 } from '@/lib/adminApi';
 
 export default function AdminContentPage() {
@@ -47,7 +47,7 @@ function Content() {
         ))}
       </div>
       {tab === 'news' && <NewsTab />}
-      {tab === 'venue' && <VenueForm />}
+      {tab === 'venue' && <VenuesTab />}
       {tab === 'ads' && <AdsTab />}
     </div>
   );
@@ -234,7 +234,31 @@ function NewsForm({ token, news, onCreated, onCancel }: {
   );
 }
 
-function VenueForm() {
+function VenuesTab() {
+  const { token } = useAdminAuth();
+  const [items, setItems] = useState<AdminVenue[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    if (!token) return;
+    apiListVenues(token).then(setItems).catch(() => {}).finally(() => setLoading(false));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-5">
+      <VenueForm onCreated={load} />
+      <div className="space-y-2">
+        <p className="text-teal text-xs font-bold">الملاعب المسجّلة ({items.length})</p>
+        {loading && <p className="text-hint text-sm text-center py-4">جارٍ التحميل…</p>}
+        {items.map(v => <VenueRow key={v.id} token={token!} venue={v} onSaved={load} />)}
+        {!loading && items.length === 0 && <p className="text-hint text-xs text-center py-4">لا توجد ملاعب مسجّلة</p>}
+      </div>
+    </div>
+  );
+}
+
+function VenueForm({ onCreated }: { onCreated: () => void }) {
   const { token } = useAdminAuth();
   const [f, setF] = useState({ name_ar: '', name_en: '', url: '' });
   const [result, setResult] = useState<NotifyResult | null>(null);
@@ -244,13 +268,17 @@ function VenueForm() {
 
   const submit = async () => {
     setError(null); setBusy(true);
-    try { const r = await apiCreateVenue(token!, { ...f }); setResult(r.notification); setF({ name_ar: '', name_en: '', url: '' }); }
+    try {
+      const r = await apiCreateVenue(token!, { ...f });
+      setResult(r.notification); setF({ name_ar: '', name_en: '', url: '' }); onCreated();
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'خطأ'); }
     finally { setBusy(false); }
   };
 
   return (
     <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+      <p className="text-text font-bold text-sm">➕ إضافة ملعب جديد</p>
       <Field label="اسم الملعب (عربي) *"><input value={f.name_ar} onChange={e => set('name_ar', e.target.value)} className={inputCls} /></Field>
       <Field label="اسم الملعب (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
       <Field label="رابط الخريطة (اختياري)"><input value={f.url} onChange={e => set('url', e.target.value)} dir="ltr" placeholder="https://maps.google.com/…" className={inputCls} /></Field>
@@ -260,6 +288,58 @@ function VenueForm() {
         className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
         {busy ? 'جارٍ الحفظ…' : 'إضافة الملعب'}
       </button>
+    </div>
+  );
+}
+
+// A single registered venue: name + optional map link, expandable to an inline
+// edit form. Old venues (imported before this screen existed) are editable here.
+function VenueRow({ token, venue, onSaved }: { token: string; venue: AdminVenue; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState({ name_ar: venue.name_ar ?? '', name_en: venue.name_en ?? '', url: venue.url ?? '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+
+  const open = () => { setF({ name_ar: venue.name_ar ?? '', name_en: venue.name_en ?? '', url: venue.url ?? '' }); setErr(null); setEditing(true); };
+  const save = async () => {
+    setErr(null); setBusy(true);
+    try { await apiUpdateVenue(token, venue.id, { ...f }); setEditing(false); onSaved(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3">
+        <span className="w-9 h-9 rounded-lg bg-aqua/10 grid place-items-center flex-shrink-0">🏟️</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-text font-bold text-sm truncate">{venue.name_ar || venue.name_en}</p>
+          {venue.url
+            ? <a href={venue.url} target="_blank" rel="noreferrer" className="text-aqua text-[11px] hover:underline">📍 رابط الخريطة</a>
+            : <p className="text-hint text-[11px]">لا يوجد رابط خريطة</p>}
+        </div>
+        <button onClick={open}
+          className="flex-shrink-0 text-xs font-bold text-aqua border border-aqua/40 bg-aqua/10 rounded-lg px-3 py-1.5 hover:bg-aqua/20">
+          ✎ تعديل
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-cardBg2 border border-aqua/30 rounded-xl p-4 space-y-3">
+      <p className="text-aqua text-[11px] font-bold">✎ تعديل الملعب</p>
+      <Field label="اسم الملعب (عربي) *"><input value={f.name_ar} onChange={e => set('name_ar', e.target.value)} className={inputCls} /></Field>
+      <Field label="اسم الملعب (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
+      <Field label="رابط الخريطة (اختياري)"><input value={f.url} onChange={e => set('url', e.target.value)} dir="ltr" placeholder="https://maps.google.com/…" className={inputCls} /></Field>
+      {err && <p className="text-loss text-xs">{err}</p>}
+      <div className="flex gap-2">
+        <button onClick={save} disabled={busy || !f.name_ar.trim()}
+          className="flex-1 bg-aqua text-on-accent font-extrabold py-2 rounded-lg text-sm disabled:opacity-50">
+          {busy ? '…' : 'حفظ التعديل'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-hint text-xs font-bold px-4 border border-bdr rounded-lg">إلغاء</button>
+      </div>
     </div>
   );
 }

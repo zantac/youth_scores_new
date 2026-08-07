@@ -73,6 +73,14 @@ def update_user(user_id: int):
 
     if "full_name" in j:
         user.full_name = (j.get("full_name") or "").strip() or None
+    if "username" in j:
+        username = (j.get("username") or "").strip()
+        if len(username) < 3:
+            return jsonify({"error": "اسم المستخدم يجب أن يكون 3 أحرف على الأقل"}), 400
+        clash = AdminUser.query.filter_by(username=username).first()
+        if clash and clash.id != user.id:
+            return jsonify({"error": "اسم المستخدم مستخدم بالفعل"}), 409
+        user.username = username
     if "role" in j:
         role = (j.get("role") or "").strip()
         if role not in codes.ADMIN_ROLE:
@@ -93,6 +101,33 @@ def update_user(user_id: int):
 
     db.session.commit()
     return jsonify({"user": auth.public_user(user)})
+
+
+@admin_bp.delete("/api/admin/users/<int:user_id>")
+@limiter.limit("30 per hour")
+@auth.role_required("superadmin")
+def delete_user(user_id: int):
+    user = db.session.get(AdminUser, user_id)
+    if user is None:
+        return jsonify({"error": "المستخدم غير موجود"}), 404
+
+    me = auth.current_admin()
+    if me and me.id == user.id:
+        return jsonify({"error": "لا يمكنك حذف حسابك"}), 400
+    # Never remove the last superadmin who can still sign in, or the panel
+    # locks everyone out.
+    if user.role == "superadmin":
+        other_active = AdminUser.query.filter(
+            AdminUser.role == "superadmin",
+            AdminUser.is_active.is_(True),
+            AdminUser.id != user.id,
+        ).count()
+        if other_active == 0:
+            return jsonify({"error": "لا يمكن حذف آخر مدير عام نشِط"}), 400
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"deleted": user_id})
 
 
 # ── content (editor+) ────────────────────────────────────────────────────────
@@ -222,6 +257,36 @@ def create_venue():
     return jsonify({"id": venue.id, "notification": result}), 201
 
 
+def _venue_dto(v: Venue) -> dict:
+    return {"id": v.id, "name_ar": v.name_ar, "name_en": v.name_en, "url": v.url}
+
+
+@admin_bp.get("/api/admin/venues")
+@auth.role_required("editor")
+def list_venues():
+    items = Venue.query.order_by(Venue.name_ar, Venue.name_en, Venue.id).all()
+    return jsonify({"venues": [_venue_dto(v) for v in items]})
+
+
+@admin_bp.patch("/api/admin/venues/<int:vid>")
+@auth.role_required("editor")
+def update_venue(vid: int):
+    v = db.session.get(Venue, vid)
+    if v is None:
+        return jsonify({"error": "الملعب غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    if "name_ar" in j:
+        v.name_ar = (j.get("name_ar") or None)
+    if "name_en" in j:
+        v.name_en = (j.get("name_en") or None)
+    if "url" in j:
+        v.url = (j.get("url") or None)
+    if not (v.name_ar or v.name_en):
+        return jsonify({"error": "اسم الملعب مطلوب"}), 400
+    db.session.commit()
+    return jsonify({"venue": _venue_dto(v)})
+
+
 # ── ads ──────────────────────────────────────────────────────────────────────
 # The interstitial's fields: a name, an optional image, and any of several
 # contact/links shown as buttons. No notification — an ad is not news.
@@ -310,7 +375,11 @@ def push_subscribe():
         return jsonify({"error": "token is required"}), 400
     results = {
         topic: notifications.subscribe_token_to_topic(token, topic)
-        for topic in (notifications.TOPIC_NEWS, notifications.TOPIC_VENUES)
+        for topic in (
+            notifications.TOPIC_NEWS,
+            notifications.TOPIC_VENUES,
+            notifications.TOPIC_RESULTS,
+        )
     }
     return jsonify({"subscribed": results})
 
@@ -411,34 +480,137 @@ def stats():
     Deliberately no user numbers: push goes to an FCM topic and no device
     tokens are stored, so the backend has no idea how many people use the app
     and any figure here would be invented.
-    """
-    from app.models import (AgeGroup, Club, Coach, Competition, Match,
-                            MatchGoal, Player, Season, Stage, Team)
 
-    # Exclude soft-deleted matches so the dashboard matches what the app shows.
-    total_matches = Match.query.filter(Match.deleted_at.is_(None)).count()
-    played = Match.query.filter(
-        Match.deleted_at.is_(None),
-        Match.status == codes.MATCH_STATUS_COMPLETED,
-    ).count()
-    goals = (
-        MatchGoal.query.join(Match, MatchGoal.match_id == Match.id)
-        .filter(Match.deleted_at.is_(None))
-        .count()
-    )
-    teams = Team.query.count()
-    players = Player.query.count()
+    Optional ``season_id`` / ``competition_id`` query params scope every figure
+    to a season or a single competition. A competition implies its season, so
+    the filter always resolves to exactly one season; counts that have no
+    competition link (news) are scoped by that season's date window instead.
+    The full season/competition lists ride along under ``filters`` so the
+    dashboard's dropdowns work for every admin, including clerks who cannot
+    reach the editor-only management endpoints.
+    """
+    from app.models import (AgeGroup, Club, Coach, Competition,
+                            CompetitionTeam, Match, MatchGoal, Player,
+                            PlayerTeam, Season, Stage, Team, TeamCoach)
+
+    season_id = request.args.get("season_id", type=int)
+    competition_id = request.args.get("competition_id", type=int)
 
     seasons = Season.query.order_by(Season.start_date.desc()).all()
     active = next((s for s in seasons if s.is_active), None)
+    ages = AgeGroup.query.all()
+    age_name = {a.id: (a.name_ar or a.name_en or "") for a in ages}
+
+    all_comps = Competition.query.order_by(Competition.code, Competition.id).all()
+
+    # Resolve the filter to a set of competitions (a competition wins over a
+    # season, since it already names one).
+    if competition_id:
+        comps = [c for c in all_comps if c.id == competition_id]
+    elif season_id:
+        comps = [c for c in all_comps if c.season_id == season_id]
+    else:
+        comps = all_comps
+    filtered = bool(season_id or competition_id)
+    comp_ids = [c.id for c in comps]
+    filter_season = (
+        next((s for s in seasons if s.id == comps[0].season_id), None)
+        if filtered and comps else None
+    )
+
+    # Stages of the in-scope competitions, fetched once and grouped, so the
+    # per-competition rows below don't run a query each.
+    stages = (
+        Stage.query.filter(Stage.competition_id.in_(comp_ids)).all()
+        if comp_ids else []
+    )
+    stages_by_comp: dict[int, list[int]] = {}
+    for st in stages:
+        stages_by_comp.setdefault(st.competition_id, []).append(st.id)
+    stage_ids = [st.id for st in stages]
+
+    def scoped_matches():
+        return Match.query.filter(
+            Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None)
+        )
+
+    if filtered:
+        team_ids = [
+            r[0] for r in db.session.query(CompetitionTeam.team_id)
+            .filter(CompetitionTeam.competition_id.in_(comp_ids)).distinct()
+        ] if comp_ids else []
+
+        if stage_ids:
+            total_matches = scoped_matches().count()
+            played = scoped_matches().filter_by(
+                status=codes.MATCH_STATUS_COMPLETED).count()
+            goals = (
+                MatchGoal.query.join(Match, MatchGoal.match_id == Match.id)
+                .filter(Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None))
+                .count()
+            )
+            venues = (
+                db.session.query(Match.venue_id)
+                .filter(Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None),
+                        Match.venue_id.isnot(None))
+                .distinct().count()
+            )
+        else:
+            total_matches = played = goals = venues = 0
+
+        teams = len(team_ids)
+        players = (
+            db.session.query(PlayerTeam.player_id)
+            .filter(PlayerTeam.team_id.in_(team_ids)).distinct().count()
+            if team_ids else 0
+        )
+        clubs = (
+            db.session.query(Team.club_id)
+            .filter(Team.id.in_(team_ids)).distinct().count()
+            if team_ids else 0
+        )
+        coaches = (
+            db.session.query(TeamCoach.coach_id)
+            .filter(TeamCoach.team_id.in_(team_ids)).distinct().count()
+            if team_ids else 0
+        )
+        seasons_count = len({c.season_id for c in comps})
+        age_groups = len({c.age_group_id for c in comps if c.age_group_id is not None})
+        competitions_count = len(comp_ids)
+        # News has no competition link, so it's scoped to the season's dates.
+        news = (
+            News.query.filter(News.date >= filter_season.start_date,
+                              News.date <= filter_season.end_date).count()
+            if filter_season else 0
+        )
+    else:
+        # Whole-database totals (the unfiltered dashboard).
+        total_matches = Match.query.filter(Match.deleted_at.is_(None)).count()
+        played = Match.query.filter(
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        ).count()
+        goals = (
+            MatchGoal.query.join(Match, MatchGoal.match_id == Match.id)
+            .filter(Match.deleted_at.is_(None)).count()
+        )
+        teams = Team.query.count()
+        players = Player.query.count()
+        clubs = Club.query.count()
+        coaches = Coach.query.count()
+        seasons_count = len(seasons)
+        age_groups = len(ages)
+        competitions_count = len(all_comps)
+        news = News.query.count()
+        venues = Venue.query.count()
 
     # Per-competition rows, so the dashboard can show where entry is behind.
     per_comp = []
-    for c in Competition.query.order_by(Competition.code, Competition.id).all():
-        stage_ids = [s.id for s in Stage.query.filter_by(competition_id=c.id).all()]
-        if stage_ids:
+    for c in comps:
+        c_stage_ids = stages_by_comp.get(c.id, [])
+        if c_stage_ids:
             q = Match.query.filter(
-                Match.stage_id.in_(stage_ids), Match.deleted_at.is_(None)
+                Match.stage_id.in_(c_stage_ids), Match.deleted_at.is_(None)
             )
             tot = q.count()
             done = q.filter_by(status=codes.MATCH_STATUS_COMPLETED).count()
@@ -453,17 +625,17 @@ def stats():
 
     return jsonify({
         "counts": {
-            "seasons": len(seasons),
-            "age_groups": AgeGroup.query.count(),
-            "competitions": Competition.query.count(),
-            "clubs": Club.query.count(),
+            "seasons": seasons_count,
+            "age_groups": age_groups,
+            "competitions": competitions_count,
+            "clubs": clubs,
             "teams": teams,
             "players": players,
-            "coaches": Coach.query.count(),
+            "coaches": coaches,
             "matches": total_matches,
             "goals": goals,
-            "news": News.query.count(),
-            "venues": Venue.query.count(),
+            "news": news,
+            "venues": venues,
         },
         "matches": {
             "total": total_matches,
@@ -475,8 +647,23 @@ def stats():
             "goals_per_match": round(goals / played, 2) if played else 0,
             "players_per_team": round(players / teams, 1) if teams else 0,
             "teams_per_competition": round(
-                teams / Competition.query.count(), 1) if Competition.query.count() else 0,
+                teams / competitions_count, 1) if competitions_count else 0,
         },
         "active_season": (active.name_ar or active.name_en) if active else None,
         "competitions": per_comp,
+        # Full lists for the dashboard's season/competition filter, always
+        # returned in full so the dropdowns stay populated under any filter.
+        "filters": {
+            "seasons": [
+                {"id": s.id, "name": s.name_ar or s.name_en or ""}
+                for s in seasons
+            ],
+            "competitions": [
+                {"id": c.id, "season_id": c.season_id,
+                 "name": c.name_ar or c.name_en or "",
+                 "sector": c.sector_ar or c.sector_en or "",
+                 "age": age_name.get(c.age_group_id, "")}
+                for c in all_comps
+            ],
+        },
     })

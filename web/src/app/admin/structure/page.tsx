@@ -33,8 +33,8 @@ const TABS = [
   { v: 'ages', l: 'المراحل السنية', edit: true },
   { v: 'clubs', l: 'الأندية', edit: true },
   { v: 'comps', l: 'البطولات', edit: true },
-  { v: 'matches', l: '⚽ المباريات', edit: false },
   { v: 'teams', l: 'الفرق', edit: true },
+  { v: 'matches', l: '⚽ المباريات', edit: false },
 ] as const;
 
 export default function StructurePage() {

@@ -84,6 +84,13 @@ export async function apiUpdateUser(token: string, id: number, body: Record<stri
   return (await parse<{ user: AdminUser }>(res)).user;
 }
 
+export async function apiDeleteUser(token: string, id: number) {
+  const res = await fetch(`${API_ORIGIN}/api/admin/users/${id}`, {
+    method: 'DELETE', headers: headers(token),
+  });
+  return parse<{ deleted: number }>(res);
+}
+
 // ── match entry ────────────────────────────────────────────────────────────
 
 type Loc = { ar: string; en: string };
@@ -125,7 +132,14 @@ const send = <T,>(token: string, method: string, path: string, body?: unknown) =
 export const apiCompetitions = (t: string) => get<{ competitions: EntryCompetition[] }>(t, '/api/admin/competitions').then(d => d.competitions);
 export const apiCompetitionTeams = (t: string, cid: number) => get<{ teams: EntryTeam[] }>(t, `/api/admin/competitions/${cid}/teams`).then(d => d.teams);
 export const apiTeamPlayers = (t: string, teamId: number) => get<{ players: string[] }>(t, `/api/admin/teams/${teamId}/players`).then(d => d.players);
-export const apiMatchVenues = (t: string) => get<{ venues: string[] }>(t, '/api/admin/match-venues').then(d => d.venues);
+// Venue suggestions scoped to one competition — only the grounds already used
+// on its matches (empty until fixtures are entered).
+export const apiMatchVenues = (t: string, cid: number) => get<{ venues: string[] }>(t, `/api/admin/competitions/${cid}/match-venues`).then(d => d.venues);
+
+// Send one round-results digest notification to the competition's followers.
+// Runs in dry-run (logs the payload) until Firebase credentials are configured.
+export const apiNotifyRound = (t: string, cid: number, week: string) =>
+  send<{ notification: { status: string; topic?: string }; count: number }>(t, 'POST', `/api/admin/competitions/${cid}/notify-round`, { week });
 export const apiCompetitionMatches = (t: string, cid: number) => get<{ matches: EntryMatchRow[] }>(t, `/api/admin/competitions/${cid}/matches`).then(d => d.matches);
 export const apiCreateMatch = (t: string, cid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/competitions/${cid}/matches`, body);
 export const apiGetMatch = (t: string, mid: number) => get<EntryMatch>(t, `/api/admin/matches/${mid}`);
@@ -175,6 +189,12 @@ export const apiCreateNews = (t: string, body: Record<string, unknown>) =>
   send<{ id: number; notification: NotifyResult; news: AdminNews }>(t, 'POST', '/api/admin/news', body);
 export const apiCreateVenue = (t: string, body: Record<string, unknown>) =>
   send<{ id: number; notification: NotifyResult }>(t, 'POST', '/api/admin/venues', body);
+
+export interface AdminVenue { id: number; name_ar: string | null; name_en: string | null; url: string | null; }
+export const apiListVenues = (t: string) =>
+  get<{ venues: AdminVenue[] }>(t, '/api/admin/venues').then(d => d.venues);
+export const apiUpdateVenue = (t: string, id: number, body: Record<string, unknown>) =>
+  send<{ venue: AdminVenue }>(t, 'PATCH', `/api/admin/venues/${id}`, body);
 // Dashboard figures. No user counts: push goes to an FCM topic with no device
 // tokens stored, so the backend genuinely cannot count app users.
 export interface AdminStats {
@@ -187,8 +207,20 @@ export interface AdminStats {
   averages: { goals_per_match: number; players_per_team: number; teams_per_competition: number };
   active_season: string | null;
   competitions: { id: number; name: string; sector: string; played: number; total: number }[];
+  // Full season/competition lists for the dashboard filter — always complete,
+  // regardless of which filter is currently applied.
+  filters: {
+    seasons: { id: number; name: string }[];
+    competitions: { id: number; season_id: number; name: string; sector: string; age: string }[];
+  };
 }
-export const apiStats = (t: string) => get<AdminStats>(t, '/api/admin/stats');
+export const apiStats = (t: string, f?: { seasonId?: number | null; competitionId?: number | null }) => {
+  const p = new URLSearchParams();
+  if (f?.seasonId) p.set('season_id', String(f.seasonId));
+  if (f?.competitionId) p.set('competition_id', String(f.competitionId));
+  const qs = p.toString();
+  return get<AdminStats>(t, `/api/admin/stats${qs ? `?${qs}` : ''}`);
+};
 
 export const apiListNews = (t: string) => get<{ news: AdminNews[] }>(t, '/api/admin/news').then(d => d.news);
 export const apiUpdateNews = (t: string, id: number, body: Record<string, unknown>) =>

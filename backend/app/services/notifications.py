@@ -24,6 +24,19 @@ SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 # Topics the clients subscribe to.
 TOPIC_NEWS = "news"
 TOPIC_VENUES = "venues"
+# Round-results digests go here for now: with no public accounts and no
+# favourites yet, every device subscribes to this one topic (Phase 1). Phase 2
+# adds an on-device "follow" that subscribes to competition_topic() instead, so
+# a digest reaches only that league's followers.
+TOPIC_RESULTS = "results"
+
+
+def competition_topic(competition_id: int) -> str:
+    """The per-competition topic for Phase 2's on-device follow — subscribing a
+    device to this means a round-results digest reaches only its followers.
+
+    Not used yet: results currently broadcast to TOPIC_RESULTS (see above)."""
+    return f"comp_{competition_id}"
 
 # Cached OAuth token so we don't re-sign every send.
 _token_cache: dict = {"access_token": None, "expiry": 0.0, "project_id": None}
@@ -136,4 +149,50 @@ def notify_new_venue(venue) -> dict:
     name = venue.name_ar or venue.name_en or "ملعب"
     return send_to_topic(
         TOPIC_VENUES, "ملعب جديد", name, data={"type": "venue", "id": venue.id}
+    )
+
+
+def notify_round_results(competition, week: str, matches, headline: str | None = None) -> dict:
+    """One digest for a whole round's results — the entry workflow enters a
+    round at a time, so a single push per round beats one per match. Sent to the
+    competition's own topic and deep-links to that round's results.
+
+    `matches` is the round's completed matches (used only for the count and an
+    optional headline); `headline` may name the marquee fixture.
+    """
+    # The same competition name repeats across age groups (and sometimes sector
+    # divisions), each its own row — so the label carries the age and sector to
+    # say exactly which one this is.
+    from app.extensions import db
+    from app.models import AgeGroup
+
+    name = competition.name_ar or competition.name_en or "البطولة"
+    age = ""
+    if competition.age_group_id:
+        ag = db.session.get(AgeGroup, competition.age_group_id)
+        if ag:
+            age = (ag.name_ar or ag.name_en or "").strip()
+    sector = (competition.sector_ar or competition.sector_en or "").strip()
+    label = " - ".join(p for p in (name, age, sector) if p)
+
+    week = (str(week) or "").strip()
+    title = f"نتائج الجولة {week} — {label}" if week else f"النتائج — {label}"
+    n = len(matches)
+    if headline:
+        extra = n - 1
+        body = headline + (f" و{extra} مباراة أخرى" if extra > 0 else "")
+    else:
+        body = f"{n} مباراة — اضغط لعرض النتائج"
+    # Phase 1: broadcast to every device via TOPIC_RESULTS. The title carries the
+    # competition/age/sector, so users still know which league it is. Phase 2
+    # swaps this to competition_topic(competition.id) once follow exists; the
+    # competition_id in the payload is already here for the deep-link either way.
+    return send_to_topic(
+        TOPIC_RESULTS, title, body,
+        data={
+            "type": "round",
+            "competition_id": competition.id,
+            "week": week,
+            "url": f"/competition?id={competition.id}&week={week}",
+        },
     )
