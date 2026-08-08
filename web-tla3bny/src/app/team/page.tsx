@@ -8,6 +8,7 @@ import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
+import TeamHero from '@/components/tla3bny/TeamHero';
 
 function TeamContent() {
   const tt = useTT();
@@ -53,13 +54,7 @@ function TeamContent() {
         </Link>
       )}
 
-      <Card className="p-5 flex items-center gap-4">
-        <LogoAvatar src={t.academy_logo} name={nm(t.academy_name, t.academy_name_en)} size={60} />
-        <div>
-          <h1 className="text-xl font-black text-text">{nm(t.display_name, t.display_name_en)}</h1>
-          <p className="text-sm text-teal font-bold">{t.age_category}</p>
-        </div>
-      </Card>
+      <TeamHero team={t} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">

@@ -211,6 +211,28 @@ def add_manager(academy_id: int):
     return jsonify(m.to_dict()), 201
 
 
+@tla3bny_bp.put("/academies/<int:academy_id>/managers/<int:manager_id>")
+@auth.login_required
+def update_manager(academy_id: int, manager_id: int):
+    if _resolve_academy_for_write(academy_id) is None:
+        return _forbid()
+    m = Tla3bnyAcademyManager.query.filter_by(id=manager_id, academy_id=academy_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            return _err("name is required")
+        m.name = name
+    if "role" in data:
+        m.role = (data.get("role") or "").strip() or None
+    if "phone" in data:
+        m.phone = (data.get("phone") or "").strip() or None
+    if "sort_order" in data:
+        m.sort_order = _int(data.get("sort_order"), m.sort_order)
+    db.session.commit()
+    return jsonify(m.to_dict())
+
+
 @tla3bny_bp.delete("/academies/<int:academy_id>/managers/<int:manager_id>")
 @auth.login_required
 def delete_manager(academy_id: int, manager_id: int):
@@ -236,6 +258,7 @@ def add_branch(academy_id: int):
     b = Tla3bnyAcademyBranch(
         academy_id=academy.id,
         name=_clip(name, 255),
+        governorate=_clip(data.get("governorate"), 60),
         address=_clip(data.get("address"), 512),
         location_url=_clean_url(data.get("location_url")),
         phone=_clip(data.get("phone"), 50),
@@ -258,6 +281,8 @@ def update_branch(academy_id: int, branch_id: int):
         if not name:
             return _err("name is required")
         b.name = _clip(name, 255)
+    if "governorate" in data:
+        b.governorate = _clip(data.get("governorate"), 60)
     if "address" in data:
         b.address = _clip(data.get("address"), 512)
     if "location_url" in data:

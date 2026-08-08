@@ -60,6 +60,7 @@ export interface TBranch {
   id: number;
   academy_id: number;
   name: string;
+  governorate: string | null;
   address: string | null;
   location_url: string | null;
   phone: string | null;
@@ -128,6 +129,8 @@ export interface TTeam {
   class_label: string | null;
   name: string | null;
   name_en: string | null;
+  photo_path: string | null;
+  description: string | null;
   display_name: string;
   display_name_en: string;
   coaches?: TCoach[];
@@ -648,6 +651,8 @@ export function tUpdateAcademy(
 }
 export const tAddManager = (token: string, academyId: number, b: Record<string, unknown>) =>
   send<TManager>('POST', `/academies/${academyId}/managers`, b, token);
+export const tUpdateManager = (token: string, academyId: number, id: number, b: Record<string, unknown>) =>
+  send<TManager>('PUT', `/academies/${academyId}/managers/${id}`, b, token);
 export const tDeleteManager = (token: string, academyId: number, id: number) =>
   send<{ message: string }>('DELETE', `/academies/${academyId}/managers/${id}`, undefined, token);
 // ── academy branches (locations) ──────────────────────────────────────────────

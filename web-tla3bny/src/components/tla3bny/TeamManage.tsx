@@ -202,8 +202,8 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
               {tt('فريقك لم يُضَف لأي بطولة بعد', 'Your team has not been added to any competition yet')}
             </p>
             <p className="text-[11px] text-hint mt-1">
-              {tt('تواصل مع المنظّم ليضيف فريقك، ثم يمكنك تسجيل اللاعبين.',
-                  'Contact the organiser to add your team, then you can register players.')}
+              {tt('تواصل مع المنظّم ليضيف فريقك، ثم يمكنك تسجيل اللاعبين والجهاز الفني.',
+                  'Contact the organiser to add your team, then you can register players and coaching staff.')}
             </p>
           </Card>
         ) : !canAddPlayers ? (
@@ -501,34 +501,47 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                 <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
                 <div className="text-[11px] text-hint truncate">{[c.role_ar, c.license].filter(Boolean).join(' · ')}</div>
               </div>
-              <button onClick={() => cEditId === c.id ? cancelEditCoach() : startEditCoach(c)}
-                className={`text-xs font-bold px-1 shrink-0 ${cEditId === c.id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
-                {cEditId === c.id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
-              </button>
+              {compEntries.length > 0 && (
+                <button onClick={() => cEditId === c.id ? cancelEditCoach() : startEditCoach(c)}
+                  className={`text-xs font-bold px-1 shrink-0 ${cEditId === c.id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
+                  {cEditId === c.id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
+                </button>
+              )}
               <button onClick={async () => { if (confirm(tt('حذف؟', 'Delete?'))) { await tDeleteCoach(token, c.id); reload(); } }}
                 className="text-hint hover:text-loss text-sm px-2">🗑</button>
             </Card>
           ))}
         </div>
-        <Card className="p-3 space-y-3">
-          {cEditId && <div className="text-[11px] font-bold text-aqua">{tt('تعديل المدرب', 'Editing coach')}</div>}
-          <div className="grid grid-cols-3 gap-3">
-            <Field label={tt('الاسم', 'Name')}><input value={cf.name} onChange={e => setCf({ ...cf, name: e.target.value })} className={inputCls} /></Field>
-            <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={cf.name_en} onChange={e => setCf({ ...cf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
-            <Field label={tt('الوظيفة', 'Role')}><input value={cf.role_ar} onChange={e => setCf({ ...cf, role_ar: e.target.value })} className={inputCls} placeholder={tt('مدرب', 'Coach')} /></Field>
-            <Field label={tt('الرخصة التدريبية', 'Coaching licence')}><input value={cf.license} onChange={e => setCf({ ...cf, license: e.target.value })} className={inputCls} placeholder={tt('مثال: رخصة B', 'e.g. Licence B')} /></Field>
-            <Field label={tt('الهاتف', 'Phone')}><input value={cf.phone} onChange={e => setCf({ ...cf, phone: e.target.value })} className={inputCls} /></Field>
-          </div>
-          <Field label={tt('نبذة عن المسيرة', 'Career brief')}>
-            <textarea value={cf.bio} onChange={e => setCf({ ...cf, bio: e.target.value })} className={inputCls} rows={3}
-              placeholder={tt('خبرة المدرب، الأندية السابقة، الإنجازات…', 'Experience, former clubs, achievements…')} />
-          </Field>
-          <div className="flex items-center gap-3">
-            <input type="file" accept="image/*" onChange={e => setCPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
-            <PrimaryButton onClick={saveCoach} disabled={cBusy || !cf.name}>{cBusy ? tt('…', '…') : cEditId ? tt('حفظ', 'Save') : tt('إضافة', 'Add')}</PrimaryButton>
-            {cEditId && <button onClick={cancelEditCoach} className="text-sm text-hint">{tt('إلغاء', 'Cancel')}</button>}
-          </div>
-        </Card>
+        {/* Like players, coaching staff can only be added once the team is in a
+            competition. */}
+        {compEntries.length === 0 ? (
+          <Card className="p-3 text-center">
+            <p className="text-[11px] text-hint">
+              {tt('أضِف فريقك لبطولة أولاً لتتمكن من إضافة الجهاز الفني.',
+                  'Add your team to a competition first to add coaching staff.')}
+            </p>
+          </Card>
+        ) : (
+          <Card className="p-3 space-y-3">
+            {cEditId && <div className="text-[11px] font-bold text-aqua">{tt('تعديل المدرب', 'Editing coach')}</div>}
+            <div className="grid grid-cols-3 gap-3">
+              <Field label={tt('الاسم', 'Name')}><input value={cf.name} onChange={e => setCf({ ...cf, name: e.target.value })} className={inputCls} /></Field>
+              <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={cf.name_en} onChange={e => setCf({ ...cf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
+              <Field label={tt('الوظيفة', 'Role')}><input value={cf.role_ar} onChange={e => setCf({ ...cf, role_ar: e.target.value })} className={inputCls} placeholder={tt('مدرب', 'Coach')} /></Field>
+              <Field label={tt('الرخصة التدريبية', 'Coaching licence')}><input value={cf.license} onChange={e => setCf({ ...cf, license: e.target.value })} className={inputCls} placeholder={tt('مثال: رخصة B', 'e.g. Licence B')} /></Field>
+              <Field label={tt('الهاتف', 'Phone')}><input value={cf.phone} onChange={e => setCf({ ...cf, phone: e.target.value })} className={inputCls} /></Field>
+            </div>
+            <Field label={tt('نبذة عن المسيرة', 'Career brief')}>
+              <textarea value={cf.bio} onChange={e => setCf({ ...cf, bio: e.target.value })} className={inputCls} rows={3}
+                placeholder={tt('خبرة المدرب، الأندية السابقة، الإنجازات…', 'Experience, former clubs, achievements…')} />
+            </Field>
+            <div className="flex items-center gap-3">
+              <input type="file" accept="image/*" onChange={e => setCPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+              <PrimaryButton onClick={saveCoach} disabled={cBusy || !cf.name}>{cBusy ? tt('…', '…') : cEditId ? tt('حفظ', 'Save') : tt('إضافة', 'Add')}</PrimaryButton>
+              {cEditId && <button onClick={cancelEditCoach} className="text-sm text-hint">{tt('إلغاء', 'Cancel')}</button>}
+            </div>
+          </Card>
+        )}
       </section>
     </div>
   );

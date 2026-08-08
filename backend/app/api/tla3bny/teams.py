@@ -63,6 +63,8 @@ def create_team(academy_id: int):
         class_label=(data.get("class_label") or "").strip() or None,
         name=(data.get("name") or "").strip() or None,
         name_en=(data.get("name_en") or "").strip() or None,
+        photo_path=(data.get("photo_path") or "").strip() or None,
+        description=(data.get("description") or "").strip()[:500] or None,
     )
     db.session.add(team)
     db.session.commit()
@@ -82,6 +84,10 @@ def update_team(team_id: int):
         team.name = (data.get("name") or "").strip() or None
     if "name_en" in data:
         team.name_en = (data.get("name_en") or "").strip() or None
+    if "photo_path" in data:
+        team.photo_path = (data.get("photo_path") or "").strip() or None
+    if "description" in data:
+        team.description = (data.get("description") or "").strip()[:500] or None
     if "age_category_id" in data and _int(data.get("age_category_id")):
         new_age = _int(data.get("age_category_id"))
         if new_age != team.age_category_id:
@@ -208,6 +214,12 @@ def add_coach(team_id: int):
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
     Tla3bnyTeam.query.get_or_404(team_id)
+    # Like players: coaching staff can't be added until the team is entered in a
+    # competition — nothing to attach them to otherwise.
+    if not Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active").first():
+        return _err(
+            "الفريق لم يُضَف لأي بطولة بعد — تواصل مع المنظّم لإضافته أولًا", 403
+        )
     data, files = _read_payload()
     name = (data.get("name") or "").strip()
     if not name:
