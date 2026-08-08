@@ -262,6 +262,8 @@ class Tla3bnyAcademyBranch(TimestampMixin, db.Model):
         sa.ForeignKey("tla3bny_academies.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    # Egyptian governorate (المحافظة) — drives the academies-page filter.
+    governorate: Mapped[str | None] = mapped_column(sa.String(60))
     address: Mapped[str | None] = mapped_column(sa.String(512))
     # A maps link (Google Maps, etc.) — scheme-sanitised on write.
     location_url: Mapped[str | None] = mapped_column(sa.String(512))
@@ -275,6 +277,7 @@ class Tla3bnyAcademyBranch(TimestampMixin, db.Model):
             "id": self.id,
             "academy_id": self.academy_id,
             "name": self.name,
+            "governorate": self.governorate,
             "address": self.address,
             "location_url": self.location_url,
             "phone": self.phone,
@@ -345,6 +348,9 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
     # Optional free-text override; otherwise the display name is derived.
     name: Mapped[str | None] = mapped_column(sa.String(255))
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
+    # Team badge/photo and a short blurb, shown on the team hero card.
+    photo_path: Mapped[str | None] = mapped_column(sa.String(512))
+    description: Mapped[str | None] = mapped_column(sa.String(500))
 
     academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="teams")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -385,6 +391,8 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
             "class_label": self.class_label,
             "name": self.name,
             "name_en": self.name_en,
+            "photo_path": self.photo_path,
+            "description": self.description,
             "display_name": self.display_name(),
             "display_name_en": self.display_name("en"),
         }
