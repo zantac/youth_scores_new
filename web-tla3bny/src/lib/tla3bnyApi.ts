@@ -214,6 +214,12 @@ export interface TCompAge {
   age_category_id: number;
   age_category: string | null;
   name: string | null;
+  /** Public "about this sub-competition" text, shown to everyone. */
+  description: string | null;
+  /** Per-team entry fee (EGP). Present ONLY when the viewer is an academy or a
+   *  competition admin — omitted for the public, so `undefined` means "not
+   *  allowed to see" while `null` means "no fee set". */
+  subscription_fee?: number | null;
   player_registration_deadline: string | null;
   required_documents: string[];
   max_players_per_team: number;
@@ -707,6 +713,8 @@ export interface TTeamCompEntry {
   /** Populated only when replacements_open is true. */
   approved_players: TApprovedPlayer[];
   rejected_players: { player_id: number; player_name: string | null; rejection_reason: string | null }[];
+  /** Players still awaiting the organizer's approval (newly added or edited). */
+  pending_players: { player_id: number; player_name: string | null }[];
 }
 /** Competitions this team is registered in (active + pending), with player quota — for the academy dashboard. */
 export const tTeamCompetitionEntries = (token: string, teamId: number) =>
@@ -805,7 +813,10 @@ export const tDeletePlayerFile = (token: string, playerId: number, fileId: numbe
 /** Pass a super admin's token to get each competition's organizers back too. */
 export const tCompetitions = (seasonId?: number, token?: string | null) =>
   get<TCompetition[]>(`/competitions${qs({ season_id: seasonId })}`, token);
-export const tCompetition = (id: number) => get<TCompetition>(`/competitions/${id}`);
+/** Pass a token to receive fields limited to academies/admins (subscription
+ *  fees on each sub-competition). Anonymous callers get the public shape. */
+export const tCompetition = (id: number, token?: string | null) =>
+  get<TCompetition>(`/competitions/${id}`, token);
 /** `documents` is the competition's required player papers — one entry per
  *  paper, in the order the organiser listed them. */
 function compBody(
