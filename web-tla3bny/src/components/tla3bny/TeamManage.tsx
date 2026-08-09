@@ -2,9 +2,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
-  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries, tJoinableCompetitions, tRequestJoin,
+  tTeam, tTeamRequiredDocs, tTeamCompetitionEntries,
   tPlayer, tCreatePlayer, tUpdatePlayer, tDeletePlayer, tAddCoach, tUpdateCoach, tDeleteCoach, tReplaceCompPlayer,
-  type TTeam, type TCoach, type TMembership, type TTeamCompEntry, type TJoinableCompetition, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
+  type TTeam, type TCoach, type TMembership, type TTeamCompEntry, type TPlayerFile, type TRequiredDocs, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { PapersProgress } from './PlayerPapers';
@@ -44,16 +44,11 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
       await loadPapers(t);
     } finally { setLoading(false); }
   }, [teamId, loadPapers]);
-  const [joinable, setJoinable] = useState<TJoinableCompetition[]>([]);
-  const [joinBusy, setJoinBusy] = useState<number | null>(null);
-  const [showJoinModal, setShowJoinModal] = useState(false);
-
   const refreshEntries = useCallback(() => {
     tTeamCompetitionEntries(token, teamId).then(setCompEntries).catch(e => {
       setCompEntries([]);
       setErr(e instanceof Error ? e.message : String(e));
     });
-    tJoinableCompetitions(token, teamId).then(setJoinable).catch(() => setJoinable([]));
   }, [token, teamId]);
 
   useEffect(() => {
@@ -61,16 +56,6 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
     tTeamRequiredDocs(teamId).then(setDocs).catch(() => setDocs({ documents: [], sources: [] }));
     refreshEntries();
   }, [reload, teamId, token, refreshEntries]);
-
-  const requestJoin = async (cageId: number) => {
-    setJoinBusy(cageId);
-    try {
-      await tRequestJoin(token, teamId, cageId);
-      setShowJoinModal(false);
-      refreshEntries();
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setJoinBusy(null); }
-  };
 
   // Derive registration / replacement availability from competition entries.
   const openEntries = compEntries.filter(e => e.status === 'active' && e.registration_open);
@@ -151,6 +136,10 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   // Build map of rejected player IDs from competition entries
   const rejectedPlayerIds = new Set(
     compEntries.flatMap(e => e.rejected_players.map(rp => rp.player_id))
+  );
+  // Players still waiting for the organizer's approval (newly added or edited).
+  const pendingPlayerIds = new Set(
+    compEntries.flatMap(e => (e.pending_players ?? []).map(pp => pp.player_id))
   );
   const allRejections = compEntries.flatMap(e =>
     e.rejected_players.map(rp => ({ ...rp, competition_name: e.competition_name }))
@@ -289,16 +278,20 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           {(team.players ?? []).length === 0 ? (
             <EmptyState icon="⚽" text={tt('لا لاعبون بعد', 'No players yet')} />
           ) : (team.players ?? []).map(p => (
-            <Card key={p.id} className={`p-2 ${rejectedPlayerIds.has(p.player_id) ? 'border-loss/40' : ''}`}>
+            <Card key={p.id} className={`p-2 ${rejectedPlayerIds.has(p.player_id) ? 'border-loss/40' : pendingPlayerIds.has(p.player_id) ? 'border-gold/40' : ''}`}>
               <div className="flex items-center gap-3">
                 <LogoAvatar src={p.photo_path} name={nm(p.player_name, p.player_name_en)} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
                   <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
-                {rejectedPlayerIds.has(p.player_id) && (
+                {rejectedPlayerIds.has(p.player_id) ? (
                   <span className="text-[10px] font-bold text-loss bg-loss/10 border border-loss/30 rounded-full px-2 py-0.5 shrink-0">
                     {tt('مرفوض', 'Rejected')}
+                  </span>
+                ) : pendingPlayerIds.has(p.player_id) && (
+                  <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 rounded-full px-2 py-0.5 shrink-0">
+                    {tt('بانتظار الاعتماد', 'Pending')}
                   </span>
                 )}
                 <PapersProgress required={requiredDocs} files={papers[p.player_id] ?? []} />
@@ -401,15 +394,11 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
         )}
       </section>
 
-      {/* competition entries + join button */}
+      {/* competition entries — joining is now done from each sub-competition's
+          About page (the academy picks which team enters there). */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-black text-text">{tt('البطولات', 'Competitions')}</h3>
-          <button
-            onClick={() => setShowJoinModal(true)}
-            className="text-xs font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1.5 hover:bg-aqua/10">
-            + {tt('طلب الانضمام لبطولة', 'Request to join')}
-          </button>
         </div>
         <div className="space-y-2">
           {compEntries.length === 0 && (
@@ -437,58 +426,6 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           ))}
         </div>
       </section>
-
-      {/* Join competition modal */}
-      {showJoinModal && (
-        <div className="fixed inset-0 z-[120] bg-black/60 flex items-end sm:items-center justify-center"
-          onClick={() => setShowJoinModal(false)}>
-          <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col"
-            onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-bdr shrink-0">
-              <span className="font-black text-text">{tt('اختر البطولة الفرعية', 'Select sub-competition')}</span>
-              <button onClick={() => setShowJoinModal(false)} className="text-hint hover:text-loss text-xl leading-none">×</button>
-            </div>
-            {/* List */}
-            <div className="overflow-y-auto p-3 space-y-2">
-              {joinable.length === 0 && (
-                <p className="text-hint text-sm text-center py-6">{tt('لا بطولات متاحة لهذه الفئة العمرية', 'No competitions available for this age group')}</p>
-              )}
-              {joinable.map(j => (
-                <button key={j.competition_age_id} onClick={() => requestJoin(j.competition_age_id)}
-                  disabled={joinBusy === j.competition_age_id}
-                  className="w-full text-start bg-darkBg border border-bdr rounded-xl px-4 py-3 hover:border-aqua/50 transition-colors disabled:opacity-50">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-bold text-text text-sm">
-                        {j.competition_name}
-                        {j.sub_competition_name && (
-                          <span className="text-teal font-normal"> · {j.sub_competition_name}</span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-hint mt-0.5">{j.age_category}</div>
-                      {j.player_registration_deadline && (
-                        <div className="text-[11px] text-gold mt-0.5">
-                          {tt('آخر موعد', 'Deadline')}: {j.player_registration_deadline}
-                        </div>
-                      )}
-                    </div>
-                    <div className="shrink-0 mt-0.5">
-                      {joinBusy === j.competition_age_id ? (
-                        <span className="text-xs text-hint">{tt('…', '…')}</span>
-                      ) : j.registration_open ? (
-                        <span className="text-[10px] font-bold text-win bg-win/10 border border-win/30 rounded-full px-2 py-0.5">{tt('مفتوح', 'Open')}</span>
-                      ) : (
-                        <span className="text-[10px] font-bold text-hint bg-cardBg2 border border-bdr rounded-full px-2 py-0.5">{tt('مغلق', 'Closed')}</span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* coaches */}
       <section>

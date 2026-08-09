@@ -24,7 +24,8 @@ Serialization is kept on the models (as ``to_dict``) rather than in a
 serializers module, so this subsystem stays a single, self-contained unit.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -732,6 +733,17 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     def documents(self) -> list[str]:
         return self.required_documents or list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
 
+    @property
+    def locks_team_entry(self) -> bool:
+        """While True, a team already entered here may not enter any other
+        competition — so each team plays one competition at a time and its player
+        registrations are never split across two. The competition is treated as
+        over on the *second day after* its end date; with no end date set it is
+        open-ended and keeps the lock."""
+        if self.end_date is None:
+            return True
+        return date.today() <= self.end_date + timedelta(days=1)
+
     def to_dict(self, with_ages: bool = False) -> dict:
         data = {
             "id": self.id,
@@ -823,6 +835,12 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     )
     # Display name for this sub-competition (e.g. "Class A", "Elite Group").
     name: Mapped[str | None] = mapped_column(sa.String(200))
+    # Public "about this sub-competition" text — shown to everyone, describing
+    # what this bracket is (format, who it's for, notes). Set by the organizer.
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    # Per-team entry fee for this sub-competition, in EGP. Shown ONLY to academy
+    # accounts and the competition's admins — never to the anonymous public.
+    subscription_fee: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
     # Last day a player may be added or edited in this sub-competition's roster.
     player_registration_deadline: Mapped[date | None] = mapped_column(sa.Date)
 
@@ -905,7 +923,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             and date.today() > self.player_registration_deadline
         )
 
-    def to_dict(self, with_stages: bool = False) -> dict:
+    def to_dict(self, with_stages: bool = False, include_fee: bool = False) -> dict:
         data = {
             "id": self.id,
             "competition_id": self.competition_id,
@@ -914,6 +932,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
                 self.age_category.label if self.age_category else None
             ),
             "name": self.name,
+            "description": self.description,
             "player_registration_deadline": (
                 self.player_registration_deadline.isoformat()
                 if self.player_registration_deadline else None
@@ -933,6 +952,15 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
                 self.age_category.oldest_birth_year if self.age_category else None
             ),
         }
+        # The fee is entered by the organizer and shown to academies deciding
+        # whether to enter — the caller (endpoint) decides who may see it. It is
+        # omitted entirely for the public, not just nulled, so the client can tell
+        # "not allowed to see" apart from "no fee set".
+        if include_fee:
+            data["subscription_fee"] = (
+                float(self.subscription_fee)
+                if self.subscription_fee is not None else None
+            )
         if with_stages:
             data["stages"] = [s.to_dict(with_groups=True) for s in self.stages]
         return data

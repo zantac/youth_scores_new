@@ -199,7 +199,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
             </div>
             {dg.competitions.map(cg => (
               <div key={cg.id} className="space-y-2">
-                <Link href={`/competitions?comp=${cg.id}${cg.matches[0]?.competition_age_id ? `&cage=${cg.matches[0].competition_age_id}` : ''}`}
+                <Link href={`/competitions?comp=${cg.id}${cg.matches[0]?.competition_age_id ? `&cage=${cg.matches[0].competition_age_id}` : ''}&tab=matches`}
                   className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
                   <span className="text-base">🏆</span>
                   <span className="flex-1 text-aqua font-bold text-xs leading-tight">{cg.name}</span>

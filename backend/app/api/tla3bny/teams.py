@@ -374,6 +374,13 @@ def team_competition_entries(team_id: int):
         rejected = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id, status="rejected"
         ).all()
+        # Players still awaiting the organizer's approval — a newly added player,
+        # or one the academy edited (editing resubmits them). The academy needs
+        # to see these as "pending" the same way the organizer's approvals list
+        # does, so it knows the roster isn't finalised yet.
+        pending = Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="pending"
+        ).all()
         replacements_open = cage.replacements_open if cage else False
         # Include the approved roster only when the replacement window is open so
         # the academy can pick which players to remove.
@@ -412,6 +419,13 @@ def team_competition_entries(team_id: int):
                     "rejection_reason": cp.rejection_reason,
                 }
                 for cp in rejected
+            ],
+            "pending_players": [
+                {
+                    "player_id": cp.player_id,
+                    "player_name": cp.player.name if cp.player else None,
+                }
+                for cp in pending
             ],
         })
     return jsonify(result)
@@ -485,6 +499,27 @@ def request_join_competition(team_id: int):
         competition_id=comp.id, team_id=team_id
     ).first():
         return _err("Team has already joined or requested to join this competition", 409)
+    # One competition at a time: a team already in another competition that has
+    # not yet ended can't enter this one, so its player registrations are never
+    # split across two live competitions. The other competition frees the team on
+    # the second day after its end date (see Competition.locks_team_entry).
+    other_entries = (
+        Tla3bnyCompetitionTeam.query
+        .filter(
+            Tla3bnyCompetitionTeam.team_id == team_id,
+            Tla3bnyCompetitionTeam.competition_id != comp.id,
+            Tla3bnyCompetitionTeam.status.in_(("pending", "active")),
+        )
+        .all()
+    )
+    blocking = next((e for e in other_entries if e.competition and e.competition.locks_team_entry), None)
+    if blocking is not None:
+        other_name = blocking.competition.name if blocking.competition else ""
+        return _err(
+            f"الفريق مشترك بالفعل في بطولة \"{other_name}\" ولم تنتهِ بعد. "
+            "يمكن الاشتراك في بطولة أخرى بعد انتهاء البطولة الحالية.",
+            409,
+        )
     entry = Tla3bnyCompetitionTeam(
         competition_id=comp.id,
         team_id=team_id,

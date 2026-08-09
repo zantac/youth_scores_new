@@ -5,6 +5,7 @@ import re
 import tempfile
 import zipfile
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 
 import sqlalchemy as sa
 from sqlalchemy import func
@@ -41,6 +42,7 @@ from .audit import _log
 from ._helpers import (
     _bool,
     _clean_docs,
+    _credentials,
     _docs_field,
     _clean_url,
     _clip,
@@ -120,7 +122,10 @@ def get_competition(comp_id: int):
         .first_or_404()
     )
     data = comp.to_dict()
-    data["ages"] = [a.to_dict(with_stages=True) for a in comp.ages]
+    include_fee = _can_see_fee(comp_id)
+    data["ages"] = [
+        a.to_dict(with_stages=True, include_fee=include_fee) for a in comp.ages
+    ]
     data["admins"] = [ca.to_dict() for ca in comp.admins]
     return jsonify(data)
 
@@ -172,14 +177,32 @@ def competition_dashboard(comp_id: int):
     for entry_id, status, cnt in player_rows:
         entry_player_counts[entry_id][status] = cnt
 
-    entry_age = {e.id: e.age_category_id for e in entries}
-    age_player_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # Attribute each team/player/match to a *sub-competition* (competition_age),
+    # not just an age category — two sub-competitions can share one age (e.g. two
+    # 2014 groups), and lumping them by age would show both totals on each. New
+    # rows carry competition_age_id; a legacy row with only age_category_id is
+    # mapped to the sole sub-competition of that age when there is exactly one,
+    # otherwise left unattributed so it never inflates a specific sub-competition.
+    cages_by_age: dict[int, list[int]] = defaultdict(list)
+    for cage in comp.ages:
+        cages_by_age[cage.age_category_id].append(cage.id)
+
+    def _resolve_cage(cage_id, age_cat_id):
+        if cage_id is not None:
+            return cage_id
+        same = cages_by_age.get(age_cat_id, [])
+        return same[0] if len(same) == 1 else None
+
+    entry_cage = {
+        e.id: _resolve_cage(e.competition_age_id, e.age_category_id) for e in entries
+    }
+    cage_player_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     total_counts: dict[str, int] = defaultdict(int)
     for entry_id, counts in entry_player_counts.items():
-        age_id = entry_age.get(entry_id)
+        cage_id = entry_cage.get(entry_id)
         for status, cnt in counts.items():
-            if age_id is not None:
-                age_player_counts[age_id][status] += cnt
+            if cage_id is not None:
+                cage_player_counts[cage_id][status] += cnt
             total_counts[status] += cnt
 
     total_matches = Tla3bnyMatch.query.filter_by(competition_id=comp_id).count()
@@ -196,20 +219,28 @@ def competition_dashboard(comp_id: int):
         .count()
     )
 
-    # One query for match counts by (age_category_id, status).
+    # One query for match counts by (competition_age_id, age_category_id, status),
+    # resolved to a sub-competition the same way team/player counts are.
     match_rows = (
         db.session.query(
+            Tla3bnyMatch.competition_age_id,
             Tla3bnyMatch.age_category_id,
             Tla3bnyMatch.status,
             func.count().label("cnt"),
         )
         .filter(Tla3bnyMatch.competition_id == comp_id)
-        .group_by(Tla3bnyMatch.age_category_id, Tla3bnyMatch.status)
+        .group_by(
+            Tla3bnyMatch.competition_age_id,
+            Tla3bnyMatch.age_category_id,
+            Tla3bnyMatch.status,
+        )
         .all()
     )
-    age_match_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for age_cat_id, status, cnt in match_rows:
-        age_match_counts[age_cat_id][status] = cnt
+    cage_match_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for cage_id, age_cat_id, status, cnt in match_rows:
+        rid = _resolve_cage(cage_id, age_cat_id)
+        if rid is not None:
+            cage_match_counts[rid][status] += cnt
 
     # Per-sub-competition breakdown, sorted by age_category year.
     def _sort_key(c):
@@ -220,15 +251,14 @@ def competition_dashboard(comp_id: int):
 
     ages_data = []
     for cage in sorted(comp.ages, key=_sort_key):
-        age_id = cage.age_category_id
-        p = age_player_counts[age_id]
-        m = age_match_counts[age_id]
-        age_entry_ids = [e.id for e in entries if e.age_category_id == age_id]
+        p = cage_player_counts[cage.id]
+        m = cage_match_counts[cage.id]
+        cage_entry_ids = [e.id for e in entries if entry_cage.get(e.id) == cage.id]
         ages_data.append({
             "competition_age_id": cage.id,
             "age_category": cage.age_category.label if cage.age_category else None,
             "name": cage.name,
-            "teams": len(age_entry_ids),
+            "teams": len(cage_entry_ids),
             "players_approved": p.get("approved", 0),
             "players_pending": p.get("pending", 0),
             "matches_total": sum(m.values()),
@@ -494,13 +524,19 @@ def delete_competition(comp_id: int):
 
 # ── competition admins ───────────────────────────────────────────────────────
 @tla3bny_bp.post("/competitions/<int:comp_id>/admins")
-@auth.super_admin_required
+@auth.login_required
 def add_competition_admin(comp_id: int):
     """Assign an organiser to this competition.
 
-    The username may be one that already exists (an organiser running several
+    The super admin, or an existing organiser of this competition, may do it —
+    so a competition's organisers can bring in co-organisers themselves. The
+    username may be one that already exists (an organiser running several
     competitions) or a brand new one, in which case a password creates it.
     """
+    actor = auth.current_user()
+    if not auth.is_competition_admin(actor, comp_id):
+        return _forbid()
+    is_super = actor.role == "super_admin"
     Tla3bnyCompetition.query.get_or_404(comp_id)
     data = request.get_json(silent=True) or {}
     username, password = _credentials(data)
@@ -526,13 +562,30 @@ def add_competition_admin(comp_id: int):
     elif user.role not in ("competition_admin", "super_admin"):
         return _err("That account is not a competition admin", 409)
     elif password and user.role == "competition_admin":
-        # Re-assigning with a password doubles as "reset their password", which
-        # is the only way an organiser who forgot theirs gets back in. Never
-        # reset another super_admin's password through this organiser path.
-        pw_err = _validate_password(password)
-        if pw_err:
-            return _err(pw_err)
-        user.set_password(password)
+        # Re-assigning with a password doubles as "reset their password", the
+        # only way an organiser who forgot theirs gets back in. That password is
+        # shared across every competition the organiser runs, so a competition
+        # admin may reset it only when this organiser runs no *other* competition
+        # — otherwise the reset would hand over those competitions too, and only
+        # the super admin may do it. (Never resets a super_admin either.)
+        may_reset = is_super
+        if not may_reset:
+            runs_other = Tla3bnyCompetitionAdmin.query.filter(
+                Tla3bnyCompetitionAdmin.user_id == user.id,
+                Tla3bnyCompetitionAdmin.competition_id != comp_id,
+            ).first()
+            if runs_other is not None:
+                return _err(
+                    "لا يمكنك تغيير كلمة مرور منظم يدير بطولات أخرى — اطلب من "
+                    "السوبر أدمن.",
+                    403,
+                )
+            may_reset = True
+        if may_reset:
+            pw_err = _validate_password(password)
+            if pw_err:
+                return _err(pw_err)
+            user.set_password(password)
     if not Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user.id
     ).first():
@@ -542,11 +595,26 @@ def add_competition_admin(comp_id: int):
 
 
 @tla3bny_bp.delete("/competitions/<int:comp_id>/admins/<int:user_id>")
-@auth.super_admin_required
+@auth.login_required
 def remove_competition_admin(comp_id: int, user_id: int):
+    actor = auth.current_user()
+    if not auth.is_competition_admin(actor, comp_id):
+        return _forbid()
     ca = Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user_id
     ).first_or_404()
+    # A competition admin must not leave the competition with no organiser (they
+    # would lock themselves and every co-organiser out). The super admin can,
+    # since they retain global access and can reassign anyone afterwards.
+    if actor.role != "super_admin":
+        remaining = Tla3bnyCompetitionAdmin.query.filter_by(
+            competition_id=comp_id
+        ).count()
+        if remaining <= 1:
+            return _err(
+                "لا يمكن إزالة آخر منظم للبطولة. أضف منظمًا آخر أولًا.",
+                409,
+            )
     db.session.delete(ca)
     db.session.commit()
     return jsonify({"message": "removed"})
@@ -589,6 +657,29 @@ _RULE_MAXIMUMS = {
 }
 
 
+def _can_see_fee(comp_id: int) -> bool:
+    """The per-team subscription fee is for academies deciding whether to enter,
+    and for the organizers who set it — not the anonymous public. True for an
+    academy account or any admin of this competition."""
+    user = auth.current_user()
+    if user is None:
+        return False
+    return user.role == "academy" or auth.is_competition_admin(user, comp_id)
+
+
+def _parse_fee(value) -> Decimal | None:
+    """A non-negative money amount, or None to clear it. Rejects junk/negatives."""
+    if value is None or value == "":
+        return None
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if amount < 0:
+        return None
+    return amount
+
+
 def _validate_rule_fields(data: dict) -> str | None:
     """Return an error message if any rule field is out of range, else None."""
     for f, minimum in _RULE_MINIMUMS.items():
@@ -622,8 +713,11 @@ def add_competition_age(comp_id: int):
         competition_id=comp_id,
         age_category_id=age_id,
         name=(data.get("name") or "").strip() or None,
+        description=(data.get("description") or "").strip() or None,
         player_registration_deadline=_parse_date(data.get("player_registration_deadline")),
     )
+    if "subscription_fee" in data:
+        cage.subscription_fee = _parse_fee(data.get("subscription_fee"))
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
@@ -635,7 +729,7 @@ def add_competition_age(comp_id: int):
         cage.formation_required = bool(data.get("formation_required"))
     db.session.add(cage)
     db.session.commit()
-    return jsonify(cage.to_dict()), 201
+    return jsonify(cage.to_dict(include_fee=True)), 201
 
 
 @tla3bny_bp.put("/competition-ages/<int:cage_id>")
@@ -650,6 +744,10 @@ def update_competition_age(cage_id: int):
         return _err(rule_err, 400)
     if "name" in data:
         cage.name = (data.get("name") or "").strip() or None
+    if "description" in data:
+        cage.description = (data.get("description") or "").strip() or None
+    if "subscription_fee" in data:
+        cage.subscription_fee = _parse_fee(data.get("subscription_fee"))
     if "player_registration_deadline" in data:
         cage.player_registration_deadline = _parse_date(data.get("player_registration_deadline"))
     for f in _RULE_FIELDS:
@@ -662,7 +760,7 @@ def update_competition_age(cage_id: int):
     if "formation_required" in data:
         cage.formation_required = bool(data.get("formation_required"))
     db.session.commit()
-    return jsonify(cage.to_dict())
+    return jsonify(cage.to_dict(include_fee=True))
 
 
 @tla3bny_bp.delete("/competition-ages/<int:cage_id>")

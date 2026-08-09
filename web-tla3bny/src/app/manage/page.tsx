@@ -10,9 +10,9 @@ import {
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
-  tUpdateCompetition, whatsappLink, mediaUrl,
+  tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, whatsappLink, mediaUrl,
   type TCompetition, type TCompAge, type TCompDashboard, type TCategory, type TAcademy, type TTeam,
-  type TCompTeam, type TCompPlayer, type TMatch,
+  type TCompTeam, type TCompPlayer, type TMatch, type TCompAdmin,
 } from '@/lib/tla3bnyApi';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import { sortAges, subCompLabel } from '@/lib/utils';
@@ -25,7 +25,7 @@ import AdsManager from '@/components/tla3bny/AdsManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news' | 'ads';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news' | 'ads' | 'organizers';
 
 function ManageContent() {
   const tt = useTT();
@@ -37,7 +37,7 @@ function ManageContent() {
   const [comp, setComp] = useState<TCompetition | null>(null);
   const [tab, setTab] = useState<Tab>('dashboard');
 
-  const reload = useCallback(() => { if (compId) tCompetition(compId).then(setComp).catch(() => setComp(null)); }, [compId]);
+  const reload = useCallback(() => { if (compId) tCompetition(compId, token).then(setComp).catch(() => setComp(null)); }, [compId, token]);
   useEffect(reload, [reload]);
 
   useEffect(() => { if (!loading && !user) router.replace('/login'); }, [loading, user, router]);
@@ -45,7 +45,7 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'news', 'ads'];
+  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'organizers', 'news', 'ads'];
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Overview'],
     info: ['صفحة البطولة', 'Page'],
@@ -54,6 +54,7 @@ function ManageContent() {
     approvals: ['الاعتمادات', 'Approvals'],
     matches: ['المباريات', 'Matches'],
     stages: ['الأدوار', 'Stages'],
+    organizers: ['المنظمون', 'Organizers'],
     news: ['📰 الأخبار', '📰 News'],
     ads: ['📣 الإعلانات', '📣 Ads'],
   };
@@ -76,6 +77,7 @@ function ManageContent() {
       {tab === 'approvals' && <ApprovalsTab token={token} comp={comp} />}
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
+      {tab === 'organizers' && <OrganizersTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
       {tab === 'ads' && <AdsManager token={token} competitionId={comp.id} />}
     </div>
@@ -304,6 +306,8 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const [cats, setCats] = useState<TCategory[]>([]);
   const [ageId, setAgeId] = useState('');
   const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newFee, setNewFee] = useState('');
   const [newDocs, setNewDocs] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
   useEffect(() => { tCategories().then(setCats); }, []);
@@ -320,10 +324,12 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
     await tAddCompAge(token, comp.id, {
       age_category_id: Number(ageId),
       name: newName.trim() || undefined,
+      description: newDesc.trim() || undefined,
+      subscription_fee: newFee.trim() === '' ? undefined : Number(newFee),
       player_registration_deadline: newDeadline || undefined,
       ...(docs.length ? { required_documents: docs } : {}),
     });
-    setAgeId(''); setNewName(''); setNewDocs(''); setNewDeadline(''); reload();
+    setAgeId(''); setNewName(''); setNewDesc(''); setNewFee(''); setNewDocs(''); setNewDeadline(''); reload();
   };
 
   const [filterAge, setFilterAge] = useState('');
@@ -377,7 +383,15 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
           <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
             <input type="date" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} className={inputCls} />
           </Field>
+          <Field label={tt('رسوم الاشتراك للفريق (ج.م)', 'Subscription fee per team (EGP)')}>
+            <input value={newFee} onChange={e => setNewFee(e.target.value)} inputMode="numeric" className={inputCls}
+              placeholder={tt('مثال: 500', 'e.g. 500')} />
+          </Field>
         </div>
+        <Field label={tt('وصف المنافسة (يظهر للجمهور)', 'Description (shown to the public)')}>
+          <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2} className={inputCls}
+            placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
+        </Field>
         {ageId && (
           <Field label={tt('أوراق اللاعبين (سطر لكل ورقة)', 'Player papers (one per line)')}>
             <textarea value={newDocs} onChange={e => setNewDocs(e.target.value)} rows={3} className={inputCls}
@@ -395,9 +409,15 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
 }) {
   const tt = useTT();
   const [name, setName] = useState(age.name ?? '');
+  const [desc, setDesc] = useState(age.description ?? '');
+  const [fee, setFee] = useState(age.subscription_fee != null ? String(age.subscription_fee) : '');
   const [deadline, setDeadline] = useState(age.player_registration_deadline ?? '');
-  const [f, setF] = useState<Record<string, number>>(() =>
-    Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])));
+  const [f, setF] = useState<Record<string, number>>(() => ({
+    ...Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])),
+    // Edited via its own input below but not part of RULE_FIELDS — seed it so the
+    // input stays controlled from the first render.
+    max_replacements: age.max_replacements ?? 5,
+  }));
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
   const [formationRequired, setFormationRequired] = useState(age.formation_required ?? false);
@@ -411,6 +431,8 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
     const docList = docs.split('\n').map(x => x.trim()).filter(Boolean);
     await tUpdateCompAge(token, age.id, {
       name: name.trim() || null,
+      description: desc.trim() || null,
+      subscription_fee: fee.trim() === '' ? null : Number(fee),
       player_registration_deadline: deadline || null,
       ...f,
       required_documents: docList,
@@ -439,7 +461,16 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
         <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
           <input type="date" value={deadline} onChange={e => mark(setDeadline)(e.target.value)} className={inputCls} />
         </Field>
+        <Field label={tt('رسوم الاشتراك للفريق (ج.م)', 'Subscription fee per team (EGP)')}>
+          <input value={fee} onChange={e => mark(setFee)(e.target.value)} inputMode="numeric" className={inputCls}
+            placeholder={tt('مثال: 500', 'e.g. 500')} />
+        </Field>
       </div>
+
+      <Field label={tt('وصف المنافسة (يظهر للجمهور)', 'Description (shown to the public)')}>
+        <textarea value={desc} onChange={e => mark(setDesc)(e.target.value)} rows={2} className={inputCls}
+          placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
+      </Field>
 
       {/* Match rules */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -512,6 +543,99 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
           finished={finished} canDelete={canDelete} />
       </div>
     </Card>
+  );
+}
+
+/** Organizers (competition admins) for this competition. An organizer can bring
+ *  in co-organizers and remove them — no need to ask the super admin. Only the
+ *  super admin can reset an existing organizer's password (it is shared across
+ *  every competition they run), so that control shows for the super admin only. */
+function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
+  const tt = useTT();
+  const { user } = useTla3bnyAuth();
+  const [f, setF] = useState({ username: '', name: '', password: '' });
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const admins = comp.admins ?? [];
+  const resettingExisting =
+    f.username.trim() !== '' &&
+    admins.some(a => (a.user_login ?? '').trim().toLowerCase() === f.username.trim().toLowerCase());
+
+  const assign = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      await tAddCompAdmin(token, comp.id, f);
+      setMsg(resettingExisting ? tt('تم تغيير كلمة المرور', 'Password reset') : tt('تم إسناد المنظم', 'Organizer assigned'));
+      setF({ username: '', name: '', password: '' });
+      reload();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+
+  const remove = async (a: TCompAdmin) => {
+    const self = a.user_id === user?.id;
+    if (!confirm(self
+      ? tt('إزالة نفسك من تنظيم هذه البطولة؟ ستفقد صلاحية الإدارة.', 'Remove yourself from organizing this competition? You will lose management access.')
+      : tt('إزالة هذا المنظم؟', 'Remove this organizer?'))) return;
+    setErr(null);
+    try { await tRemoveCompAdmin(token, comp.id, a.user_id); reload(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+
+  return (
+    <div className="space-y-3">
+      <Card className="p-3 space-y-2">
+        <p className="font-black text-text text-sm">{tt('إضافة منظم', 'Add organizer')}</p>
+        <p className="text-[11px] text-hint">
+          {tt('اسم مستخدم جديد + كلمة مرور لمنظم جديد، أو زر 🔑 لتغيير كلمة مرور منظم حالي. (لا يمكن تغيير كلمة مرور منظم يدير بطولات أخرى إلا للسوبر أدمن.)',
+              'A new username + password creates a new organizer, or use 🔑 to reset an existing one’s password. (An organizer who runs other competitions can only be reset by the super admin.)')}
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+          <Field label={tt('اسم المستخدم', 'Username')}>
+            <input value={f.username} dir="ltr" onChange={e => setF({ ...f, username: e.target.value })} className={inputCls} placeholder="username" />
+          </Field>
+          <Field label={tt('الاسم', 'Display name')}>
+            <input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} className={inputCls} placeholder={tt('اختياري', 'optional')} />
+          </Field>
+          <Field label={tt('كلمة المرور', 'Password')}>
+            <input value={f.password} type="password" onChange={e => setF({ ...f, password: e.target.value })} className={inputCls} placeholder={tt('كلمة المرور', 'Password')} />
+          </Field>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <PrimaryButton onClick={assign} disabled={busy || !f.username.trim() || (resettingExisting && !f.password)} className="text-sm">
+            {resettingExisting ? tt('تغيير كلمة المرور', 'Reset password') : tt('إسناد منظم', 'Assign organizer')}
+          </PrimaryButton>
+          {msg && <span className="text-[11px] text-win">{msg}</span>}
+        </div>
+        {err && <ErrorNote>{err}</ErrorNote>}
+      </Card>
+
+      <Card className="p-3 space-y-2">
+        <p className="font-black text-text text-sm">{tt('المنظمون الحاليون', 'Current organizers')}</p>
+        {admins.length === 0 && (
+          <p className="text-xs text-hint py-1">{tt('لا يوجد منظمون بعد', 'No organizers yet')}</p>
+        )}
+        {admins.map(a => (
+          <div key={a.id} className="flex items-center justify-between gap-2 text-sm border-t border-bdr/50 pt-2">
+            <span className="text-text min-w-0 truncate">
+              {a.user_name || a.user_login}
+              {a.user_name && a.user_login && <span className="text-hint" dir="ltr"> · {a.user_login}</span>}
+              {a.user_id === user?.id && <span className="text-aqua text-[11px]"> · {tt('أنت', 'you')}</span>}
+            </span>
+            <div className="flex items-center gap-3 shrink-0">
+              <button
+                onClick={() => { setF({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
+                className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
+                🔑 {tt('كلمة المرور', 'Password')}
+              </button>
+              <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
   );
 }
 
