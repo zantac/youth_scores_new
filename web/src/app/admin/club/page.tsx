@@ -16,6 +16,37 @@ const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-t
 const btn = "bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50";
 const card = "bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4";
 
+// Youth-sector posts offered as suggestions, most senior first — mirrors the
+// backend CLUB_STAFF_ROLE_ORDER so entries stay unified and sort consistently.
+// The field stays free text; picking a known post fills its English counterpart.
+const CLUB_STAFF_ROLES = [
+  { ar: 'عضو مجلس الإدارة',                  en: 'Board Member' },
+  { ar: 'رئيس قطاع الناشئين',                en: 'Head of Youth Sector' },
+  { ar: 'نائب رئيس القطاع',                  en: 'Vice President of the Sector' },
+  { ar: 'مشرف القطاع',                       en: 'Sector Supervisor' },
+  { ar: 'المدير الفني للقطاع',               en: 'Technical Director of the Sector' },
+  { ar: 'المشرف الفني للقطاع',               en: 'Technical Supervisor of the Sector' },
+  { ar: 'المدير الاداري للقطاع',             en: 'Administrative Director of the Sector' },
+  { ar: 'مدير الكرة',                        en: 'Football Director' },
+  { ar: 'نائب رئيس جهاز الكرة',              en: 'Deputy Head of Football Staff' },
+  { ar: 'مشرف الكرة',                        en: 'Football Supervisor' },
+  { ar: 'مدير حراس المرمى بالقطاع',          en: 'Goalkeeping Director' },
+  { ar: 'مشرف حراس المرمى',                  en: 'Goalkeeping Supervisor' },
+  { ar: 'رئيس الجهاز الطبي',                 en: 'Head of Medical Staff' },
+  { ar: 'طبيب القطاع',                       en: 'Sector Doctor' },
+  { ar: 'مشرف العلاج الطبيعي',               en: 'Physiotherapy Supervisor' },
+  { ar: 'اخصائي الفريق',                     en: 'Team Specialist' },
+  { ar: 'مخطط أحمال',                        en: 'Fitness Load Planner' },
+  { ar: 'محلل أداء',                         en: 'Performance Analyst' },
+  { ar: 'مسؤول شئون اللاعبين',               en: 'Player Affairs Officer' },
+  { ar: 'المدير المالي',                     en: 'Financial Director' },
+  { ar: 'مدير عام النادي',                   en: 'Club General Manager' },
+  { ar: 'مدير رياضي',                        en: 'Sporting Director' },
+  { ar: 'مشرف النشاط الرياضي',               en: 'Sports Activity Supervisor' },
+  { ar: 'مدير التسويق بالقطاع',              en: 'Sector Marketing Manager' },
+  { ar: 'المشرف العام علي الالعاب الجماعية', en: 'General Supervisor of Team Sports' },
+];
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="block text-teal text-[11px] font-bold mb-1">{label}</label>{children}</div>;
 }
@@ -88,6 +119,11 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
   });
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  // Choosing (or typing) a known post fills the English side automatically.
+  const setRole = (v: string) => {
+    const hit = CLUB_STAFF_ROLES.find(r => r.ar === v.trim());
+    setF(prev => ({ ...prev, role_ar: v, ...(hit ? { role_en: hit.en } : {}) }));
+  };
   const save = async () => {
     setErr(null); setBusy(true);
     try {
@@ -102,7 +138,12 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
       <div className="grid grid-cols-2 gap-3">
         <Field label="الاسم (عربي) *"><input value={f.name_ar} onChange={e => set('name_ar', e.target.value)} className={inputCls} /></Field>
         <Field label="الاسم (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
-        <Field label="المنصب (عربي)"><input value={f.role_ar} onChange={e => set('role_ar', e.target.value)} placeholder="مدير قطاع الناشئين" className={inputCls} /></Field>
+        <Field label="المنصب (عربي)">
+          <input list="staff-roles" value={f.role_ar} onChange={e => setRole(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="staff-roles">
+            {CLUB_STAFF_ROLES.map(r => <option key={r.ar} value={r.ar} />)}
+          </datalist>
+        </Field>
         <Field label="المنصب (إنجليزي)"><input value={f.role_en} onChange={e => set('role_en', e.target.value)} dir="ltr" placeholder="Youth Sector Manager" className={inputCls} /></Field>
         <Field label="تاريخ البداية"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ النهاية"><input type="date" value={f.end_date} onChange={e => set('end_date', e.target.value)} className={inputCls} /></Field>
@@ -306,7 +347,7 @@ function ClubPageInner() {
 
   return (
     <AdminShell title="النادي">
-      <Link href="/admin/structure" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
+      <Link href="/admin/structure?tab=clubs" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">
           <p className="text-3xl mb-3">🔒</p><p className="text-text text-sm font-bold">تحتاج صلاحية «محرّر» أو أعلى</p>
