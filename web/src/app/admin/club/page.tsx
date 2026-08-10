@@ -123,6 +123,7 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<MClubStaff | null>(null);
+  const [showFormer, setShowFormer] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
@@ -135,19 +136,44 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
     if (!confirm('حذف هذا المسؤول؟')) return;
     await apiDeleteClubStaff(token, s.id); reload();
   };
+  // Current staff (end_date NULL) lead the list and can be reordered; anyone
+  // with an end date drops into a separate "former" section below.
+  const current = items.filter(s => !s.end_date);
+  const former = items.filter(s => s.end_date);
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
+    if (j < 0 || j >= current.length) return;
+    const next = [...current];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setItems(next);
+    setItems([...next, ...former]);
     try { await apiReorderClubStaff(token, cid, next.map(x => x.id)); } catch { reload(); }
   };
+
+  const renderRow = (s: MClubStaff, idx: number, isFormer: boolean) => editing?.id === s.id ? (
+    <StaffForm key={s.id} token={token} cid={cid} staff={s} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+  ) : (
+    <div key={s.id} className={card + ' flex items-center gap-3' + (isFormer ? ' opacity-60' : '')}>
+      {!isFormer && current.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === current.length - 1} />}
+      {s.photo ? <img src={s.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
+      <div className="flex-1 min-w-0">
+        <p className="text-text font-bold text-sm truncate">{s.name_ar || s.name_en}</p>
+        <p className="text-teal text-[11px] truncate">{s.role_ar || s.role_en || '—'}</p>
+        {(s.start_date || s.end_date) && (
+          <p className="text-hint text-[10px] tnum">{s.start_date ?? '…'} {s.end_date ? `← ${s.end_date}` : ''}</p>
+        )}
+      </div>
+      {isFormer
+        ? <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">سابق</span>
+        : <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
+      <button onClick={() => setEditing(s)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
+      <button onClick={() => remove(s)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-aqua font-bold text-sm">👔 مسؤولو قطاع الناشئين</p>
+        <p className="text-aqua font-bold text-sm">👔 مسؤولو قطاع الناشئين {current.length > 0 && <span className="text-hint text-xs font-normal">({current.length})</span>}</p>
         {!adding && !editing && (
           <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ مسؤول</button>
         )}
@@ -162,24 +188,16 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
         <p className="text-hint text-sm text-center py-4">لا يوجد مسؤولون بعد</p>
       ) : (
         <div className="space-y-2">
-          {items.map((s, idx) => editing?.id === s.id ? (
-            <StaffForm key={s.id} token={token} cid={cid} staff={s} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
-          ) : (
-            <div key={s.id} className={card + ' flex items-center gap-3'}>
-              {items.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === items.length - 1} />}
-              {s.photo ? <img src={s.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
-              <div className="flex-1 min-w-0">
-                <p className="text-text font-bold text-sm truncate">{s.name_ar || s.name_en}</p>
-                <p className="text-teal text-[11px] truncate">{s.role_ar || s.role_en || '—'}</p>
-                {(s.start_date || s.end_date) && (
-                  <p className="text-hint text-[10px] tnum">{s.start_date ?? '…'} {s.end_date ? `← ${s.end_date}` : ''}</p>
-                )}
-              </div>
-              {!s.end_date && <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
-              <button onClick={() => setEditing(s)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
-              <button onClick={() => remove(s)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
-            </div>
-          ))}
+          {current.map((s, idx) => renderRow(s, idx, false))}
+          {former.length > 0 && (
+            <>
+              <button onClick={() => setShowFormer(v => !v)} className="w-full flex items-center gap-1.5 pt-3 text-hint text-[11px] font-bold">
+                <span className={`transition-transform ${showFormer ? 'rotate-90' : ''}`}>›</span>
+                مسؤولون سابقون ({former.length})
+              </button>
+              {showFormer && former.map(s => renderRow(s, -1, true))}
+            </>
+          )}
         </div>
       )}
     </div>

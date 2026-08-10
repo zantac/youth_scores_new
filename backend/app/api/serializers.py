@@ -816,6 +816,12 @@ def team_public(t: Team, season_id: int | None = None) -> dict:
 
         tcs = [tc for tc in tcs if _overlaps(tc)]
         regs = [r for r in regs if _overlaps(r)]
+    else:
+        # No season chosen: the team's *current* squad and staff only. Anyone
+        # who has left (end_date set) drops off the list — their stint stays in
+        # the database and still shows on their own profile and in season views.
+        tcs = [tc for tc in tcs if tc.end_date is None]
+        regs = [r for r in regs if r.end_date is None]
 
     return {
         "id": t.id,
@@ -859,9 +865,11 @@ def team_public(t: Team, season_id: int | None = None) -> dict:
 def club_public(c: Club) -> dict:
     staff_rank = sa.case(codes.CLUB_STAFF_ROLE_RANK, value=ClubStaff.role_ar,
                          else_=codes.UNRANKED_CLUB_STAFF_ROLE)
+    # Current youth-sector staff only — someone who has left (end_date set)
+    # drops off the club's public list. Their record survives for their profile.
     managers = (ClubStaff.query.filter_by(club_id=c.id)
-                .order_by(ClubStaff.sort_order, staff_rank,
-                          ClubStaff.end_date.isnot(None), ClubStaff.id)
+                .filter(ClubStaff.end_date.is_(None))
+                .order_by(ClubStaff.sort_order, staff_rank, ClubStaff.id)
                 .all())
     # Oldest age group first — by oldest_birth_year, not age_group_id, which
     # orders by when the group was added rather than by age.

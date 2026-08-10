@@ -79,7 +79,6 @@ function ClubProfile() {
                       <p className="text-text font-bold text-sm truncate">{localize(m.name, locale)}</p>
                       <p className="text-teal text-[11px] truncate">{localize(m.role, locale) || '—'}</p>
                     </div>
-                    {!m.current && <span className="text-hint text-[10px] border border-bdr rounded px-2 py-0.5 flex-shrink-0">{isAr ? 'سابق' : 'past'}</span>}
                     <span className="text-aqua text-xs flex-shrink-0">›</span>
                   </button>
                 ))}

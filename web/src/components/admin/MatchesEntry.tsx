@@ -123,19 +123,9 @@ export default function MatchesEntry() {
 
       {cid && (
         <>
-          <div className="flex items-center justify-between">
-            <p className="text-hint text-xs">
-              {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
-            </p>
-            <button onClick={() => setShowNew(s => !s)}
-              className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
-                showNew
-                  ? 'border-loss text-loss hover:bg-loss/10'
-                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
-              }`}>
-              {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
-            </button>
-          </div>
+          <p className="text-hint text-xs">
+            {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
+          </p>
 
           <div className="bg-cardBg border border-bdr rounded-xl p-3 space-y-2">
             <input value={fTeam} onChange={e => setFTeam(e.target.value)}
@@ -155,6 +145,18 @@ export default function MatchesEntry() {
 
           {/* Broadcasting to users is editorial, so only editors+ see it. */}
           {canEdit && <RoundNotify token={token!} cid={cid} matches={active} />}
+
+          {/* The new-match toggle sits right above the list — so entering
+              several matches in a row keeps it within reach instead of scrolling
+              back up past the filters, especially on small screens. */}
+          <button onClick={() => setShowNew(s => !s)}
+            className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+              showNew
+                ? 'border-loss text-loss hover:bg-loss/10'
+                : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+            }`}>
+            {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
+          </button>
 
           {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
             venues={venues}
