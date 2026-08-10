@@ -22,4 +22,4 @@ def _tla3bny_cache(response):
     return response
 
 
-from . import auth, academies, teams, players, seasons, categories, competitions, matches, news, ads, stats, fixtures, audit, search  # noqa: E402, F401
+from . import auth, academies, teams, players, seasons, categories, competitions, matches, news, ads, stats, fixtures, audit, search, awards  # noqa: E402, F401

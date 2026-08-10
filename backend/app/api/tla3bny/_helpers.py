@@ -8,7 +8,7 @@ from flask import current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.extensions import db
-from app.models import Tla3bnyUser
+from app.models import Tla3bnyPlayerFile, Tla3bnyUser
 from app.services import storage
 
 # Images are resized / recompressed to stay within this budget.
@@ -209,6 +209,57 @@ def _read_payload():
     if request.content_type and "multipart/form-data" in request.content_type:
         return request.form, request.files
     return (request.get_json(silent=True) or {}), None
+
+
+def _save_documents(player, data, files, competition_player=None) -> None:
+    """Save uploaded registration papers, pairing each with its document label.
+
+    The client sends files under 'documents' and a parallel 'document_labels'
+    list (same order) naming which paper each is — birth certificate, school
+    letter, national id, health certificate, etc. A legacy single 'papers'
+    field is still accepted. Re-uploading a paper replaces the one already held
+    under that label, so a player keeps one file per required document.
+
+    ``competition_player`` scopes the papers to one competition registration:
+    documents are required *per competition*, so the same label uploaded for a
+    new competition (or the same one next season) is a distinct file and never
+    overwrites another entry's paper. When omitted, the file is a global identity
+    paper (``competition_player_id`` NULL) and replacement stays within that
+    global set.
+    """
+    if files is None:
+        return
+    uploaded = files.getlist("documents") if hasattr(files, "getlist") else []
+    labels = data.getlist("document_labels") if hasattr(data, "getlist") else []
+    if files.get("papers"):
+        uploaded = list(uploaded) + [files.get("papers")]
+    cp_id = competition_player.id if competition_player is not None else None
+    for i, f in enumerate(uploaded):
+        if f is None or f.filename == "":
+            continue
+        path = save_upload(f, kind="document")
+        if not path:
+            continue
+        label = (labels[i] if i < len(labels) else None) or None
+        if label:
+            for old in [
+                x for x in player.files
+                if x.label == label and x.competition_player_id == cp_id
+            ]:
+                db.session.delete(old)
+        db.session.add(
+            Tla3bnyPlayerFile(
+                player_id=player.id,
+                competition_player_id=cp_id,
+                file_path=path,
+                original_name=f.filename,
+                label=label,
+            )
+        )
+        # papers_path is the player's global "primary paper" pointer; only a
+        # global upload updates it, not a per-competition registration paper.
+        if cp_id is None:
+            player.papers_path = path
 
 
 def _parse_date(value):

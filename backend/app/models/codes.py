@@ -95,6 +95,25 @@ TLA3BNY_EVENT_TYPE = (
     "penalty_missed",
 )
 
+# Honours a competition's organizer can award. Team titles go to a team; the
+# rest go to a player. ``player_of_match`` is tied to a match, ``player_of_round``
+# to a round label; the "team of the round" best-XI is its own model, not a type
+# here. Stat awards (top scorer/assister) can be suggested from the analysis
+# leaderboard, but the organizer always confirms the winner.
+TLA3BNY_AWARD_TYPE = (
+    "champion",          # team
+    "runner_up",         # team
+    "third_place",       # team
+    "top_scorer",        # player (suggestable)
+    "top_assister",      # player (suggestable)
+    "best_player",       # player
+    "best_goalkeeper",   # player
+    "player_of_match",   # player, tied to a match
+    "player_of_round",   # player, tied to a round label
+)
+# Award types whose recipient is a team (everything else is a player).
+TLA3BNY_TEAM_AWARD_TYPES = ("champion", "runner_up", "third_place")
+
 # TeamCoach.role_ar — the default seniority order for a team's technical staff.
 # Free text is still allowed; anything not listed sorts after these. A manual
 # reorder (TeamCoach.sort_order) takes precedence over this.

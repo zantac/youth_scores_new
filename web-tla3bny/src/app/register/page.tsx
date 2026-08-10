@@ -11,12 +11,13 @@ export default function Tla3bnyRegisterPage() {
   const router = useRouter();
   const [f, setF] = useState({
     name: '', name_en: '', username: '', password: '', phone: '', email: '',
-    facebook_url: '', whatsapp_number: '',
+    facebook_url: '', whatsapp_number: '', training_place: '', address: '', description: '',
   });
   const [logo, setLogo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
+  const set = (k: keyof typeof f) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
 
   // Registration is open — the academy is live the moment this succeeds, so it
   // lands straight on its own dashboard.
@@ -96,6 +97,28 @@ export default function Tla3bnyRegisterPage() {
             <input type="file" accept="image/*" onChange={e => setLogo(e.target.files?.[0] ?? null)}
               className="w-full text-xs text-hint file:me-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal file:font-bold" />
           </Field>
+
+          {/* Profile details — everything a visitor sees on the academy page.
+              All optional; filling them now means the profile looks complete
+              from day one. Photos, branches and staff are added on the dashboard. */}
+          <div className="pt-2 border-t border-bdr">
+            <p className="text-teal text-xs font-bold mb-3">{tt('بيانات الملف (اختياري)', 'Profile details (optional)')}</p>
+            <div className="space-y-4">
+              <Field label={tt('مكان التدريب', 'Training place')}>
+                <input value={f.training_place} onChange={set('training_place')} className={inputCls}
+                  placeholder={tt('مثال: نادي الجزيرة، ملعب 2', 'e.g. Gezira Club, Pitch 2')} />
+              </Field>
+              <Field label={tt('العنوان', 'Address')}>
+                <input value={f.address} onChange={set('address')} className={inputCls}
+                  placeholder={tt('المدينة / الحي', 'City / district')} />
+              </Field>
+              <Field label={tt('نبذة عن الأكاديمية', 'About the academy')}>
+                <textarea value={f.description} onChange={set('description')} rows={3} className={inputCls}
+                  placeholder={tt('الفئات، سنوات الخبرة، الإنجازات…', 'Age groups, years of experience, achievements…')} />
+              </Field>
+            </div>
+          </div>
+
           <ErrorNote>{error}</ErrorNote>
           <PrimaryButton type="submit"
             disabled={busy || !f.name.trim() || !f.username.trim() || !f.password || !f.phone.trim()}

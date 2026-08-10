@@ -3,7 +3,7 @@ import { Suspense, useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  tMatch, tMatchLineups, tUpdateMatch, tDeleteMatch, tEnterResult,
+  tMatch, tMatchLineups, tUpdateMatch, tDeleteMatch, tEnterResult, tSetPlayerOfMatch,
   tCompTeams, tRoster, tCompetition,
   mediaUrl,
   type TMatch, type TLineup, type TLineupSlot, type TMatchEvent, type TCompPlayer, type TCompAge,
@@ -279,80 +279,116 @@ function EventsTab({ m }: { m: TMatch }) {
   const evs = m.events ?? [];
   if (evs.length === 0) return <EmptyState icon="⚽" text={tt('لا أحداث بعد', 'No events yet')} />;
 
+  // phase: 0 = regular time, 1 = extra time, 2 = penalty shootout.
   type Entry = {
-    id: number; minute: number | null; isHome: boolean;
+    id: number; minute: number | null; phase: number; order: number; isHome: boolean;
     icon: string; iconCls: string; main: string; playerId: number | null; sub?: string;
   };
 
-  const usedIds = new Set<number>();
-  const entries: Entry[] = [];
-
+  // Pre-pair secondary events (assist → goal, sub-out → sub-in) up front, so the
+  // pairing is independent of the order events arrive in — otherwise a sub-out
+  // seen before its sub-in would be dropped and only one name would show.
+  const consumed = new Set<number>();
+  const assistFor = new Map<number, typeof evs[number]>();
+  const outFor = new Map<number, typeof evs[number]>();
   for (const e of evs) {
-    if (usedIds.has(e.id)) continue;
-    usedIds.add(e.id);
+    if (e.event_type === 'goal') {
+      const a = evs.find(x => x.event_type === 'assist' && x.team_id === e.team_id
+        && x.minute === e.minute && x.is_extra_time === e.is_extra_time && !consumed.has(x.id));
+      if (a) { assistFor.set(e.id, a); consumed.add(a.id); }
+    } else if (e.event_type === 'substitution_in') {
+      const o = evs.find(x => x.event_type === 'substitution_out' && x.id !== e.id
+        && (x.id === e.related_event_id || (x.team_id === e.team_id && x.minute === e.minute))
+        && !consumed.has(x.id));
+      if (o) { outFor.set(e.id, o); consumed.add(o.id); }
+    }
+  }
+
+  const entries: Entry[] = [];
+  for (const e of evs) {
+    if (consumed.has(e.id) || e.event_type === 'assist' || e.event_type === 'substitution_out') continue;
     const isHome = e.team_id === m.home_team_id;
+    const isPen = e.event_type === 'penalty_scored' || e.event_type === 'penalty_missed';
+    const phase = isPen ? 2 : (e.is_extra_time ? 1 : 0);
+    const order = isPen ? (e.kick_order ?? 0) : (e.minute ?? 0);
+    const base = { id: e.id, minute: e.minute, phase, order, isHome, playerId: e.player_id };
 
     if (e.event_type === 'goal') {
-      const assist = evs.find(a => a.event_type === 'assist' && a.team_id === e.team_id && a.minute === e.minute && !usedIds.has(a.id));
-      if (assist) usedIds.add(assist.id);
+      const assist = assistFor.get(e.id);
       const tags = [
         e.is_own_goal && tt('عكسي', 'OG'),
         e.is_penalty && tt('ركلة جزاء', 'pen'),
         assist && `🅰️ ${assist.player_name}`,
       ].filter(Boolean).join(' · ');
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '⚽', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', playerId: e.player_id, sub: tags || undefined });
-
-    } else if (e.event_type === 'assist') {
-      // skip — consumed by goal above
-
+      entries.push({ ...base, icon: '⚽', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', sub: tags || undefined });
     } else if (e.event_type === 'yellow') {
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟨', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', playerId: e.player_id });
-
+      entries.push({ ...base, icon: '🟨', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—' });
     } else if (e.event_type === 'second_yellow') {
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟨🟥', iconCls: 'bg-loss/10 text-loss', main: e.player_name ?? '—', playerId: e.player_id, sub: tt('صفراء ثانية', '2nd yellow') });
-
+      entries.push({ ...base, icon: '🟨🟥', iconCls: 'bg-loss/10 text-loss', main: e.player_name ?? '—', sub: tt('صفراء ثانية', '2nd yellow') });
     } else if (e.event_type === 'red') {
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🟥', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', playerId: e.player_id });
-
+      entries.push({ ...base, icon: '🟥', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—' });
     } else if (e.event_type === 'substitution_in') {
-      const out = evs.find(o => o.event_type === 'substitution_out' && o.team_id === e.team_id && o.minute === e.minute && !usedIds.has(o.id));
-      if (out) usedIds.add(out.id);
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '🔁', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', playerId: e.player_id, sub: out ? `🔻 ${out.player_name}` : undefined });
-
-    } else if (e.event_type === 'substitution_out') {
-      // skip — consumed by substitution_in above
-
+      const out = outFor.get(e.id);
+      entries.push({
+        ...base, icon: '🔁', iconCls: 'bg-win/15 text-win',
+        main: `⬆ ${e.player_name ?? '—'}`,
+        sub: out ? `⬇ ${out.player_name}` : undefined,
+      });
     } else if (e.event_type === 'penalty_scored') {
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '✅', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', playerId: e.player_id, sub: e.kick_order != null ? `#${e.kick_order}${e.is_winning_kick ? ' ★' : ''}` : undefined });
-
+      entries.push({ ...base, icon: '✅', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', sub: e.kick_order != null ? `#${e.kick_order}${e.is_winning_kick ? ' ★' : ''}` : undefined });
     } else if (e.event_type === 'penalty_missed') {
-      entries.push({ id: e.id, minute: e.minute, isHome, icon: '❌', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', playerId: e.player_id, sub: e.kick_order != null ? `#${e.kick_order}` : undefined });
+      entries.push({ ...base, icon: '❌', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', sub: e.kick_order != null ? `#${e.kick_order}` : undefined });
     }
   }
 
-  entries.sort((a, b) => (b.minute ?? -1) - (a.minute ?? -1));
+  // Phases stack newest-first: penalties, then extra time, then regular time.
+  // The shootout reads chronologically (kick 1 → n); play reads newest-first.
+  const phases = [
+    { phase: 2, ar: 'ركلات الترجيح', en: 'Penalty shootout', asc: true },
+    { phase: 1, ar: 'الوقت الإضافي', en: 'Extra time', asc: false },
+    { phase: 0, ar: 'الوقت الأصلي', en: 'Regular time', asc: false },
+  ];
+  const hasExtra = entries.some(e => e.phase !== 0);
 
   return (
-    <div className="relative">
-      <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-bdr to-transparent" />
-      {entries.map(e => (
-        <div key={e.id} className="grid grid-cols-[1fr_44px_1fr] items-center gap-2 py-1.5">
-          <div className={e.isHome ? 'col-start-1' : 'col-start-3'}>
-            <div className={`flex items-center gap-2 bg-cardBg border border-bdr rounded-xl px-3 py-2 ${e.isHome ? 'flex-row-reverse text-start' : ''}`}>
-              <span className={`w-6 h-6 rounded-lg grid place-items-center text-xs flex-shrink-0 ${e.iconCls}`}>{e.icon}</span>
-              <div className="min-w-0">
-                {e.playerId
-                  ? <Link href={`/player?id=${e.playerId}`} className="text-text text-xs font-bold truncate hover:text-aqua block">{e.main}</Link>
-                  : <p className="text-text text-xs font-bold truncate">{e.main}</p>}
-                {e.sub && <p className="text-hint text-[10px] truncate">{e.sub}</p>}
+    <div className="space-y-3">
+      {phases.map(g => {
+        const rows = entries.filter(e => e.phase === g.phase)
+          .sort((a, b) => g.asc ? a.order - b.order : b.order - a.order);
+        if (rows.length === 0) return null;
+        return (
+          <div key={g.phase}>
+            {hasExtra && (
+              <div className="flex items-center gap-2 my-2">
+                <div className="flex-1 h-px bg-bdr" />
+                <span className="text-[11px] font-black text-teal">{tt(g.ar, g.en)}</span>
+                <div className="flex-1 h-px bg-bdr" />
               </div>
+            )}
+            <div className="relative">
+              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-bdr to-transparent" />
+              {rows.map(e => (
+                <div key={e.id} className="grid grid-cols-[1fr_44px_1fr] items-center gap-2 py-1.5">
+                  <div className={e.isHome ? 'col-start-1' : 'col-start-3'}>
+                    <div className={`flex items-center gap-2 bg-cardBg border border-bdr rounded-xl px-3 py-2 ${e.isHome ? 'flex-row-reverse text-start' : ''}`}>
+                      <span className={`w-6 h-6 rounded-lg grid place-items-center text-xs flex-shrink-0 ${e.iconCls}`}>{e.icon}</span>
+                      <div className="min-w-0">
+                        {e.playerId
+                          ? <Link href={`/player?id=${e.playerId}`} className="text-text text-xs font-bold truncate hover:text-aqua block">{e.main}</Link>
+                          : <p className="text-text text-xs font-bold truncate">{e.main}</p>}
+                        {e.sub && <p className="text-hint text-[10px] truncate">{e.sub}</p>}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="col-start-2 justify-self-center text-hint text-[11px] font-bold tnum bg-darkBg border border-bdr rounded-full w-10 text-center py-0.5 z-10">
+                    {e.phase === 2 ? '🥅' : e.minute != null ? `${e.minute}'` : '—'}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
-          <span className="col-start-2 justify-self-center text-hint text-[11px] font-bold tnum bg-darkBg border border-bdr rounded-full w-10 text-center py-0.5 z-10">
-            {e.minute != null ? `${e.minute}'` : '—'}
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -420,6 +456,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 
   // Events state (all in one array, sectioned in UI)
   const [events, setEvents] = useState<TMatchEvent[]>(m.events ?? []);
+
+  // Player of the match — picked here and saved alongside the result.
+  const [potm, setPotm] = useState<number | ''>(m.player_of_match?.player_id ?? '');
+  useEffect(() => { setPotm(m.player_of_match?.player_id ?? ''); }, [m.player_of_match?.player_id]);
 
   // ── draft auto-save ────────────────────────────────────────────────────────
   // Keep draftRef in sync with the latest render values.
@@ -557,7 +597,11 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         body.home_score_pen = homePen === '' ? null : Number(homePen);
         body.away_score_pen = awayPen === '' ? null : Number(awayPen);
       }
-      const updated = await tEnterResult(token, m.id, body);
+      let updated = await tEnterResult(token, m.id, body);
+      // Player of the match rides along with the result save.
+      if ((potm || null) !== (m.player_of_match?.player_id ?? null)) {
+        updated = await tSetPlayerOfMatch(token, m.id, potm ? Number(potm) : null);
+      }
       clearDraft(m.id);
       draftRef.current.dirty = false;
       onUpdate(updated);
@@ -702,6 +746,32 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
             </div>
           </div>
         )}
+        {/* Player of the match — picked from either team's approved players. */}
+        <div className="pt-1">
+          <Field label={tt('🎖️ رجل المباراة', '🎖️ Player of the match')}>
+            <select value={potm}
+              onChange={e => { setPotm(e.target.value ? Number(e.target.value) : ''); draftRef.current.dirty = true; }}
+              className={inputCls}>
+              <option value="">{tt('— بدون —', '— none —')}</option>
+              {[m.home_team_id, m.away_team_id].map(tid => {
+                const list = rosters[tid] ?? [];
+                if (list.length === 0) return null;
+                const label = nm(
+                  tid === m.home_team_id ? m.home_team_name : m.away_team_name,
+                  tid === m.home_team_id ? m.home_team_name_en : m.away_team_name_en,
+                );
+                return (
+                  <optgroup key={tid} label={label}>
+                    {list.map(p => (
+                      <option key={p.player_id} value={p.player_id}>{nm(p.player_name, p.player_name_en)}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </select>
+          </Field>
+        </div>
+
         <PrimaryButton onClick={saveResult} disabled={resultBusy} className="w-full">
           {resultBusy ? tt('…', '…') : tt('حفظ النتيجة', 'Save result')}
         </PrimaryButton>
@@ -1335,6 +1405,11 @@ function MatchContent() {
           </Link>
         </div>
         {m.venue && <p className="relative text-hint text-[11px] mt-4">🏟️ {m.venue}</p>}
+        {m.player_of_match && (
+          <p className="relative text-gold text-[11px] font-bold mt-1">
+            🎖️ {tt('رجل المباراة', 'Player of the match')}: {nm(m.player_of_match.player_name, m.player_of_match.player_name_en)}
+          </p>
+        )}
         {m.note && (
           <p className="relative text-gold text-[11px] mt-2 mx-auto max-w-md leading-relaxed bg-gold/10 border border-gold/30 rounded-lg px-3 py-2">
             📝 {m.note}

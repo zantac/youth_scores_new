@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
 from app.models import (
+    Tla3bnyAward,
     Tla3bnyCompetition,
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
@@ -52,6 +53,7 @@ def list_matches():
         joinedload(Tla3bnyMatch.home_team).joinedload(Tla3bnyTeam.age_category),
         joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.academy),
         joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.age_category),
+        selectinload(Tla3bnyMatch.player_of_match_award).joinedload(Tla3bnyAward.player),
     )
     for field in ("competition_id", "age_category_id", "competition_age_id", "stage_id", "group_id"):
         val = request.args.get(field, type=int)

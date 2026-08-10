@@ -118,6 +118,11 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
       </div>
 
       {m.venue && <p className="text-center text-[10px] text-hint mt-1 truncate">📍 {m.venue}</p>}
+      {m.player_of_match && (
+        <p className="text-center text-[10px] text-gold font-bold mt-0.5 truncate">
+          🎖️ {tt('رجل المباراة', 'Player of the match')}: {nm(m.player_of_match.player_name, m.player_of_match.player_name_en)}
+        </p>
+      )}
     </Link>
   );
 }
