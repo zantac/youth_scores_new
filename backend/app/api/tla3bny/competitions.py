@@ -1223,8 +1223,8 @@ def approve_roster_player(cp_id: int):
             None,
         )
         required = cage.documents if cage else entry.competition.documents
-        # This registration's own papers, not the player's global set.
-        supplied = {f.label for f in cp.files if f.label}
+        # This registration's papers, plus the player's global identity papers.
+        supplied = {f.label for f in cp.effective_files if f.label}
         missing = [d for d in required if d not in supplied]
         force = bool((request.get_json(silent=True) or {}).get("force"))
         if missing and not force:
@@ -1292,8 +1292,10 @@ def _load_cps_for_bulk(ids: list[int]):
     return (
         Tla3bnyCompetitionPlayer.query
         .options(
-            selectinload(Tla3bnyCompetitionPlayer.player),
-            # This registration's own papers back the document-completeness guard.
+            # Load the player's global identity papers too — effective_files needs
+            # them for the document-completeness guard.
+            selectinload(Tla3bnyCompetitionPlayer.player)
+            .selectinload(Tla3bnyPlayer.files),
             selectinload(Tla3bnyCompetitionPlayer.files),
             selectinload(Tla3bnyCompetitionPlayer.entry)
             .selectinload(Tla3bnyCompetitionTeam.competition)
@@ -1378,8 +1380,8 @@ def bulk_approve_roster_players():
                 None,
             )
             required = cage.documents if cage else entry.competition.documents
-            # This registration's own papers, not the player's global set.
-            supplied = {f.label for f in cp.files if f.label}
+            # This registration's papers, plus the player's global identity papers.
+            supplied = {f.label for f in cp.effective_files if f.label}
             missing = [d for d in required if d not in supplied]
             if missing:
                 errors.append({

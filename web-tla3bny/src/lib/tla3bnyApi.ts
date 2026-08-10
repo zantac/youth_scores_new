@@ -712,6 +712,8 @@ export interface TTeamCompEntry {
   sub_competition_name: string | null;
   status: string;
   registration_open: boolean;
+  /** Past the deadline the academy can no longer add/edit players (organizer can). */
+  registration_deadline_passed: boolean;
   max_players: number | null;
   player_count: number;
   replacements_open: boolean;

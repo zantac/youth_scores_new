@@ -18,6 +18,7 @@ from app.models import (
     Tla3bnyCompetitionTeam,
     Tla3bnyMatch,
     Tla3bnyMatchEvent,
+    Tla3bnyNews,
     Tla3bnyPlayer,
     Tla3bnyPlayerTeam,
     Tla3bnyTeam,
@@ -30,7 +31,7 @@ from app.services import tla3bny_tables as tables
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _err, _forbid, _int
+from ._helpers import _err, _forbid, _int, _utcnow
 
 _FINISHED = ("finished", "completed")
 
@@ -102,6 +103,90 @@ def _top_players(counts: dict[int, int], limit: int = 5) -> list[dict]:
     return [r for r in out if r]
 
 
+# ── auto-published news for granted honours ─────────────────────────────────
+_AWARD_NEWS = {
+    "champion":        ("🏆", "بطل البطولة"),
+    "runner_up":       ("🥈", "وصيف البطولة"),
+    "third_place":     ("🥉", "صاحب المركز الثالث"),
+    "top_scorer":      ("⚽", "هدّاف البطولة"),
+    "top_assister":    ("🅰️", "صانع الألعاب"),
+    "best_player":     ("⭐", "أفضل لاعب"),
+    "best_goalkeeper": ("🧤", "أفضل حارس مرمى"),
+    "player_of_round": ("🌟", "لاعب الجولة"),
+    "player_of_match": ("🎖️", "رجل المباراة"),
+}
+
+
+def _award_recipient(award):
+    """(display name, photo) for the winner — a player's profile photo, or a
+    team's own photo (falling back to its academy logo)."""
+    if award.team is not None:
+        photo = award.team.photo_path or (
+            award.team.academy.logo_path if award.team.academy else None)
+        return award.team.display_name(), photo
+    if award.player is not None:
+        return award.player.name, award.player.photo_path
+    return "", None
+
+
+def _announce_award(award):
+    """Publish a competition news item for a granted honour, illustrated with the
+    winner's photo. Call after the award row is flushed (relationships resolvable)."""
+    meta = _AWARD_NEWS.get(award.award_type)
+    if meta is None:
+        return
+    emoji, role = meta
+    name, photo = _award_recipient(award)
+    if not name:
+        return
+    scope = (award.competition_age.name if award.competition_age else None) \
+        or (award.competition.name if award.competition else "")
+    role_full = f"{role} — {award.round}" if award.round else role
+    title = f"{emoji} {name} — {role_full}"
+    if award.award_type == "player_of_match" and award.match_id:
+        mt = Tla3bnyMatch.query.get(award.match_id)
+        if mt and mt.home_team and mt.away_team:
+            body = f"{name} رجل مباراة {mt.home_team.display_name()} × {mt.away_team.display_name()}."
+        else:
+            body = f"{name} رجل المباراة."
+    else:
+        body = f"حصل {name} على لقب «{role_full}»"
+        body += f" في {scope}." if scope else "."
+    user = auth.current_user()
+    db.session.add(Tla3bnyNews(
+        competition_id=award.competition_id,
+        title=title[:255], body=body, image_path=photo,
+        news_date=_utcnow().date(), is_published=True,
+        author_user_id=user.id if user else None,
+    ))
+
+
+def _announce_team_of_round(totr):
+    """Publish a news item for a team-of-the-round best XI, listing every player
+    and the team they play for."""
+    lines = []
+    for s in sorted(totr.slots, key=lambda x: x.sort_order):
+        p = s.player
+        if not p:
+            continue
+        cur = p.current_membership()
+        team_name = cur.team.display_name() if cur and cur.team else "—"
+        pos = f"{s.position_slot}: " if s.position_slot else ""
+        lines.append(f"{pos}{p.name} ({team_name})")
+    if not lines:
+        return
+    scope = totr.competition_age.name if totr.competition_age else ""
+    header = f"تشكيلة {totr.round}" + (f" — {scope}" if scope else "")
+    user = auth.current_user()
+    db.session.add(Tla3bnyNews(
+        competition_id=totr.competition_id,
+        title=f"👕 {header} — أفضل {len(lines)}"[:255],
+        body=header + ":\n" + "\n".join(lines),
+        news_date=_utcnow().date(), is_published=True,
+        author_user_id=user.id if user else None,
+    ))
+
+
 # ── competition awards: list (public) / grant / revoke (admin) ───────────────
 @tla3bny_bp.get("/competitions/<int:comp_id>/awards")
 def list_competition_awards(comp_id: int):
@@ -162,7 +247,12 @@ def grant_award(comp_id: int):
         q = q.filter_by(competition_age_id=cage_id, round=round_)
     else:
         q = q.filter_by(competition_age_id=cage_id)
-    for old in q.all():
+    existing = q.all()
+    new_player = player_id if not is_team else None
+    new_team = team_id if is_team else None
+    # Re-granting to the same winner shouldn't publish a duplicate announcement.
+    same_winner = any(o.player_id == new_player and o.team_id == new_team for o in existing)
+    for old in existing:
         db.session.delete(old)
 
     award = Tla3bnyAward(
@@ -171,8 +261,8 @@ def grant_award(comp_id: int):
         award_type=atype,
         round=round_,
         match_id=match_id,
-        player_id=player_id if not is_team else None,
-        team_id=team_id if is_team else None,
+        player_id=new_player,
+        team_id=new_team,
         note=(data.get("note") or "").strip() or None,
         created_by_user_id=auth.current_user().id,
     )
@@ -181,6 +271,8 @@ def grant_award(comp_id: int):
     _log("award_granted", "award", award.id, {
         "award_type": atype, "player_id": award.player_id, "team_id": award.team_id,
     }, competition_id=comp_id)
+    if not same_winner:
+        _announce_award(award)
     db.session.commit()
     return jsonify(award.to_dict()), 201
 
@@ -195,18 +287,26 @@ def set_player_of_match(match_id: int):
     if not _admin(match.competition_id):
         return _forbid()
     player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
+    prev = Tla3bnyAward.query.filter_by(
+        match_id=match_id, award_type="player_of_match"
+    ).first()
+    already = prev is not None and prev.player_id == player_id
     Tla3bnyAward.query.filter_by(
         match_id=match_id, award_type="player_of_match"
     ).delete(synchronize_session=False)
     if player_id:
-        db.session.add(Tla3bnyAward(
+        award = Tla3bnyAward(
             competition_id=match.competition_id,
             competition_age_id=match.competition_age_id,
             award_type="player_of_match",
             match_id=match_id,
             player_id=player_id,
             created_by_user_id=auth.current_user().id,
-        ))
+        )
+        db.session.add(award)
+        db.session.flush()
+        if not already:
+            _announce_award(award)
     db.session.commit()
     return jsonify(match.to_dict(include_events=True))
 
@@ -315,6 +415,7 @@ def upsert_team_of_round(comp_id: int):
     totr = Tla3bnyTeamOfRound.query.filter_by(
         competition_id=comp_id, competition_age_id=cage_id, round=round_
     ).first()
+    was_new = totr is None
     if totr is None:
         totr = Tla3bnyTeamOfRound(
             competition_id=comp_id, competition_age_id=cage_id, round=round_,
@@ -338,6 +439,9 @@ def upsert_team_of_round(comp_id: int):
     db.session.flush()
     _log("team_of_round_set", "team_of_round", totr.id, {"round": round_},
          competition_id=comp_id)
+    # Announce a newly published best XI (not on every later edit).
+    if was_new:
+        _announce_team_of_round(totr)
     db.session.commit()
     return jsonify(totr.to_dict())
 

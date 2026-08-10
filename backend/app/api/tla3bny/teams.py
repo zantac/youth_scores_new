@@ -406,6 +406,9 @@ def team_competition_entries(team_id: int):
             "sub_competition_name": cage.name if cage else None,
             "status": entry.status,
             "registration_open": comp.registration_open if comp else False,
+            # Past the player-registration deadline the academy can no longer add
+            # or edit players in this sub-competition (only the organizer can).
+            "registration_deadline_passed": cage.registration_deadline_passed if cage else False,
             "max_players": cage.max_players_per_team if cage else None,
             "player_count": count,
             "replacements_open": replacements_open,

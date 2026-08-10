@@ -43,6 +43,9 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
 
   const activeEntries = compEntries.filter(e => e.status === 'active');
   const pendingEntries = compEntries.filter(e => e.status === 'pending');
+  // Past the player-registration deadline the academy can no longer add or edit
+  // players (the organizer still can, from their own panel).
+  const editLocked = activeEntries.some(e => e.registration_deadline_passed);
 
   // ── squad: add player (squad-only, no competition documents here) ──────────
   const emptyPf = { name: '', name_en: '', position: '', jersey_number: '', dob: '' };
@@ -120,6 +123,15 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
               'This is your team\'s permanent squad. To enter players in a competition, use the "Competitions" section below and register them with that competition\'s papers.')}
         </p>
 
+        {editLocked && (
+          <Card className="p-3 mb-3 border-gold/40">
+            <p className="text-[11px] text-gold font-bold text-center">
+              {tt('انتهى موعد إضافة أو تعديل اللاعبين لهذه البطولة — تواصل مع المنظّم لأي تعديل.',
+                  'The deadline to add or edit players for this competition has passed — contact the organizer for any change.')}
+            </p>
+          </Card>
+        )}
+
         <div className="space-y-2 mb-3">
           {(team.players ?? []).length === 0 ? (
             <EmptyState icon="⚽" text={tt('لا لاعبون بعد', 'No players yet')} />
@@ -131,18 +143,22 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                   <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
                   <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
-                <button onClick={() => editingId === p.player_id ? setEditingId(null) : startEdit(p)}
-                  className={`text-xs font-bold px-1 shrink-0 ${editingId === p.player_id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
-                  {editingId === p.player_id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
-                </button>
+                {!editLocked && (
+                  <button onClick={() => editingId === p.player_id ? setEditingId(null) : startEdit(p)}
+                    className={`text-xs font-bold px-1 shrink-0 ${editingId === p.player_id ? 'text-hint' : 'text-teal hover:text-aqua'}`}>
+                    {editingId === p.player_id ? tt('إلغاء', 'Cancel') : tt('تعديل', 'Edit')}
+                  </button>
+                )}
                 <Link href={`/player?id=${p.player_id}`} className="text-xs font-bold text-aqua hover:underline px-1 shrink-0">
                   {tt('الملف', 'Profile')}
                 </Link>
-                <button onClick={async () => { if (confirm(tt('حذف اللاعب؟', 'Delete player?'))) { await tDeletePlayer(token, p.player_id); reload(); } }}
-                  className="text-hint hover:text-loss text-sm px-1">🗑</button>
+                {!editLocked && (
+                  <button onClick={async () => { if (confirm(tt('حذف اللاعب؟', 'Delete player?'))) { await tDeletePlayer(token, p.player_id); reload(); } }}
+                    className="text-hint hover:text-loss text-sm px-1">🗑</button>
+                )}
               </div>
 
-              {editingId === p.player_id && (
+              {!editLocked && editingId === p.player_id && (
                 <div className="mt-3 border-t border-bdr/50 pt-3 space-y-3">
                   <p className="text-teal text-[11px] font-bold">{tt('تعديل بيانات اللاعب', 'Edit player data')}</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -178,20 +194,22 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           ))}
         </div>
 
-        <Card className="p-3 space-y-3">
-          <p className="text-teal text-xs font-bold">{tt('إضافة لاعب للتشكيلة', 'Add a player to the squad')}</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
-            <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={pf.name_en} onChange={e => setPf({ ...pf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
-            <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
-            <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
-            <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
-          </div>
-          <Field label={tt('الصورة', 'Photo')}>
-            <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
-          </Field>
-          <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
-        </Card>
+        {!editLocked && (
+          <Card className="p-3 space-y-3">
+            <p className="text-teal text-xs font-bold">{tt('إضافة لاعب للتشكيلة', 'Add a player to the squad')}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
+              <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={pf.name_en} onChange={e => setPf({ ...pf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
+              <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
+              <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
+              <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
+            </div>
+            <Field label={tt('الصورة', 'Photo')}>
+              <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+            </Field>
+            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
+          </Card>
+        )}
       </section>
 
       {/* ── competitions: register squad players per competition ──────────── */}
