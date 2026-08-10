@@ -147,7 +147,7 @@ export const apiUpdateMatch = (t: string, mid: number, body: Record<string, unkn
 export const apiDeleteMatch = (t: string, mid: number) => send<{ deleted: number; deleted_at: string }>(t, 'DELETE', `/api/admin/matches/${mid}`);
 export const apiRestoreMatch = (t: string, mid: number) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/restore`);
 
-export interface PlayerSearchResult { id: number; name: string; birth_year: number; }
+export interface PlayerSearchResult { id: number; name: string; birth_year: number; club: string | null; }
 export const apiSearchPlayers = (t: string, q: string) =>
   get<{ players: PlayerSearchResult[] }>(t, `/api/admin/players/search?q=${encodeURIComponent(q)}`).then(d => d.players);
 
@@ -327,7 +327,7 @@ export const apiAddTeamCoach = (t: string, tid: number, b: Record<string, unknow
 /** Attach an EXISTING coach (by id) to a team, instead of creating a new one. */
 export const apiAttachCoach = (t: string, tid: number, b: { coach_id: number; role_ar?: string; role_en?: string; start_date?: string }) =>
   send<{ coach: MTeamCoach }>(t, 'POST', `/api/admin/teams/${tid}/coaches/attach`, b).then(d => d.coach);
-export interface CoachSearchResult { id: number; name: string }
+export interface CoachSearchResult { id: number; name: string; birth_year: number | null; club: string | null }
 export const apiSearchCoaches = (t: string, q: string) =>
   get<{ coaches: CoachSearchResult[] }>(t, `/api/admin/coaches/search?q=${encodeURIComponent(q)}`).then(d => d.coaches);
 export const apiUpdateTeamCoach = (t: string, id: number, b: Record<string, unknown>) => send<{ coach: MTeamCoach }>(t, 'PATCH', `/api/admin/team-coaches/${id}`, b).then(d => d.coach);

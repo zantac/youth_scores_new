@@ -196,7 +196,7 @@ function AttachStaffForm({ token, cid, onDone, onCancel }: {
       <p className="text-aqua font-bold text-xs">➕ إضافة مسؤول موجود (مثلاً مدرّب تمت ترقيته)</p>
       {sel ? (
         <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
-          <span className="flex-1 text-text text-sm">{sel.name}</span>
+          <span className="flex-1 text-text text-sm">{sel.name}{sel.club && <span className="text-teal text-[11px]"> · {sel.club}</span>}{sel.birth_year && <span className="text-hint text-[11px]"> · مواليد {sel.birth_year}</span>}</span>
           <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
         </div>
       ) : (
@@ -207,7 +207,7 @@ function AttachStaffForm({ token, cid, onDone, onCancel }: {
               {results.map(c => (
                 <button key={c.id} onClick={() => { setSel(c); setQ(''); setResults([]); }}
                   className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
-                  {c.name}
+                  {c.name}{c.club && <span className="text-teal text-[11px]"> · {c.club}</span>}{c.birth_year && <span className="text-hint text-[11px]"> · مواليد {c.birth_year}</span>}
                 </button>
               ))}
             </div>

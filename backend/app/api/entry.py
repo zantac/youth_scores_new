@@ -962,8 +962,19 @@ def search_players():
         .limit(20)
         .all()
     )
+
+    def player_club(p):
+        # Current club (else most recent) — so the merge search shows which club
+        # a player is at, not just their name and birth year.
+        reg = next((r for r in p.registrations if r.end_date is None), None)
+        if reg is None and p.registrations:
+            reg = max(p.registrations, key=lambda r: r.start_date)
+        club = reg.team.club if reg and reg.team else None
+        return (club.name_ar or club.name_en) if club else None
+
     return jsonify({"players": [
-        {"id": p.id, "name": p.full_name_ar or p.full_name_en, "birth_year": p.birth_year}
+        {"id": p.id, "name": p.full_name_ar or p.full_name_en,
+         "birth_year": p.birth_year, "club": player_club(p)}
         for p in rows
     ]})
 

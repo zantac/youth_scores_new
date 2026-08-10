@@ -34,8 +34,6 @@ function CoachProfile() {
 
   const name = localize(c.name, locale);
   const monogram = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('');
-  const coachYears = c.career.filter(x => x.type === 'coach').length;
-  const mgrYears = c.career.filter(x => x.type === 'manager').length;
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
@@ -61,44 +59,35 @@ function CoachProfile() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 p-4">
-        {[
-          { v: coachYears, l: isAr ? 'مهام تدريبية' : 'Coaching roles', c: 'text-aqua' },
-          { v: mgrYears, l: isAr ? 'مهام إدارية' : 'Management roles', c: 'text-gold' },
-        ].map(k => (
-          <div key={k.l} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 text-center">
-            <p className={`font-extrabold text-2xl tnum ${k.c}`}>{k.v}</p>
-            <p className="text-hint text-[11px] mt-0.5">{k.l}</p>
-          </div>
-        ))}
-      </div>
-
       {/* Career */}
-      <div className="px-4">
+      <div className="px-4 pt-4">
         <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'المسيرة' : 'Career'}</h2>
         {c.career.length === 0 ? (
           <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات مسيرة' : 'No career data'}</p>
         ) : (
-          <div className="relative pr-4">
-            <div className="absolute top-3 bottom-3 right-[13px] w-0.5 bg-gradient-to-b from-aqua to-bdr" />
+          <div className="space-y-3">
             {c.career.map((r, i) => (
-              <div key={i} className="grid grid-cols-[28px_1fr] gap-3 pb-3">
-                <div className="relative z-10">
-                  {r.logo ? <img src={r.logo} alt="" className="w-7 h-7 object-contain rounded" /> : <div className="w-7 h-7 rounded bg-bdr grid place-items-center text-xs">🛡️</div>}
+              <div key={i}
+                className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${r.current ? 'border-gold/40' : 'border-bdr'}`}>
+                <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.12),transparent_65%)]" />
+                {/* Club logo — big, spanning the full card height */}
+                <div className="relative w-24 flex-shrink-0 bg-darkBg grid place-items-center p-2.5">
+                  {r.logo
+                    ? <img src={r.logo} alt="" className="w-full h-full object-contain" />
+                    : <span className="text-3xl">🛡️</span>}
                 </div>
-                <div className={`border rounded-xl p-3 ${r.current ? 'border-gold/35 bg-gold/[0.04]' : 'border-bdr bg-cardBg'}`}>
+                <div className="relative flex-1 min-w-0 p-3 flex flex-col justify-center">
                   <div className="flex items-center gap-2">
-                    <p className="text-text text-sm font-bold truncate flex-1">{r.club}</p>
-                    <span className={`text-[9px] font-bold rounded px-1.5 py-0.5 flex-shrink-0 ${r.type === 'manager' ? 'text-gold bg-gold/10 border border-gold/30' : 'text-aqua bg-aqua/10 border border-aqua/30'}`}>
-                      {r.type === 'manager' ? (isAr ? 'إدارة' : 'Mgmt') : (isAr ? 'تدريب' : 'Coach')}
-                    </span>
+                    <p className="text-text text-base font-extrabold truncate flex-1">{r.club}</p>
+                    {r.current && (
+                      <span className="text-[9px] font-bold text-gold bg-gold/10 border border-gold/30 rounded px-1.5 py-0.5 flex-shrink-0">
+                        {isAr ? 'حالي' : 'now'}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-teal text-[11px] mt-0.5">{localize(r.role, locale)}</p>
-                  <p className="text-hint text-[10px] mt-0.5">
-                    {[localize(r.age, locale), localize(r.season, locale)].filter(Boolean).join(' · ')}
-                    {r.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}
-                  </p>
+                  <p className="text-teal text-xs mt-1 truncate">{localize(r.role, locale)}</p>
+                  {localize(r.age, locale) && <p className="text-hint text-[11px] mt-1 truncate">{localize(r.age, locale)}</p>}
+                  {localize(r.season, locale) && <p className="text-hint text-[11px] mt-0.5 truncate">{localize(r.season, locale)}</p>}
                 </div>
               </div>
             ))}
