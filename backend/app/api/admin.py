@@ -442,6 +442,34 @@ def admin_search():
         stints = sorted(c.team_roles, key=lambda tc: tc.start_date or date.min, reverse=True)
         return stints[0].team_id if stints else None
 
+    def player_club(p):
+        # The club the player currently plays for (else their most recent one),
+        # so a search row is not just a name + birth year.
+        cur = next((r for r in p.registrations if r.end_date is None), None)
+        if cur is None:
+            regs = sorted(p.registrations, key=lambda r: r.start_date or date.min, reverse=True)
+            cur = regs[0] if regs else None
+        club = cur.team.club if cur and cur.team else None
+        return (club.name_ar or club.name_en) if club else None
+
+    def coach_role_and_club(c):
+        # A person's actual current post + its club — a team-coaching stint or a
+        # club youth-sector role, current first then newest — so "مدرب" is not
+        # shown for a doctor or an administrator.
+        stints = []
+        for tc in c.team_roles:
+            club = tc.team.club if tc.team else None
+            stints.append((tc.end_date is None, tc.start_date or date.min, tc.role_ar or tc.role_en, club))
+        for cs in c.club_roles:
+            stints.append((cs.end_date is None, cs.start_date or date.min, cs.role_ar or cs.role_en, cs.club))
+        if not stints:
+            return None, None
+        stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
+        _, _, role, club = stints[0]
+        return role, ((club.name_ar or club.name_en) if club else None)
+
+    coach_meta = {c.id: coach_role_and_club(c) for c in coaches}
+
     return jsonify({
         "clubs": [{
             "id": c.id,
@@ -458,12 +486,15 @@ def admin_search():
             "id": p.id,
             "name": p.full_name_ar or p.full_name_en or "",
             "birth_year": p.birth_year,
+            "club": player_club(p),
             # Players are edited/removed from their team's roster.
             "team_id": current_team_id(p),
         } for p in players],
         "coaches": [{
             "id": c.id,
             "name": c.full_name_ar or c.full_name_en or "",
+            "role": coach_meta[c.id][0],
+            "club": coach_meta[c.id][1],
             # The team whose technical-staff section edits this coach.
             "team_id": coach_team_id(c),
         } for c in coaches],

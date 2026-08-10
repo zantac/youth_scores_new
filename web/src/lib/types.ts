@@ -257,8 +257,8 @@ export interface ClubListItem { id: number; name: Localized; city: Localized | n
 
 // Global search (clubs / players / coaches) — one row's worth of data each.
 export interface SearchClub   { id: number; name: Localized; city: Localized | null; logo: string | null; }
-export interface SearchPlayer { id: number; name: Localized; birth_year: number; position: Localized | null; photo: string | null; }
-export interface SearchCoach  { id: number; name: Localized; photo: string | null; }
+export interface SearchPlayer { id: number; name: Localized; birth_year: number; position: Localized | null; club: Localized | null; photo: string | null; }
+export interface SearchCoach  { id: number; name: Localized; role: Localized | null; club: Localized | null; photo: string | null; }
 export interface SearchResults { clubs: SearchClub[]; players: SearchPlayer[]; coaches: SearchCoach[]; }
 
 export interface TeamStaffMember { id: number; name: Localized; photo: string | null; role: Localized | null; current: boolean; }

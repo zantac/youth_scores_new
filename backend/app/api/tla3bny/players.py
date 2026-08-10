@@ -113,7 +113,7 @@ def player_registrations(player_id: int):
                     None,
                 )
             required = cage.documents if cage else (comp.documents if comp else [])
-            supplied = {f.label for f in cp.files if f.label}
+            supplied = {f.label for f in cp.effective_files if f.label}
             item["rejection_reason"] = cp.rejection_reason
             item["required_documents"] = required
             item["missing_documents"] = [d for d in required if d not in supplied]
@@ -305,7 +305,12 @@ def competition_registration(entry_id: int):
         if p is None:
             continue
         cp = regs.get(mem.player_id)
-        supplied = {f.label for f in (cp.files if cp else []) if f.label}
+        # This registration's papers (if any) plus the player's global identity
+        # papers — either satisfies a required document.
+        files = list(cp.effective_files) if cp else [
+            f for f in p.files if f.competition_player_id is None
+        ]
+        supplied = {f.label for f in files if f.label}
         players.append({
             "player_id": p.id,
             "player_name": p.name,
@@ -317,7 +322,7 @@ def competition_registration(entry_id: int):
             "competition_player_id": cp.id if cp else None,
             "registration_status": cp.status if cp else None,
             "rejection_reason": cp.rejection_reason if cp else None,
-            "files": [f.to_dict() for f in (cp.files if cp else [])],
+            "files": [f.to_dict() for f in files],
             "missing_documents": [d for d in required if d not in supplied],
         })
 
@@ -426,6 +431,28 @@ def _player_team_id(player: Tla3bnyPlayer) -> int | None:
     return cur.team_id if cur else None
 
 
+def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
+    """After a sub-competition's player-registration deadline, changing a player's
+    data (name, photo, papers…) is frozen for the academy — only that competition's
+    own admins may still edit. Returns a message if the caller is locked out."""
+    regs = Tla3bnyCompetitionPlayer.query.filter(
+        Tla3bnyCompetitionPlayer.player_id == player.id,
+        Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+    ).all()
+    for cp in regs:
+        entry = cp.entry
+        if entry is None:
+            continue
+        cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id,
+            age_category_id=entry.age_category_id,
+        ).first()
+        if (cage and cage.registration_deadline_passed
+                and not auth.is_competition_admin(user, entry.competition_id)):
+            return "انتهى موعد تعديل بيانات اللاعبين في هذه البطولة"
+    return None
+
+
 @tla3bny_bp.put("/players/<int:player_id>")
 @auth.login_required
 def update_player(player_id: int):
@@ -433,6 +460,9 @@ def update_player(player_id: int):
     team_id = _player_team_id(player)
     if team_id is None or not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
+    locked = _player_edit_locked(player, auth.current_user())
+    if locked:
+        return _err(locked, 403)
     data, files = _read_payload()
 
     if data.get("name"):

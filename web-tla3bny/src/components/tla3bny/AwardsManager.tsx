@@ -46,6 +46,32 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const toggleType = (t: TAwardType) =>
     setOpenTypes(prev => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n; });
 
+  // Editing an existing award = re-grant it to a different winner (same scope),
+  // which replaces the previous holder.
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editWho, setEditWho] = useState<number | ''>('');
+  const [editNote, setEditNote] = useState('');
+  const startEdit = (a: TAward) => {
+    setEditId(a.id); setEditWho(a.team_id ?? a.player_id ?? ''); setEditNote(a.note ?? '');
+  };
+  const saveEdit = async (a: TAward) => {
+    if (!editWho) return;
+    const isTeam = TEAM_AWARD_TYPES.includes(a.award_type);
+    setErr(null);
+    try {
+      await tGrantAward(token, comp.id, {
+        award_type: a.award_type,
+        competition_age_id: a.competition_age_id ?? undefined,
+        round: a.round ?? undefined,
+        match_id: a.match_id ?? undefined,
+        player_id: !isTeam ? Number(editWho) : undefined,
+        team_id: isTeam ? Number(editWho) : undefined,
+        note: editNote || undefined,
+      });
+      setEditId(null); loadHonours();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+
   const players: PoolPlayer[] = useMemo(() =>
     teams.flatMap(t => (t.roster ?? [])
       .filter(r => r.status === 'approved')
@@ -106,6 +132,32 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                     <div className="border-t border-bdr/50 divide-y divide-bdr/40">
                       {list.map(a => {
                         const who = a.team_id ? a.team_name : nm(a.player_name, a.player_name_en);
+                        const isTeam = TEAM_AWARD_TYPES.includes(a.award_type);
+                        if (editId === a.id) {
+                          return (
+                            <div key={a.id} className="px-3 py-2.5 space-y-2 bg-cardBg2/40">
+                              <p className="text-[11px] text-teal font-bold">
+                                {tt(meta[1], meta[2])}{a.round ? ` · ${a.round}` : ''}
+                              </p>
+                              {isTeam ? (
+                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
+                                  <option value="">{tt('اختر الفريق…', 'Select team…')}</option>
+                                  {teams.map(tm => <option key={tm.team_id} value={tm.team_id}>{nm(tm.team_name, tm.team_name_en)}</option>)}
+                                </select>
+                              ) : (
+                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
+                                  <option value="">{tt('اختر اللاعب…', 'Select player…')}</option>
+                                  {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
+                                </select>
+                              )}
+                              <input value={editNote} onChange={e => setEditNote(e.target.value)} className={inputCls} placeholder={tt('ملاحظة (اختياري)', 'Note (optional)')} />
+                              <div className="flex items-center gap-2">
+                                <PrimaryButton onClick={() => saveEdit(a)} disabled={!editWho} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
+                                <button onClick={() => setEditId(null)} className="text-xs text-hint hover:text-text">{tt('إلغاء', 'Cancel')}</button>
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
                           <div key={a.id} className="flex items-center gap-3 px-3 py-2">
                             <div className="min-w-0 flex-1">
@@ -114,6 +166,8 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                                 <div className="text-[11px] text-hint truncate">{[a.round, a.note].filter(Boolean).join(' · ')}</div>
                               )}
                             </div>
+                            <button onClick={() => startEdit(a)}
+                              className="text-teal hover:text-aqua text-xs font-bold px-1 shrink-0">{tt('تعديل', 'Edit')}</button>
                             <button onClick={async () => { await tRevokeAward(token, a.id); loadHonours(); }}
                               className="text-hint hover:text-loss text-sm px-1 shrink-0">🗑</button>
                           </div>

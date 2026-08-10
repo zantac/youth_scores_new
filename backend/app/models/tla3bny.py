@@ -1214,6 +1214,20 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
         ),
     )
 
+    @property
+    def effective_files(self) -> list["Tla3bnyPlayerFile"]:
+        """Papers that count for this registration: the ones uploaded *for it*,
+        plus the player's global identity papers (``competition_player_id`` NULL,
+        e.g. uploaded from the player's own profile). Either satisfies a required
+        document — an organizer shouldn't see "no document" for a paper the player
+        clearly has."""
+        own = list(self.files)
+        globals_ = [
+            f for f in (self.player.files if self.player else [])
+            if f.competition_player_id is None
+        ]
+        return own + globals_
+
     def to_dict(self, with_files: bool = False) -> dict:
         """The player's papers are private: ``with_files=True`` is for this
         competition's admin only, never the public roster."""
@@ -1231,9 +1245,9 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
             "rejection_reason": self.rejection_reason,
         }
         if with_files:
-            # This registration's own papers — not the player's global set. A
-            # player registered in two competitions keeps a separate set per entry.
-            files = list(self.files)
+            # This registration's own papers plus the player's global identity
+            # papers — either satisfies a required document.
+            files = self.effective_files
             # Per-age documents take precedence over the competition's global list.
             required = []
             if self.entry and self.entry.competition:

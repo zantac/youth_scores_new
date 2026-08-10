@@ -63,7 +63,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       rows: res.players.map(p => ({
         id: p.id, path: `/player?id=${p.id}`, img: p.photo, round: true,
         name: localize(p.name, locale),
-        sub: [p.position ? localize(p.position, locale) : '', p.birth_year ? born(p.birth_year) : '']
+        sub: [p.club ? localize(p.club, locale) : '', p.position ? localize(p.position, locale) : '', p.birth_year ? born(p.birth_year) : '']
           .filter(Boolean).join(' · '),
       })),
     },
@@ -72,7 +72,9 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       label: isAr ? 'المدربون' : 'Coaches',
       rows: res.coaches.map(c => ({
         id: c.id, path: `/coach?id=${c.id}`, img: c.photo, round: true,
-        name: localize(c.name, locale), sub: isAr ? 'مدرب' : 'Coach',
+        name: localize(c.name, locale),
+        sub: [c.role ? localize(c.role, locale) : (isAr ? 'مدرب' : 'Coach'), c.club ? localize(c.club, locale) : '']
+          .filter(Boolean).join(' · '),
       })),
     },
   ]), [res, locale, isAr]);
