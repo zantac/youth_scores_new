@@ -11,7 +11,7 @@ dependants, since they mean nothing without their parent.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
@@ -1022,9 +1022,15 @@ def attach_club_staff(cid: int):
         return jsonify({"error": "اختر الشخص"}), 400
     if ClubStaff.query.filter_by(club_id=cid, coach_id=coach.id, end_date=None).first():
         return jsonify({"error": "هذا الشخص مسجّل بالفعل ضمن مسؤولي النادي"}), 409
+    start = _pd(j.get("start_date")) or default_spell_start()
+    # A move to another club auto-ends the person's open staff post(s) at other
+    # clubs the day before this one starts.
+    prior = [r for r in ClubStaff.query.filter_by(coach_id=coach.id, end_date=None).all()
+             if r.club_id != cid]
+    _close_prior_stints(prior, start)
     s = ClubStaff(club_id=cid, coach_id=coach.id,
                   role_ar=_str(j.get("role_ar")), role_en=_str(j.get("role_en")),
-                  start_date=_pd(j.get("start_date")),
+                  start_date=start,
                   sort_order=_next_order(ClubStaff, "club_id", cid))
     db.session.add(s)
     db.session.commit()
@@ -1195,9 +1201,15 @@ def attach_team_coach(tid: int):
         return jsonify({"error": "اختر المدرّب"}), 400
     if TeamCoach.query.filter_by(team_id=tid, coach_id=coach.id, end_date=None).first():
         return jsonify({"error": "المدرّب مسجّل في هذا الفريق بالفعل"}), 409
+    start = _pd(j.get("start_date")) or default_spell_start()
+    # Moving from another club auto-ends the coach's open stint(s) there the day
+    # before this one starts; a same-club stint (coaching another age) stays.
+    prior = [r for r in TeamCoach.query.filter_by(coach_id=coach.id, end_date=None).all()
+             if r.team and r.team.club_id != t.club_id]
+    _close_prior_stints(prior, start)
     tc = TeamCoach(team_id=tid, coach_id=coach.id,
                    role_ar=_str(j.get("role_ar")), role_en=_str(j.get("role_en")),
-                   start_date=_pd(j.get("start_date")) or default_spell_start(),
+                   start_date=start,
                    sort_order=_next_order(TeamCoach, "team_id", tid))
     db.session.add(tc)
     db.session.commit()
@@ -1216,8 +1228,25 @@ def search_coaches():
     rows = (Coach.query
             .filter(db.or_(Coach.full_name_ar.ilike(pattern), Coach.full_name_en.ilike(pattern)))
             .order_by(Coach.full_name_ar).limit(20).all())
+
+    def coach_club(c):
+        # The club of the person's current role (else most recent) — a team
+        # stint or a club post — so the search row shows where they are now.
+        stints = []
+        for tc in c.team_roles:
+            stints.append((tc.end_date is None, tc.start_date or date.min, tc.team.club if tc.team else None))
+        for cs in c.club_roles:
+            stints.append((cs.end_date is None, cs.start_date or date.min, cs.club))
+        if not stints:
+            return None
+        stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
+        club = stints[0][2]
+        return (club.name_ar or club.name_en) if club else None
+
     return jsonify({"coaches": [
-        {"id": c.id, "name": c.full_name_ar or c.full_name_en} for c in rows
+        {"id": c.id, "name": c.full_name_ar or c.full_name_en,
+         "birth_year": c.birth_year, "club": coach_club(c)}
+        for c in rows
     ]})
 
 
@@ -1292,6 +1321,21 @@ def _int_or_none(v):
         return None
 
 
+def _close_prior_stints(rows, new_start, status=None):
+    """End a person's still-open stints (end_date is None) the day before they
+    start a new one elsewhere, so a move to another club auto-closes the old
+    team/club. Never sets an end date before the stint's own start. Callers pass
+    only the rows that should close — a same-club stint (e.g. a player guesting
+    up an age) is deliberately left open."""
+    end = new_start - timedelta(days=1)
+    for r in rows:
+        if r.end_date is not None:
+            continue
+        r.end_date = end if r.start_date is None else max(end, r.start_date)
+        if status is not None:
+            r.status = status
+
+
 @manage_bp.get("/api/admin/teams/<int:tid>/roster")
 @auth.role_required("editor")
 def list_team_roster(tid: int):
@@ -1352,10 +1396,16 @@ def attach_team_player(tid: int):
     if PlayerTeam.query.filter_by(team_id=tid, player_id=p.id, end_date=None).first():
         return jsonify({"error": "اللاعب مسجّل في هذا الفريق بالفعل"}), 409
     status = j.get("status") if j.get("status") in codes.PLAYER_TEAM_STATUS else "active"
+    start = _pd(j.get("start_date")) or default_spell_start()
+    # A transfer-in from another club auto-ends the player's open stint(s) there
+    # the day before he starts here; a same-club stint (guesting up an age) stays.
+    prior = [r for r in PlayerTeam.query.filter_by(player_id=p.id, end_date=None).all()
+             if r.team and r.team.club_id != t.club_id]
+    _close_prior_stints(prior, start, status="transferred")
     pt = PlayerTeam(
         player_id=p.id, team_id=tid,
         shirt_number=_int_or_none(j.get("shirt_number")), status=status,
-        start_date=_pd(j.get("start_date")) or default_spell_start(),
+        start_date=start,
         sort_order=_next_order(PlayerTeam, "team_id", tid),
     )
     db.session.add(pt)
@@ -1427,9 +1477,10 @@ def transfer_team_player(ptid: int):
         return jsonify({"error": "اللاعب مسجّل في هذا الفريق بالفعل"}), 409
 
     start = _pd(j.get("start_date")) or default_spell_start()
-    # Close the current stint on the old team (leave an already-ended one as is).
+    # Close the current stint on the old team the day before the new one starts
+    # (leave an already-ended one as is), never before its own start_date.
     if pt.end_date is None:
-        pt.end_date = start
+        pt.end_date = max(start - timedelta(days=1), pt.start_date)
         pt.status = "transferred"
     # Reuse an existing active stint on the destination instead of duplicating it
     # (the player may already be registered there); otherwise open a new one.

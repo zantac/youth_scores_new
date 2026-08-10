@@ -67,6 +67,7 @@ function PlayerPicker({ token, label, selected, onSelect }: {
               <button onClick={() => pick(p)}
                 className="w-full text-start px-3 py-2.5 text-sm text-text hover:bg-bdr/40 transition-colors border-b border-bdr/40 last:border-0">
                 <span className="font-medium">{p.name}</span>
+                {p.club && <span className="text-teal text-[10px] mr-2">{p.club}</span>}
                 <span className="text-hint text-[10px] mr-2">مواليد {p.birth_year}</span>
                 <span className="text-hint text-[10px] mr-1">#{p.id}</span>
               </button>
