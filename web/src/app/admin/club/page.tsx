@@ -7,9 +7,9 @@ import DeleteBtn from '@/components/admin/DeleteBtn';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiClub, apiUpdateClub, apiUploadImage,
-  apiClubStaff, apiAddClubStaff, apiUpdateClubStaff, apiDeleteClubStaff, apiReorderClubStaff,
-  apiClubTeams, apiCreateClubTeam, apiAgeGroups, apiSeasons,
-  type MClub, type MClubStaff, type MTeamFull, type MAge, type MSeason,
+  apiClubStaff, apiAddClubStaff, apiAttachClubStaff, apiUpdateClubStaff, apiDeleteClubStaff, apiReorderClubStaff,
+  apiSearchCoaches, apiClubTeams, apiCreateClubTeam, apiAgeGroups, apiSeasons,
+  type MClub, type MClubStaff, type MTeamFull, type MAge, type MSeason, type CoachSearchResult,
 } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
@@ -158,11 +158,90 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
   );
 }
 
+// ── Attach an existing person as staff ────────────────────────────────────────
+// Team coaches and club managers share one Coach entity, so a coach who is
+// promoted to a management post is attached here rather than re-created — their
+// profile then spans both roles.
+function AttachStaffForm({ token, cid, onDone, onCancel }: {
+  token: string; cid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<CoachSearchResult[]>([]);
+  const [sel, setSel] = useState<CoachSearchResult | null>(null);
+  const [roleAr, setRoleAr] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchCoaches(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر الشخص'); return; }
+    setBusy(true); setErr(null);
+    try {
+      const role_en = CLUB_STAFF_ROLES.find(r => r.ar === roleAr.trim())?.en;
+      await apiAttachClubStaff(token, cid, { coach_id: sel.id, role_ar: roleAr || undefined, role_en, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2 border-aqua/40'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة مسؤول موجود (مثلاً مدرّب تمت ترقيته)</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name}</span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث بالاسم عن مدرّب أو مسؤول…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(c => (
+                <button key={c.id} onClick={() => { setSel(c); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">المنصب (اختياري)</label>
+          <input list="staff-roles-attach" value={roleAr} onChange={e => setRoleAr(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="staff-roles-attach">
+            {CLUB_STAFF_ROLES.map(r => <option key={r.ar} value={r.ar} />)}
+          </datalist>
+        </div>
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">تاريخ البداية</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Staff section ─────────────────────────────────────────────────────────────
 function StaffSection({ token, cid }: { token: string; cid: number }) {
   const [items, setItems] = useState<MClubStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MClubStaff | null>(null);
   const [showFormer, setShowFormer] = useState(false);
 
@@ -215,17 +294,21 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-aqua font-bold text-sm">👔 مسؤولو قطاع الناشئين {current.length > 0 && <span className="text-hint text-xs font-normal">({current.length})</span>}</p>
-        {!adding && !editing && (
-          <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ مسؤول</button>
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
         )}
       </div>
 
       {adding && <StaffForm token={token} cid={cid} staff={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachStaffForm token={token} cid={cid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
 
       {loading ? (
         <p className="text-hint text-sm text-center py-4">…</p>
-      ) : items.length === 0 && !adding ? (
+      ) : items.length === 0 && !adding && !attaching ? (
         <p className="text-hint text-sm text-center py-4">لا يوجد مسؤولون بعد</p>
       ) : (
         <div className="space-y-2">

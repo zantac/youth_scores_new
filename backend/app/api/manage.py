@@ -1007,6 +1007,30 @@ def add_club_staff(cid: int):
     return jsonify({"staff": _staff_dto(s)}), 201
 
 
+@manage_bp.post("/api/admin/clubs/<int:cid>/staff/attach")
+@auth.role_required("editor")
+def attach_club_staff(cid: int):
+    """Attach an EXISTING person (Coach) to this club as youth-sector staff —
+    e.g. a coach promoted to a management post — instead of creating a new
+    person. Team coaches and club managers share the one Coach entity, so the
+    same individual keeps a single profile spanning both roles."""
+    if db.session.get(Club, cid) is None:
+        return jsonify({"error": "النادي غير موجود"}), 404
+    j = request.get_json(silent=True) or {}
+    coach = db.session.get(Coach, _int_or_none(j.get("coach_id")))
+    if coach is None:
+        return jsonify({"error": "اختر الشخص"}), 400
+    if ClubStaff.query.filter_by(club_id=cid, coach_id=coach.id, end_date=None).first():
+        return jsonify({"error": "هذا الشخص مسجّل بالفعل ضمن مسؤولي النادي"}), 409
+    s = ClubStaff(club_id=cid, coach_id=coach.id,
+                  role_ar=_str(j.get("role_ar")), role_en=_str(j.get("role_en")),
+                  start_date=_pd(j.get("start_date")),
+                  sort_order=_next_order(ClubStaff, "club_id", cid))
+    db.session.add(s)
+    db.session.commit()
+    return jsonify({"staff": _staff_dto(s)}), 201
+
+
 @manage_bp.post("/api/admin/clubs/<int:cid>/staff/reorder")
 @auth.role_required("editor")
 def reorder_club_staff(cid: int):
