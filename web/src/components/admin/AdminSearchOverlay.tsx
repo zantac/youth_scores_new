@@ -60,14 +60,14 @@ export default function AdminSearchOverlay({ onClose }: { onClose: () => void })
     {
       key: 'players', label: 'اللاعبون',
       rows: res.players.map(p => ({
-        id: `p${p.id}`, name: p.name, sub: `مواليد ${p.birth_year}`, icon: '👤',
+        id: `p${p.id}`, name: p.name, sub: [p.club, `مواليد ${p.birth_year}`].filter(Boolean).join(' · '), icon: '👤',
         href: p.team_id ? `/admin/team?id=${p.team_id}&player=${p.id}` : `/player?id=${p.id}`,
       })),
     },
     {
       key: 'coaches', label: 'المدربون',
       rows: res.coaches.map(c => ({
-        id: `co${c.id}`, name: c.name, sub: 'مدرب', icon: '👔',
+        id: `co${c.id}`, name: c.name, sub: [c.role || 'مدرب', c.club].filter(Boolean).join(' · '), icon: '👔',
         href: c.team_id ? `/admin/team?id=${c.team_id}&coach=${c.id}` : `/coach?id=${c.id}`,
       })),
     },

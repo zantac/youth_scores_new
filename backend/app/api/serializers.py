@@ -937,6 +937,31 @@ def search_all(q: str, limit: int = 12) -> dict:
         .all()
     )
 
+    def player_club(p):
+        # The club a player currently plays for (else their most recent), so a
+        # search row carries their team, not just name + birth year.
+        reg = next((r for r in p.registrations if r.end_date is None), None)
+        if reg is None and p.registrations:
+            reg = max(p.registrations, key=lambda r: r.start_date or datetime.min.date())
+        club = reg.team.club if reg and reg.team else None
+        return _loc(club.name_ar, club.name_en) if club else None
+
+    def coach_role_and_club(c):
+        # A person's actual current post + its club — a team-coaching stint or a
+        # club youth-sector role, current first then newest — so a doctor or an
+        # administrator is not labelled a coach.
+        stints = []
+        for tc in c.team_roles:
+            club = tc.team.club if tc.team else None
+            stints.append((tc.end_date is None, tc.start_date or datetime.min.date(), tc.role_ar, tc.role_en, club))
+        for cs in c.club_roles:
+            stints.append((cs.end_date is None, cs.start_date or datetime.min.date(), cs.role_ar, cs.role_en, cs.club))
+        if not stints:
+            return None, None
+        stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
+        _, _, role_ar, role_en, club = stints[0]
+        return _loc(role_ar, role_en), (_loc(club.name_ar, club.name_en) if club else None)
+
     return {
         "clubs": [{
             "id": c.id,
@@ -949,13 +974,20 @@ def search_all(q: str, limit: int = 12) -> dict:
             "name": _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
             "birth_year": p.birth_year,
             "position": _loc(p.position_ar, p.position_en),
+            "club": player_club(p),
             "photo": p.profile_pic_url,
         } for p in players],
-        "coaches": [{
-            "id": c.id,
-            "name": _loc(c.full_name_ar, c.full_name_en) or {"ar": "", "en": ""},
-            "photo": c.profile_pic_url,
-        } for c in coaches],
+        "coaches": [
+            {
+                "id": c.id,
+                "name": _loc(c.full_name_ar, c.full_name_en) or {"ar": "", "en": ""},
+                "role": role,
+                "club": club,
+                "photo": c.profile_pic_url,
+            }
+            for c in coaches
+            for role, club in [coach_role_and_club(c)]
+        ],
     }
 
 

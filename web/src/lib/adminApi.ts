@@ -60,8 +60,8 @@ export async function apiListUsers(token: string) {
 // ── global admin search (clubs / teams / players) ──────────────────────────────
 export interface AdminSearchClub { id: number; name: string; city: string; logo: string | null }
 export interface AdminSearchTeam { id: number; name: string; logo: string | null }
-export interface AdminSearchPlayer { id: number; name: string; birth_year: number; team_id: number | null }
-export interface AdminSearchCoach { id: number; name: string; team_id: number | null }
+export interface AdminSearchPlayer { id: number; name: string; birth_year: number; club: string | null; team_id: number | null }
+export interface AdminSearchCoach { id: number; name: string; role: string | null; club: string | null; team_id: number | null }
 export interface AdminSearchResults { clubs: AdminSearchClub[]; teams: AdminSearchTeam[]; players: AdminSearchPlayer[]; coaches: AdminSearchCoach[] }
 export async function apiAdminSearch(token: string, q: string): Promise<AdminSearchResults> {
   const res = await fetch(`${API_ORIGIN}/api/admin/search?q=${encodeURIComponent(q)}`, { headers: headers(token) });
