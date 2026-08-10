@@ -22,10 +22,11 @@ import CompDocsEditor from '@/components/tla3bny/CompDocsEditor';
 import DocumentsManager from '@/components/tla3bny/DocumentsManager';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import AdsManager from '@/components/tla3bny/AdsManager';
+import AwardsManager from '@/components/tla3bny/AwardsManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'news' | 'ads' | 'organizers';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'news' | 'ads' | 'organizers';
 
 function ManageContent() {
   const tt = useTT();
@@ -45,7 +46,7 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'organizers', 'news', 'ads'];
+  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'organizers', 'news', 'ads'];
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Overview'],
     info: ['صفحة البطولة', 'Page'],
@@ -54,6 +55,7 @@ function ManageContent() {
     approvals: ['الاعتمادات', 'Approvals'],
     matches: ['المباريات', 'Matches'],
     stages: ['الأدوار', 'Stages'],
+    awards: ['🏆 الجوائز', '🏆 Awards'],
     organizers: ['المنظمون', 'Organizers'],
     news: ['📰 الأخبار', '📰 News'],
     ads: ['📣 الإعلانات', '📣 Ads'],
@@ -77,6 +79,7 @@ function ManageContent() {
       {tab === 'approvals' && <ApprovalsTab token={token} comp={comp} />}
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
+      {tab === 'awards' && <AwardsManager token={token} comp={comp} />}
       {tab === 'organizers' && <OrganizersTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
       {tab === 'ads' && <AdsManager token={token} competitionId={comp.id} />}
@@ -421,6 +424,8 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
   const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
   const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
   const [formationRequired, setFormationRequired] = useState(age.formation_required ?? false);
+  const [etPeriods, setEtPeriods] = useState(age.et_num_periods != null ? String(age.et_num_periods) : '');
+  const [etMinutes, setEtMinutes] = useState(age.et_period_minutes != null ? String(age.et_period_minutes) : '');
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   useUnsavedGuard(isDirty);
@@ -435,6 +440,8 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
       subscription_fee: fee.trim() === '' ? null : Number(fee),
       player_registration_deadline: deadline || null,
       ...f,
+      et_num_periods: etPeriods.trim() === '' ? null : Number(etPeriods),
+      et_period_minutes: etMinutes.trim() === '' ? null : Number(etMinutes),
       required_documents: docList,
       replacements_open: replacementsOpen,
       formation_required: formationRequired,
@@ -481,6 +488,29 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
               className="w-full bg-darkBg border border-bdr rounded-lg px-2 py-1.5 text-text text-sm outline-none focus:border-aqua tnum" />
           </label>
         ))}
+      </div>
+
+      {/* Extra time (knockout ties) */}
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
+        <p className="text-teal text-[10px] font-bold">{tt('الوقت الإضافي (للأدوار الإقصائية)', 'Extra time (knockout ties)')}</p>
+        <div className="flex items-center gap-4 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-text">
+            <span className="text-[11px] text-hint">{tt('عدد الأشواط', 'Periods')}</span>
+            <input value={etPeriods} onChange={e => { setEtPeriods(e.target.value); setIsDirty(true); }}
+              inputMode="numeric" placeholder="—"
+              className="w-16 bg-darkBg border border-bdr rounded-lg px-2 py-1 text-text text-sm outline-none focus:border-aqua tnum" />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text">
+            <span className="text-[11px] text-hint">{tt('دقائق الشوط', 'Minutes each')}</span>
+            <input value={etMinutes} onChange={e => { setEtMinutes(e.target.value); setIsDirty(true); }}
+              inputMode="numeric" placeholder="—"
+              className="w-16 bg-darkBg border border-bdr rounded-lg px-2 py-1 text-text text-sm outline-none focus:border-aqua tnum" />
+          </label>
+        </div>
+        <p className="text-[11px] text-hint">
+          {tt('اتركها فارغة إذا كانت التعادلات في الإقصائيات تُحسم بركلات الترجيح مباشرة.',
+              'Leave blank if knockout ties go straight to penalties.')}
+        </p>
       </div>
 
       {/* Formation requirement */}
@@ -1555,7 +1585,11 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
             </div>
           ))}
         </div>
-        <GenerateFixturesPanel token={token} stageId={stageId} stageType={stageType} teamCount={stageTeamIds.length} groups={groups ?? []} onDone={reload} />
+        {/* Knockout rounds are created by hand as results come in (no auto-draw),
+            so the fixture generator is only offered for a league stage. */}
+        {stageType !== 'knockout' && (
+          <GenerateFixturesPanel token={token} stageId={stageId} stageType={stageType} teamCount={stageTeamIds.length} groups={groups ?? []} onDone={reload} />
+        )}
       </div>
     );
   }

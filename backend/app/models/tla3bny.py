@@ -551,6 +551,13 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
     player_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_players.id", ondelete="CASCADE"), nullable=False
     )
+    # The competition registration this paper was uploaded *for*. Documents are
+    # required per competition (a new competition — or the same one next season —
+    # needs its own fresh papers), so a file belongs to one Tla3bnyCompetitionPlayer
+    # entry. Null means a legacy/global identity paper not tied to a competition.
+    competition_player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_players.id", ondelete="CASCADE")
+    )
     file_path: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     original_name: Mapped[str | None] = mapped_column(sa.String(255))
     # Which required paper this file is (e.g. "شهادة الميلاد"); null for a
@@ -563,6 +570,7 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
         return {
             "id": self.id,
             "player_id": self.player_id,
+            "competition_player_id": self.competition_player_id,
             "file_path": self.file_path,
             "original_name": self.original_name,
             "label": self.label,
@@ -865,6 +873,10 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     period_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=20
     )
+    # Extra-time format for knockout ties. Null means this sub-competition does
+    # not play extra time (a level knockout goes straight to penalties).
+    et_num_periods: Mapped[int | None] = mapped_column(sa.Integer)
+    et_period_minutes: Mapped[int | None] = mapped_column(sa.Integer)
     # How long before kickoff a coach must have submitted the lineup.
     lineup_deadline_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=60
@@ -944,6 +956,8 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "max_substitutes": self.max_substitutes,
             "num_periods": self.num_periods,
             "period_minutes": self.period_minutes,
+            "et_num_periods": self.et_num_periods,
+            "et_period_minutes": self.et_period_minutes,
             "lineup_deadline_minutes": self.lineup_deadline_minutes,
             "replacements_open": self.replacements_open,
             "max_replacements": self.max_replacements,
@@ -1180,6 +1194,13 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
 
     entry: Mapped["Tla3bnyCompetitionTeam"] = relationship(back_populates="roster")
     player: Mapped["Tla3bnyPlayer"] = relationship()
+    # The papers uploaded for *this* registration. Documents are per-competition,
+    # so a player entered in two competitions keeps a separate set for each.
+    files: Mapped[list["Tla3bnyPlayerFile"]] = relationship(
+        "Tla3bnyPlayerFile",
+        primaryjoin="Tla3bnyCompetitionPlayer.id == Tla3bnyPlayerFile.competition_player_id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         sa.UniqueConstraint(
@@ -1210,7 +1231,9 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
             "rejection_reason": self.rejection_reason,
         }
         if with_files:
-            files = list(p.files) if p else []
+            # This registration's own papers — not the player's global set. A
+            # player registered in two competitions keeps a separate set per entry.
+            files = list(self.files)
             # Per-age documents take precedence over the competition's global list.
             required = []
             if self.entry and self.entry.competition:
@@ -1295,6 +1318,16 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     lineups: Mapped[list["Tla3bnyLineup"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
     )
+    # The player-of-the-match honour for this match, if the organizer set one.
+    player_of_match_award: Mapped["Tla3bnyAward | None"] = relationship(
+        "Tla3bnyAward",
+        primaryjoin=(
+            "and_(Tla3bnyMatch.id == Tla3bnyAward.match_id, "
+            "Tla3bnyAward.award_type == 'player_of_match')"
+        ),
+        viewonly=True,
+        uselist=False,
+    )
 
     __table_args__ = (
         # The matches feed and dashboards filter by competition + age + status…
@@ -1375,6 +1408,16 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "away_score_pen": self.away_score_pen,
             "note": self.note,
         }
+        pom = self.player_of_match_award
+        data["player_of_match"] = (
+            {
+                "player_id": pom.player_id,
+                "player_name": pom.player.name if pom.player else None,
+                "player_name_en": pom.player.name_en if pom.player else None,
+                "photo_path": pom.player.photo_path if pom.player else None,
+            }
+            if pom is not None and pom.player_id else None
+        )
         if include_events:
             data["events"] = [
                 e.to_dict()
@@ -1722,4 +1765,166 @@ class Tla3bnyAuditLog(db.Model):
             "target_id": self.target_id,
             "competition_id": self.competition_id,
             "detail": self.detail or {},
+        }
+
+
+# ── honours: titles, individual awards, best XI of the round ──────────────────
+class Tla3bnyAward(TimestampMixin, db.Model):
+    """One honour granted by a competition's organizer: a team title (champion,
+    runner-up, third place) or an individual award (top scorer/assister, best
+    player/goalkeeper, player of the match, player of the round).
+
+    Scope is a sub-competition (``competition_age_id``) — each age bracket has its
+    own champion and awards. ``match_id`` pins a player-of-the-match; ``round``
+    (the free-text round label used on matches) pins a player-of-the-round. The
+    recipient is a team for the title types (see ``codes.TLA3BNY_TEAM_AWARD_TYPES``)
+    and a player for the rest. The "team of the round" best XI is a separate model.
+    """
+
+    __tablename__ = "tla3bny_awards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    award_type: Mapped[str] = mapped_column(
+        code_enum(*codes.TLA3BNY_AWARD_TYPE), nullable=False
+    )
+    # player_of_round: the round label; player_of_match: the match.
+    round: Mapped[str | None] = mapped_column(sa.String(120))
+    match_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_matches.id", ondelete="CASCADE")
+    )
+    player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_players.id", ondelete="CASCADE")
+    )
+    team_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE")
+    )
+    note: Mapped[str | None] = mapped_column(sa.String(255))
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    player: Mapped["Tla3bnyPlayer | None"] = relationship()
+    team: Mapped["Tla3bnyTeam | None"] = relationship()
+
+    __table_args__ = (
+        sa.Index("ix_tla3bny_awards_player", "player_id"),
+        sa.Index("ix_tla3bny_awards_team", "team_id"),
+        sa.Index("ix_tla3bny_awards_comp_age", "competition_id", "competition_age_id"),
+    )
+
+    def to_dict(self) -> dict:
+        p = self.player
+        t = self.team
+        comp = self.competition
+        cage = self.competition_age
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_name": comp.name if comp else None,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "age_label": cage.age_category.label if cage and cage.age_category else None,
+            "award_type": self.award_type,
+            "round": self.round,
+            "match_id": self.match_id,
+            "note": self.note,
+            "player_id": self.player_id,
+            "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            "player_photo": p.photo_path if p else None,
+            "team_id": self.team_id,
+            "team_name": t.display_name() if t else None,
+            "team_logo": (t.academy.logo_path if t and t.academy else None),
+            "academy_id": (t.academy_id if t else None),
+        }
+
+
+class Tla3bnyTeamOfRound(TimestampMixin, db.Model):
+    """The best XI of one round — a fantasy line-up the organizer picks from the
+    standout players across *all* teams that played that round, placed by
+    position. Scoped to a sub-competition + round label; one per (sub-comp, round).
+    """
+
+    __tablename__ = "tla3bny_team_of_round"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    round: Mapped[str] = mapped_column(sa.String(120), nullable=False)
+    formation: Mapped[str | None] = mapped_column(sa.String(20))
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    slots: Mapped[list["Tla3bnyTeamOfRoundSlot"]] = relationship(
+        back_populates="team_of_round", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        sa.Index(
+            "ix_tla3bny_totr_comp_age_round",
+            "competition_id", "competition_age_id", "round",
+        ),
+    )
+
+    def to_dict(self) -> dict:
+        cage = self.competition_age
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "round": self.round,
+            "formation": self.formation,
+            "slots": [s.to_dict() for s in sorted(self.slots, key=lambda x: x.sort_order)],
+        }
+
+
+class Tla3bnyTeamOfRoundSlot(TimestampMixin, db.Model):
+    """One position in a team-of-the-round best XI: a player and where they sit."""
+
+    __tablename__ = "tla3bny_team_of_round_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_of_round_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_team_of_round.id", ondelete="CASCADE"), nullable=False
+    )
+    player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_players.id", ondelete="SET NULL")
+    )
+    position_slot: Mapped[str | None] = mapped_column(sa.String(20))
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    team_of_round: Mapped["Tla3bnyTeamOfRound"] = relationship(back_populates="slots")
+    player: Mapped["Tla3bnyPlayer | None"] = relationship()
+
+    def to_dict(self) -> dict:
+        p = self.player
+        cur = p.current_membership() if p else None
+        team = cur.team if cur else None
+        return {
+            "id": self.id,
+            "team_of_round_id": self.team_of_round_id,
+            "position_slot": self.position_slot,
+            "sort_order": self.sort_order,
+            "player_id": self.player_id,
+            "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            "photo_path": p.photo_path if p else None,
+            "team_id": team.id if team else None,
+            "team_name": team.display_name() if team else None,
         }

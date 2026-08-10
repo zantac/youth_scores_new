@@ -9,6 +9,7 @@ import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 import TeamHero from '@/components/tla3bny/TeamHero';
+import { TeamHonours } from '@/components/tla3bny/Honours';
 
 function TeamContent() {
   const tt = useTT();
@@ -69,6 +70,7 @@ function TeamContent() {
       {/* Staff & Players */}
       {tab === 'squad' && (
         <div className="space-y-4">
+          <TeamHonours teamId={t.id} />
           {t.coaches && t.coaches.length > 0 && (
             <section>
               <h2 className="font-black text-text mb-2">{tt('الجهاز الفني', 'Coaching staff')}</h2>

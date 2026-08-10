@@ -52,6 +52,7 @@ from ._helpers import (
     _parse_date,
     _parse_date_or_error,
     _read_payload,
+    _save_documents,
     _validate_password,
     save_upload,
 )
@@ -680,6 +681,15 @@ def _parse_fee(value) -> Decimal | None:
     return amount
 
 
+def _apply_extra_time(cage, data) -> None:
+    """Extra time is optional: a blank or non-positive value clears it, so a level
+    knockout tie goes straight to penalties. Values are clamped to sane caps."""
+    for field, cap in (("et_num_periods", 4), ("et_period_minutes", 60)):
+        if field in data:
+            v = _int(data.get(field))
+            setattr(cage, field, min(v, cap) if v and v > 0 else None)
+
+
 def _validate_rule_fields(data: dict) -> str | None:
     """Return an error message if any rule field is out of range, else None."""
     for f, minimum in _RULE_MINIMUMS.items():
@@ -721,6 +731,7 @@ def add_competition_age(comp_id: int):
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    _apply_extra_time(cage, data)
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
     if "replacements_open" in data:
@@ -753,6 +764,7 @@ def update_competition_age(cage_id: int):
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    _apply_extra_time(cage, data)
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
     if "replacements_open" in data:
@@ -1094,12 +1106,19 @@ def get_roster(entry_id: int):
 @tla3bny_bp.post("/competition-teams/<int:entry_id>/players")
 @auth.login_required
 def add_roster_player(entry_id: int):
-    """The team's academy/coach adds one of its players to the competition
-    roster — pending approval by the competition admin."""
+    """The team's academy/coach enters one of its squad players in this
+    competition — pending approval by the competition admin.
+
+    This competition's required papers may ride along (multipart ``documents`` +
+    ``document_labels``); they are stored against this registration only, so a
+    new competition — or the same one next season — gets its own fresh set. More
+    papers can be added later via ``POST /competition-players/<id>/documents``.
+    """
     entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
     if not auth.can_manage_team(auth.current_user(), entry.team_id):
         return _forbid()
-    player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
+    data, files = _read_payload()
+    player_id = _int(data.get("player_id"))
     player = Tla3bnyPlayer.query.get(player_id) if player_id else None
     if player is None:
         return _err("valid player_id is required")
@@ -1141,6 +1160,11 @@ def add_roster_player(entry_id: int):
         competition_team_id=entry_id, player_id=player_id, status="pending"
     )
     db.session.add(cp)
+    db.session.flush()
+    try:
+        _save_documents(player, data, files, competition_player=cp)
+    except ValueError as e:
+        return _err(str(e))
     db.session.commit()
     return jsonify(cp.to_dict(with_files=True)), 201
 
@@ -1199,7 +1223,8 @@ def approve_roster_player(cp_id: int):
             None,
         )
         required = cage.documents if cage else entry.competition.documents
-        supplied = {f.label for f in player.files if f.label}
+        # This registration's own papers, not the player's global set.
+        supplied = {f.label for f in cp.files if f.label}
         missing = [d for d in required if d not in supplied]
         force = bool((request.get_json(silent=True) or {}).get("force"))
         if missing and not force:
@@ -1264,12 +1289,12 @@ def reject_roster_player(cp_id: int):
 
 def _load_cps_for_bulk(ids: list[int]):
     """Load competition players with all relationships needed for bulk actions."""
-    from app.models import Tla3bnyPlayer
     return (
         Tla3bnyCompetitionPlayer.query
         .options(
-            selectinload(Tla3bnyCompetitionPlayer.player)
-            .selectinload(Tla3bnyPlayer.files),
+            selectinload(Tla3bnyCompetitionPlayer.player),
+            # This registration's own papers back the document-completeness guard.
+            selectinload(Tla3bnyCompetitionPlayer.files),
             selectinload(Tla3bnyCompetitionPlayer.entry)
             .selectinload(Tla3bnyCompetitionTeam.competition)
             .selectinload(Tla3bnyCompetition.ages),
@@ -1353,7 +1378,8 @@ def bulk_approve_roster_players():
                 None,
             )
             required = cage.documents if cage else entry.competition.documents
-            supplied = {f.label for f in player.files if f.label}
+            # This registration's own papers, not the player's global set.
+            supplied = {f.label for f in cp.files if f.label}
             missing = [d for d in required if d not in supplied]
             if missing:
                 errors.append({
@@ -1437,20 +1463,22 @@ def bulk_reject_roster_players():
 
 
 # ── registration documents: bulk export & cleanup ────────────────────────────
-# Registration papers are stored on the player row (one file per required label),
-# but in practice they belong to a competition: a player is not entered in two
-# competitions at once. The only real sharing is a player who plays in two
-# *sub-competitions* of the same competition (same papers). A single competition's
-# papers can run to gigabytes, so the primary tools work per **sub-competition**
-# (Tla3bnyCompetitionAge): once the parent competition is ``finished``, download
-# that sub-competition's papers as one right-sized ZIP (to burn to CD/flash), then
-# delete them to stop paying to store them. Competition-level variants export or
-# sweep everything at once. Deletion always protects a player whose papers another
-# not-yet-cleaned scope still needs, and never touches player photos.
+# Registration papers belong to a single competition registration
+# (Tla3bnyCompetitionPlayer): each paper carries that entry's id, so a player who
+# plays several competitions — or the same one next season — keeps a separate set
+# for each, and the sets never overlap. A single competition's papers can run to
+# gigabytes, so the primary tools work per **sub-competition** (Tla3bnyCompetitionAge):
+# once the parent competition is ``finished``, download that sub-competition's
+# papers as one right-sized ZIP (to burn to CD/flash), then delete them to stop
+# paying to store them. Competition-level variants export or sweep everything at
+# once. Because papers are per registration, deleting one scope can never touch
+# another competition's papers or a player's global identity papers (those carry
+# no competition_player_id) — and player photos are never touched.
 
 def _document_regs_query():
-    """Base query: registrations joined to their team entry, with player+files,
-    team and academy eager-loaded (so an export is a few queries, not N+1)."""
+    """Base query: registrations joined to their team entry, with each entry's own
+    papers, plus player, team and academy eager-loaded (so an export is a few
+    queries, not N+1)."""
     return (
         Tla3bnyCompetitionPlayer.query
         .join(
@@ -1458,9 +1486,8 @@ def _document_regs_query():
             Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
         )
         .options(
-            joinedload(Tla3bnyCompetitionPlayer.player).selectinload(
-                Tla3bnyPlayer.files
-            ),
+            joinedload(Tla3bnyCompetitionPlayer.player),
+            selectinload(Tla3bnyCompetitionPlayer.files),
             joinedload(Tla3bnyCompetitionPlayer.entry)
             .joinedload(Tla3bnyCompetitionTeam.team)
             .joinedload(Tla3bnyTeam.academy),
@@ -1507,7 +1534,7 @@ def _build_documents_zip(regs) -> tuple[str, int, int]:
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for reg in regs:
                 player = reg.player
-                if not player or player.id in seen:
+                if not player:
                     continue
                 seen.add(player.id)
                 entry = reg.entry
@@ -1519,7 +1546,8 @@ def _build_documents_zip(regs) -> tuple[str, int, int]:
                 )
                 pname = _safe_segment(player.name, f"player_{player.id}")
                 folder = f"{acad}/{team_name}/{pname}"
-                for f in player.files:
+                # This registration's own papers only — not the player's global set.
+                for f in reg.files:
                     ext = os.path.splitext(f.file_path)[1] or os.path.splitext(
                         f.original_name or ""
                     )[1]
@@ -1580,15 +1608,16 @@ def _send_documents_zip(regs, competition_id, cage_id, download_name):
     )
 
 
-def _delete_documents(player_ids, protected, names, competition_id, cage_id, skip_reason):
-    """Delete the papers of every player in ``player_ids`` except the protected
-    set. Returns the JSON response body."""
-    deletable = player_ids - protected
+def _delete_documents(reg_ids, competition_id, cage_id):
+    """Delete the papers uploaded for the registrations in ``reg_ids`` — each
+    paper carries its ``competition_player_id``, so this only ever clears this
+    scope's papers, never another competition's set nor a player's global identity
+    papers (those have no ``competition_player_id``). Returns the JSON body."""
     files = (
         Tla3bnyPlayerFile.query.filter(
-            Tla3bnyPlayerFile.player_id.in_(deletable)
+            Tla3bnyPlayerFile.competition_player_id.in_(reg_ids)
         ).all()
-        if deletable
+        if reg_ids
         else []
     )
     deleted_files = 0
@@ -1604,22 +1633,17 @@ def _delete_documents(player_ids, protected, names, competition_id, cage_id, ski
         else:
             failed.append(f.file_path)
 
-    skipped_players = [
-        {"player_id": pid, "player_name": names.get(pid), "reason": skip_reason}
-        for pid in protected
-    ]
     _log(
         "documents_deleted",
         "competition_age" if cage_id else "competition",
         cage_id or competition_id,
-        {"deleted_files": deleted_files, "skipped_players": len(protected),
-         "failed": len(failed)},
+        {"deleted_files": deleted_files, "failed": len(failed)},
         competition_id=competition_id,
     )
     db.session.commit()
     return jsonify({
         "deleted_files": deleted_files,
-        "skipped_players": skipped_players,
+        "skipped_players": [],
         "failed": failed,
     })
 
@@ -1642,40 +1666,24 @@ def download_subcompetition_documents(cage_id: int):
 @tla3bny_bp.delete("/competition-ages/<int:cage_id>/documents")
 @auth.super_admin_required
 def delete_subcompetition_documents(cage_id: int):
-    """Delete one sub-competition's registration papers to reclaim storage. A
-    player who is also registered anywhere outside this sub-competition (another
-    sub-competition or competition) is skipped and reported — their shared papers
-    stay until that other scope is handled (or the competition-level sweep runs).
-    Player photos are never touched."""
+    """Delete one sub-competition's registration papers to reclaim storage. Papers
+    are per registration, so this clears exactly this sub-competition's set and
+    leaves every other competition's papers (and player photos) untouched."""
     cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
     if not cage.competition or cage.competition.status != "finished":
         return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
 
-    regs = _document_regs_query().filter(_cage_match(cage)).all()
-    player_ids = {r.player_id for r in regs if r.player_id}
-    names = {r.player.id: r.player.name for r in regs if r.player}
-    if not player_ids:
+    reg_ids = [
+        r.id for r in
+        Tla3bnyCompetitionPlayer.query.join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        ).filter(_cage_match(cage)).all()
+    ]
+    if not reg_ids:
         return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
                         "message": "لا توجد مستندات لهذه البطولة الفرعية"})
-
-    # The team entries that make up this sub-competition.
-    cage_team_ids = [
-        ct.id for ct in Tla3bnyCompetitionTeam.query
-        .filter(Tla3bnyCompetitionTeam.competition_id == cage.competition_id)
-        .filter(_cage_match(cage)).all()
-    ]
-    # Protect any of these players who ALSO have a registration outside this
-    # sub-competition (their papers are shared and may still be needed there).
-    protected = {
-        pid for (pid,) in db.session.query(Tla3bnyCompetitionPlayer.player_id)
-        .filter(Tla3bnyCompetitionPlayer.player_id.in_(player_ids))
-        .filter(Tla3bnyCompetitionPlayer.competition_team_id.notin_(cage_team_ids))
-        .distinct().all()
-    }
-    return _delete_documents(
-        player_ids, protected, names, cage.competition_id, cage_id,
-        "مسجّل في بطولة فرعية أخرى — سيُحذف عند معالجتها",
-    )
+    return _delete_documents(reg_ids, cage.competition_id, cage_id)
 
 
 # ── whole competition (export all at once / final sweep) ─────────────────────
@@ -1698,39 +1706,22 @@ def download_competition_documents(comp_id: int):
 @tla3bny_bp.delete("/competitions/<int:comp_id>/documents")
 @auth.super_admin_required
 def delete_competition_documents(comp_id: int):
-    """Sweep every registration paper of a finished competition. Protects only
-    players still registered in another competition that is not finished (in
-    practice none — a player is not in two competitions at once), so this also
-    clears players who spanned several sub-competitions of this one. Player
-    photos are never touched."""
+    """Sweep every registration paper of a finished competition (all its
+    sub-competitions at once). Papers are per registration, so this only clears
+    this competition's set — another competition the same players are in keeps its
+    own papers, and player photos are never touched."""
     comp = Tla3bnyCompetition.query.get_or_404(comp_id)
     if comp.status != "finished":
         return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
 
-    regs = _document_regs_query().filter(
-        Tla3bnyCompetitionTeam.competition_id == comp_id
-    ).all()
-    player_ids = {r.player_id for r in regs if r.player_id}
-    names = {r.player.id: r.player.name for r in regs if r.player}
-    if not player_ids:
-        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
-                        "message": "لا توجد مستندات لهذه البطولة"})
-
-    protected = {
-        pid for (pid,) in db.session.query(Tla3bnyCompetitionPlayer.player_id)
-        .join(
+    reg_ids = [
+        r.id for r in
+        Tla3bnyCompetitionPlayer.query.join(
             Tla3bnyCompetitionTeam,
             Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
-        )
-        .join(
-            Tla3bnyCompetition,
-            Tla3bnyCompetitionTeam.competition_id == Tla3bnyCompetition.id,
-        )
-        .filter(Tla3bnyCompetition.status != "finished")
-        .filter(Tla3bnyCompetitionPlayer.player_id.in_(player_ids))
-        .distinct().all()
-    }
-    return _delete_documents(
-        player_ids, protected, names, comp_id, None,
-        "مسجّل في بطولة أخرى لم تنتهِ بعد",
-    )
+        ).filter(Tla3bnyCompetitionTeam.competition_id == comp_id).all()
+    ]
+    if not reg_ids:
+        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
+                        "message": "لا توجد مستندات لهذه البطولة"})
+    return _delete_documents(reg_ids, comp_id, None)

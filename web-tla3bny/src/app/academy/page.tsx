@@ -6,6 +6,7 @@ import { tAcademy, mediaUrl, whatsappLink, type TAcademy } from '@/lib/tla3bnyAp
 import Spinner from '@/components/ui/Spinner';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 import TeamHero from '@/components/tla3bny/TeamHero';
+import { AcademyHonours } from '@/components/tla3bny/Honours';
 import PhotoStrip from '@/components/tla3bny/PhotoStrip';
 
 function AcademyContent() {
@@ -100,6 +101,8 @@ function AcademyContent() {
           </div>
         </section>
       )}
+
+      <AcademyHonours academyId={a.id} />
 
       <section>
         <h2 className="font-black text-text mb-2">{tt('الفرق', 'Teams')}</h2>

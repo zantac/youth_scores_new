@@ -548,29 +548,11 @@ def approve_team_join(entry_id: int):
         "team_name": entry.team.display_name() if entry.team else None,
         "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
     }, competition_id=entry.competition_id)
-    # Auto-enqueue existing active players.
-    comp = entry.competition
-    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
-        competition_id=entry.competition_id,
-        age_category_id=entry.age_category_id,
-    ).first()
-    if comp and comp.registration_open:
-        cap = cage.max_players_per_team if cage else None
-        count = 0
-        for mem in Tla3bnyPlayerTeam.query.filter_by(
-            team_id=entry.team_id, end_date=None, status="active"
-        ).all():
-            if cap is not None and count >= cap:
-                break
-            if not Tla3bnyCompetitionPlayer.query.filter_by(
-                competition_team_id=entry.id, player_id=mem.player_id
-            ).first():
-                db.session.add(Tla3bnyCompetitionPlayer(
-                    competition_team_id=entry.id,
-                    player_id=mem.player_id,
-                    status="pending",
-                ))
-                count += 1
+    # Players are no longer carried over automatically. Approval only admits the
+    # team; the academy then registers players for *this* competition — picking
+    # who plays and uploading this competition's own required papers — via
+    # POST /competition-teams/<id>/players. This keeps each competition's roster
+    # and documents its own, even for a team that also played another season.
     db.session.commit()
     return jsonify(entry.to_dict())
 
