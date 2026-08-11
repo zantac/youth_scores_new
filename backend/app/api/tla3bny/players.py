@@ -361,12 +361,18 @@ def upload_registration_documents(cp_id: int):
     player = cp.player
     if player is None:
         return _err("player not found", 404)
+    is_admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+    # Once this registration is approved, its papers are frozen for the academy:
+    # swapping the evidence behind an approved player is the same fraud as swapping
+    # the photo. Only the competition's admin (or super admin) may change them —
+    # doing so re-opens the review below.
+    if cp.status == "approved" and not is_admin:
+        return _err("لا يمكن تعديل أوراق لاعب تم اعتماده — تواصل مع إدارة البطولة", 403)
     # Frozen once the deadline passes, except for the competition's own admins.
     cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
         competition_id=entry.competition_id, age_category_id=entry.age_category_id
     ).first()
-    if (cage and cage.registration_deadline_passed
-            and not auth.is_competition_admin(auth.current_user(), entry.competition_id)):
+    if cage and cage.registration_deadline_passed and not is_admin:
         return _err("انتهى موعد تسجيل اللاعبين في هذه البطولة", 403)
 
     data, files = _read_payload()
