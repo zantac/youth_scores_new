@@ -27,7 +27,11 @@ if you ever need to.
 - `ADMIN_API_KEY` — the youthscores admin master key.
 - `FLASK_ENV=production`
 - `DATABASE_URL` — see DB section below.
-- `FIREBASE_CREDENTIALS` / `FIREBASE_PROJECT_ID` — only if sending push for real.
+- Push notifications (only if sending for real): set **`FIREBASE_CREDENTIALS_JSON`**
+  to the entire service-account JSON (paste the file's contents as the value —
+  the key file itself is gitignored, so it is *not* in the image). Optionally
+  `FIREBASE_PROJECT_ID` (otherwise read from the JSON). The file-path variant
+  `FIREBASE_CREDENTIALS` is for local dev only.
 - (`FRONTEND_DIR` / `TLA3BNY_FRONTEND_DIR` are already set in the Dockerfile.)
 
 ## 3. Database

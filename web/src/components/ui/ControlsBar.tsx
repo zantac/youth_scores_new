@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import SearchOverlay from './SearchOverlay';
+import NotifyBell from './NotifyBell';
 
 export default function ControlsBar() {
   const { locale, isDark, toggleLocale, toggleTheme } = useApp();
@@ -51,6 +52,7 @@ export default function ControlsBar() {
       >
         🔍
       </button>
+      <NotifyBell />
 
       {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 

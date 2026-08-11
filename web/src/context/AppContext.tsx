@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { ConfigData, CompetitionData, AdItem } from '@/lib/types';
 import { fetchConfig, fetchCompetition } from '@/lib/api';
+import { initNotifications } from '@/lib/notifications';
 
 interface AppContextValue {
   locale: 'ar' | 'en';
@@ -95,6 +96,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { loadConfigInternal(); }, [loadConfigInternal]);
+
+  // If the user already granted push permission on a past visit, silently
+  // refresh this device's FCM token/subscription (tokens rotate over time).
+  useEffect(() => { initNotifications().catch(() => {}); }, []);
 
   const loadCompetition = useCallback(async (url: string, title: string) => {
     setCompTitle(title);
