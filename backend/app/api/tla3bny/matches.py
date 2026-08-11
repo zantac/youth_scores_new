@@ -22,6 +22,7 @@ from app.models import (
     Tla3bnyTeam,
 )
 from app.models import codes
+from app.services import notifications
 from app.services import tla3bny_auth as auth
 from app.services import tla3bny_tables as tables
 
@@ -313,6 +314,9 @@ def enter_result(match_id: int):
     except Exception:
         db.session.rollback()
         raise
+    # Immediate push to this competition's followers (organizers enter live).
+    if match.home_score is not None and match.away_score is not None:
+        notifications.notify_tla3bny_match_result(match)
     return jsonify(match.to_dict(include_events=True))
 
 
@@ -465,6 +469,7 @@ def save_lineup(match_id: int, team_id: int):
             return _err("Lineup contains a player not eligible for this competition", 409)
 
     lineup = Tla3bnyLineup.query.filter_by(match_id=match_id, team_id=team_id).first()
+    was_new = lineup is None  # only the first submission notifies, not every edit
     if not lineup:
         lineup = Tla3bnyLineup(match_id=match_id, team_id=team_id)
         db.session.add(lineup)
@@ -482,6 +487,8 @@ def save_lineup(match_id: int, team_id: int):
             )
         )
     db.session.commit()
+    if was_new:
+        notifications.notify_tla3bny_lineup(match, Tla3bnyTeam.query.get(team_id))
     return jsonify(lineup.to_dict())
 
 

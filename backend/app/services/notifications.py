@@ -34,10 +34,37 @@ TOPIC_RESULTS = "results"
 
 def competition_topic(competition_id: int) -> str:
     """The per-competition topic for Phase 2's on-device follow — subscribing a
-    device to this means a round-results digest reaches only its followers.
-
-    Not used yet: results currently broadcast to TOPIC_RESULTS (see above)."""
+    device to this means a round-results digest reaches only its followers."""
     return f"comp_{competition_id}"
+
+
+# ── tla3bny ──────────────────────────────────────────────────────────────────
+# tla3bny is a separate app but shares this Firebase project, and its competition
+# ids overlap youthscores' — so its topics MUST be namespaced apart, or a follow
+# on one app would leak the other's pushes.
+TLA3BNY_TOPIC_NEWS = "t3_news"
+# Every academy account subscribes to this at login — used to announce a new
+# competition they could join.
+TLA3BNY_TOPIC_ACADEMIES = "t3_academies"
+
+
+def tla3bny_competition_topic(competition_id: int) -> str:
+    """Per-competition follow topic for tla3bny, namespaced (t3_) so it never
+    collides with youthscores' comp_<id>."""
+    return f"t3_comp_{competition_id}"
+
+
+def tla3bny_academy_topic(academy_id: int) -> str:
+    """One academy account's private topic (player decisions, subscription news).
+    The academy's device subscribes to this at login."""
+    return f"t3_academy_{academy_id}"
+
+
+def tla3bny_compadmin_topic(competition_id: int) -> str:
+    """A competition's admins' topic (registrations, players awaiting approval).
+    Each competition admin's device subscribes per competition they run, at login."""
+    return f"t3_compadmin_{competition_id}"
+
 
 # Cached OAuth token so we don't re-sign every send.
 _token_cache: dict = {"access_token": None, "expiry": 0.0, "project_id": None}
@@ -253,4 +280,195 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
             "week": week,
             "url": f"/competition?id={competition.id}&week={week}",
         },
+    )
+
+
+def notify_tla3bny_round_results(competition, round_label, matches, age_label=None) -> dict:
+    """One digest for a tla3bny competition round's results, sent to that
+    competition's followers (namespaced tla3bny topic). tla3bny competitions have
+    a different schema than youthscores (name/name_en, no age_group/sector), so
+    this can't reuse notify_round_results."""
+    name = competition.name or competition.name_en or "البطولة"
+    label = " - ".join(p for p in (name, (age_label or "").strip()) if p)
+    rnd = (str(round_label) or "").strip()
+    title = f"نتائج الجولة {rnd} — {label}" if rnd else f"النتائج — {label}"
+    body = f"{len(matches)} مباراة — اضغط لعرض النتائج"
+    return send_to_topic(
+        tla3bny_competition_topic(competition.id), title, body,
+        data={
+            "type": "t3_round",
+            "competition_id": competition.id,
+            "round": rnd,
+            "url": f"/competition?id={competition.id}",
+        },
+    )
+
+
+def _t3_comp_name(comp) -> str:
+    return (comp.name or comp.name_en or "البطولة") if comp else "البطولة"
+
+
+def _t3_results_url(match) -> str:
+    """Deep-link to where a match's result/lineup shows: the sub-competition view
+    when known, else the competition page."""
+    if match.competition_age_id:
+        return f"/competitions?comp={match.competition_id}&cage={match.competition_age_id}"
+    return f"/competition?id={match.competition_id}"
+
+
+def notify_tla3bny_match_result(match) -> dict:
+    """Immediate: a single match's final score, to that competition's followers.
+    tla3bny organizers enter results live, so this fires per match, not per round."""
+    home = match.home_team.display_name() if match.home_team else "?"
+    away = match.away_team.display_name() if match.away_team else "?"
+    hs = match.home_score if match.home_score is not None else 0
+    as_ = match.away_score if match.away_score is not None else 0
+    return send_to_topic(
+        tla3bny_competition_topic(match.competition_id),
+        f"نتيجة — {_t3_comp_name(match.competition)}",
+        f"{home} {hs} - {as_} {away}",
+        data={
+            "type": "t3_result",
+            "id": match.id,
+            "competition_id": match.competition_id,
+            "url": _t3_results_url(match),
+        },
+    )
+
+
+def notify_tla3bny_lineup(match, team) -> dict:
+    """Immediate: a team's lineup was posted for a match, to competition followers."""
+    team_name = team.display_name() if team else "فريق"
+    return send_to_topic(
+        tla3bny_competition_topic(match.competition_id),
+        f"تشكيلة — {_t3_comp_name(match.competition)}",
+        f"تم إضافة تشكيلة {team_name}",
+        data={
+            "type": "t3_lineup",
+            "id": match.id,
+            "competition_id": match.competition_id,
+            "url": _t3_results_url(match),
+        },
+    )
+
+
+def notify_tla3bny_news(news) -> dict:
+    """Immediate: a published news item. Competition news reaches that
+    competition's followers; site-wide news reaches the global tla3bny topic."""
+    title = news.title or "خبر جديد"
+    if news.competition_id:
+        topic = tla3bny_competition_topic(news.competition_id)
+        url = f"/competition?id={news.competition_id}&tab=news"
+    else:
+        topic = TLA3BNY_TOPIC_NEWS
+        url = "/news"
+    return send_to_topic(
+        topic, title, "اضغط لقراءة الخبر",
+        data={"type": "t3_news", "id": news.id, "url": url},
+    )
+
+
+# ── tla3bny account-targeted (academy / competition-admin) ────────────────────
+
+def notify_tla3bny_new_competition(comp) -> dict:
+    """To all academies: a new competition they could enter has opened."""
+    return send_to_topic(
+        TLA3BNY_TOPIC_ACADEMIES,
+        "بطولة جديدة",
+        _t3_comp_name(comp),
+        data={"type": "t3_new_comp", "id": comp.id, "url": f"/competition?id={comp.id}"},
+    )
+
+
+def notify_tla3bny_team_registered(entry) -> dict:
+    """To the academy: its team was entered into a competition — add players next."""
+    academy_id = entry.team.academy_id if entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    team_name = entry.team.display_name() if entry.team else "فريقك"
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        "تم تسجيل فريقك في بطولة",
+        f"{team_name} — {_t3_comp_name(entry.competition)}",
+        data={"type": "t3_team_registered", "competition_id": entry.competition_id, "url": "/dashboard"},
+    )
+
+
+def notify_tla3bny_player_pending(cp) -> dict:
+    """To the competition's admins: a player is awaiting their approval."""
+    entry = cp.entry
+    if not entry:
+        return {"status": "skipped"}
+    player_name = cp.player.name if cp.player else "لاعب"
+    team_name = entry.team.display_name() if entry.team else ""
+    return send_to_topic(
+        tla3bny_compadmin_topic(entry.competition_id),
+        "لاعب بانتظار الموافقة",
+        " — ".join(p for p in (player_name, team_name) if p),
+        data={"type": "t3_player_pending", "competition_id": entry.competition_id, "url": "/admin"},
+    )
+
+
+def notify_tla3bny_player_decision(cp, approved: bool) -> dict:
+    """To the academy: its player was approved or rejected by the competition."""
+    entry = cp.entry
+    academy_id = entry.team.academy_id if entry and entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    player_name = cp.player.name if cp.player else "اللاعب"
+    comp_name = _t3_comp_name(entry.competition) if entry else ""
+    if approved:
+        title, body = "تم قبول اللاعب", f"{player_name} — {comp_name}"
+    else:
+        reason = (getattr(cp, "rejection_reason", None) or "").strip()
+        title = "تم رفض اللاعب"
+        body = f"{player_name} — {comp_name}" + (f"\n{reason}" if reason else "")
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        title, body,
+        data={
+            "type": "t3_player_decision",
+            "competition_id": entry.competition_id if entry else 0,
+            "url": "/dashboard",
+        },
+    )
+
+
+def notify_tla3bny_join_request(entry) -> dict:
+    """To the competition's admins: an academy requested to enter a team."""
+    team_name = entry.team.display_name() if entry.team else "فريق"
+    academy = entry.team.academy.name if entry.team and entry.team.academy else ""
+    return send_to_topic(
+        tla3bny_compadmin_topic(entry.competition_id),
+        "طلب اشتراك جديد",
+        " — ".join(p for p in (team_name, academy) if p),
+        data={"type": "t3_join_request", "competition_id": entry.competition_id, "url": "/admin"},
+    )
+
+
+def notify_tla3bny_subscription_approved(entry) -> dict:
+    """To the academy: its join request was approved — add players next."""
+    academy_id = entry.team.academy_id if entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    team_name = entry.team.display_name() if entry.team else "فريقك"
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        "تم قبول اشتراك فريقك",
+        f"{team_name} — {_t3_comp_name(entry.competition)}",
+        data={"type": "t3_sub_approved", "competition_id": entry.competition_id, "url": "/dashboard"},
+    )
+
+
+def notify_tla3bny_subscription_rejected(entry) -> dict:
+    """To the academy: its join request was declined."""
+    academy_id = entry.team.academy_id if entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    team_name = entry.team.display_name() if entry.team else "فريقك"
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        "تم رفض طلب الاشتراك",
+        f"{team_name} — {_t3_comp_name(entry.competition)}",
+        data={"type": "t3_sub_rejected", "competition_id": entry.competition_id, "url": "/dashboard"},
     )

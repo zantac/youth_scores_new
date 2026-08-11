@@ -6,6 +6,7 @@ import { useApp } from '@/context/AppContext';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { useTT } from './kit';
 import SearchOverlay from './SearchOverlay';
+import NotifyBell from './NotifyBell';
 
 export default function TopBar() {
   const tt = useTT();
@@ -42,6 +43,7 @@ export default function TopBar() {
               className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors">
               🔍
             </button>
+            <NotifyBell />
           </div>
 
           {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}

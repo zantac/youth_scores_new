@@ -361,12 +361,18 @@ def upload_registration_documents(cp_id: int):
     player = cp.player
     if player is None:
         return _err("player not found", 404)
+    is_admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+    # Once this registration is approved, its papers are frozen for the academy:
+    # swapping the evidence behind an approved player is the same fraud as swapping
+    # the photo. Only the competition's admin (or super admin) may change them —
+    # doing so re-opens the review below.
+    if cp.status == "approved" and not is_admin:
+        return _err("لا يمكن تعديل أوراق لاعب تم اعتماده — تواصل مع إدارة البطولة", 403)
     # Frozen once the deadline passes, except for the competition's own admins.
     cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
         competition_id=entry.competition_id, age_category_id=entry.age_category_id
     ).first()
-    if (cage and cage.registration_deadline_passed
-            and not auth.is_competition_admin(auth.current_user(), entry.competition_id)):
+    if cage and cage.registration_deadline_passed and not is_admin:
         return _err("انتهى موعد تسجيل اللاعبين في هذه البطولة", 403)
 
     data, files = _read_payload()
@@ -432,9 +438,17 @@ def _player_team_id(player: Tla3bnyPlayer) -> int | None:
 
 
 def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
-    """After a sub-competition's player-registration deadline, changing a player's
-    data (name, photo, papers…) is frozen for the academy — only that competition's
-    own admins may still edit. Returns a message if the caller is locked out."""
+    """Changing a player's global data (name, photo, DOB, papers…) is frozen for
+    the academy in two cases; only the relevant competition's admin (or the super
+    admin, who counts as admin everywhere) may still edit. Returns a message if
+    the caller is locked out.
+
+      1. The player has been APPROVED in a competition — the identity is frozen so
+         the academy can't swap the photo and slip a different player onto the
+         approved player's papers. This holds regardless of any deadline.
+      2. A competition's player-registration deadline has passed — frozen for the
+         academy even while the registration is still only pending.
+    """
     regs = Tla3bnyCompetitionPlayer.query.filter(
         Tla3bnyCompetitionPlayer.player_id == player.id,
         Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
@@ -443,12 +457,15 @@ def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
         entry = cp.entry
         if entry is None:
             continue
+        if auth.is_competition_admin(user, entry.competition_id):
+            continue  # that competition's admin (and the super admin) may edit
+        if cp.status == "approved":
+            return "لا يمكن تعديل بيانات لاعب تم اعتماده في بطولة — تواصل مع إدارة البطولة"
         cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
             age_category_id=entry.age_category_id,
         ).first()
-        if (cage and cage.registration_deadline_passed
-                and not auth.is_competition_admin(user, entry.competition_id)):
+        if cage and cage.registration_deadline_passed:
             return "انتهى موعد تعديل بيانات اللاعبين في هذه البطولة"
     return None
 
