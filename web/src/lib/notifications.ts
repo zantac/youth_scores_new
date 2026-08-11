@@ -98,6 +98,9 @@ async function ready(): Promise<Messaging | null> {
           badge: '/icons/icon-192.png',
           dir: 'rtl',
           lang: 'ar',
+          // Same tag as the SW so duplicate deliveries (multiple tabs, or SW +
+          // foreground) collapse into one notification instead of stacking.
+          tag: `${d.type || 'msg'}:${d.id || d.url || d.title || ''}`,
           data: { url: d.url || '/' },
         });
       } catch { /* a failed toast must never break the page */ }

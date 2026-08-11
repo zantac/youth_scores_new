@@ -16,7 +16,21 @@ firebase.initializeApp({
   appId: '1:492562642059:web:153bd79e686fd76c31508e',
 });
 
+// Take control as soon as a new version is fetched, instead of waiting for every
+// tab to close — otherwise an old SW keeps handling pushes and its notifications
+// (e.g. without the dedupe tag below) collide with the new one's.
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
 const messaging = firebase.messaging();
+
+// A stable id per message so duplicate deliveries collapse into ONE notification
+// instead of stacking. Duplicates happen when several tabs are open (the SDK
+// delivers a foreground message to each) or when the SW and a foreground tab both
+// react. Same tag => the OS replaces rather than adds.
+function notifTag(data) {
+  return `${data.type || 'msg'}:${data.id || data.url || data.title || ''}`;
+}
 
 // Background handler: the backend sends DATA-ONLY messages (title/body/url all in
 // `data`) so exactly one notification shows — a top-level `notification` block
@@ -30,6 +44,7 @@ messaging.onBackgroundMessage((payload) => {
     badge: '/icons/icon-192.png',
     dir: 'rtl',
     lang: 'ar',
+    tag: notifTag(data),
     data: { url: data.url || '/' },
   });
 });
