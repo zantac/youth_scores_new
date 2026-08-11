@@ -702,6 +702,13 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     registration_open: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=True
     )
+    # When True, a team entered here may not enter any other competition while
+    # this one is live (see locks_team_entry). Default False: teams may play
+    # several competitions at once (league + cup), since rosters and papers are
+    # per-competition now. Organizers who want an exclusive competition opt in.
+    exclusive_entry: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default=sa.false()
+    )
     # The cap on how many players may take part in this competition across every
     # team. Set by the super admin at creation: tla3bny is billed on the number
     # of contributing players, so this is the size the organiser is paying for.
@@ -744,10 +751,13 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     @property
     def locks_team_entry(self) -> bool:
         """While True, a team already entered here may not enter any other
-        competition — so each team plays one competition at a time and its player
-        registrations are never split across two. The competition is treated as
-        over on the *second day after* its end date; with no end date set it is
-        open-ended and keeps the lock."""
+        competition. Only competitions explicitly marked ``exclusive_entry`` lock,
+        and only while still live — the competition is treated as over on the
+        *second day after* its end date (open-ended with no end date keeps the
+        lock). Non-exclusive competitions (the default) never lock, so a team may
+        play several at once; its rosters and papers are per-competition anyway."""
+        if not self.exclusive_entry:
+            return False
         if self.end_date is None:
             return True
         return date.today() <= self.end_date + timedelta(days=1)
@@ -774,6 +784,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "facebook_url": self.facebook_url,
             "location_url": self.location_url,
             "registration_open": self.registration_open,
+            "exclusive_entry": self.exclusive_entry,
             "max_players": self.max_players,
             "max_ads": self.max_ads,
             "ads_enabled": self.ads_enabled,

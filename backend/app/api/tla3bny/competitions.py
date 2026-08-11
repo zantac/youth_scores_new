@@ -414,6 +414,8 @@ def create_competition():
     _apply_competition_text(comp, data)
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), True)
+    if "exclusive_entry" in data:
+        comp.exclusive_entry = _bool(data.get("exclusive_entry"), False)
     err = _apply_max_players(comp, data)
     if err:
         return err
@@ -492,6 +494,8 @@ def update_competition(comp_id: int):
         comp.status = data.get("status")
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), comp.registration_open)
+    if "exclusive_entry" in data:
+        comp.exclusive_entry = _bool(data.get("exclusive_entry"), comp.exclusive_entry)
     if "start_date" in data:
         sd, sd_err = _parse_date_or_error(data.get("start_date"))
         if sd_err:
