@@ -432,3 +432,43 @@ def notify_tla3bny_player_decision(cp, approved: bool) -> dict:
             "url": "/dashboard",
         },
     )
+
+
+def notify_tla3bny_join_request(entry) -> dict:
+    """To the competition's admins: an academy requested to enter a team."""
+    team_name = entry.team.display_name() if entry.team else "فريق"
+    academy = entry.team.academy.name if entry.team and entry.team.academy else ""
+    return send_to_topic(
+        tla3bny_compadmin_topic(entry.competition_id),
+        "طلب اشتراك جديد",
+        " — ".join(p for p in (team_name, academy) if p),
+        data={"type": "t3_join_request", "competition_id": entry.competition_id, "url": "/admin"},
+    )
+
+
+def notify_tla3bny_subscription_approved(entry) -> dict:
+    """To the academy: its join request was approved — add players next."""
+    academy_id = entry.team.academy_id if entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    team_name = entry.team.display_name() if entry.team else "فريقك"
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        "تم قبول اشتراك فريقك",
+        f"{team_name} — {_t3_comp_name(entry.competition)}",
+        data={"type": "t3_sub_approved", "competition_id": entry.competition_id, "url": "/dashboard"},
+    )
+
+
+def notify_tla3bny_subscription_rejected(entry) -> dict:
+    """To the academy: its join request was declined."""
+    academy_id = entry.team.academy_id if entry.team else None
+    if not academy_id:
+        return {"status": "skipped"}
+    team_name = entry.team.display_name() if entry.team else "فريقك"
+    return send_to_topic(
+        tla3bny_academy_topic(academy_id),
+        "تم رفض طلب الاشتراك",
+        f"{team_name} — {_t3_comp_name(entry.competition)}",
+        data={"type": "t3_sub_rejected", "competition_id": entry.competition_id, "url": "/dashboard"},
+    )

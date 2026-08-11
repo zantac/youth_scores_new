@@ -15,6 +15,7 @@ from app.models import (
     Tla3bnyTeam,
     Tla3bnyUser,
 )
+from app.services import notifications
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -532,6 +533,7 @@ def request_join_competition(team_id: int):
     )
     db.session.add(entry)
     db.session.commit()
+    notifications.notify_tla3bny_join_request(entry)  # -> competition admins
     return jsonify(entry.to_dict()), 201
 
 
@@ -557,6 +559,7 @@ def approve_team_join(entry_id: int):
     # POST /competition-teams/<id>/players. This keeps each competition's roster
     # and documents its own, even for a team that also played another season.
     db.session.commit()
+    notifications.notify_tla3bny_subscription_approved(entry)  # -> the academy
     return jsonify(entry.to_dict())
 
 
@@ -574,6 +577,7 @@ def reject_team_join(entry_id: int):
         "team_name": entry.team.display_name() if entry.team else None,
         "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
     }, competition_id=entry.competition_id)
+    notifications.notify_tla3bny_subscription_rejected(entry)  # -> the academy, before delete
     db.session.delete(entry)
     db.session.commit()
     return jsonify({"message": "rejected"})
