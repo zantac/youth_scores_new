@@ -48,9 +48,26 @@ def _credentials_path() -> str | None:
     return path if path and os.path.exists(path) else None
 
 
+def _credentials_info() -> dict | None:
+    """The service-account JSON supplied inline via FIREBASE_CREDENTIALS_JSON.
+
+    Managed hosts (Railway, etc.) build from the git repo, where the key file is
+    gitignored and absent, so the whole JSON is pasted into one env var instead.
+    Takes precedence over the file path when both are set."""
+    raw = current_app.config.get("FIREBASE_CREDENTIALS_JSON")
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        current_app.logger.error("FIREBASE_CREDENTIALS_JSON is not valid JSON; ignoring it.")
+        return None
+
+
 def is_configured() -> bool:
-    """True when a usable service-account key is present (real sending on)."""
-    return _credentials_path() is not None
+    """True when a usable service-account key is present (real sending on),
+    whether inline (FIREBASE_CREDENTIALS_JSON) or a file path (FIREBASE_CREDENTIALS)."""
+    return _credentials_info() is not None or _credentials_path() is not None
 
 
 def _access_token() -> tuple[str, str]:
@@ -63,9 +80,13 @@ def _access_token() -> tuple[str, str]:
     from google.auth.transport.requests import Request
     from google.oauth2 import service_account
 
-    creds = service_account.Credentials.from_service_account_file(
-        _credentials_path(), scopes=SCOPES
-    )
+    info = _credentials_info()
+    if info is not None:
+        creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    else:
+        creds = service_account.Credentials.from_service_account_file(
+            _credentials_path(), scopes=SCOPES
+        )
     creds.refresh(Request())
     project_id = current_app.config.get("FIREBASE_PROJECT_ID") or creds.project_id
     _token_cache.update(

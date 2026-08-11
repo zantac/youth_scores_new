@@ -44,10 +44,14 @@ class Config:
 
     JSON_AS_ASCII = False
 
-    # Push notifications (Firebase Cloud Messaging).
-    # Path to the FCM service-account JSON. Unset -> notifications run in
+    # Push notifications (Firebase Cloud Messaging). Unset -> notifications run in
     # dry-run mode: the message is logged, never sent.
+    # Path to the FCM service-account JSON (local dev).
     FIREBASE_CREDENTIALS = os.environ.get("FIREBASE_CREDENTIALS")
+    # The service-account JSON itself, inline. For managed hosts (Railway, etc.)
+    # that build from the git repo where the key file is gitignored/absent — paste
+    # the whole JSON into this one env var. Takes precedence over the file path.
+    FIREBASE_CREDENTIALS_JSON = os.environ.get("FIREBASE_CREDENTIALS_JSON")
     # Optional; taken from the service-account JSON when not given.
     FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")
 
