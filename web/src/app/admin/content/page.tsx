@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
-  apiCreateNews, apiUpdateNews, apiCreateVenue, apiListVenues, apiUpdateVenue, apiListNews, apiDeleteNews, apiUploadImage,
+  apiCreateNews, apiUpdateNews, apiCreateVenue, apiListVenues, apiUpdateVenue, apiDeleteVenue, apiListNews, apiDeleteNews, apiUploadImage,
   apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd,
   type NotifyResult, type AdminNews, type AdminAd, type AdminVenue,
 } from '@/lib/adminApi';
@@ -322,6 +322,11 @@ function VenueRow({ token, venue, onSaved }: { token: string; venue: AdminVenue;
         <button onClick={open}
           className="flex-shrink-0 text-xs font-bold text-aqua border border-aqua/40 bg-aqua/10 rounded-lg px-3 py-1.5 hover:bg-aqua/20">
           ✎ تعديل
+        </button>
+        <button
+          onClick={async () => { if (confirm(`حذف الملعب: «${venue.name_ar || venue.name_en}»؟`)) { await apiDeleteVenue(token, venue.id); onSaved(); } }}
+          className="flex-shrink-0 text-xs font-bold text-loss border border-loss/40 bg-loss/10 rounded-lg px-3 py-1.5 hover:bg-loss/20">
+          حذف
         </button>
       </div>
     );
