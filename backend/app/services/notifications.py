@@ -19,6 +19,7 @@ from flask import current_app
 
 FCM_SEND_URL = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 IID_TOPIC_URL = "https://iid.googleapis.com/iid/v1/{token}/rel/topics/{topic}"
+IID_BATCH_REMOVE_URL = "https://iid.googleapis.com/iid/v1:batchRemove"
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
 # Topics the clients subscribe to.
@@ -76,9 +77,20 @@ def _access_token() -> tuple[str, str]:
 
 
 def send_to_topic(topic: str, title: str, body: str, data: dict | None = None) -> dict:
-    """Send one notification to an FCM topic. Never raises — logs and reports."""
-    # FCM data values must all be strings.
+    """Send one push to an FCM topic. Never raises — logs and reports.
+
+    Sent as a **data-only** message: the title and body ride inside ``data`` and
+    the web service worker draws the notification itself. A top-level
+    ``notification`` block would make the browser pop a SECOND, duplicate one, so
+    we deliberately omit it. When the native Android app ships it will add an
+    ``android``/``notification`` override here for reliable delivery to a killed
+    app (web needs the data-only form; Android's killed-app case needs the block).
+    """
+    # FCM data values must all be strings. Title/body travel in data so the
+    # service worker can render the notification (see the note above).
     str_data = {k: str(v) for k, v in (data or {}).items()}
+    str_data["title"] = title
+    str_data["body"] = body
 
     if not is_configured():
         current_app.logger.info(
@@ -87,13 +99,7 @@ def send_to_topic(topic: str, title: str, body: str, data: dict | None = None) -
         )
         return {"status": "dry_run", "topic": topic, "title": title, "body": body}
 
-    message = {
-        "message": {
-            "topic": topic,
-            "notification": {"title": title, "body": body},
-            "data": str_data,
-        }
-    }
+    message = {"message": {"topic": topic, "data": str_data}}
     try:
         token, project_id = _access_token()
         resp = requests.post(
@@ -136,19 +142,48 @@ def subscribe_token_to_topic(token: str, topic: str) -> dict:
         return {"status": "error", "error": str(exc)}
 
 
+def unsubscribe_token_from_topic(token: str, topic: str) -> dict:
+    """Unsubscribe one registration token from a topic (used when a web client
+    unfollows a competition). Mirrors subscribe_token_to_topic via the IID API."""
+    if not is_configured():
+        current_app.logger.info("[notifications:dry-run] unsubscribe token->%s", topic)
+        return {"status": "dry_run", "topic": topic}
+    try:
+        access_token, _ = _access_token()
+        resp = requests.post(
+            IID_BATCH_REMOVE_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "access_token_auth": "true",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({"to": f"/topics/{topic}", "registration_tokens": [token]}),
+            timeout=10,
+        )
+        if resp.status_code >= 400:
+            current_app.logger.error("IID unsubscribe failed %s: %s", resp.status_code, resp.text[:300])
+            return {"status": "error", "code": resp.status_code}
+        return {"status": "unsubscribed", "topic": topic}
+    except Exception as exc:  # noqa: BLE001
+        current_app.logger.exception("IID unsubscribe error")
+        return {"status": "error", "error": str(exc)}
+
+
 # ── event helpers (call these from any create flow) ──────────────────────────
 
 def notify_new_news(news) -> dict:
     title = news.title_ar or news.title_en or "خبر جديد"
     body = (news.details_ar or news.details_en or "").strip()
     body = (body[:117] + "…") if len(body) > 118 else (body or "اضغط لقراءة الخبر")
-    return send_to_topic(TOPIC_NEWS, title, body, data={"type": "news", "id": news.id})
+    return send_to_topic(
+        TOPIC_NEWS, title, body, data={"type": "news", "id": news.id, "url": "/news"}
+    )
 
 
 def notify_new_venue(venue) -> dict:
     name = venue.name_ar or venue.name_en or "ملعب"
     return send_to_topic(
-        TOPIC_VENUES, "ملعب جديد", name, data={"type": "venue", "id": venue.id}
+        TOPIC_VENUES, "ملعب جديد", name, data={"type": "venue", "id": venue.id, "url": "/venues"}
     )
 
 
@@ -183,12 +218,13 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
         body = headline + (f" و{extra} مباراة أخرى" if extra > 0 else "")
     else:
         body = f"{n} مباراة — اضغط لعرض النتائج"
-    # Phase 1: broadcast to every device via TOPIC_RESULTS. The title carries the
-    # competition/age/sector, so users still know which league it is. Phase 2
-    # swaps this to competition_topic(competition.id) once follow exists; the
-    # competition_id in the payload is already here for the deep-link either way.
+    # Phase 2: send only to this competition's followers via competition_topic().
+    # A device that tapped "follow" on this league is subscribed to that topic
+    # (web: /api/push/follow -> subscribe_token_to_topic; native: the SDK). The
+    # title still carries the competition/age/sector for the notification text,
+    # and competition_id rides in the payload for the deep-link.
     return send_to_topic(
-        TOPIC_RESULTS, title, body,
+        competition_topic(competition.id), title, body,
         data={
             "type": "round",
             "competition_id": competition.id,

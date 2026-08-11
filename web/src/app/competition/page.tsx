@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
+import FollowButton from '@/components/ui/FollowButton';
 import TabStrip from '@/components/ui/TabStrip';
 import Spinner from '@/components/ui/Spinner';
 import MatchCard from '@/components/competition/MatchCard';
@@ -1274,7 +1275,8 @@ function CompetitionPageInner() {
   return (
     <>
       <div ref={setHeadEl} className="sticky top-0 z-40">
-        <AppBar title={title || compTitle} back embedded />
+        <AppBar title={title || compTitle} back embedded
+          actions={idParam ? <FollowButton competitionId={idParam} /> : undefined} />
         <TabStrip tabs={mainTabs} current={mainTab} onChange={i => setView({ tab: i })} />
       </div>
 

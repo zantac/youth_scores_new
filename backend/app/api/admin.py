@@ -363,25 +363,67 @@ def delete_ad(aid: int):
     return jsonify({"deleted": aid})
 
 
+def _push_token(j: dict) -> str | None:
+    """A plausible FCM registration token from the body, or None.
+
+    Tokens are ~140-200 char URL-safe strings; reject anything implausible before
+    spending FCM API calls on it (abuse/amplification guard)."""
+    token = (j.get("token") or "").strip()
+    return token if 100 <= len(token) <= 400 else None
+
+
 @admin_bp.post("/api/push/subscribe")
 @limiter.limit("30 per minute")
 def push_subscribe():
-    """Public: a web client posts its FCM token to join the broadcast topics."""
-    j = request.get_json(silent=True) or {}
-    token = (j.get("token") or "").strip()
-    # FCM registration tokens are ~140-200 char URL-safe strings. Reject anything
-    # implausible before spending two FCM API calls on it (abuse/amplification).
-    if not token or not (100 <= len(token) <= 400):
+    """Public: a web client posts its FCM token to join the always-on topics.
+
+    News and venues broadcast to everyone. Round results are per-competition now
+    (Phase 2) — those are joined via /api/push/follow, not here."""
+    token = _push_token(request.get_json(silent=True) or {})
+    if not token:
         return jsonify({"error": "token is required"}), 400
     results = {
         topic: notifications.subscribe_token_to_topic(token, topic)
-        for topic in (
-            notifications.TOPIC_NEWS,
-            notifications.TOPIC_VENUES,
-            notifications.TOPIC_RESULTS,
-        )
+        for topic in (notifications.TOPIC_NEWS, notifications.TOPIC_VENUES)
     }
     return jsonify({"subscribed": results})
+
+
+@admin_bp.post("/api/push/follow")
+@limiter.limit("60 per minute")
+def push_follow():
+    """Public: subscribe a web client's token to one competition's round-results
+    topic (the user tapped "follow" on that league). Idempotent."""
+    j = request.get_json(silent=True) or {}
+    token = _push_token(j)
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+    try:
+        cid = int(j.get("competition_id"))
+    except (TypeError, ValueError):
+        cid = 0
+    if cid <= 0:
+        return jsonify({"error": "competition_id is required"}), 400
+    result = notifications.subscribe_token_to_topic(token, notifications.competition_topic(cid))
+    return jsonify({"followed": cid, "result": result})
+
+
+@admin_bp.post("/api/push/unfollow")
+@limiter.limit("60 per minute")
+def push_unfollow():
+    """Public: unsubscribe a web client's token from one competition's topic."""
+    j = request.get_json(silent=True) or {}
+    token = _push_token(j)
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+    try:
+        cid = int(j.get("competition_id"))
+    except (TypeError, ValueError):
+        cid = 0
+    if cid <= 0:
+        return jsonify({"error": "competition_id is required"}), 400
+    result = notifications.unsubscribe_token_from_topic(token, notifications.competition_topic(cid))
+    return jsonify({"unfollowed": cid, "result": result})
 
 
 # ── global admin search ───────────────────────────────────────────────────────
