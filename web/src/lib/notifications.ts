@@ -167,12 +167,17 @@ export async function followCompetition(cid: string | number): Promise<NotifStat
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') return perm as NotifState;
   }
+  // Record the follow the instant permission is granted — this is the device's
+  // source of truth and what turns the star gold. The server subscription below
+  // is best-effort and re-asserted on every page load (initNotifications), so a
+  // flaky network never loses the choice or leaves the star out of sync.
+  setFollowed([...followedCompetitions(), String(cid)]);
   const token = await currentToken(m);
-  if (!token) return 'denied';
-  await postJson('/api/push/subscribe', { token }); // join the always-on topics too
-  const ok = await postJson('/api/push/follow', { token, competition_id: Number(cid) });
-  if (ok) setFollowed([...followedCompetitions(), String(cid)]);
-  return ok ? 'granted' : 'denied';
+  if (token) {
+    await postJson('/api/push/subscribe', { token }); // join the always-on topics too
+    await postJson('/api/push/follow', { token, competition_id: Number(cid) });
+  }
+  return 'granted';
 }
 
 /** Unfollow a competition: forget it locally (optimistic) and unsubscribe. */
