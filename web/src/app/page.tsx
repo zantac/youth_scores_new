@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import MatchesFeed from '@/components/home/MatchesFeed';
+import NewsDetail from '@/components/news/NewsDetail';
 import { getCompName, formatNewsDate, isRecent, localize, groupKey, buildCompTitle } from '@/lib/utils';
 import type { NewsItem } from '@/lib/types';
 
@@ -261,22 +262,9 @@ export default function HomePage() {
         </footer>
       </div>
 
-      {/* Inline news detail */}
+      {/* Inline news detail — shared reader (photos at the bottom, tap to zoom) */}
       {selectedNews && (
-        <div className="fixed inset-0 z-50 bg-darkBg flex flex-col">
-          <div className="flex items-center bg-cardBg border-b border-bdr px-4 py-3 gap-3">
-            <button onClick={() => setSelectedNews(null)} className="text-aqua text-xl font-bold">✕</button>
-            <span className="flex-1 text-aqua font-bold text-sm">{isAr ? 'الأخبار' : 'News'}</span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {(selectedNews.images?.length ? selectedNews.images : selectedNews.image?.startsWith('http') ? [selectedNews.image] : []).map((src, i) => (
-              <img key={i} src={src} alt={localize(selectedNews.title, locale)} className="w-full rounded-xl object-cover" />
-            ))}
-            <h1 className="text-aqua font-bold text-lg leading-relaxed">{localize(selectedNews.title, locale)}</h1>
-            <p className="text-hint text-xs">📅 {formatNewsDate(selectedNews.date, locale)}</p>
-            {localize(selectedNews.details, locale) && <p className="text-text text-sm leading-[1.9] whitespace-pre-line">{localize(selectedNews.details, locale)}</p>}
-          </div>
-        </div>
+        <NewsDetail item={selectedNews} locale={locale} onClose={() => setSelectedNews(null)} />
       )}
     </div>
   );
