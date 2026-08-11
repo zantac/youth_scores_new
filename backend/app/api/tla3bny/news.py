@@ -4,6 +4,7 @@ from flask import jsonify, request
 
 from app.extensions import db
 from app.models import Tla3bnyCompetition, Tla3bnyMatch, Tla3bnyNews
+from app.services import notifications
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -128,6 +129,8 @@ def create_site_news():
         return _err(str(e))
     db.session.add(n)
     db.session.commit()
+    if n.is_published:
+        notifications.notify_tla3bny_news(n)
     return jsonify(n.to_dict()), 201
 
 
@@ -149,6 +152,8 @@ def create_news(comp_id: int):
         return _err(str(e))
     db.session.add(n)
     db.session.commit()
+    if n.is_published:
+        notifications.notify_tla3bny_news(n)
     return jsonify(n.to_dict()), 201
 
 

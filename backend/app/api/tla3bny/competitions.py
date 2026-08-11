@@ -34,6 +34,7 @@ from app.models import (
     Tla3bnyPlayerTeam,
 )
 from app.models import codes
+from app.services import notifications
 from app.services import storage
 from app.services import tla3bny_auth as auth
 
@@ -419,6 +420,9 @@ def create_competition():
     _apply_ad_controls(comp, data)  # creator is the super admin
     db.session.add(comp)
     db.session.commit()
+    # Announce joinable competitions to academies (drafts stay quiet).
+    if comp.status != "draft":
+        notifications.notify_tla3bny_new_competition(comp)
     return jsonify(comp.to_dict()), 201
 
 
@@ -1079,6 +1083,7 @@ def register_team(comp_id: int):
             ))
             count += 1
     db.session.commit()
+    notifications.notify_tla3bny_team_registered(entry)
     return jsonify(entry.to_dict()), 201
 
 
@@ -1166,6 +1171,7 @@ def add_roster_player(entry_id: int):
     except ValueError as e:
         return _err(str(e))
     db.session.commit()
+    notifications.notify_tla3bny_player_pending(cp)
     return jsonify(cp.to_dict(with_files=True)), 201
 
 
@@ -1262,6 +1268,7 @@ def approve_roster_player(cp_id: int):
         "team_name": cp.entry.team.display_name() if cp.entry and cp.entry.team else None,
     }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
+    notifications.notify_tla3bny_player_decision(cp, True)
     return jsonify(cp.to_dict(with_files=True))
 
 
@@ -1282,6 +1289,7 @@ def reject_roster_player(cp_id: int):
         "reason": cp.rejection_reason,
     }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
+    notifications.notify_tla3bny_player_decision(cp, False)
     return jsonify(cp.to_dict(with_files=True))
 
 
