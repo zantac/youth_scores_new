@@ -4,6 +4,7 @@ import {
   tLogin, tMe, tRegister,
   type TUser, type TAcademy, type TTeam, type TCompetition,
 } from '@/lib/tla3bnyApi';
+import { subscribeAccount } from '@/lib/notifications';
 
 // Kept separate from the youthscores admin session (ys_admin_token): this is the
 // subdomain's own login, so the two never collide in localStorage.
@@ -98,6 +99,13 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     if (!token) return;
     applyMe(await tMe(token));
   }, [token, applyMe]);
+
+  // Once logged in (on login or a restored session), subscribe this device to
+  // the account's private notification topics. No-op unless push is enabled;
+  // the server derives which topics from the bearer token.
+  useEffect(() => {
+    if (token && user) subscribeAccount(token).catch(() => {});
+  }, [token, user]);
 
   const canAdminCompetition = useCallback(
     (compId: number) =>

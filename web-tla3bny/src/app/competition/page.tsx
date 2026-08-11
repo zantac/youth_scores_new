@@ -7,6 +7,7 @@ import { sortAges, subCompLabel } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
 import CompetitionHero from '@/components/tla3bny/CompetitionHero';
+import FollowButton from '@/components/tla3bny/FollowButton';
 import NewsList from '@/components/tla3bny/NewsList';
 import { EmptyState, useTT } from '@/components/tla3bny/kit';
 
@@ -57,7 +58,7 @@ function CompetitionContent() {
     <div className="space-y-5">
       <Link href="/competitions" className="inline-block text-aqua text-xs font-bold">→ {tt('البطولات', 'Competitions')}</Link>
 
-      <CompetitionHero comp={comp} />
+      <CompetitionHero comp={comp} action={<FollowButton competitionId={String(comp.id)} />} />
 
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
         {tabs.map(t => (
