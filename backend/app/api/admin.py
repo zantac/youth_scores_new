@@ -14,7 +14,7 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import Ad, AdminUser, News, Venue
+from app.models import Ad, AdminUser, Match, News, Venue
 from app.models import codes
 from app.services import auth, images, notifications
 
@@ -285,6 +285,21 @@ def update_venue(vid: int):
         return jsonify({"error": "اسم الملعب مطلوب"}), 400
     db.session.commit()
     return jsonify({"venue": _venue_dto(v)})
+
+
+@admin_bp.delete("/api/admin/venues/<int:vid>")
+@auth.role_required("editor")
+def delete_venue(vid: int):
+    v = db.session.get(Venue, vid)
+    if v is None:
+        return jsonify({"error": "الملعب غير موجود"}), 404
+    # Matches keep their free-text venue name (venue_ar/venue_en); only the
+    # directory link is cleared. This mirrors the FK's ON DELETE SET NULL and
+    # works even where SQLite foreign-key enforcement is off.
+    Match.query.filter_by(venue_id=vid).update({"venue_id": None})
+    db.session.delete(v)
+    db.session.commit()
+    return jsonify({"deleted": vid})
 
 
 # ── ads ──────────────────────────────────────────────────────────────────────

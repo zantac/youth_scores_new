@@ -14,6 +14,7 @@ export interface Venue {
 }
 
 export interface NewsItem {
+  id?: number;
   date: string;
   title: string | Localized;
   image?: string;

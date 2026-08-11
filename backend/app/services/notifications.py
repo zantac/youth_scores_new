@@ -197,7 +197,8 @@ def notify_new_news(news) -> dict:
     body = (news.details_ar or news.details_en or "").strip()
     body = (body[:117] + "…") if len(body) > 118 else (body or "اضغط لقراءة الخبر")
     return send_to_topic(
-        TOPIC_NEWS, title, body, data={"type": "news", "id": news.id, "url": "/news"}
+        TOPIC_NEWS, title, body,
+        data={"type": "news", "id": news.id, "url": f"/news?id={news.id}"},
     )
 
 

@@ -143,6 +143,7 @@ def _venue(v: Venue) -> dict:
 
 def _news(n: News) -> dict:
     return {
+        "id": n.id,
         "date": n.date.isoformat(),
         "title": _loc(n.title_ar, n.title_en) or "",
         "image": n.image_url,
