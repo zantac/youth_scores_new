@@ -497,7 +497,16 @@ def request_join_competition(team_id: int):
     comp = cage.competition
     if not comp:
         return _err("Competition not found", 404)
-    if cage.age_category_id != team.age_category_id:
+    # A team of the same age OR younger may enter (younger plays up); an older
+    # team may not play down. oldest_birth_year is higher for younger ages, so the
+    # team qualifies when its year >= the sub-competition's. Fall back to an exact
+    # age match if either category has no birth year set.
+    team_oby = team.age_category.oldest_birth_year if team.age_category else None
+    cage_oby = cage.age_category.oldest_birth_year if cage.age_category else None
+    if team_oby is not None and cage_oby is not None:
+        if team_oby < cage_oby:
+            return _err("عمر الفريق أكبر من فئة هذه البطولة الفرعية", 409)
+    elif cage.age_category_id != team.age_category_id:
         return _err("Team age does not match sub-competition age", 409)
     if Tla3bnyCompetitionTeam.query.filter_by(
         competition_id=comp.id, team_id=team_id

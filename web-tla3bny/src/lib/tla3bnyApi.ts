@@ -126,6 +126,7 @@ export interface TTeam {
   academy_logo: string | null;
   age_category_id: number;
   age_category: string | null;
+  oldest_birth_year: number | null;
   class_label: string | null;
   name: string | null;
   name_en: string | null;
@@ -213,6 +214,7 @@ export interface TCompAge {
   competition_id: number;
   age_category_id: number;
   age_category: string | null;
+  oldest_birth_year: number | null;
   name: string | null;
   /** Public "about this sub-competition" text, shown to everyone. */
   description: string | null;
