@@ -313,6 +313,7 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const [newFee, setNewFee] = useState('');
   const [newDocs, setNewDocs] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
   useEffect(() => { tCategories().then(setCats); }, []);
 
   const handleAgeSelect = (id: string) => {
@@ -332,7 +333,8 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
       player_registration_deadline: newDeadline || undefined,
       ...(docs.length ? { required_documents: docs } : {}),
     });
-    setAgeId(''); setNewName(''); setNewDesc(''); setNewFee(''); setNewDocs(''); setNewDeadline(''); reload();
+    setAgeId(''); setNewName(''); setNewDesc(''); setNewFee(''); setNewDocs(''); setNewDeadline('');
+    setShowAdd(false); reload();
   };
 
   const [filterAge, setFilterAge] = useState('');
@@ -342,14 +344,24 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
 
   return (
     <div className="space-y-3">
-      {allAges.length > 1 && (
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-teal shrink-0">{tt('الفئة', 'Age')}</label>
-          <select value={filterAge} onChange={e => setFilterAge(e.target.value)} className={inputCls + ' text-sm'}>
-            <option value="">{tt('الكل', 'All')}</option>
-            {uniqueAgeCats.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
-        </div>
+      {/* Add button sits ABOVE the list; the age filter (if any) beside it. */}
+      <div className="flex items-center gap-2">
+        <PrimaryButton onClick={() => setShowAdd(true)} className="text-sm shrink-0">
+          ＋ {tt('إضافة بطولة فرعية', 'Add sub-competition')}
+        </PrimaryButton>
+        {allAges.length > 1 && (
+          <div className="flex items-center gap-2 ms-auto">
+            <label className="text-xs font-bold text-teal shrink-0">{tt('الفئة', 'Age')}</label>
+            <select value={filterAge} onChange={e => setFilterAge(e.target.value)} className={inputCls + ' text-sm'}>
+              <option value="">{tt('الكل', 'All')}</option>
+              {uniqueAgeCats.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {visibleAges.length === 0 && (
+        <p className="text-hint text-xs text-center py-4">{tt('لا توجد بطولات فرعية بعد', 'No sub-competitions yet')}</p>
       )}
       {visibleAges.map(a => (
         <AgeRuleCard key={a.id} token={token} age={a} reload={reload}
@@ -368,41 +380,51 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
             finished={finished} canDelete={isSuperAdmin} />
         </Card>
       )}
-      <Card className="p-3 space-y-2">
-        <p className="font-black text-text text-sm">{tt('إضافة بطولة فرعية', 'Add sub-competition')}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={tt('الفئة العمرية', 'Age category')}>
-            <select value={ageId} onChange={e => handleAgeSelect(e.target.value)} className={inputCls}>
-              <option value="">—</option>
-              {cats.map(c => (
-                <option key={c.id} value={c.id}>{c.label_ar || c.label}{c.label_en && c.label_ar ? ` · ${c.label_en}` : ''}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
-            <input value={newName} onChange={e => setNewName(e.target.value)} className={inputCls}
-              placeholder={tt('مثال: الفئة أ', 'e.g. Class A')} />
-          </Field>
-          <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
-            <input type="date" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} className={inputCls} />
-          </Field>
-          <Field label={tt('رسوم الاشتراك للفريق (ج.م)', 'Subscription fee per team (EGP)')}>
-            <input value={newFee} onChange={e => setNewFee(e.target.value)} inputMode="numeric" className={inputCls}
-              placeholder={tt('مثال: 500', 'e.g. 500')} />
-          </Field>
+
+      {showAdd && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3"
+          onClick={() => setShowAdd(false)}>
+          <div className="bg-cardBg border border-bdr rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-4 space-y-3"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="font-black text-text text-sm">{tt('إضافة بطولة فرعية', 'Add sub-competition')}</p>
+              <button onClick={() => setShowAdd(false)} className="text-hint hover:text-text text-xl leading-none">✕</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label={tt('الفئة العمرية', 'Age category')}>
+                <select value={ageId} onChange={e => handleAgeSelect(e.target.value)} className={inputCls}>
+                  <option value="">—</option>
+                  {cats.map(c => (
+                    <option key={c.id} value={c.id}>{c.label_ar || c.label}{c.label_en && c.label_ar ? ` · ${c.label_en}` : ''}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
+                <input value={newName} onChange={e => setNewName(e.target.value)} className={inputCls}
+                  placeholder={tt('مثال: الفئة أ', 'e.g. Class A')} />
+              </Field>
+              <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
+                <input type="date" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} className={inputCls} />
+              </Field>
+              <Field label={tt('رسوم الاشتراك للفريق (ج.م)', 'Subscription fee per team (EGP)')}>
+                <input value={newFee} onChange={e => setNewFee(e.target.value)} inputMode="numeric" className={inputCls}
+                  placeholder={tt('مثال: 500', 'e.g. 500')} />
+              </Field>
+            </div>
+            <Field label={tt('وصف المنافسة (يظهر للجمهور)', 'Description (shown to the public)')}>
+              <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2} className={inputCls}
+                placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
+            </Field>
+            {ageId && (
+              <Field label={tt('أوراق اللاعبين (سطر لكل ورقة)', 'Player papers (one per line)')}>
+                <textarea value={newDocs} onChange={e => setNewDocs(e.target.value)} rows={3} className={inputCls}
+                  placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
+              </Field>
+            )}
+            <PrimaryButton onClick={addAge} disabled={!ageId} className="w-full">{tt('إضافة البطولة الفرعية', 'Add sub-competition')}</PrimaryButton>
+          </div>
         </div>
-        <Field label={tt('وصف المنافسة (يظهر للجمهور)', 'Description (shown to the public)')}>
-          <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2} className={inputCls}
-            placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
-        </Field>
-        {ageId && (
-          <Field label={tt('أوراق اللاعبين (سطر لكل ورقة)', 'Player papers (one per line)')}>
-            <textarea value={newDocs} onChange={e => setNewDocs(e.target.value)} rows={3} className={inputCls}
-              placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
-          </Field>
-        )}
-        <PrimaryButton onClick={addAge} disabled={!ageId}>{tt('إضافة البطولة الفرعية', 'Add sub-competition')}</PrimaryButton>
-      </Card>
+      )}
     </div>
   );
 }
@@ -428,6 +450,7 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
   const [etMinutes, setEtMinutes] = useState(age.et_period_minutes != null ? String(age.et_period_minutes) : '');
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [open, setOpen] = useState(false);  // sub-competitions start collapsed
   useUnsavedGuard(isDirty);
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setIsDirty(true); };
@@ -451,15 +474,19 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
 
   return (
     <Card className="p-3 space-y-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-black text-text">{name || age.name || tt('بدون اسم', 'Unnamed')}</p>
-          <p className="text-[11px] text-teal">{age.age_category}</p>
-        </div>
-        <button onClick={async () => { if (confirm(tt('حذف البطولة الفرعية؟', 'Remove sub-competition?'))) { await tDeleteCompAge(token, age.id); reload(); } }}
+      <div className="flex items-center gap-2">
+        <button onClick={() => setOpen(o => !o)} className="flex-1 min-w-0 flex items-center gap-2 text-start">
+          <span className="text-aqua text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
+          <span className="min-w-0">
+            <span className="block font-black text-text truncate">{name || age.name || tt('بدون اسم', 'Unnamed')}</span>
+            <span className="block text-[11px] text-teal">{age.age_category}{isDirty ? tt(' · غير محفوظ', ' · unsaved') : ''}</span>
+          </span>
+        </button>
+        <button onClick={async (e) => { e.stopPropagation(); if (confirm(tt('حذف البطولة الفرعية؟', 'Remove sub-competition?'))) { await tDeleteCompAge(token, age.id); reload(); } }}
           className="text-hint hover:text-loss text-sm shrink-0">🗑</button>
       </div>
 
+      {open && (<>
       <div className="grid grid-cols-2 gap-2">
         <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
           <input value={name} onChange={e => mark(setName)(e.target.value)} className={inputCls}
@@ -572,6 +599,7 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
         <DocumentsManager token={token} scope={{ kind: 'sub', id: age.id }}
           finished={finished} canDelete={canDelete} />
       </div>
+      </>)}
     </Card>
   );
 }
