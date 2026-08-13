@@ -305,15 +305,15 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
           second_name: tuple[str | None, str | None] = (None, None)) -> dict:
     group = groups[0] if groups else None
     club = t.club
-    # Manual order first, then role seniority, so an un-reordered squad still
-    # lists the head coach before the kit man. Only *current* staff (no end date)
-    # are shown here; a coach who has left drops off — their history stays on
-    # their own profile and in the season-scoped team view.
+    # Role seniority first (head coach → kit man), then any manual reorder within
+    # a role, so the head coach always leads however the staff were added. Only
+    # *current* staff (no end date) are shown here; a coach who has left drops off
+    # — their history stays on their own profile and in the season-scoped team view.
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
            .options(joinedload(TeamCoach.coach))
-           .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all()
+           .order_by(role_rank, TeamCoach.sort_order, TeamCoach.id).all()
            if tc.coach and tc.end_date is None]
     coaches = [
         c.coach.full_name_ar or c.coach.full_name_en
@@ -846,7 +846,7 @@ def team_public(t: Team, season_id: int | None = None) -> dict:
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
            .options(joinedload(TeamCoach.coach))
-           .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all() if tc.coach]
+           .order_by(role_rank, TeamCoach.sort_order, TeamCoach.id).all() if tc.coach]
     regs = (PlayerTeam.query.filter_by(team_id=t.id)
             .options(joinedload(PlayerTeam.player))
             .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
@@ -917,7 +917,7 @@ def club_public(c: Club) -> dict:
     # drops off the club's public list. Their record survives for their profile.
     managers = (ClubStaff.query.filter_by(club_id=c.id)
                 .filter(ClubStaff.end_date.is_(None))
-                .order_by(ClubStaff.sort_order, staff_rank, ClubStaff.id)
+                .order_by(staff_rank, ClubStaff.sort_order, ClubStaff.id)
                 .all())
     # Oldest age group first — by oldest_birth_year, not age_group_id, which
     # orders by when the group was added rather than by age.
