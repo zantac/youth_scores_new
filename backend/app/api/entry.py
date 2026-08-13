@@ -21,6 +21,8 @@ from flask import Blueprint, jsonify, request
 from app.extensions import db
 from app.models import (
     AgeGroup,
+    ClubStaff,
+    Coach,
     Competition,
     CompetitionTeam,
     Group,
@@ -34,6 +36,7 @@ from app.models import (
     PlayerTeam,
     Stage,
     Team,
+    TeamCoach,
     Venue,
 )
 from app.models import codes
@@ -1076,6 +1079,83 @@ def merge_players(source_id: int, target_id: int):
             db.session.delete(pt)
         else:
             pt.player_id = target_id
+
+    target_name = target.full_name_ar or target.full_name_en
+    db.session.flush()   # apply re-points before the source row is deleted
+    db.session.delete(source)
+    db.session.commit()
+    return jsonify({"merged": source_id, "into": target_id, "target_name": target_name})
+
+
+# ── coach / club-staff merge (same tool, one person = coach + staff history) ───
+@entry_bp.get("/api/admin/coaches/<int:cid>/summary")
+@auth.login_required
+def coach_summary(cid: int):
+    """Compact profile for the coach merge tool — birth year and every post
+    (team coaching stints and club youth-sector roles), so an admin can confirm
+    two records are the same person before merging them."""
+    from app.api import serializers
+
+    c = db.session.get(Coach, cid)
+    if c is None:
+        return jsonify({"error": "غير موجود"}), 404
+    full = serializers.coach_full(c)
+
+    def _one(v):
+        return (v or {}).get("ar") or (v or {}).get("en") if v else None
+
+    return jsonify({
+        "id": c.id,
+        "name": c.full_name_ar or c.full_name_en,
+        "birth_year": c.birth_year,
+        "roles": [{
+            "type": r["type"],                 # "coach" (team) or "manager" (club)
+            "club": r["club"],
+            "role": _one(r.get("role")),
+            "age": _one(r.get("age")),
+            "current": r["current"],
+        } for r in full["career"]],
+    })
+
+
+@entry_bp.post("/api/admin/coaches/<int:source_id>/merge-into/<int:target_id>")
+@auth.login_required
+def merge_coaches(source_id: int, target_id: int):
+    """Re-point a person's team-coaching stints and club roles from the duplicate
+    (source) record onto the correct (target) one, then delete the source.
+
+    A coach entity is a single person spanning both team stints (TeamCoach) and
+    club posts (ClubStaff); merging combines that whole history. Neither table
+    has a uniqueness constraint, so re-pointing is safe — an exact-duplicate
+    post (same team/club and start date on both records) is dropped rather than
+    duplicated.
+    """
+    if source_id == target_id:
+        return jsonify({"error": "لا يمكن دمج مدرّب مع نفسه"}), 400
+    source = db.session.get(Coach, source_id)
+    target = db.session.get(Coach, target_id)
+    if source is None:
+        return jsonify({"error": "المدرّب المصدر غير موجود"}), 404
+    if target is None:
+        return jsonify({"error": "المدرّب الهدف غير موجود"}), 404
+
+    # Team stints: drop an exact duplicate (same team + start date), else re-point.
+    target_stints = {(tc.team_id, tc.start_date)
+                     for tc in TeamCoach.query.filter_by(coach_id=target_id).all()}
+    for tc in TeamCoach.query.filter_by(coach_id=source_id).all():
+        if (tc.team_id, tc.start_date) in target_stints:
+            db.session.delete(tc)
+        else:
+            tc.coach_id = target_id
+
+    # Club posts: drop an exact duplicate (same club + start date), else re-point.
+    target_posts = {(cs.club_id, cs.start_date)
+                    for cs in ClubStaff.query.filter_by(coach_id=target_id).all()}
+    for cs in ClubStaff.query.filter_by(coach_id=source_id).all():
+        if (cs.club_id, cs.start_date) in target_posts:
+            db.session.delete(cs)
+        else:
+            cs.coach_id = target_id
 
     target_name = target.full_name_ar or target.full_name_en
     db.session.flush()   # apply re-points before the source row is deleted

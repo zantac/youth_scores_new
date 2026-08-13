@@ -114,17 +114,18 @@ TLA3BNY_AWARD_TYPE = (
 # Award types whose recipient is a team (everything else is a player).
 TLA3BNY_TEAM_AWARD_TYPES = ("champion", "runner_up", "third_place")
 
-# TeamCoach.role_ar — the default seniority order for a team's technical staff.
-# Free text is still allowed; anything not listed sorts after these. A manual
-# reorder (TeamCoach.sort_order) takes precedence over this.
+# TeamCoach.role_ar — the seniority order for a team's technical staff; the head
+# coach always leads however staff were added. Free text is still allowed;
+# anything not listed sorts after these. A manual reorder (TeamCoach.sort_order)
+# only breaks ties within the same role.
 COACH_ROLE_ORDER = (
     "المدير الفني",
     "مدرب",
     "مساعد مدرب",
     "مدرب حراس مرمي",
+    "اداري",
     "محلل اداء",
     "المعد النفسي",
-    "اداري",
     "طبيب",
     "اخصائي اصابات",
     "علاج طبيعي",
@@ -151,8 +152,8 @@ UNRANKED_COACH_ROLE = len(COACH_ROLE_ORDER)
 
 
 # ClubStaff.role_ar — the club's youth-sector posts, most senior first. Same
-# rules as the coach order: free text is allowed and sorts last, and a manual
-# reorder (ClubStaff.sort_order) wins over this.
+# rules as the coach order: seniority leads, free text sorts last, and a manual
+# reorder (ClubStaff.sort_order) only breaks ties within the same role.
 CLUB_STAFF_ROLE_ORDER = (
     "عضو مجلس الإدارة",
     "رئيس قطاع الناشئين",

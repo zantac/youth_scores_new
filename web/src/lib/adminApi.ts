@@ -333,6 +333,14 @@ export const apiAttachCoach = (t: string, tid: number, b: { coach_id: number; ro
 export interface CoachSearchResult { id: number; name: string; birth_year: number | null; club: string | null; role: string | null }
 export const apiSearchCoaches = (t: string, q: string) =>
   get<{ coaches: CoachSearchResult[] }>(t, `/api/admin/coaches/search?q=${encodeURIComponent(q)}`).then(d => d.coaches);
+
+// Compact profile for the coach merge preview (confirm two records are one person).
+export interface CoachMergeRole { type: 'coach' | 'manager'; club: string | null; role: string | null; age: string | null; current: boolean }
+export interface CoachMergeSummary { id: number; name: string; birth_year: number | null; roles: CoachMergeRole[] }
+export const apiCoachSummary = (t: string, id: number) =>
+  get<CoachMergeSummary>(t, `/api/admin/coaches/${id}/summary`);
+export const apiMergeCoach = (t: string, sourceId: number, targetId: number) =>
+  send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/coaches/${sourceId}/merge-into/${targetId}`);
 export const apiUpdateTeamCoach = (t: string, id: number, b: Record<string, unknown>) => send<{ coach: MTeamCoach }>(t, 'PATCH', `/api/admin/team-coaches/${id}`, b).then(d => d.coach);
 export const apiDeleteTeamCoach = (t: string, id: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/team-coaches/${id}`);
 export const apiReorderTeamCoaches = (t: string, tid: number, ids: number[]) => send<{ ok: boolean }>(t, 'POST', `/api/admin/teams/${tid}/coaches/reorder`, { ids });

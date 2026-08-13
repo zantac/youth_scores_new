@@ -979,7 +979,7 @@ def list_club_staff(cid: int):
         return jsonify({"error": "النادي غير موجود"}), 404
     # Current roles (no end_date) first, then most recently started.
     rows = (ClubStaff.query.filter_by(club_id=cid)
-            .order_by(ClubStaff.sort_order, _staff_role_rank(),
+            .order_by(_staff_role_rank(), ClubStaff.sort_order,
                       ClubStaff.end_date.isnot(None), ClubStaff.id)
             .all())
     return jsonify({"staff": [_staff_dto(s) for s in rows]})
@@ -1158,7 +1158,7 @@ def list_team_coaches(tid: int):
     if db.session.get(Team, tid) is None:
         return jsonify({"error": "الفريق غير موجود"}), 404
     rows = (TeamCoach.query.filter_by(team_id=tid)
-            .order_by(TeamCoach.sort_order, _coach_role_rank(),
+            .order_by(_coach_role_rank(), TeamCoach.sort_order,
                       TeamCoach.end_date.isnot(None), TeamCoach.id)
             .all())
     return jsonify({"coaches": [_coach_dto(tc) for tc in rows]})
