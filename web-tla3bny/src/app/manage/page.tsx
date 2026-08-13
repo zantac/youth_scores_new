@@ -302,40 +302,18 @@ const RULE_FIELDS: [keyof TCompAge, string, string][] = [
   ['lineup_deadline_minutes', 'مهلة التشكيلة (د)', 'Lineup deadline'],
 ];
 
+// Seed values for a brand-new sub-competition (match the backend model defaults).
+const DEFAULT_RULES: Record<string, number> = {
+  max_players_per_team: 30, lineup_size: 12, players_on_pitch: 5, max_substitutes: 3,
+  num_periods: 2, period_minutes: 20, lineup_deadline_minutes: 60, max_replacements: 5,
+};
+
 function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
   const tt = useTT();
   const { isSuperAdmin } = useTla3bnyAuth();
   const finished = comp.status === 'finished';
   const [cats, setCats] = useState<TCategory[]>([]);
-  const [ageId, setAgeId] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newFee, setNewFee] = useState('');
-  const [newDocs, setNewDocs] = useState('');
-  const [newDeadline, setNewDeadline] = useState('');
-  const [showAdd, setShowAdd] = useState(false);
   useEffect(() => { tCategories().then(setCats); }, []);
-
-  const handleAgeSelect = (id: string) => {
-    setAgeId(id);
-    const cat = cats.find(c => String(c.id) === id);
-    setNewDocs(cat ? (cat.required_documents ?? []).join('\n') : '');
-  };
-
-  const addAge = async () => {
-    if (!ageId) return;
-    const docs = newDocs.split('\n').map(x => x.trim()).filter(Boolean);
-    await tAddCompAge(token, comp.id, {
-      age_category_id: Number(ageId),
-      name: newName.trim() || undefined,
-      description: newDesc.trim() || undefined,
-      subscription_fee: newFee.trim() === '' ? undefined : Number(newFee),
-      player_registration_deadline: newDeadline || undefined,
-      ...(docs.length ? { required_documents: docs } : {}),
-    });
-    setAgeId(''); setNewName(''); setNewDesc(''); setNewFee(''); setNewDocs(''); setNewDeadline('');
-    setShowAdd(false); reload();
-  };
 
   const [filterAge, setFilterAge] = useState('');
   const allAges = sortAges(comp.ages ?? []);
@@ -344,25 +322,21 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
 
   return (
     <div className="space-y-3">
-      {/* Add button sits ABOVE the list; the age filter (if any) beside it. */}
-      <div className="flex items-center gap-2">
-        <PrimaryButton onClick={() => setShowAdd(true)} className="text-sm shrink-0">
-          ＋ {tt('إضافة بطولة فرعية', 'Add sub-competition')}
-        </PrimaryButton>
-        {allAges.length > 1 && (
-          <div className="flex items-center gap-2 ms-auto">
-            <label className="text-xs font-bold text-teal shrink-0">{tt('الفئة', 'Age')}</label>
-            <select value={filterAge} onChange={e => setFilterAge(e.target.value)} className={inputCls + ' text-sm'}>
-              <option value="">{tt('الكل', 'All')}</option>
-              {uniqueAgeCats.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
-          </div>
-        )}
-      </div>
-
-      {visibleAges.length === 0 && (
-        <p className="text-hint text-xs text-center py-4">{tt('لا توجد بطولات فرعية بعد', 'No sub-competitions yet')}</p>
+      {allAges.length > 1 && (
+        <div className="flex items-center gap-2 justify-end">
+          <label className="text-xs font-bold text-teal shrink-0">{tt('الفئة', 'Age')}</label>
+          <select value={filterAge} onChange={e => setFilterAge(e.target.value)} className={inputCls + ' text-sm'}>
+            <option value="">{tt('الكل', 'All')}</option>
+            {uniqueAgeCats.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </div>
       )}
+
+      {/* Add: a collapsed card on top; expand to fill the full sub-competition
+          form (age, name, rules, papers…) and save — same fields as editing. */}
+      <AgeRuleCard token={token} age={null} reload={reload} finished={false}
+        canDelete={false} createCtx={{ compId: comp.id, cats }} />
+
       {visibleAges.map(a => (
         <AgeRuleCard key={a.id} token={token} age={a} reload={reload}
           finished={finished} canDelete={isSuperAdmin} />
@@ -380,114 +354,116 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
             finished={finished} canDelete={isSuperAdmin} />
         </Card>
       )}
-
-      {showAdd && (
-        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto" onClick={() => setShowAdd(false)}>
-          <div className="min-h-full flex items-start sm:items-center justify-center p-3">
-          <div className="bg-cardBg border border-bdr rounded-2xl w-full max-w-lg p-4 space-y-3 my-4"
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <p className="font-black text-text text-sm">{tt('إضافة بطولة فرعية', 'Add sub-competition')}</p>
-              <button onClick={() => setShowAdd(false)} className="text-hint hover:text-text text-xl leading-none">✕</button>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label={tt('الفئة العمرية', 'Age category')}>
-                <select value={ageId} onChange={e => handleAgeSelect(e.target.value)} className={inputCls}>
-                  <option value="">—</option>
-                  {cats.map(c => (
-                    <option key={c.id} value={c.id}>{c.label_ar || c.label}{c.label_en && c.label_ar ? ` · ${c.label_en}` : ''}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
-                <input value={newName} onChange={e => setNewName(e.target.value)} className={inputCls}
-                  placeholder={tt('مثال: الفئة أ', 'e.g. Class A')} />
-              </Field>
-              <Field label={tt('آخر موعد لإضافة/تعديل اللاعبين', 'Player registration deadline')}>
-                <input type="date" value={newDeadline} onChange={e => setNewDeadline(e.target.value)} className={inputCls} />
-              </Field>
-              <Field label={tt('رسوم الاشتراك للفريق (ج.م)', 'Subscription fee per team (EGP)')}>
-                <input value={newFee} onChange={e => setNewFee(e.target.value)} inputMode="numeric" className={inputCls}
-                  placeholder={tt('مثال: 500', 'e.g. 500')} />
-              </Field>
-            </div>
-            <Field label={tt('وصف المنافسة (يظهر للجمهور)', 'Description (shown to the public)')}>
-              <textarea value={newDesc} onChange={e => setNewDesc(e.target.value)} rows={2} className={inputCls}
-                placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
-            </Field>
-            {ageId && (
-              <Field label={tt('أوراق اللاعبين (سطر لكل ورقة)', 'Player papers (one per line)')}>
-                <textarea value={newDocs} onChange={e => setNewDocs(e.target.value)} rows={3} className={inputCls}
-                  placeholder={tt('شهادة الميلاد\nبطاقة الرقم القومي', 'Birth certificate\nNational ID')} />
-              </Field>
-            )}
-            <PrimaryButton onClick={addAge} disabled={!ageId} className="w-full">{tt('إضافة البطولة الفرعية', 'Add sub-competition')}</PrimaryButton>
-          </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function AgeRuleCard({ token, age, reload, finished, canDelete }: {
-  token: string; age: TCompAge; reload: () => void; finished: boolean; canDelete: boolean;
+function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
+  token: string; age: TCompAge | null; reload: () => void; finished: boolean; canDelete: boolean;
+  createCtx?: { compId: number; cats: TCategory[] };
 }) {
   const tt = useTT();
-  const [name, setName] = useState(age.name ?? '');
-  const [desc, setDesc] = useState(age.description ?? '');
-  const [fee, setFee] = useState(age.subscription_fee != null ? String(age.subscription_fee) : '');
-  const [deadline, setDeadline] = useState(age.player_registration_deadline ?? '');
-  const [f, setF] = useState<Record<string, number>>(() => ({
-    ...Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])),
-    // Edited via its own input below but not part of RULE_FIELDS — seed it so the
-    // input stays controlled from the first render.
-    max_replacements: age.max_replacements ?? 5,
-  }));
-  const [docs, setDocs] = useState((age.required_documents ?? []).join('\n'));
-  const [replacementsOpen, setReplacementsOpen] = useState(age.replacements_open ?? false);
-  const [formationRequired, setFormationRequired] = useState(age.formation_required ?? false);
-  const [etPeriods, setEtPeriods] = useState(age.et_num_periods != null ? String(age.et_num_periods) : '');
-  const [etMinutes, setEtMinutes] = useState(age.et_period_minutes != null ? String(age.et_period_minutes) : '');
+  const creating = age === null;
+  const [name, setName] = useState(age?.name ?? '');
+  const [desc, setDesc] = useState(age?.description ?? '');
+  const [fee, setFee] = useState(age?.subscription_fee != null ? String(age.subscription_fee) : '');
+  const [deadline, setDeadline] = useState(age?.player_registration_deadline ?? '');
+  const [createAgeId, setCreateAgeId] = useState('');
+  const [f, setF] = useState<Record<string, number>>(() => age
+    ? {
+        ...Object.fromEntries(RULE_FIELDS.map(([k]) => [k, age[k] as number])),
+        // Edited via its own input below but not in RULE_FIELDS — seed it controlled.
+        max_replacements: age.max_replacements ?? 5,
+      }
+    : { ...DEFAULT_RULES });
+  const [docs, setDocs] = useState((age?.required_documents ?? []).join('\n'));
+  const [replacementsOpen, setReplacementsOpen] = useState(age?.replacements_open ?? false);
+  const [formationRequired, setFormationRequired] = useState(age?.formation_required ?? false);
+  const [etPeriods, setEtPeriods] = useState(age?.et_num_periods != null ? String(age.et_num_periods) : '');
+  const [etMinutes, setEtMinutes] = useState(age?.et_period_minutes != null ? String(age.et_period_minutes) : '');
   const [ok, setOk] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
-  const [open, setOpen] = useState(false);  // sub-competitions start collapsed
-  useUnsavedGuard(isDirty);
+  const [open, setOpen] = useState(false);  // collapsed by default (both add + edit)
+  useUnsavedGuard(isDirty && !creating);
 
   const mark = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setIsDirty(true); };
 
+  // Create mode: picking the age pre-fills its default required papers.
+  const pickCreateAge = (id: string) => {
+    setCreateAgeId(id);
+    const cat = createCtx?.cats.find(c => String(c.id) === id);
+    setDocs(cat ? (cat.required_documents ?? []).join('\n') : '');
+    setIsDirty(true);
+  };
+
   const save = async () => {
     const docList = docs.split('\n').map(x => x.trim()).filter(Boolean);
-    await tUpdateCompAge(token, age.id, {
-      name: name.trim() || null,
-      description: desc.trim() || null,
-      subscription_fee: fee.trim() === '' ? null : Number(fee),
-      player_registration_deadline: deadline || null,
+    const rules = {
       ...f,
       et_num_periods: etPeriods.trim() === '' ? null : Number(etPeriods),
       et_period_minutes: etMinutes.trim() === '' ? null : Number(etMinutes),
       required_documents: docList,
       replacements_open: replacementsOpen,
       formation_required: formationRequired,
+    };
+    if (creating) {
+      if (!createAgeId) return;
+      await tAddCompAge(token, createCtx!.compId, {
+        age_category_id: Number(createAgeId),
+        name: name.trim() || undefined,
+        description: desc.trim() || undefined,
+        subscription_fee: fee.trim() === '' ? undefined : Number(fee),
+        player_registration_deadline: deadline || undefined,
+        ...rules,
+      });
+      setName(''); setDesc(''); setFee(''); setDeadline(''); setDocs('');
+      setF({ ...DEFAULT_RULES }); setEtPeriods(''); setEtMinutes('');
+      setReplacementsOpen(false); setFormationRequired(false); setCreateAgeId('');
+      setIsDirty(false); setOpen(false);
+      reload();
+      return;
+    }
+    await tUpdateCompAge(token, age!.id, {
+      name: name.trim() || null,
+      description: desc.trim() || null,
+      subscription_fee: fee.trim() === '' ? null : Number(fee),
+      player_registration_deadline: deadline || null,
+      ...rules,
     });
     setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
 
   return (
-    <Card className="p-3 space-y-3">
+    <Card className={`p-3 space-y-3${creating ? ' border-aqua/40' : ''}`}>
       <div className="flex items-center gap-2">
         <button onClick={() => setOpen(o => !o)} className="flex-1 min-w-0 flex items-center gap-2 text-start">
           <span className="text-aqua text-xs w-3 shrink-0">{open ? '▾' : '▸'}</span>
-          <span className="min-w-0">
-            <span className="block font-black text-text truncate">{name || age.name || tt('بدون اسم', 'Unnamed')}</span>
-            <span className="block text-[11px] text-teal">{age.age_category}{isDirty ? tt(' · غير محفوظ', ' · unsaved') : ''}</span>
-          </span>
+          {creating ? (
+            <span className="font-black text-aqua">＋ {tt('إضافة بطولة فرعية', 'Add sub-competition')}</span>
+          ) : (
+            <span className="min-w-0">
+              <span className="block font-black text-text truncate">{name || age!.name || tt('بدون اسم', 'Unnamed')}</span>
+              <span className="block text-[11px] text-teal">{age!.age_category}{isDirty ? tt(' · غير محفوظ', ' · unsaved') : ''}</span>
+            </span>
+          )}
         </button>
-        <button onClick={async (e) => { e.stopPropagation(); if (confirm(tt('حذف البطولة الفرعية؟', 'Remove sub-competition?'))) { await tDeleteCompAge(token, age.id); reload(); } }}
-          className="text-hint hover:text-loss text-sm shrink-0">🗑</button>
+        {!creating && (
+          <button onClick={async (e) => { e.stopPropagation(); if (confirm(tt('حذف البطولة الفرعية؟', 'Remove sub-competition?'))) { await tDeleteCompAge(token, age!.id); reload(); } }}
+            className="text-hint hover:text-loss text-sm shrink-0">🗑</button>
+        )}
       </div>
 
       {open && (<>
+      {creating && (
+        <Field label={tt('الفئة العمرية', 'Age category')}>
+          <select value={createAgeId} onChange={e => pickCreateAge(e.target.value)} className={inputCls}>
+            <option value="">—</option>
+            {createCtx!.cats.map(c => (
+              <option key={c.id} value={c.id}>{c.label_ar || c.label}{c.label_en && c.label_ar ? ` · ${c.label_en}` : ''}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <Field label={tt('اسم البطولة الفرعية', 'Sub-competition name')}>
           <input value={name} onChange={e => mark(setName)(e.target.value)} className={inputCls}
@@ -587,19 +563,23 @@ function AgeRuleCard({ token, age, reload, finished, canDelete }: {
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <PrimaryButton onClick={save} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
+        <PrimaryButton onClick={save} disabled={creating && !createAgeId} className="text-sm">
+          {creating ? tt('إضافة البطولة الفرعية', 'Add sub-competition') : tt('حفظ', 'Save')}
+        </PrimaryButton>
         {ok && <span className="text-win text-sm">✓</span>}
-        <UnsavedBadge isDirty={isDirty} />
+        {!creating && <UnsavedBadge isDirty={isDirty} />}
       </div>
 
-      {/* Registration documents: export to CD/flash, then delete to reclaim storage */}
-      <div className="border-t border-bdr/50 pt-3">
-        <span className="block text-teal text-[10px] font-bold mb-2">
-          {tt('أوراق التسجيل', 'Registration documents')}
-        </span>
-        <DocumentsManager token={token} scope={{ kind: 'sub', id: age.id }}
-          finished={finished} canDelete={canDelete} />
-      </div>
+      {/* Uploaded registration papers — only for an existing sub-competition. */}
+      {!creating && (
+        <div className="border-t border-bdr/50 pt-3">
+          <span className="block text-teal text-[10px] font-bold mb-2">
+            {tt('أوراق التسجيل', 'Registration documents')}
+          </span>
+          <DocumentsManager token={token} scope={{ kind: 'sub', id: age!.id }}
+            finished={finished} canDelete={canDelete} />
+        </div>
+      )}
       </>)}
     </Card>
   );
