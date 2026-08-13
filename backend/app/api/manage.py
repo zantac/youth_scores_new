@@ -1229,25 +1229,27 @@ def search_coaches():
             .filter(db.or_(Coach.full_name_ar.ilike(pattern), Coach.full_name_en.ilike(pattern)))
             .order_by(Coach.full_name_ar).limit(20).all())
 
-    def coach_club(c):
-        # The club of the person's current role (else most recent) — a team
-        # stint or a club post — so the search row shows where they are now.
+    def coach_club_role(c):
+        # The person's current role (else most recent) — a team stint or a club
+        # post — so the search row shows where they are now and as what.
         stints = []
         for tc in c.team_roles:
-            stints.append((tc.end_date is None, tc.start_date or date.min, tc.team.club if tc.team else None))
+            club = tc.team.club if tc.team else None
+            stints.append((tc.end_date is None, tc.start_date or date.min, club, tc.role_ar or tc.role_en))
         for cs in c.club_roles:
-            stints.append((cs.end_date is None, cs.start_date or date.min, cs.club))
+            stints.append((cs.end_date is None, cs.start_date or date.min, cs.club, cs.role_ar or cs.role_en))
         if not stints:
-            return None
+            return None, None
         stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
-        club = stints[0][2]
-        return (club.name_ar or club.name_en) if club else None
+        _current, _start, club, role = stints[0]
+        return ((club.name_ar or club.name_en) if club else None), role
 
-    return jsonify({"coaches": [
-        {"id": c.id, "name": c.full_name_ar or c.full_name_en,
-         "birth_year": c.birth_year, "club": coach_club(c)}
-        for c in rows
-    ]})
+    coaches = []
+    for c in rows:
+        club, role = coach_club_role(c)
+        coaches.append({"id": c.id, "name": c.full_name_ar or c.full_name_en,
+                        "birth_year": c.birth_year, "club": club, "role": role})
+    return jsonify({"coaches": coaches})
 
 
 @manage_bp.post("/api/admin/teams/<int:tid>/coaches/reorder")

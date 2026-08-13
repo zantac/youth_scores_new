@@ -662,60 +662,99 @@ def player_full(p) -> dict:
         | {r[1] for r in assist_rows}
         | {r[1] for r in app_rows}
     )
+    # Competition names + the season each one belongs to, so a team's tally can
+    # be split by season rather than lumped together.
     comp_name: dict[int, dict] = {}
+    comp_season: dict[int, Season] = {}
     if all_comp_ids:
         for c in Competition.query.filter(Competition.id.in_(all_comp_ids)).all():
             comp_name[c.id] = _loc(c.name_ar, c.name_en) or {"ar": "", "en": ""}
+            comp_season[c.id] = c.season
 
-    # One career entry per PlayerTeam registration, most recent first.
+    all_seasons = Season.query.order_by(Season.start_date.desc()).all()
+
+    def _season_for_date(d):
+        if d is None:
+            return None
+        return next((s for s in all_seasons if s.start_date <= d <= s.end_date), None)
+
+    # A career card is one (team, season): a player who stays with a team across
+    # seasons gets a card per season, so each season's goals/assists/appearances
+    # stand on their own instead of being summed into the starting season.
     regs = (
         PlayerTeam.query.filter_by(player_id=p.id)
         .join(Team).order_by(PlayerTeam.start_date.desc()).all()
     )
-    career = []
+    regs_by_team: dict[int, list] = defaultdict(list)
     for r in regs:
-        t = r.team
-        tid = t.id
+        regs_by_team[r.team_id].append(r)
 
-        comp_ids = (
-            {cid for (team_id, cid) in goals_tc   if team_id == tid}
-            | {cid for (team_id, cid) in assists_tc if team_id == tid}
-            | {cid for (team_id, cid) in apps_tc   if team_id == tid}
-        )
-
-        # Per-competition breakdown, sorted by appearances descending.
-        competitions = sorted([
-            {
-                "name":        comp_name.get(cid, {"ar": "", "en": ""}),
-                "goals":       goals_tc.get((tid, cid), 0),
-                "assists":     assists_tc.get((tid, cid), 0),
-                "appearances": apps_tc.get((tid, cid), 0),
-            }
-            for cid in comp_ids
-        ], key=lambda x: -x["appearances"])
-
+    pairs = set(goals_tc) | set(assists_tc) | set(apps_tc)   # (team_id, comp_id)
+    cards: list[tuple] = []   # (sort_key, team_id, card)
+    for tid, tregs in regs_by_team.items():
+        t = tregs[0].team
         ag = t.age_group
-        career.append({
-            "club":         t.club.name_ar or t.club.name_en,
-            "logo":         t.club.logo_url,
+        base = {
+            "club":     t.club.name_ar or t.club.name_en,
+            "logo":     t.club.logo_url,
             # The team's age group — so two stints at the same club in different
             # ages (a player who plays up) are told apart, not just by season.
-            "age":          _loc(ag.name_ar, ag.name_en) if ag else None,
+            "age":      _loc(ag.name_ar, ag.name_en) if ag else None,
             # "Playing up": a stint on a team older than the player (a guest for
             # an older squad, same club) — not his real team, not a transfer.
-            "is_guest":     bool(ag and ag.oldest_birth_year is not None
-                                 and p.birth_year and ag.oldest_birth_year < p.birth_year),
-            "season":       _season_on(r.start_date) or {"ar": "", "en": ""},
-            "goals":        sum(goals_tc.get((tid, cid), 0)   for cid in comp_ids),
-            "assists":      sum(assists_tc.get((tid, cid), 0)  for cid in comp_ids),
-            "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in comp_ids),
-            "current":      r.end_date is None,
-            # The leaving date for an ended stint (an old club), shown instead of
-            # a generic "transferred" label.
-            "end_date":     r.end_date.isoformat() if r.end_date else None,
-            "status":       r.status,
-            "competitions": competitions,
-        })
+            "is_guest": bool(ag and ag.oldest_birth_year is not None
+                             and p.birth_year and ag.oldest_birth_year < p.birth_year),
+            "status":   tregs[0].status,
+        }
+
+        # This team's played competitions, grouped by the season each belongs to.
+        by_season: dict = defaultdict(list)
+        for (team_id, cid) in pairs:
+            if team_id == tid:
+                by_season[comp_season.get(cid)].append(cid)
+        # No games played yet: still show the stint on the season it started in.
+        if not by_season:
+            start = max((r.start_date for r in tregs if r.start_date), default=None)
+            by_season[_season_for_date(start)] = []
+
+        for s, cids in by_season.items():
+            competitions = sorted([
+                {
+                    "name":        comp_name.get(cid, {"ar": "", "en": ""}),
+                    "goals":       goals_tc.get((tid, cid), 0),
+                    "assists":     assists_tc.get((tid, cid), 0),
+                    "appearances": apps_tc.get((tid, cid), 0),
+                }
+                for cid in cids
+            ], key=lambda x: -x["appearances"])
+            cards.append((s.start_date.isoformat() if s else "", tid, {
+                **base,
+                "season":       _loc(s.name_ar, s.name_en) or {"ar": "", "en": ""} if s else {"ar": "", "en": ""},
+                "goals":        sum(goals_tc.get((tid, cid), 0)  for cid in cids),
+                "assists":      sum(assists_tc.get((tid, cid), 0) for cid in cids),
+                "appearances":  sum(apps_tc.get((tid, cid), 0)   for cid in cids),
+                "current":      False,
+                "end_date":     None,
+                "competitions": competitions,
+            }))
+
+    # Newest season first (unknown seasons last).
+    cards.sort(key=lambda x: x[0], reverse=True)
+
+    # The newest card of a team that still has an open stint is the "current"
+    # one; a team the player has left carries its leaving date on its newest card.
+    career = []
+    seen_team: set[int] = set()
+    for _sort, tid, card in cards:
+        if tid not in seen_team:
+            seen_team.add(tid)
+            tregs = regs_by_team[tid]
+            if any(r.end_date is None for r in tregs):
+                card["current"] = True
+            else:
+                le = max((r.end_date for r in tregs if r.end_date), default=None)
+                card["end_date"] = le.isoformat() if le else None
+        career.append(card)
 
     # His "current club" is his real (non-guest) team, not a play-up guest stint.
     current = (
