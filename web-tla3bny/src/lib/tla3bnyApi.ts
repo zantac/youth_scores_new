@@ -53,6 +53,7 @@ export interface TManager {
   name: string;
   role: string | null;
   phone: string | null;
+  photo_path: string | null;
   sort_order: number;
 }
 

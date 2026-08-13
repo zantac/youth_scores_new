@@ -137,6 +137,7 @@ function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Pr
       {tab === 'teams' && (
         <div className="space-y-3">
           <ErrorNote>{err}</ErrorNote>
+          <AddTeam token={token} cats={cats} refresh={refresh} onErr={setErr} />
           {teams.length === 0 && (
             <p className="text-hint text-sm text-center py-4">{tt('لا فرق بعد', 'No teams yet')}</p>
           )}
@@ -144,7 +145,6 @@ function AcademyDashboard({ token, refresh }: { token: string; refresh: () => Pr
             <TeamCard key={t.id} team={t} token={token} refresh={refresh}
               open={selected === t.id} onToggle={() => setSelected(selected === t.id ? null : t.id)} />
           ))}
-          <AddTeam token={token} cats={cats} refresh={refresh} onErr={setErr} />
         </div>
       )}
     </div>
@@ -272,17 +272,37 @@ function ManagersEditor({ token, refresh }: { token: string; refresh: () => Prom
   const tt = useTT();
   const { academy } = useTla3bnyAuth();
   const [f, setF] = useState({ name: '', role: '', phone: '' });
+  const [photo, setPhoto] = useState('');
   const [editId, setEditId] = useState<number | null>(null);
   const [ef, setEf] = useState({ name: '', role: '', phone: '' });
-  const add = async () => { if (!academy || !f.name) return; await tAddManager(token, academy.id, f); setF({ name: '', role: '', phone: '' }); await refresh(); };
-  const startEdit = (m: { id: number; name: string; role: string | null; phone: string | null }) => {
-    setEditId(m.id); setEf({ name: m.name ?? '', role: m.role ?? '', phone: m.phone ?? '' });
+  const [ePhoto, setEPhoto] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const upload = async (file: File | null, setter: (p: string) => void) => {
+    if (!file) return;
+    setUploading(true);
+    try { setter(await tUploadImage(token, file)); } finally { setUploading(false); }
+  };
+  const add = async () => {
+    if (!academy || !f.name) return;
+    await tAddManager(token, academy.id, { ...f, photo_path: photo || undefined });
+    setF({ name: '', role: '', phone: '' }); setPhoto(''); await refresh();
+  };
+  const startEdit = (m: { id: number; name: string; role: string | null; phone: string | null; photo_path: string | null }) => {
+    setEditId(m.id); setEf({ name: m.name ?? '', role: m.role ?? '', phone: m.phone ?? '' }); setEPhoto(m.photo_path ?? '');
   };
   const saveEdit = async () => {
     if (!academy || !ef.name || editId == null) return;
-    await tUpdateManager(token, academy.id, editId, ef); setEditId(null); await refresh();
+    await tUpdateManager(token, academy.id, editId, { ...ef, photo_path: ePhoto || null }); setEditId(null); await refresh();
   };
   if (!academy) return null;
+  const photoInput = (current: string, name: string, setter: (p: string) => void) => (
+    <label className="flex items-center gap-2 text-xs text-hint">
+      <LogoAvatar src={current || null} name={name} size={32} />
+      <span className="font-bold text-teal">{tt('صورة المسؤول', 'Manager photo')}</span>
+      <input type="file" accept="image/*" onChange={e => upload(e.target.files?.[0] ?? null, setter)}
+        className="file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+    </label>
+  );
   return (
     <Card className="p-4 space-y-2">
       <h2 className="font-black text-text">{tt('المسؤولون', 'Managers')}</h2>
@@ -293,14 +313,18 @@ function ManagersEditor({ token, refresh }: { token: string; refresh: () => Prom
             <input value={ef.role} onChange={e => setEf({ ...ef, role: e.target.value })} placeholder={tt('الوظيفة', 'Role')} className={inputCls} />
             <input value={ef.phone} onChange={e => setEf({ ...ef, phone: e.target.value })} placeholder={tt('الهاتف', 'Phone')} className={inputCls} />
           </div>
+          {photoInput(ePhoto, ef.name, setEPhoto)}
           <div className="flex gap-2">
-            <PrimaryButton onClick={saveEdit} disabled={!ef.name} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
+            <PrimaryButton onClick={saveEdit} disabled={!ef.name || uploading} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
             <button onClick={() => setEditId(null)} className="text-hint text-sm font-bold px-3">{tt('إلغاء', 'Cancel')}</button>
           </div>
         </div>
       ) : (
         <div key={m.id} className="flex items-center justify-between text-sm border-t border-bdr/40 pt-1.5 first:border-0 first:pt-0">
-          <span className="text-text font-bold">{m.name} <span className="text-hint font-normal">{m.role}</span></span>
+          <span className="flex items-center gap-2 min-w-0">
+            <LogoAvatar src={m.photo_path} name={m.name} size={28} />
+            <span className="text-text font-bold truncate">{m.name} <span className="text-hint font-normal">{m.role}</span></span>
+          </span>
           <span className="flex items-center gap-3 flex-shrink-0">
             <button onClick={() => startEdit(m)} className="text-hint hover:text-aqua" title={tt('تعديل', 'Edit')}>✎</button>
             <button onClick={async () => { await tDeleteManager(token, academy.id, m.id); refresh(); }} className="text-hint hover:text-loss" title={tt('حذف', 'Delete')}>🗑</button>
@@ -312,7 +336,8 @@ function ManagersEditor({ token, refresh }: { token: string; refresh: () => Prom
         <input value={f.role} onChange={e => setF({ ...f, role: e.target.value })} placeholder={tt('الوظيفة', 'Role')} className={inputCls} />
         <input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder={tt('الهاتف', 'Phone')} className={inputCls} />
       </div>
-      <PrimaryButton onClick={add} disabled={!f.name} className="text-sm">{tt('إضافة مسؤول', 'Add manager')}</PrimaryButton>
+      {photoInput(photo, f.name, setPhoto)}
+      <PrimaryButton onClick={add} disabled={!f.name || uploading} className="text-sm">{tt('إضافة مسؤول', 'Add manager')}</PrimaryButton>
     </Card>
   );
 }
