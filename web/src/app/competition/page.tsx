@@ -12,7 +12,7 @@ import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
 import {
   standingsByGroup, topScorers, topAssisters, cleanSheets,
   yellowCards, redCards, teamGoalStats, splitScorers,
-  formatMatchDate, todayStr, localize, groupKey, teamNameLines,
+  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition,
 } from '@/lib/utils';
 import { competitionDataUrl } from '@/lib/api';
 
@@ -1000,17 +1000,26 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
 
         {tab === 1 && (
           (team.roster && team.roster.length > 0) ? (
-            <div className="space-y-2">
-              {team.roster.map(r => (
-                <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
-                  className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
-                    <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
+            <div className="space-y-5">
+              {groupRosterByPosition(team.roster, locale).map(sec => (
+                <div key={sec.label}>
+                  <p className="text-teal text-[11px] font-bold mb-2">
+                    {sec.label} <span className="text-hint font-normal">({sec.players.length})</span>
+                  </p>
+                  <div className="space-y-2">
+                    {sec.players.map(r => (
+                      <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
+                        className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
+                        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
+                          <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <span className="text-aqua text-xs flex-shrink-0">›</span>
+                      </button>
+                    ))}
                   </div>
-                  <span className="text-aqua text-xs flex-shrink-0">›</span>
-                </button>
+                </div>
               ))}
             </div>
           ) : team.players ? (

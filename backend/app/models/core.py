@@ -103,6 +103,10 @@ class Player(TimestampMixin, db.Model):
     nationality_ar: Mapped[str | None] = mapped_column(sa.String(80))
     position_en: Mapped[str | None] = mapped_column(sa.String(60))
     position_ar: Mapped[str | None] = mapped_column(sa.String(60))
+    # A more specific role within the main position (e.g. right-back under
+    # defender). Shown on the profile in place of the main position when set.
+    sub_position_en: Mapped[str | None] = mapped_column(sa.String(60))
+    sub_position_ar: Mapped[str | None] = mapped_column(sa.String(60))
     height_cm: Mapped[int | None] = mapped_column(sa.SmallInteger)
     weight_kg: Mapped[int | None] = mapped_column(sa.SmallInteger)
     preferred_foot: Mapped[str | None] = mapped_column(code_enum(*codes.PREFERRED_FOOT))

@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { fetchTeam } from '@/lib/api';
-import { localize, teamNameLines } from '@/lib/utils';
+import { localize, teamNameLines, groupRosterByPosition } from '@/lib/utils';
 import type { TeamPublic } from '@/lib/types';
 
 export default function TeamPage() {
@@ -142,20 +142,29 @@ function TeamProfile() {
             {open.players && (t.roster.length === 0 ? (
               <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد قائمة' : 'No squad'}</p>
             ) : (
-              <div className="space-y-2">
-                {t.roster.map(p => (
-                  <button key={p.id} onClick={() => router.push(`/player?id=${p.id}`)}
-                    className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                    <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{p.shirt ?? '—'}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-text text-sm font-bold truncate">{localize(p.name, locale)}</p>
-                      <p className="text-hint text-[11px] truncate">
-                        {[localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
+              <div className="space-y-5">
+                {groupRosterByPosition(t.roster, locale).map(sec => (
+                    <div key={sec.label}>
+                      <p className="text-teal text-[11px] font-bold mb-2">
+                        {sec.label} <span className="text-hint font-normal">({sec.players.length})</span>
                       </p>
+                      <div className="space-y-2">
+                        {sec.players.map(p => (
+                          <button key={p.id} onClick={() => router.push(`/player?id=${p.id}`)}
+                            className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
+                            <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{p.shirt ?? '—'}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-text text-sm font-bold truncate">{localize(p.name, locale)}</p>
+                              <p className="text-hint text-[11px] truncate">
+                                {[localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
+                              </p>
+                            </div>
+                            {p.guest && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">{isAr ? 'صاعد' : 'up'}</span>}
+                            <span className="text-aqua text-xs flex-shrink-0">›</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    {p.guest && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">{isAr ? 'صاعد' : 'up'}</span>}
-                    <span className="text-aqua text-xs flex-shrink-0">›</span>
-                  </button>
                 ))}
               </div>
             ))}

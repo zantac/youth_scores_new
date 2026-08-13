@@ -53,7 +53,12 @@ function PlayerJourney() {
           <div>
             <h1 className="text-xl font-extrabold">{name}</h1>
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {localize(p.position, locale) && <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{localize(p.position, locale)}</span>}
+              {(() => {
+                // The specific sub-position takes the profile spot when set;
+                // otherwise the main position is shown.
+                const pos = localize(p.sub_position, locale) || localize(p.position, locale);
+                return pos ? <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span> : null;
+              })()}
               <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5 tnum">{isAr ? 'مواليد' : 'Born'} {p.birth_year}</span>
               {p.current_club && <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>}
             </div>
