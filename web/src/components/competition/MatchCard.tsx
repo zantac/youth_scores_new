@@ -72,10 +72,26 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
             </>
           ) : isLive ? (
             <>
-              <div className="bg-red-500/20 border border-red-500 rounded-lg px-2 py-1 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-red-400 font-bold text-sm tnum">{match.time || 'LIVE'}</span>
-              </div>
+              {/* A live match shows its running score once one is entered; until
+                  then it just flags that it is live. */}
+              {match.homeScore != null ? (
+                <>
+                  <div className="bg-red-500/20 border border-red-500 rounded-lg px-3 py-1 flex items-center gap-1.5 shadow-inner">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-red-400 font-extrabold text-lg tnum tracking-tight">{match.homeScore} - {match.awayScore}</span>
+                  </div>
+                  {match.homePenalty != null && match.awayPenalty != null && (
+                    <span className="text-gold text-[10px] font-medium tnum">
+                      {locale === 'ar' ? 'ر.ت' : 'Pens'}: {match.homePenalty} - {match.awayPenalty}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <div className="bg-red-500/20 border border-red-500 rounded-lg px-2 py-1 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-red-400 font-bold text-sm tnum">{match.time || 'LIVE'}</span>
+                </div>
+              )}
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
             </>
           ) : isPostponed ? (
