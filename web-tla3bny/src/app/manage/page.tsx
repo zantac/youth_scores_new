@@ -3,15 +3,15 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  tCompetition, tCompDashboard, tCategories, tAcademies, tAcademyTeams,
+  tCompetition, tCompDashboard, tCategories,
   tAddCompAge, tUpdateCompAge, tDeleteCompAge,
-  tCompTeams, tRegisterTeam, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
+  tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
   tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, whatsappLink, mediaUrl,
-  type TCompetition, type TCompAge, type TCompDashboard, type TCategory, type TAcademy, type TTeam,
+  type TCompetition, type TCompAge, type TCompDashboard, type TCategory,
   type TCompTeam, type TCompPlayer, type TMatch, type TCompAdmin,
 } from '@/lib/tla3bnyApi';
 import MatchRow from '@/components/tla3bny/MatchRow';
@@ -682,35 +682,11 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
   const nm = useName();
   const [entries, setEntries] = useState<TCompTeam[]>([]);
-  const [academies, setAcademies] = useState<TAcademy[]>([]);
-  const [acadId, setAcadId] = useState('');
-  const [teams, setTeams] = useState<TTeam[]>([]);
-  const [teamId, setTeamId] = useState('');
-  const [selCageId, setSelCageId] = useState('');
-  const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => { tCompTeams(comp.id, undefined, false, token).then(setEntries).catch(() => setEntries([])); }, [comp.id, token]);
-  useEffect(() => { reload(); tAcademies().then(setAcademies); }, [reload]);
-  useEffect(() => { if (acadId) tAcademyTeams(Number(acadId)).then(setTeams); else setTeams([]); setTeamId(''); setSelCageId(''); }, [acadId]);
+  useEffect(() => { reload(); }, [reload]);
 
   const ages = comp.ages ?? [];
-  const ageIds = new Set(ages.map(a => a.age_category_id));
   const ageLabel = Object.fromEntries(ages.map(a => [a.age_category_id, a.age_category]));
-
-  // Teams eligible for this competition (age must be configured in Rules)
-  const eligibleTeams = teams.filter(t => ageIds.has(t.age_category_id));
-
-  // Sub-competitions the selected team can join
-  const selectedTeam = teams.find(t => String(t.id) === teamId);
-  const eligibleCages = selectedTeam ? ages.filter(a => a.age_category_id === selectedTeam.age_category_id) : [];
-
-  const register = async () => {
-    setErr(null);
-    try {
-      await tRegisterTeam(token, comp.id, Number(teamId), selCageId ? Number(selCageId) : undefined);
-      setTeamId(''); setSelCageId(''); reload();
-    }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-  };
 
   const [filterSubComp, setFilterSubComp] = useState('');
   const [filterTeamAcad, setFilterTeamAcad] = useState('');
@@ -729,69 +705,6 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 
   return (
     <div className="space-y-3">
-      {/* Register a team — kept at the very top, above the filter and the list. */}
-      <Card className="p-3 space-y-2">
-        <p className="font-black text-text text-sm">{tt('تسجيل فريق', 'Register a team')}</p>
-        {ages.length === 0 ? (
-          <p className="text-hint text-xs text-center py-1">
-            {tt('أضف بطولات فرعية في تبويب «البطولات الفرعية» أولاً قبل إضافة الفرق.',
-                'Add sub-competitions in the Sub-competitions tab first before adding teams.')}
-          </p>
-        ) : (<>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label={tt('الأكاديمية', 'Academy')}>
-              <select value={acadId} onChange={e => setAcadId(e.target.value)} className={inputCls}>
-                <option value="">—</option>
-                {academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </Field>
-            <Field label={tt('الفريق', 'Team')}>
-              <select value={teamId} onChange={e => { setTeamId(e.target.value); setSelCageId(''); }} className={inputCls}>
-                <option value="">—</option>
-                {eligibleTeams.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {nm(t.display_name, t.display_name_en)} · {ageLabel[t.age_category_id] ?? t.age_category}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          {teamId && eligibleCages.length > 1 && (
-            <Field label={tt('البطولة الفرعية', 'Sub-competition')}>
-              <select value={selCageId} onChange={e => setSelCageId(e.target.value)} className={inputCls}>
-                <option value="">— {tt('اختر البطولة الفرعية', 'Select sub-competition')}</option>
-                {eligibleCages.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name ? `${a.name} · ${a.age_category}` : a.age_category ?? String(a.id)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {teamId && eligibleCages.length === 1 && (
-            <p className="text-[11px] text-teal">
-              {tt(
-                `سيُسجَّل في: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
-                `Will join: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
-              )}
-            </p>
-          )}
-          {acadId && eligibleTeams.length === 0 && (
-            <p className="text-[11px] text-hint">
-              {tt('لا فرق في هذه الأكاديمية تنتمي لفئات البطولة.',
-                  'No teams in this academy match the competition\'s age categories.')}
-            </p>
-          )}
-          {err && <p className="text-loss text-xs">{err}</p>}
-          <PrimaryButton
-            onClick={register}
-            disabled={!teamId || (eligibleCages.length > 1 && !selCageId)}
-          >
-            {tt('تسجيل الفريق', 'Register team')}
-          </PrimaryButton>
-        </>)}
-      </Card>
-
       {/* Filters */}
       {entries.filter(e => e.status !== 'pending').length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
