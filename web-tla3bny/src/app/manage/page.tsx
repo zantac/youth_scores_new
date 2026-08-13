@@ -729,6 +729,69 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 
   return (
     <div className="space-y-3">
+      {/* Register a team — kept at the very top, above the filter and the list. */}
+      <Card className="p-3 space-y-2">
+        <p className="font-black text-text text-sm">{tt('تسجيل فريق', 'Register a team')}</p>
+        {ages.length === 0 ? (
+          <p className="text-hint text-xs text-center py-1">
+            {tt('أضف بطولات فرعية في تبويب «البطولات الفرعية» أولاً قبل إضافة الفرق.',
+                'Add sub-competitions in the Sub-competitions tab first before adding teams.')}
+          </p>
+        ) : (<>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={tt('الأكاديمية', 'Academy')}>
+              <select value={acadId} onChange={e => setAcadId(e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+            <Field label={tt('الفريق', 'Team')}>
+              <select value={teamId} onChange={e => { setTeamId(e.target.value); setSelCageId(''); }} className={inputCls}>
+                <option value="">—</option>
+                {eligibleTeams.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {nm(t.display_name, t.display_name_en)} · {ageLabel[t.age_category_id] ?? t.age_category}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          {teamId && eligibleCages.length > 1 && (
+            <Field label={tt('البطولة الفرعية', 'Sub-competition')}>
+              <select value={selCageId} onChange={e => setSelCageId(e.target.value)} className={inputCls}>
+                <option value="">— {tt('اختر البطولة الفرعية', 'Select sub-competition')}</option>
+                {eligibleCages.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name ? `${a.name} · ${a.age_category}` : a.age_category ?? String(a.id)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {teamId && eligibleCages.length === 1 && (
+            <p className="text-[11px] text-teal">
+              {tt(
+                `سيُسجَّل في: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
+                `Will join: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
+              )}
+            </p>
+          )}
+          {acadId && eligibleTeams.length === 0 && (
+            <p className="text-[11px] text-hint">
+              {tt('لا فرق في هذه الأكاديمية تنتمي لفئات البطولة.',
+                  'No teams in this academy match the competition\'s age categories.')}
+            </p>
+          )}
+          {err && <p className="text-loss text-xs">{err}</p>}
+          <PrimaryButton
+            onClick={register}
+            disabled={!teamId || (eligibleCages.length > 1 && !selCageId)}
+          >
+            {tt('تسجيل الفريق', 'Register team')}
+          </PrimaryButton>
+        </>)}
+      </Card>
+
       {/* Filters */}
       {entries.filter(e => e.status !== 'pending').length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
@@ -790,67 +853,6 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
           <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
         </Card>
       ))}
-
-      <Card className="p-3 space-y-2">
-        {ages.length === 0 ? (
-          <p className="text-hint text-xs text-center py-1">
-            {tt('أضف بطولات فرعية في تبويب «البطولات الفرعية» أولاً قبل إضافة الفرق.',
-                'Add sub-competitions in the Sub-competitions tab first before adding teams.')}
-          </p>
-        ) : (<>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label={tt('الأكاديمية', 'Academy')}>
-              <select value={acadId} onChange={e => setAcadId(e.target.value)} className={inputCls}>
-                <option value="">—</option>
-                {academies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </Field>
-            <Field label={tt('الفريق', 'Team')}>
-              <select value={teamId} onChange={e => { setTeamId(e.target.value); setSelCageId(''); }} className={inputCls}>
-                <option value="">—</option>
-                {eligibleTeams.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {nm(t.display_name, t.display_name_en)} · {ageLabel[t.age_category_id] ?? t.age_category}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          {teamId && eligibleCages.length > 1 && (
-            <Field label={tt('البطولة الفرعية', 'Sub-competition')}>
-              <select value={selCageId} onChange={e => setSelCageId(e.target.value)} className={inputCls}>
-                <option value="">— {tt('اختر البطولة الفرعية', 'Select sub-competition')}</option>
-                {eligibleCages.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.name ? `${a.name} · ${a.age_category}` : a.age_category ?? String(a.id)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {teamId && eligibleCages.length === 1 && (
-            <p className="text-[11px] text-teal">
-              {tt(
-                `سيُسجَّل في: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
-                `Will join: ${eligibleCages[0].name ? `${eligibleCages[0].name} · ${eligibleCages[0].age_category}` : eligibleCages[0].age_category}`,
-              )}
-            </p>
-          )}
-          {acadId && eligibleTeams.length === 0 && (
-            <p className="text-[11px] text-hint">
-              {tt('لا فرق في هذه الأكاديمية تنتمي لفئات البطولة.',
-                  'No teams in this academy match the competition\'s age categories.')}
-            </p>
-          )}
-          {err && <p className="text-loss text-xs">{err}</p>}
-          <PrimaryButton
-            onClick={register}
-            disabled={!teamId || (eligibleCages.length > 1 && !selCageId)}
-          >
-            {tt('تسجيل الفريق', 'Register team')}
-          </PrimaryButton>
-        </>)}
-      </Card>
     </div>
   );
 }
