@@ -39,6 +39,7 @@ function MatchCenter() {
   const [m, setM] = useState<MatchFull | null>(null);
   const [loading, setLoading] = useState(true);
   const [share, setShare] = useState(false);
+  const [tab, setTab] = useState<'lineup' | 'events' | null>(null);
   const isAr = locale === 'ar';
   const isLive = m?.status === 'live';
 
@@ -104,6 +105,14 @@ function MatchCenter() {
 
   const hasEvents = events.length > 0;
 
+  const lu = m.lineup;
+  const hasLineup = !!lu && [lu.home, lu.away].some(s => s.starters.length + s.bench.length > 0);
+  const tabs = [
+    hasLineup ? { key: 'lineup' as const, label: isAr ? 'التشكيلة' : 'Lineup' } : null,
+    hasEvents ? { key: 'events' as const, label: isAr ? 'الأحداث' : 'Events' } : null,
+  ].filter(Boolean) as { key: 'lineup' | 'events'; label: string }[];
+  const activeTab = tab && tabs.some(t => t.key === tab) ? tab : (tabs[0]?.key ?? null);
+
   return (
     <div className="min-h-screen bg-darkBg pb-24">
       {/* Sticky header */}
@@ -166,22 +175,60 @@ function MatchCenter() {
         )}
       </div>
 
-      {/* Tab bar — only shown when there are events */}
-      {hasEvents && (
+      {/* Tab bar — shown when there is a lineup and/or events */}
+      {tabs.length > 0 && (
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar px-4 bg-cardBg/50">
-          <div className="px-3 py-2.5 text-sm font-bold border-b-2 border-aqua text-aqua whitespace-nowrap">
-            {isAr ? 'الأحداث' : 'Events'}
-          </div>
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-3 py-2.5 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
+                activeTab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-hint hover:text-text'}`}>
+              {t.label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Events timeline */}
       <div className="p-4">
-        {!hasEvents ? (
-          <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center text-hint text-sm">
-            {isAr ? 'لا توجد أحداث مسجّلة لهذه المباراة' : 'No recorded events for this match'}
+        {/* Lineup */}
+        {activeTab === 'lineup' && lu && (
+          <div className="grid grid-cols-2 gap-3">
+            {(['home', 'away'] as const).map(sideKey => {
+              const s = lu[sideKey];
+              const sideTeam = sideKey === 'home' ? m.home : m.away;
+              const sideName = sideKey === 'home' ? homeName : awayName;
+              return (
+                <div key={sideKey} className="bg-cardBg border border-bdr rounded-2xl p-3">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TeamAvatar url={sideTeam.logo} name={sideName} size={26} />
+                    <span className="font-bold text-sm truncate">{sideName}</span>
+                  </div>
+                  <p className="text-aqua text-[11px] font-bold mb-1.5">{isAr ? 'التشكيلة الأساسية' : 'Starters'}</p>
+                  <ul className="space-y-1">
+                    {s.starters.length > 0 ? s.starters.map((n, i) => (
+                      <li key={i} className="flex items-center gap-2 text-text text-xs bg-darkBg border border-bdr/60 rounded-lg px-2.5 py-1.5">
+                        <span className="text-hint text-[10px] font-bold tnum w-4 text-center flex-shrink-0">{i + 1}</span>
+                        <span className="truncate">{n}</span>
+                      </li>
+                    )) : <li className="text-hint text-[11px]">—</li>}
+                  </ul>
+                  {s.bench.length > 0 && (
+                    <>
+                      <p className="text-hint text-[11px] font-bold mt-3 mb-1.5">{isAr ? 'البدلاء' : 'Bench'}</p>
+                      <ul className="space-y-1">
+                        {s.bench.map((n, i) => (
+                          <li key={i} className="text-hint text-xs px-2.5 py-1 truncate">{n}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ) : (
+        )}
+
+        {/* Events timeline */}
+        {activeTab === 'events' && (
           <div className="relative">
             <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-bdr to-transparent" />
             {events.map((e, i) => (
@@ -202,6 +249,13 @@ function MatchCenter() {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Nothing to show */}
+        {activeTab === null && (
+          <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center text-hint text-sm">
+            {isAr ? 'لا توجد أحداث أو تشكيلة مسجّلة لهذه المباراة' : 'No recorded events or lineup for this match'}
           </div>
         )}
       </div>

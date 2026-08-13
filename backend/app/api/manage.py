@@ -1307,6 +1307,7 @@ def _reg_dto(pt: PlayerTeam):
         "name_ar": p.full_name_ar, "name_en": p.full_name_en, "photo": p.profile_pic_url,
         "birth_year": p.birth_year, "birth_year_verified": p.birth_year_verified,
         "position_ar": p.position_ar, "position_en": p.position_en,
+        "sub_position_ar": p.sub_position_ar, "sub_position_en": p.sub_position_en,
         "shirt_number": pt.shirt_number, "status": pt.status,
         "start_date": pt.start_date.isoformat() if pt.start_date else None,
         "end_date": pt.end_date.isoformat() if pt.end_date else None,
@@ -1367,7 +1368,8 @@ def add_team_player(tid: int):
         by = ag.oldest_birth_year if ag else 2010
     p = Player(full_name_ar=name_ar, full_name_en=name_en, birth_year=by,
                birth_year_verified=verified, profile_pic_url=_str(j.get("photo")),
-               position_ar=_str(j.get("position_ar")), position_en=_str(j.get("position_en")))
+               position_ar=_str(j.get("position_ar")), position_en=_str(j.get("position_en")),
+               sub_position_ar=_str(j.get("sub_position_ar")), sub_position_en=_str(j.get("sub_position_en")))
     db.session.add(p)
     db.session.flush()
     status = j.get("status") if j.get("status") in codes.PLAYER_TEAM_STATUS else "active"
@@ -1434,6 +1436,8 @@ def update_team_player(ptid: int):
     if "photo" in j: p.profile_pic_url = _str(j["photo"])
     if "position_ar" in j: p.position_ar = _str(j["position_ar"])
     if "position_en" in j: p.position_en = _str(j["position_en"])
+    if "sub_position_ar" in j: p.sub_position_ar = _str(j["sub_position_ar"])
+    if "sub_position_en" in j: p.sub_position_en = _str(j["sub_position_en"])
     if j.get("birth_year"):
         by = _int_or_none(j["birth_year"])
         if by:

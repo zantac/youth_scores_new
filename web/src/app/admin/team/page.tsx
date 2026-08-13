@@ -7,7 +7,7 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiTeam, apiUploadImage,
   apiTeamCoaches, apiAddTeamCoach, apiUpdateTeamCoach, apiDeleteTeamCoach, apiReorderTeamCoaches,
-  apiTeamRoster, apiAddTeamPlayer, apiUpdateTeamPlayer, apiDeleteTeamPlayer, apiReorderTeamRoster,
+  apiTeamRoster, apiAddTeamPlayer, apiUpdateTeamPlayer, apiDeleteTeamPlayer,
   apiTransferPlayer, apiAdminSearch,
   apiAttachPlayer, apiSearchPlayers, apiAttachCoach, apiSearchCoaches,
   type MTeamFull, type MTeamCoach, type MRegistration, type AdminSearchTeam,
@@ -43,6 +43,56 @@ const COACH_ROLES = [
   { ar: 'اخصائي',            en: 'Specialist' },
   { ar: 'عامل مهمات',        en: 'Kit Man' },
 ];
+
+// Canonical playing positions, in pitch order (keeper → attack). Offered as a
+// dropdown; picking a known one fills its English counterpart. The field stays
+// free text so unusual roles can still be typed.
+const POSITIONS = [
+  { ar: 'حارس مرمي', en: 'Goalkeeper' },
+  { ar: 'مدافع',      en: 'Defender' },
+  { ar: 'لاعب وسط',   en: 'Midfielder' },
+  { ar: 'مهاجم',      en: 'Forward' },
+] as const;
+
+// Normalise so ى/ي and stray spaces don't break the match (e.g. مرمى vs مرمي).
+const normPos = (p?: string | null) => (p ?? '').trim().replace(/ى/g, 'ي');
+const POSITION_ORDER = POSITIONS.map(p => normPos(p.ar));
+const posRank = (p?: string | null) => {
+  const i = POSITION_ORDER.indexOf(normPos(p));
+  return i === -1 ? 99 : i;   // unknown/empty positions sort last
+};
+// First by position (keeper → attack), then Arabic-alphabetically by name.
+const byPositionThenName = (a: MRegistration, b: MRegistration) => {
+  const d = posRank(a.position_ar) - posRank(b.position_ar);
+  if (d !== 0) return d;
+  return (a.name_ar || a.name_en || '').localeCompare(b.name_ar || b.name_en || '', 'ar');
+};
+
+// Specific roles offered under each main position. Keyed by the (normalised)
+// main Arabic position; picking a known one fills its English counterpart. The
+// field stays free text, so anything can be typed.
+const SUB_POSITIONS: Record<string, { ar: string; en: string }[]> = {
+  'حارس مرمي': [],
+  'مدافع': [
+    { ar: 'قلب دفاع',  en: 'Centre-Back' },
+    { ar: 'ظهير ايمن', en: 'Right-Back' },
+    { ar: 'ظهير ايسر', en: 'Left-Back' },
+  ],
+  'لاعب وسط': [
+    { ar: 'وسط دفاعي', en: 'Defensive Midfielder' },
+    { ar: 'وسط',        en: 'Central Midfielder' },
+    { ar: 'وسط هجومي',  en: 'Attacking Midfielder' },
+    { ar: 'جناح ايمن',  en: 'Right Winger' },
+    { ar: 'جناح ايسر',  en: 'Left Winger' },
+  ],
+  'مهاجم': [
+    { ar: 'رأس حربة',   en: 'Centre-Forward' },
+    { ar: 'ثاني مهاجم', en: 'Second Striker' },
+    { ar: 'جناح ايمن',  en: 'Right Winger' },
+    { ar: 'جناح ايسر',  en: 'Left Winger' },
+  ],
+};
+const subPositionsFor = (positionAr: string) => SUB_POSITIONS[normPos(positionAr)] ?? [];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="block text-teal text-[11px] font-bold mb-1">{label}</label>{children}</div>;
@@ -220,12 +270,22 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
     shirt_number: reg?.shirt_number != null ? String(reg.shirt_number) : '',
     birth_year: reg?.birth_year != null && reg.birth_year_verified ? String(reg.birth_year) : '',
     position_ar: reg?.position_ar ?? '', position_en: reg?.position_en ?? '',
+    sub_position_ar: reg?.sub_position_ar ?? '', sub_position_en: reg?.sub_position_en ?? '',
     photo: reg?.photo ?? '',
     status: reg?.status ?? 'active',
     start_date: reg?.start_date ?? '', end_date: reg?.end_date ?? '',
   });
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  // Choosing (or typing) a known position fills the English side automatically.
+  const setPosition = (v: string) => {
+    const hit = POSITIONS.find(p => p.ar === v.trim());
+    setF(prev => ({ ...prev, position_ar: v, ...(hit ? { position_en: hit.en } : {}) }));
+  };
+  const setSubPosition = (v: string) => {
+    const hit = subPositionsFor(f.position_ar).find(o => o.ar === v.trim());
+    setF(prev => ({ ...prev, sub_position_ar: v, ...(hit ? { sub_position_en: hit.en } : {}) }));
+  };
   const save = async () => {
     setErr(null); setBusy(true);
     try {
@@ -242,8 +302,21 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
         <Field label="الاسم (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
         <Field label="رقم القميص"><input type="number" value={f.shirt_number} onChange={e => set('shirt_number', e.target.value)} className={inputCls} /></Field>
         <Field label="سنة الميلاد"><input type="number" value={f.birth_year} onChange={e => set('birth_year', e.target.value)} placeholder="2010" className={inputCls} /></Field>
-        <Field label="المركز (عربي)"><input value={f.position_ar} onChange={e => set('position_ar', e.target.value)} placeholder="مهاجم" className={inputCls} /></Field>
+        <Field label="المركز (عربي)">
+          <input list="player-positions" value={f.position_ar} onChange={e => setPosition(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="player-positions">
+            {POSITIONS.map(p => <option key={p.ar} value={p.ar} />)}
+          </datalist>
+        </Field>
         <Field label="المركز (إنجليزي)"><input value={f.position_en} onChange={e => set('position_en', e.target.value)} dir="ltr" placeholder="Striker" className={inputCls} /></Field>
+        <Field label="المركز الفرعي (عربي)">
+          <input list="player-sub-positions" value={f.sub_position_ar} onChange={e => setSubPosition(e.target.value)}
+            placeholder={subPositionsFor(f.position_ar).length ? 'اختر من القائمة أو اكتب' : 'ظهير أيمن…'} className={inputCls} />
+          <datalist id="player-sub-positions">
+            {subPositionsFor(f.position_ar).map(o => <option key={o.ar} value={o.ar} />)}
+          </datalist>
+        </Field>
+        <Field label="المركز الفرعي (إنجليزي)"><input value={f.sub_position_en} onChange={e => set('sub_position_en', e.target.value)} dir="ltr" placeholder="Right-Back" className={inputCls} /></Field>
         <Field label="الحالة"><select value={f.status} onChange={e => set('status', e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}</select></Field>
         <Field label="تاريخ التسجيل"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ الانتهاء"><input type="date" value={f.end_date} onChange={e => set('end_date', e.target.value)} className={inputCls} /></Field>
@@ -488,26 +561,18 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
   const remove = async (r: MRegistration) => { if (confirm('حذف هذا اللاعب من القائمة؟')) { await apiDeleteTeamPlayer(token, r.id); reload(); } };
   // Squad = current players of this team's own age; guests = younger players
   // playing up (same club); former = transferred/ended stints kept for history.
-  const active = items.filter(r => !r.end_date && !r.is_guest);
-  const guests = items.filter(r => !r.end_date && r.is_guest);
+  // Current players are shown by position (keeper → attack) then alphabetically.
+  const active = items.filter(r => !r.end_date && !r.is_guest).sort(byPositionThenName);
+  const guests = items.filter(r => !r.end_date && r.is_guest).sort(byPositionThenName);
   const former = items.filter(r => r.end_date);
-  const move = async (idx: number, dir: -1 | 1) => {
-    const j = idx + dir;
-    if (j < 0 || j >= active.length) return;
-    const next = [...active];
-    [next[idx], next[j]] = [next[j], next[idx]];
-    setItems([...next, ...former]);
-    try { await apiReorderTeamRoster(token, tid, next.map(x => x.id)); } catch { reload(); }
-  };
 
-  const renderRow = (r: MRegistration, idx: number, variant: 'active' | 'guest' | 'former') =>
+  const renderRow = (r: MRegistration, variant: 'active' | 'guest' | 'former') =>
     editing?.id === r.id ? (
       <PlayerForm key={r.id} token={token} tid={tid} reg={r} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
     ) : transferring?.id === r.id ? (
       <TransferForm key={r.id} token={token} reg={r} onDone={() => { setTransferring(null); reload(); }} onCancel={() => setTransferring(null)} />
     ) : (
       <div key={r.id} className={card + ' flex items-center gap-3' + (variant === 'former' ? ' opacity-60' : '')}>
-        {variant === 'active' && active.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === active.length - 1} />}
         <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
         <div className="flex-1 min-w-0">
           <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
@@ -543,11 +608,11 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>
         : (
           <div className="space-y-2">
-            {active.map((r, idx) => renderRow(r, idx, 'active'))}
+            {active.map(r => renderRow(r, 'active'))}
             {guests.length > 0 && (
               <>
                 <p className="text-teal text-[11px] font-bold pt-3">⬆️ ضيوف — يلعبون صاعداً ({guests.length})</p>
-                {guests.map(r => renderRow(r, -1, 'guest'))}
+                {guests.map(r => renderRow(r, 'guest'))}
               </>
             )}
             {former.length > 0 && (
@@ -556,7 +621,7 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
                   <span className={`transition-transform ${showFormer ? 'rotate-90' : ''}`}>›</span>
                   لاعبون سابقون / منتقلون ({former.length})
                 </button>
-                {showFormer && former.map(r => renderRow(r, -1, 'former'))}
+                {showFormer && former.map(r => renderRow(r, 'former'))}
               </>
             )}
             {active.length === 0 && guests.length === 0 && former.length === 0 && <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>}
@@ -577,6 +642,9 @@ function TeamPageInner() {
   const focusCoach = Number(params.get('coach') || 0) || undefined;
   const [team, setTeam] = useState<MTeamFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Coaches by default; jump straight to the players tab when a specific player
+  // was linked from global search.
+  const [tab, setTab] = useState<'coaches' | 'players'>(focusPlayer ? 'players' : 'coaches');
 
   useEffect(() => {
     if (!token || !id) return;
@@ -609,8 +677,21 @@ function TeamPageInner() {
               </p>
             </div>
           </div>
-          <CoachesSection token={token!} tid={team.id} focusCoach={focusCoach} />
-          <RosterSection token={token!} tid={team.id} focusPlayer={focusPlayer} />
+          <div className="flex items-center gap-1 bg-darkBg border border-bdr rounded-xl p-1">
+            {([
+              { key: 'coaches' as const, label: '👔 الجهاز الفني' },
+              { key: 'players' as const, label: '🧑‍🤝‍🧑 اللاعبون' },
+            ]).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
+                  tab === t.key ? 'bg-aqua text-on-accent' : 'text-hint hover:text-text'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {tab === 'coaches'
+            ? <CoachesSection token={token!} tid={team.id} focusCoach={focusCoach} />
+            : <RosterSection token={token!} tid={team.id} focusPlayer={focusPlayer} />}
         </div>
       )}
     </AdminShell>

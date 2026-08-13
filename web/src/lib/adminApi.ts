@@ -315,6 +315,7 @@ export interface MRegistration {
   id: number; player_id: number; name_ar: string | null; name_en: string | null; photo: string | null;
   birth_year: number; birth_year_verified: boolean;
   position_ar: string | null; position_en: string | null;
+  sub_position_ar: string | null; sub_position_en: string | null;
   shirt_number: number | null; status: string; start_date: string | null; end_date: string | null;
   /** A younger player guesting up for this older team (same club). */
   is_guest: boolean;

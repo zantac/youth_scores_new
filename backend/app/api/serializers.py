@@ -306,12 +306,15 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
     group = groups[0] if groups else None
     club = t.club
     # Manual order first, then role seniority, so an un-reordered squad still
-    # lists the head coach before the kit man.
+    # lists the head coach before the kit man. Only *current* staff (no end date)
+    # are shown here; a coach who has left drops off — their history stays on
+    # their own profile and in the season-scoped team view.
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
            .options(joinedload(TeamCoach.coach))
-           .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all() if tc.coach]
+           .order_by(TeamCoach.sort_order, role_rank, TeamCoach.id).all()
+           if tc.coach and tc.end_date is None]
     coaches = [
         c.coach.full_name_ar or c.coach.full_name_en
         for c in tcs if (c.coach.full_name_ar or c.coach.full_name_en)
@@ -325,6 +328,9 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
         "current": tc.end_date is None,
     } for tc in tcs]
 
+    # Current squad only (no end date). A player who has transferred or whose
+    # stint ended drops off; their history stays on their profile and in the
+    # season-scoped team view.
     regs = (PlayerTeam.query.filter_by(team_id=t.id)
             .options(joinedload(PlayerTeam.player))
             .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
@@ -336,7 +342,7 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
         "position": _loc(r.player.position_ar, r.player.position_en),
         "birth_year": r.player.birth_year,
         "current": r.end_date is None,
-    } for r in regs if r.player]
+    } for r in regs if r.player and r.end_date is None]
 
     return {
         "team_id": str(t.id),
@@ -721,6 +727,8 @@ def player_full(p) -> dict:
         "id":           p.id,
         "name":         _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
         "position":     _loc(p.position_ar, p.position_en),
+        # More specific role; the profile shows it in place of the main position.
+        "sub_position": _loc(p.sub_position_ar, p.sub_position_en),
         "birth_year":   p.birth_year,
         "nationality":  _loc(p.nationality_ar, p.nationality_en),
         "photo":        p.profile_pic_url,

@@ -237,6 +237,7 @@ class Tla3bnyAcademyManager(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     role: Mapped[str | None] = mapped_column(sa.String(120))
     phone: Mapped[str | None] = mapped_column(sa.String(50))
+    photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
 
     academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="managers")
@@ -248,6 +249,7 @@ class Tla3bnyAcademyManager(TimestampMixin, db.Model):
             "name": self.name,
             "role": self.role,
             "phone": self.phone,
+            "photo_path": self.photo_path,
             "sort_order": self.sort_order,
         }
 

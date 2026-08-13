@@ -204,6 +204,7 @@ def add_manager(academy_id: int):
         name=name,
         role=(data.get("role") or "").strip() or None,
         phone=(data.get("phone") or "").strip() or None,
+        photo_path=(data.get("photo_path") or "").strip() or None,
         sort_order=_int(data.get("sort_order"), 0),
     )
     db.session.add(m)
@@ -227,6 +228,8 @@ def update_manager(academy_id: int, manager_id: int):
         m.role = (data.get("role") or "").strip() or None
     if "phone" in data:
         m.phone = (data.get("phone") or "").strip() or None
+    if "photo_path" in data:
+        m.photo_path = (data.get("photo_path") or "").strip() or None
     if "sort_order" in data:
         m.sort_order = _int(data.get("sort_order"), m.sort_order)
     db.session.commit()

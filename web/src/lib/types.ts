@@ -201,6 +201,8 @@ export interface HomeMatch {
 export interface MatchGoalEv { side: 'home' | 'away'; minute: number | null; scorer: string | null; scorer_id: number | null; assist: string | null; is_penalty: boolean; is_own_goal: boolean; }
 export interface MatchCardEv { side: 'home' | 'away'; minute: number | null; player: string | null; type: string; }
 export interface MatchSubEv  { side: 'home' | 'away'; minute: number | null; in: string | null; out: string | null; }
+export interface MatchLineupSide { starters: string[]; bench: string[]; }
+export interface MatchLineup { home: MatchLineupSide; away: MatchLineupSide; }
 
 export interface MatchFull {
   id: number;
@@ -211,6 +213,7 @@ export interface MatchFull {
   home_score: number | null; away_score: number | null;
   home_penalty: number | null; away_penalty: number | null;
   goals: MatchGoalEv[]; cards: MatchCardEv[]; subs: MatchSubEv[];
+  lineup?: MatchLineup | null;
 }
 
 export interface PlayerCareerComp { name: string | Localized; goals: number; assists: number; appearances: number; }
@@ -221,7 +224,7 @@ export interface PlayerCareer {
   competitions: PlayerCareerComp[];
 }
 export interface PlayerFull {
-  id: number; name: Localized; position: Localized | null; birth_year: number;
+  id: number; name: Localized; position: Localized | null; sub_position: Localized | null; birth_year: number;
   nationality: Localized | null; photo: string | null; current_club: string | null;
   goals: number; assists: number; appearances: number; career: PlayerCareer[];
 }
