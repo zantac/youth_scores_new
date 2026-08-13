@@ -22,6 +22,7 @@ const NAV = [
   { href: '/admin/structure', label: 'المسابقات',   icon: '🏆', super: false },
   { href: '/admin/content',   label: 'أخبار وملاعب', icon: '📰', super: false },
   { href: '/admin/players',   label: 'اللاعبون',    icon: '👤', super: false },
+  { href: '/admin/coaches',   label: 'المدربون',    icon: '👔', super: false },
   { href: '/admin/users',     label: 'المستخدمون',  icon: '👥', super: true },
 ];
 
