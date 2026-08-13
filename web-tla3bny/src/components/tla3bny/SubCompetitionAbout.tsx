@@ -109,8 +109,14 @@ function SubscriptionSection({ age }: { age: TCompAge }) {
 
   const feeSet = age.subscription_fee != null;
   const canJoin = isActiveAcademy && !!token;
-  // Only the academy's teams in this sub-competition's age group may enter.
-  const eligibleTeams = (academy?.teams ?? []).filter(t => t.age_category_id === age.age_category_id);
+  // A team of this age OR younger may enter (younger plays up); older may not.
+  // oldest_birth_year is higher for younger ages, so a team qualifies when its
+  // year >= the sub-competition's. Fall back to an exact age match if a birth
+  // year is missing.
+  const eligibleTeams = (academy?.teams ?? []).filter(t =>
+    t.oldest_birth_year != null && age.oldest_birth_year != null
+      ? t.oldest_birth_year >= age.oldest_birth_year
+      : t.age_category_id === age.age_category_id);
 
   // Nothing for this viewer (not an academy and no fee visible) → render nothing.
   if (!feeSet && !canJoin) return null;
@@ -151,8 +157,8 @@ function SubscriptionSection({ age }: { age: TCompAge }) {
         ) : eligibleTeams.length === 0 ? (
           <p className="text-hint text-xs">
             {tt(
-              'لا يوجد لديك فريق في هذه الفئة العمرية. أنشئ فريقًا أولًا من لوحة التحكم.',
-              'You have no team in this age group. Create one first from your dashboard.',
+              'لا يوجد لديك فريق بهذه الفئة العمرية أو أصغر. أنشئ فريقًا أولًا من لوحة التحكم.',
+              'You have no team of this age or younger. Create one first from your dashboard.',
             )}
           </p>
         ) : (

@@ -46,6 +46,9 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   // Past the player-registration deadline the academy can no longer add or edit
   // players (the organizer still can, from their own panel).
   const editLocked = activeEntries.some(e => e.registration_deadline_passed);
+  // Players are added per-competition: the team must first be subscribed to a
+  // competition AND approved by its organiser before players can be added.
+  const canAddPlayers = activeEntries.length > 0;
 
   // ── squad: add player (squad-only, no competition documents here) ──────────
   const emptyPf = { name: '', name_en: '', position: '', jersey_number: '', dob: '' };
@@ -181,6 +184,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                   <Field label={tt('صورة جديدة (اختياري)', 'New photo (optional)')}>
                     <input type="file" accept="image/*" onChange={e => setEditPhoto(e.target.files?.[0] ?? null)}
                       className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+                    <p className="text-[10px] text-hint mt-1">{tt('استخدم صورة حديثة وواضحة لوجه اللاعب.', 'Use a recent, clear photo of the player\'s face.')}</p>
                   </Field>
                   <p className="text-[10px] text-hint">
                     {tt('بعد الحفظ، سيُعاد إرسال اللاعب للاعتماد في البطولات المسجّل بها.', 'After saving, the player is resubmitted for approval in the competitions they are entered in.')}
@@ -194,7 +198,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           ))}
         </div>
 
-        {!editLocked && (
+        {!editLocked && canAddPlayers && (
           <Card className="p-3 space-y-3">
             <p className="text-teal text-xs font-bold">{tt('إضافة لاعب للتشكيلة', 'Add a player to the squad')}</p>
             <div className="grid grid-cols-2 gap-3">
@@ -206,8 +210,21 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
             </div>
             <Field label={tt('الصورة', 'Photo')}>
               <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+              <p className="text-[10px] text-hint mt-1">{tt('استخدم صورة حديثة وواضحة لوجه اللاعب — تُستخدم للتحقق من هويته.', 'Use a recent, clear photo of the player\'s face — it is used to verify their identity.')}</p>
             </Field>
             <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
+          </Card>
+        )}
+
+        {!editLocked && !canAddPlayers && (
+          <Card className="p-3 border-aqua/30">
+            <p className="text-[11px] text-teal font-bold text-center leading-relaxed">
+              {compEntries.length === 0
+                ? tt('لإضافة اللاعبين، اشترك بفريقك في بطولة أولًا: افتح صفحة البطولة واطلب الاشتراك في بطولة فرعية بعمر فريقك. بعد موافقة المنظّم يظهر زر «إضافة لاعب» هنا.',
+                      'To add players, first subscribe this team to a competition: open a competition and request to join a sub-competition for your team\'s age. Once the organiser approves, the "Add player" button appears here.')
+                : tt('بانتظار موافقة المنظّم على اشتراك فريقك في البطولة؛ بعد الموافقة يظهر زر «إضافة لاعب» هنا.',
+                      'Waiting for the organiser to approve your team\'s entry; once approved, the "Add player" button appears here.')}
+            </p>
           </Card>
         )}
       </section>

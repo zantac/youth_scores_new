@@ -384,7 +384,6 @@ function AddTeam({ token, cats, refresh, onErr }: { token: string; cats: TCatego
   const tt = useTT();
   const { academy } = useTla3bnyAuth();
   const [ageId, setAgeId] = useState('');
-  const [cls, setCls] = useState('');
   const [description, setDescription] = useState('');
   const [photo, setPhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -398,11 +397,10 @@ function AddTeam({ token, cats, refresh, onErr }: { token: string; cats: TCatego
     try {
       await tCreateTeam(token, academy.id, {
         age_category_id: Number(ageId),
-        class_label: cls || undefined,
         description: description.trim() || undefined,
         photo_path: photo || undefined,
       });
-      setAgeId(''); setCls(''); setDescription(''); setPhoto(null); await refresh();
+      setAgeId(''); setDescription(''); setPhoto(null); await refresh();
     } catch (e) { onErr(e instanceof Error ? e.message : String(e)); }
   };
   return (
@@ -414,8 +412,11 @@ function AddTeam({ token, cats, refresh, onErr }: { token: string; cats: TCatego
             {cats.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </Field>
-        <Field label={tt('المجموعة/الفئة', 'Class')}><input value={cls} onChange={e => setCls(e.target.value)} placeholder="A / B …" className={inputCls} /></Field>
       </div>
+      <p className="text-[11px] text-hint">
+        {tt('الفريق وعاء لكل لاعبي هذه الفئة. القسمة إلى مجموعات (أ/ب) تحدّدها كل بطولة عند الاشتراك، لا الفريق.',
+            'A team is a container for all your players of this age. Splitting into classes (A/B) is decided by each competition when you subscribe — not on the team.')}
+      </p>
       <div className="flex items-start gap-3">
         <div>
           <label className="text-teal text-[11px] font-bold block mb-1">{tt('صورة الفريق', 'Team photo')}</label>

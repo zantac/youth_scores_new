@@ -389,6 +389,9 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
             "academy_logo": self.academy.logo_path if self.academy else None,
             "age_category_id": self.age_category_id,
             "age_category": self.age_category.label if self.age_category else None,
+            "oldest_birth_year": (
+                self.age_category.oldest_birth_year if self.age_category else None
+            ),
             "class_label": self.class_label,
             "name": self.name,
             "name_en": self.name_en,
