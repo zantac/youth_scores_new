@@ -382,9 +382,9 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
       )}
 
       {showAdd && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3"
-          onClick={() => setShowAdd(false)}>
-          <div className="bg-cardBg border border-bdr rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-4 space-y-3"
+        <div className="fixed inset-0 z-50 bg-black/60 overflow-y-auto" onClick={() => setShowAdd(false)}>
+          <div className="min-h-full flex items-start sm:items-center justify-center p-3">
+          <div className="bg-cardBg border border-bdr rounded-2xl w-full max-w-lg p-4 space-y-3 my-4"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <p className="font-black text-text text-sm">{tt('إضافة بطولة فرعية', 'Add sub-competition')}</p>
@@ -422,6 +422,7 @@ function AgesTab({ token, comp, reload }: { token: string; comp: TCompetition; r
               </Field>
             )}
             <PrimaryButton onClick={addAge} disabled={!ageId} className="w-full">{tt('إضافة البطولة الفرعية', 'Add sub-competition')}</PrimaryButton>
+          </div>
           </div>
         </div>
       )}
