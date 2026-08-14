@@ -3,10 +3,11 @@ from datetime import datetime, timedelta
 
 from flask import jsonify, request
 from sqlalchemy import func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
 from app.models import (
+    Tla3bnyAward,
     Tla3bnyCompetition,
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
@@ -21,12 +22,13 @@ from app.models import (
     Tla3bnyTeam,
 )
 from app.models import codes
+from app.services import notifications
 from app.services import tla3bny_auth as auth
 from app.services import tla3bny_tables as tables
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _err, _forbid, _int, _parse_date, _utcnow
+from ._helpers import _err, _forbid, _int, _parse_date, _parse_date_or_error, _utcnow
 
 # Both status values used for "a result has been entered".
 _FINISHED = ("finished", "completed")
@@ -34,7 +36,26 @@ _FINISHED = ("finished", "completed")
 
 @tla3bny_bp.get("/matches")
 def list_matches():
-    q = Tla3bnyMatch.query
+    # Eager-load every relationship Tla3bnyMatch.to_dict() touches, so a list of
+    # N matches costs a handful of queries instead of ~10 per match (N+1). The
+    # collection (competition.ages, used by the `rules` property) is loaded with
+    # selectinload to avoid multiplying the row count; the rest are 1:1 joins.
+    q = Tla3bnyMatch.query.options(
+        joinedload(Tla3bnyMatch.competition)
+        .selectinload(Tla3bnyCompetition.ages)
+        .joinedload(Tla3bnyCompetitionAge.age_category),
+        joinedload(Tla3bnyMatch.age_category),
+        joinedload(Tla3bnyMatch.competition_age).joinedload(
+            Tla3bnyCompetitionAge.age_category
+        ),
+        joinedload(Tla3bnyMatch.stage),
+        joinedload(Tla3bnyMatch.group),
+        joinedload(Tla3bnyMatch.home_team).joinedload(Tla3bnyTeam.academy),
+        joinedload(Tla3bnyMatch.home_team).joinedload(Tla3bnyTeam.age_category),
+        joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.academy),
+        joinedload(Tla3bnyMatch.away_team).joinedload(Tla3bnyTeam.age_category),
+        selectinload(Tla3bnyMatch.player_of_match_award).joinedload(Tla3bnyAward.player),
+    )
     for field in ("competition_id", "age_category_id", "competition_age_id", "stage_id", "group_id"):
         val = request.args.get(field, type=int)
         if val:
@@ -73,9 +94,10 @@ def list_matches():
             Tla3bnyMatch.date.desc(),
             Tla3bnyMatch.time.desc(),
         )
+    # Always bound the result set — an unfiltered call must not stream the whole
+    # matches table. Callers that need more page with limit + from/to windows.
     limit = request.args.get("limit", type=int)
-    if limit:
-        q = q.limit(min(limit, 500))
+    q = q.limit(min(limit, 500) if limit else 500)
     return jsonify([m.to_dict() for m in q.all()])
 
 
@@ -141,11 +163,16 @@ def update_match(match_id: int):
     if not auth.is_competition_admin(auth.current_user(), match.competition_id):
         return _forbid()
     data = request.get_json(silent=True) or {}
+    if "status" in data and data.get("status") not in codes.TLA3BNY_MATCH_STATUS:
+        return _err("Invalid match status", 400)
     for field in ("time", "venue", "round", "status"):
         if field in data:
             setattr(match, field, data.get(field))
     if "date" in data:
-        match.date = _parse_date(data.get("date"))
+        d, derr = _parse_date_or_error(data.get("date"))
+        if derr:
+            return _err(derr, 400)
+        match.date = d
     if "note" in data:
         match.note = (data.get("note") or "").strip() or None
     for field in ("stage_id", "group_id"):
@@ -177,14 +204,32 @@ def enter_result(match_id: int):
     if match.status in ("cancelled", "postponed"):
         return _err("لا يمكن إدخال نتيجة مباراة ملغاة أو مؤجلة", 409)
     data = request.get_json(silent=True) or {}
+    events = data.get("events") or []
 
     # Validate that every event's team_id belongs to this match.
     valid_team_ids = {match.home_team_id, match.away_team_id} - {None}
-    for ev in data.get("events") or []:
+    for ev in events:
         ev_team = _int(ev.get("team_id"))
         if ev_team is not None and ev_team not in valid_team_ids:
             return _err(
                 f"team_id {ev_team} ليس أحد فريقَي هذه المباراة", 400
+            )
+
+    # And that every referenced player is eligible for one of the two teams —
+    # otherwise an admin could attribute goals/cards to any player in the system,
+    # polluting that player's cross-competition stats (see /analysis, player stats).
+    referenced_pids = {_int(ev.get("player_id")) for ev in events} - {None}
+    if referenced_pids:
+        eligible_pids: set[int] = set()
+        for tid in valid_team_ids:
+            eligible_pids |= {
+                p["player_id"] for p in _lineup_eligible_players(match, tid)
+            }
+        bad = referenced_pids - eligible_pids
+        if bad:
+            return _err(
+                f"لاعب غير مؤهل للعب في هذه المباراة (player_id {sorted(bad)[0]})",
+                400,
             )
 
     match.home_score = _int(data.get("home_score"))
@@ -205,63 +250,73 @@ def enter_result(match_id: int):
         match.away_score_pen = None
 
     was_finished = match.status in ("completed", "finished")
-    Tla3bnyMatchEvent.query.filter_by(match_id=match.id).delete()
-    db.session.flush()
-
-    temp_map: dict = {}
-    pending_assists = []
-    for ev in data.get("events") or []:
-        etype = ev.get("event_type")
-        if not etype:
-            continue
-        if etype == "assist" and ev.get("related_temp_id"):
-            pending_assists.append(ev)
-            continue
-        obj = Tla3bnyMatchEvent(
-            match_id=match.id,
-            player_id=_int(ev.get("player_id")),
-            team_id=_int(ev.get("team_id")),
-            event_type=etype,
-            minute=_int(ev.get("minute")),
-            is_extra_time=bool(ev.get("is_extra_time", False)),
-            is_own_goal=bool(ev.get("is_own_goal", False)),
-            is_penalty=bool(ev.get("is_penalty", False)),
-            kick_order=_int(ev.get("kick_order")),
-            is_winning_kick=bool(ev.get("is_winning_kick", False)),
-        )
-        db.session.add(obj)
+    # Rebuild the event set in one transaction. If any insert fails (bad enum,
+    # dangling related_event_id, …) roll back so the old events aren't left
+    # deleted and the session isn't handed on in a broken state.
+    try:
+        Tla3bnyMatchEvent.query.filter_by(match_id=match.id).delete()
         db.session.flush()
-        if ev.get("temp_id"):
-            temp_map[ev["temp_id"]] = obj.id
 
-    for ev in pending_assists:
-        db.session.add(
-            Tla3bnyMatchEvent(
+        temp_map: dict = {}
+        pending_assists = []
+        for ev in events:
+            etype = ev.get("event_type")
+            if not etype:
+                continue
+            if etype == "assist" and ev.get("related_temp_id"):
+                pending_assists.append(ev)
+                continue
+            obj = Tla3bnyMatchEvent(
                 match_id=match.id,
                 player_id=_int(ev.get("player_id")),
                 team_id=_int(ev.get("team_id")),
-                event_type="assist",
+                event_type=etype,
                 minute=_int(ev.get("minute")),
-                related_event_id=temp_map.get(ev.get("related_temp_id")),
                 is_extra_time=bool(ev.get("is_extra_time", False)),
+                is_own_goal=bool(ev.get("is_own_goal", False)),
+                is_penalty=bool(ev.get("is_penalty", False)),
+                kick_order=_int(ev.get("kick_order")),
+                is_winning_kick=bool(ev.get("is_winning_kick", False)),
             )
-        )
+            db.session.add(obj)
+            db.session.flush()
+            if ev.get("temp_id"):
+                temp_map[ev["temp_id"]] = obj.id
 
-    # Only auto-finish a scheduled match. Live matches stay live (the admin
-    # updates status separately via the match-info save), and already-finished
-    # matches keep their status when a result is corrected.
-    if match.status == "scheduled":
-        match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
-    event_type = "result_corrected" if was_finished else "result_entered"
-    _log(event_type, "match", match.id, {
-        "home_team_id": match.home_team_id,
-        "away_team_id": match.away_team_id,
-        "home_team": match.home_team.display_name() if match.home_team else None,
-        "away_team": match.away_team.display_name() if match.away_team else None,
-        "home_score": match.home_score,
-        "away_score": match.away_score,
-    }, competition_id=match.competition_id)
-    db.session.commit()
+        for ev in pending_assists:
+            db.session.add(
+                Tla3bnyMatchEvent(
+                    match_id=match.id,
+                    player_id=_int(ev.get("player_id")),
+                    team_id=_int(ev.get("team_id")),
+                    event_type="assist",
+                    minute=_int(ev.get("minute")),
+                    related_event_id=temp_map.get(ev.get("related_temp_id")),
+                    is_extra_time=bool(ev.get("is_extra_time", False)),
+                )
+            )
+
+        # Only auto-finish a scheduled match. Live matches stay live (the admin
+        # updates status separately via the match-info save), and already-finished
+        # matches keep their status when a result is corrected.
+        if match.status == "scheduled":
+            match.status = codes.TLA3BNY_MATCH_STATUS_FINISHED
+        event_type = "result_corrected" if was_finished else "result_entered"
+        _log(event_type, "match", match.id, {
+            "home_team_id": match.home_team_id,
+            "away_team_id": match.away_team_id,
+            "home_team": match.home_team.display_name() if match.home_team else None,
+            "away_team": match.away_team.display_name() if match.away_team else None,
+            "home_score": match.home_score,
+            "away_score": match.away_score,
+        }, competition_id=match.competition_id)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    # Immediate push to this competition's followers (organizers enter live).
+    if match.home_score is not None and match.away_score is not None:
+        notifications.notify_tla3bny_match_result(match)
     return jsonify(match.to_dict(include_events=True))
 
 
@@ -414,6 +469,7 @@ def save_lineup(match_id: int, team_id: int):
             return _err("Lineup contains a player not eligible for this competition", 409)
 
     lineup = Tla3bnyLineup.query.filter_by(match_id=match_id, team_id=team_id).first()
+    was_new = lineup is None  # only the first submission notifies, not every edit
     if not lineup:
         lineup = Tla3bnyLineup(match_id=match_id, team_id=team_id)
         db.session.add(lineup)
@@ -431,6 +487,8 @@ def save_lineup(match_id: int, team_id: int):
             )
         )
     db.session.commit()
+    if was_new:
+        notifications.notify_tla3bny_lineup(match, Tla3bnyTeam.query.get(team_id))
     return jsonify(lineup.to_dict())
 
 
@@ -458,23 +516,38 @@ def bracket():
 def analysis():
     comp_id = request.args.get("competition_id", type=int)
     age_id = request.args.get("age_category_id", type=int)
-    if not comp_id or not age_id:
-        return _err("competition_id and age_category_id are required")
+    cage_id = request.args.get("competition_age_id", type=int)
+    if not comp_id or (not age_id and not cage_id):
+        return _err(
+            "competition_id and age_category_id (or competition_age_id) are required"
+        )
 
-    # Both "finished" and "completed" mean a result has been entered.
-    match_ids = [
-        row[0] for row in db.session.query(Tla3bnyMatch.id).filter(
-            Tla3bnyMatch.competition_id == comp_id,
-            Tla3bnyMatch.age_category_id == age_id,
-            Tla3bnyMatch.status.in_(_FINISHED),
-        ).all()
-    ]
+    # Both "finished" and "completed" mean a result has been entered. Scope by
+    # the specific sub-competition when given, so competitions that run several
+    # sub-competitions in the same age don't pool their scorers onto one board.
+    match_q = db.session.query(Tla3bnyMatch.id).filter(
+        Tla3bnyMatch.competition_id == comp_id,
+        Tla3bnyMatch.status.in_(_FINISHED),
+    )
+    if cage_id:
+        match_q = match_q.filter(Tla3bnyMatch.competition_age_id == cage_id)
+    else:
+        match_q = match_q.filter(Tla3bnyMatch.age_category_id == age_id)
+    match_ids = [row[0] for row in match_q.all()]
 
     goals: dict[int, int] = defaultdict(int)
     assists: dict[int, int] = defaultdict(int)
     yellows: dict[int, int] = defaultdict(int)
     reds: dict[int, int] = defaultdict(int)
-    _buckets = {"goal": goals, "assist": assists, "yellow": yellows, "red": reds}
+    # A second yellow is a sending-off — count it as a red, matching the player
+    # career-stats surface (players.py) so the two boards agree.
+    _buckets = {
+        "goal": goals,
+        "assist": assists,
+        "yellow": yellows,
+        "red": reds,
+        "second_yellow": reds,
+    }
 
     if match_ids:
         for pid, etype, is_own in db.session.query(

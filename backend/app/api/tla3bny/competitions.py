@@ -1,11 +1,19 @@
-import sqlalchemy as sa
+import csv
+import io
+import os
+import re
+import tempfile
+import zipfile
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
+
+import sqlalchemy as sa
 from sqlalchemy import func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
-from flask import jsonify, request
+from flask import after_this_request, jsonify, request, send_file
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import (
     Tla3bnyAgeCategory,
     Tla3bnyCompetition,
@@ -18,6 +26,7 @@ from app.models import (
     Tla3bnyMatch,
     Tla3bnyMatchEvent,
     Tla3bnyPlayer,
+    Tla3bnyPlayerFile,
     Tla3bnySeason,
     Tla3bnyStage,
     Tla3bnyTeam,
@@ -25,6 +34,8 @@ from app.models import (
     Tla3bnyPlayerTeam,
 )
 from app.models import codes
+from app.services import notifications
+from app.services import storage
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -32,12 +43,18 @@ from .audit import _log
 from ._helpers import (
     _bool,
     _clean_docs,
+    _credentials,
     _docs_field,
+    _clean_url,
+    _clip,
     _err,
     _forbid,
     _int,
     _parse_date,
+    _parse_date_or_error,
     _read_payload,
+    _save_documents,
+    _validate_password,
     save_upload,
 )
 from .players import _player_team_id
@@ -107,7 +124,10 @@ def get_competition(comp_id: int):
         .first_or_404()
     )
     data = comp.to_dict()
-    data["ages"] = [a.to_dict(with_stages=True) for a in comp.ages]
+    include_fee = _can_see_fee(comp_id)
+    data["ages"] = [
+        a.to_dict(with_stages=True, include_fee=include_fee) for a in comp.ages
+    ]
     data["admins"] = [ca.to_dict() for ca in comp.admins]
     return jsonify(data)
 
@@ -159,19 +179,40 @@ def competition_dashboard(comp_id: int):
     for entry_id, status, cnt in player_rows:
         entry_player_counts[entry_id][status] = cnt
 
-    entry_age = {e.id: e.age_category_id for e in entries}
-    age_player_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # Attribute each team/player/match to a *sub-competition* (competition_age),
+    # not just an age category — two sub-competitions can share one age (e.g. two
+    # 2014 groups), and lumping them by age would show both totals on each. New
+    # rows carry competition_age_id; a legacy row with only age_category_id is
+    # mapped to the sole sub-competition of that age when there is exactly one,
+    # otherwise left unattributed so it never inflates a specific sub-competition.
+    cages_by_age: dict[int, list[int]] = defaultdict(list)
+    for cage in comp.ages:
+        cages_by_age[cage.age_category_id].append(cage.id)
+
+    def _resolve_cage(cage_id, age_cat_id):
+        if cage_id is not None:
+            return cage_id
+        same = cages_by_age.get(age_cat_id, [])
+        return same[0] if len(same) == 1 else None
+
+    entry_cage = {
+        e.id: _resolve_cage(e.competition_age_id, e.age_category_id) for e in entries
+    }
+    cage_player_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     total_counts: dict[str, int] = defaultdict(int)
     for entry_id, counts in entry_player_counts.items():
-        age_id = entry_age.get(entry_id)
+        cage_id = entry_cage.get(entry_id)
         for status, cnt in counts.items():
-            if age_id is not None:
-                age_player_counts[age_id][status] += cnt
+            if cage_id is not None:
+                cage_player_counts[cage_id][status] += cnt
             total_counts[status] += cnt
 
     total_matches = Tla3bnyMatch.query.filter_by(competition_id=comp_id).count()
-    played_matches = Tla3bnyMatch.query.filter_by(
-        competition_id=comp_id, status="finished"
+    # A result-entered match has status "completed" (see enter_result); "finished"
+    # is an accepted synonym an admin can set manually. Count both.
+    played_matches = Tla3bnyMatch.query.filter(
+        Tla3bnyMatch.competition_id == comp_id,
+        Tla3bnyMatch.status.in_(("finished", "completed")),
     ).count()
     goals = (
         Tla3bnyMatchEvent.query.filter_by(event_type="goal")
@@ -180,20 +221,28 @@ def competition_dashboard(comp_id: int):
         .count()
     )
 
-    # One query for match counts by (age_category_id, status).
+    # One query for match counts by (competition_age_id, age_category_id, status),
+    # resolved to a sub-competition the same way team/player counts are.
     match_rows = (
         db.session.query(
+            Tla3bnyMatch.competition_age_id,
             Tla3bnyMatch.age_category_id,
             Tla3bnyMatch.status,
             func.count().label("cnt"),
         )
         .filter(Tla3bnyMatch.competition_id == comp_id)
-        .group_by(Tla3bnyMatch.age_category_id, Tla3bnyMatch.status)
+        .group_by(
+            Tla3bnyMatch.competition_age_id,
+            Tla3bnyMatch.age_category_id,
+            Tla3bnyMatch.status,
+        )
         .all()
     )
-    age_match_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    for age_cat_id, status, cnt in match_rows:
-        age_match_counts[age_cat_id][status] = cnt
+    cage_match_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for cage_id, age_cat_id, status, cnt in match_rows:
+        rid = _resolve_cage(cage_id, age_cat_id)
+        if rid is not None:
+            cage_match_counts[rid][status] += cnt
 
     # Per-sub-competition breakdown, sorted by age_category year.
     def _sort_key(c):
@@ -204,19 +253,18 @@ def competition_dashboard(comp_id: int):
 
     ages_data = []
     for cage in sorted(comp.ages, key=_sort_key):
-        age_id = cage.age_category_id
-        p = age_player_counts[age_id]
-        m = age_match_counts[age_id]
-        age_entry_ids = [e.id for e in entries if e.age_category_id == age_id]
+        p = cage_player_counts[cage.id]
+        m = cage_match_counts[cage.id]
+        cage_entry_ids = [e.id for e in entries if entry_cage.get(e.id) == cage.id]
         ages_data.append({
             "competition_age_id": cage.id,
             "age_category": cage.age_category.label if cage.age_category else None,
             "name": cage.name,
-            "teams": len(age_entry_ids),
+            "teams": len(cage_entry_ids),
             "players_approved": p.get("approved", 0),
             "players_pending": p.get("pending", 0),
             "matches_total": sum(m.values()),
-            "matches_played": m.get("finished", 0),
+            "matches_played": m.get("completed", 0) + m.get("finished", 0),
         })
 
     # Teams with pending players — derived from pre-computed counts, no extra queries.
@@ -351,24 +399,32 @@ def create_competition():
     except ValueError as e:
         return _err(str(e))
     _, docs = _docs_field(data)
+    status = data.get("status") or "draft"
+    if status not in codes.TLA3BNY_COMPETITION_STATUS:
+        return _err("Invalid competition status", 400)
     comp = Tla3bnyCompetition(
         season_id=season_id,
         name=name,
         logo_path=logo,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
-        status=data.get("status") or "draft",
+        status=status,
         required_documents=docs,
     )
     _apply_competition_text(comp, data)
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), True)
+    if "exclusive_entry" in data:
+        comp.exclusive_entry = _bool(data.get("exclusive_entry"), False)
     err = _apply_max_players(comp, data)
     if err:
         return err
     _apply_ad_controls(comp, data)  # creator is the super admin
     db.session.add(comp)
     db.session.commit()
+    # Announce joinable competitions to academies (drafts stay quiet).
+    if comp.status != "draft":
+        notifications.notify_tla3bny_new_competition(comp)
     return jsonify(comp.to_dict()), 201
 
 
@@ -401,12 +457,22 @@ def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
     return None
 
 
+# URL fields get scheme-sanitized (block javascript:/data:); long-form fields
+# get a generous length ceiling, the rest a short single-line cap.
+_COMPETITION_URL_FIELDS = {"whatsapp_group_url", "facebook_url", "location_url"}
+_COMPETITION_TEXT_MAX = {"description": 20000, "info": 20000}
+
+
 def _apply_competition_text(comp: Tla3bnyCompetition, data) -> None:
     """Copy whichever info-page fields the caller sent onto the competition."""
     for field in COMPETITION_TEXT_FIELDS:
         if field not in data:
             continue
-        value = (data.get(field) or "").strip() or None
+        raw = data.get(field)
+        if field in _COMPETITION_URL_FIELDS:
+            value = _clean_url(raw)
+        else:
+            value = _clip(raw, _COMPETITION_TEXT_MAX.get(field, 255))
         if field == "whatsapp_number":
             value = _digits(value)
         setattr(comp, field, value)
@@ -423,13 +489,23 @@ def update_competition(comp_id: int):
     if not comp.name:
         return _err("name is required")
     if "status" in data and data.get("status"):
+        if data.get("status") not in codes.TLA3BNY_COMPETITION_STATUS:
+            return _err("Invalid competition status", 400)
         comp.status = data.get("status")
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), comp.registration_open)
+    if "exclusive_entry" in data:
+        comp.exclusive_entry = _bool(data.get("exclusive_entry"), comp.exclusive_entry)
     if "start_date" in data:
-        comp.start_date = _parse_date(data.get("start_date"))
+        sd, sd_err = _parse_date_or_error(data.get("start_date"))
+        if sd_err:
+            return _err(sd_err, 400)
+        comp.start_date = sd
     if "end_date" in data:
-        comp.end_date = _parse_date(data.get("end_date"))
+        ed, ed_err = _parse_date_or_error(data.get("end_date"))
+        if ed_err:
+            return _err(ed_err, 400)
+        comp.end_date = ed
     err = _apply_max_players(comp, data)
     if err:
         return err
@@ -457,13 +533,19 @@ def delete_competition(comp_id: int):
 
 # ── competition admins ───────────────────────────────────────────────────────
 @tla3bny_bp.post("/competitions/<int:comp_id>/admins")
-@auth.super_admin_required
+@auth.login_required
 def add_competition_admin(comp_id: int):
     """Assign an organiser to this competition.
 
-    The username may be one that already exists (an organiser running several
+    The super admin, or an existing organiser of this competition, may do it —
+    so a competition's organisers can bring in co-organisers themselves. The
+    username may be one that already exists (an organiser running several
     competitions) or a brand new one, in which case a password creates it.
     """
+    actor = auth.current_user()
+    if not auth.is_competition_admin(actor, comp_id):
+        return _forbid()
+    is_super = actor.role == "super_admin"
     Tla3bnyCompetition.query.get_or_404(comp_id)
     data = request.get_json(silent=True) or {}
     username, password = _credentials(data)
@@ -473,6 +555,9 @@ def add_competition_admin(comp_id: int):
     if user is None:
         if not password:
             return _err("password is required for a new organizer")
+        pw_err = _validate_password(password)
+        if pw_err:
+            return _err(pw_err)
         user = Tla3bnyUser(
             username=username,
             email=username if "@" in username else None,
@@ -485,10 +570,31 @@ def add_competition_admin(comp_id: int):
         db.session.flush()
     elif user.role not in ("competition_admin", "super_admin"):
         return _err("That account is not a competition admin", 409)
-    elif password:
-        # Re-assigning with a password doubles as "reset their password", which
-        # is the only way an organiser who forgot theirs gets back in.
-        user.set_password(password)
+    elif password and user.role == "competition_admin":
+        # Re-assigning with a password doubles as "reset their password", the
+        # only way an organiser who forgot theirs gets back in. That password is
+        # shared across every competition the organiser runs, so a competition
+        # admin may reset it only when this organiser runs no *other* competition
+        # — otherwise the reset would hand over those competitions too, and only
+        # the super admin may do it. (Never resets a super_admin either.)
+        may_reset = is_super
+        if not may_reset:
+            runs_other = Tla3bnyCompetitionAdmin.query.filter(
+                Tla3bnyCompetitionAdmin.user_id == user.id,
+                Tla3bnyCompetitionAdmin.competition_id != comp_id,
+            ).first()
+            if runs_other is not None:
+                return _err(
+                    "لا يمكنك تغيير كلمة مرور منظم يدير بطولات أخرى — اطلب من "
+                    "السوبر أدمن.",
+                    403,
+                )
+            may_reset = True
+        if may_reset:
+            pw_err = _validate_password(password)
+            if pw_err:
+                return _err(pw_err)
+            user.set_password(password)
     if not Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user.id
     ).first():
@@ -498,11 +604,26 @@ def add_competition_admin(comp_id: int):
 
 
 @tla3bny_bp.delete("/competitions/<int:comp_id>/admins/<int:user_id>")
-@auth.super_admin_required
+@auth.login_required
 def remove_competition_admin(comp_id: int, user_id: int):
+    actor = auth.current_user()
+    if not auth.is_competition_admin(actor, comp_id):
+        return _forbid()
     ca = Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user_id
     ).first_or_404()
+    # A competition admin must not leave the competition with no organiser (they
+    # would lock themselves and every co-organiser out). The super admin can,
+    # since they retain global access and can reassign anyone afterwards.
+    if actor.role != "super_admin":
+        remaining = Tla3bnyCompetitionAdmin.query.filter_by(
+            competition_id=comp_id
+        ).count()
+        if remaining <= 1:
+            return _err(
+                "لا يمكن إزالة آخر منظم للبطولة. أضف منظمًا آخر أولًا.",
+                409,
+            )
     db.session.delete(ca)
     db.session.commit()
     return jsonify({"message": "removed"})
@@ -520,7 +641,9 @@ _RULE_FIELDS = (
     "max_replacements",
 )
 
-# Minimum allowed value for each numeric rule field.
+# Minimum and maximum allowed value for each numeric rule field. Upper bounds
+# stop an absurd value (e.g. a billion-player cap) from turning team registration
+# into a mass-insert, or breaking lineup/period logic.
 _RULE_MINIMUMS = {
     "max_players_per_team": 1,
     "lineup_size": 1,
@@ -531,14 +654,63 @@ _RULE_MINIMUMS = {
     "lineup_deadline_minutes": 0,
     "max_replacements": 0,
 }
+_RULE_MAXIMUMS = {
+    "max_players_per_team": 100,
+    "lineup_size": 40,
+    "players_on_pitch": 25,
+    "max_substitutes": 40,
+    "num_periods": 10,
+    "period_minutes": 120,
+    "lineup_deadline_minutes": 100_000,  # ~10 weeks, in minutes
+    "max_replacements": 100,
+}
+
+
+def _can_see_fee(comp_id: int) -> bool:
+    """The per-team subscription fee is for academies deciding whether to enter,
+    and for the organizers who set it — not the anonymous public. True for an
+    academy account or any admin of this competition."""
+    user = auth.current_user()
+    if user is None:
+        return False
+    return user.role == "academy" or auth.is_competition_admin(user, comp_id)
+
+
+def _parse_fee(value) -> Decimal | None:
+    """A non-negative money amount, or None to clear it. Rejects junk/negatives."""
+    if value is None or value == "":
+        return None
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if amount < 0:
+        return None
+    return amount
+
+
+def _apply_extra_time(cage, data) -> None:
+    """Extra time is optional: a blank or non-positive value clears it, so a level
+    knockout tie goes straight to penalties. Values are clamped to sane caps."""
+    for field, cap in (("et_num_periods", 4), ("et_period_minutes", 60)):
+        if field in data:
+            v = _int(data.get(field))
+            setattr(cage, field, min(v, cap) if v and v > 0 else None)
 
 
 def _validate_rule_fields(data: dict) -> str | None:
     """Return an error message if any rule field is out of range, else None."""
     for f, minimum in _RULE_MINIMUMS.items():
+        if f not in data:
+            continue
         val = _int(data.get(f))
-        if f in data and val is not None and val < minimum:
+        if val is None:
+            continue
+        if val < minimum:
             return f"'{f}' must be ≥ {minimum} (got {val})"
+        maximum = _RULE_MAXIMUMS.get(f)
+        if maximum is not None and val > maximum:
+            return f"'{f}' must be ≤ {maximum} (got {val})"
     return None
 
 
@@ -559,11 +731,15 @@ def add_competition_age(comp_id: int):
         competition_id=comp_id,
         age_category_id=age_id,
         name=(data.get("name") or "").strip() or None,
+        description=(data.get("description") or "").strip() or None,
         player_registration_deadline=_parse_date(data.get("player_registration_deadline")),
     )
+    if "subscription_fee" in data:
+        cage.subscription_fee = _parse_fee(data.get("subscription_fee"))
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    _apply_extra_time(cage, data)
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
     if "replacements_open" in data:
@@ -572,7 +748,7 @@ def add_competition_age(comp_id: int):
         cage.formation_required = bool(data.get("formation_required"))
     db.session.add(cage)
     db.session.commit()
-    return jsonify(cage.to_dict()), 201
+    return jsonify(cage.to_dict(include_fee=True)), 201
 
 
 @tla3bny_bp.put("/competition-ages/<int:cage_id>")
@@ -587,11 +763,16 @@ def update_competition_age(cage_id: int):
         return _err(rule_err, 400)
     if "name" in data:
         cage.name = (data.get("name") or "").strip() or None
+    if "description" in data:
+        cage.description = (data.get("description") or "").strip() or None
+    if "subscription_fee" in data:
+        cage.subscription_fee = _parse_fee(data.get("subscription_fee"))
     if "player_registration_deadline" in data:
         cage.player_registration_deadline = _parse_date(data.get("player_registration_deadline"))
     for f in _RULE_FIELDS:
         if f in data and _int(data.get(f)) is not None:
             setattr(cage, f, _int(data.get(f)))
+    _apply_extra_time(cage, data)
     if "required_documents" in data:
         cage.required_documents = _clean_docs(data.get("required_documents"))
     if "replacements_open" in data:
@@ -599,7 +780,7 @@ def update_competition_age(cage_id: int):
     if "formation_required" in data:
         cage.formation_required = bool(data.get("formation_required"))
     db.session.commit()
-    return jsonify(cage.to_dict())
+    return jsonify(cage.to_dict(include_fee=True))
 
 
 @tla3bny_bp.delete("/competition-ages/<int:cage_id>")
@@ -674,6 +855,25 @@ def _stage_comp_id(stage: Tla3bnyStage) -> int:
     return stage.competition_age.competition_id
 
 
+def _validate_stage_team(stage: Tla3bnyStage, team_id: int) -> str | None:
+    """A team may only be placed in a stage/group if it is an active registered
+    entry in that stage's competition *and* its age. Without this, fixtures get
+    generated between teams that never registered / are the wrong age, corrupting
+    standings and the bracket. Returns an error message, or None if valid."""
+    cage = stage.competition_age
+    if cage is None:
+        return "Stage is not attached to a sub-competition"
+    entry = Tla3bnyCompetitionTeam.query.filter_by(
+        competition_id=cage.competition_id,
+        team_id=team_id,
+        age_category_id=cage.age_category_id,
+        status="active",
+    ).first()
+    if entry is None:
+        return "Team is not an active registered entry in this competition/age"
+    return None
+
+
 @tla3bny_bp.post("/stages/<int:stage_id>/groups")
 @auth.login_required
 def add_group(stage_id: int):
@@ -712,9 +912,16 @@ def add_group_team(group_id: int):
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
     if not team_id or not Tla3bnyTeam.query.get(team_id):
         return _err("valid team_id is required")
-    if not Tla3bnyGroupTeam.query.filter_by(group_id=group_id, team_id=team_id).first():
-        db.session.add(Tla3bnyGroupTeam(group_id=group_id, team_id=team_id))
-        db.session.commit()
+    err = _validate_stage_team(g.stage, team_id)
+    if err:
+        return _err(err, 409)
+    # A team may sit in only one group per stage — two groups would show it in
+    # two tables and generate its fixtures twice.
+    for other in g.stage.groups:
+        if Tla3bnyGroupTeam.query.filter_by(group_id=other.id, team_id=team_id).first():
+            return _err("Team is already in a group of this stage", 409)
+    db.session.add(Tla3bnyGroupTeam(group_id=group_id, team_id=team_id))
+    db.session.commit()
     return jsonify(g.to_dict()), 201
 
 
@@ -746,6 +953,9 @@ def add_stage_team(stage_id: int):
     team_id = _int((request.get_json(silent=True) or {}).get("team_id"))
     if not team_id or not Tla3bnyTeam.query.get(team_id):
         return _err("valid team_id is required")
+    err = _validate_stage_team(stage, team_id)
+    if err:
+        return _err(err, 409)
     # Reject duplicate (team already in any group of this stage).
     for g in stage.groups:
         if Tla3bnyGroupTeam.query.filter_by(group_id=g.id, team_id=team_id).first():
@@ -811,16 +1021,9 @@ def list_competition_teams(comp_id: int):
         else:
             q = q.filter_by(competition_age_id=cage_id)
     entries = q.all()
-    # Back-fill competition_age_id on any legacy rows (NULL) so that
-    # subsequent filtered queries work without the OR fallback.
-    if cage_id and cage:
-        dirty = False
-        for entry in entries:
-            if entry.competition_age_id is None:
-                entry.competition_age_id = cage_id
-                dirty = True
-        if dirty:
-            db.session.commit()
+    # NB: legacy rows with a NULL competition_age_id are matched by the OR
+    # fallback above; we deliberately do not back-fill/commit here — a GET must
+    # not write (it races concurrent readers and breaks on read replicas).
     with_roster = request.args.get("roster") == "1"
     # Papers are for this competition's admin panel only, never the public list.
     return jsonify(
@@ -884,6 +1087,7 @@ def register_team(comp_id: int):
             ))
             count += 1
     db.session.commit()
+    notifications.notify_tla3bny_team_registered(entry)
     return jsonify(entry.to_dict()), 201
 
 
@@ -911,12 +1115,19 @@ def get_roster(entry_id: int):
 @tla3bny_bp.post("/competition-teams/<int:entry_id>/players")
 @auth.login_required
 def add_roster_player(entry_id: int):
-    """The team's academy/coach adds one of its players to the competition
-    roster — pending approval by the competition admin."""
+    """The team's academy/coach enters one of its squad players in this
+    competition — pending approval by the competition admin.
+
+    This competition's required papers may ride along (multipart ``documents`` +
+    ``document_labels``); they are stored against this registration only, so a
+    new competition — or the same one next season — gets its own fresh set. More
+    papers can be added later via ``POST /competition-players/<id>/documents``.
+    """
     entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
     if not auth.can_manage_team(auth.current_user(), entry.team_id):
         return _forbid()
-    player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
+    data, files = _read_payload()
+    player_id = _int(data.get("player_id"))
     player = Tla3bnyPlayer.query.get(player_id) if player_id else None
     if player is None:
         return _err("valid player_id is required")
@@ -927,12 +1138,30 @@ def add_roster_player(entry_id: int):
     ).first():
         return _err("Player already on the roster", 409)
 
-    cage = Tla3bnyCompetitionAge.query.filter_by(
+    # Use the entry's own sub-competition (fall back to age match only for legacy
+    # rows) so a cap from a different sub-competition sharing this age isn't applied.
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
         competition_id=entry.competition_id, age_category_id=entry.age_category_id
     ).first()
+    # Freeze the roster once the registration deadline passes; the competition's
+    # own admins may still add.
+    if (cage and cage.registration_deadline_passed
+            and not auth.is_competition_admin(auth.current_user(), entry.competition_id)):
+        return _err("انتهى موعد تسجيل اللاعبين في هذه البطولة", 403)
     cap = cage.max_players_per_team if cage else None
     if cap is not None:
-        count = Tla3bnyCompetitionPlayer.query.filter_by(competition_team_id=entry_id).count()
+        # Lock the entry row so concurrent adds to this roster serialize — the
+        # count-then-insert below would otherwise let two requests both pass the
+        # cap check and overshoot max_players_per_team.
+        db.session.query(Tla3bnyCompetitionTeam.id).filter_by(
+            id=entry_id
+        ).with_for_update().first()
+        # Count only active (pending + approved) rows — rejected/replaced players
+        # don't occupy a slot, matching every other cap check in the module.
+        count = Tla3bnyCompetitionPlayer.query.filter(
+            Tla3bnyCompetitionPlayer.competition_team_id == entry_id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+        ).count()
         if count >= cap:
             return _err(f"Roster is full (max {cap})", 409)
 
@@ -940,7 +1169,13 @@ def add_roster_player(entry_id: int):
         competition_team_id=entry_id, player_id=player_id, status="pending"
     )
     db.session.add(cp)
+    db.session.flush()
+    try:
+        _save_documents(player, data, files, competition_player=cp)
+    except ValueError as e:
+        return _err(str(e))
     db.session.commit()
+    notifications.notify_tla3bny_player_pending(cp)
     return jsonify(cp.to_dict(with_files=True)), 201
 
 
@@ -950,11 +1185,13 @@ def remove_roster_player(cp_id: int):
     cp = Tla3bnyCompetitionPlayer.query.get_or_404(cp_id)
     entry = cp.entry
     user = auth.current_user()
-    if not (
-        auth.is_competition_admin(user, entry.competition_id)
-        or auth.can_manage_team(user, entry.team_id)
-    ):
+    is_admin = auth.is_competition_admin(user, entry.competition_id)
+    if not (is_admin or auth.can_manage_team(user, entry.team_id)):
         return _forbid()
+    # Once the registration deadline passes the squad is frozen for the team;
+    # only the competition's admins can still change it.
+    if not is_admin and entry.competition_age and entry.competition_age.registration_deadline_passed:
+        return _err("انتهى موعد تعديل اللاعبين في هذه البطولة", 403)
     db.session.delete(cp)
     db.session.commit()
     return jsonify({"message": "deleted"})
@@ -996,7 +1233,8 @@ def approve_roster_player(cp_id: int):
             None,
         )
         required = cage.documents if cage else entry.competition.documents
-        supplied = {f.label for f in player.files if f.label}
+        # This registration's papers, plus the player's global identity papers.
+        supplied = {f.label for f in cp.effective_files if f.label}
         missing = [d for d in required if d not in supplied]
         force = bool((request.get_json(silent=True) or {}).get("force"))
         if missing and not force:
@@ -1011,6 +1249,12 @@ def approve_roster_player(cp_id: int):
     # approved-player count past it. This is a hard limit, not force-overridable.
     comp = entry.competition if entry else None
     if comp and comp.max_players is not None and cp.status != "approved":
+        # Lock the competition row so concurrent approvals serialize; otherwise
+        # two approvals both read the old count, both pass, and both commit —
+        # overshooting the priced cap the business bills on.
+        db.session.query(Tla3bnyCompetition.id).filter_by(
+            id=comp.id
+        ).with_for_update().first()
         if _approved_player_count(comp.id) >= comp.max_players:
             return _err(
                 f"Competition player limit reached ({comp.max_players} players). "
@@ -1028,6 +1272,7 @@ def approve_roster_player(cp_id: int):
         "team_name": cp.entry.team.display_name() if cp.entry and cp.entry.team else None,
     }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
+    notifications.notify_tla3bny_player_decision(cp, True)
     return jsonify(cp.to_dict(with_files=True))
 
 
@@ -1048,6 +1293,7 @@ def reject_roster_player(cp_id: int):
         "reason": cp.rejection_reason,
     }, competition_id=cp.entry.competition_id if cp.entry else None)
     db.session.commit()
+    notifications.notify_tla3bny_player_decision(cp, False)
     return jsonify(cp.to_dict(with_files=True))
 
 
@@ -1055,12 +1301,14 @@ def reject_roster_player(cp_id: int):
 
 def _load_cps_for_bulk(ids: list[int]):
     """Load competition players with all relationships needed for bulk actions."""
-    from app.models import Tla3bnyPlayer
     return (
         Tla3bnyCompetitionPlayer.query
         .options(
+            # Load the player's global identity papers too — effective_files needs
+            # them for the document-completeness guard.
             selectinload(Tla3bnyCompetitionPlayer.player)
             .selectinload(Tla3bnyPlayer.files),
+            selectinload(Tla3bnyCompetitionPlayer.files),
             selectinload(Tla3bnyCompetitionPlayer.entry)
             .selectinload(Tla3bnyCompetitionTeam.competition)
             .selectinload(Tla3bnyCompetition.ages),
@@ -1112,15 +1360,22 @@ def bulk_approve_roster_players():
 
     # Competition-wide caps: seed each competition's current approved count and
     # its priced limit once, then spend the headroom as we approve within this
-    # call so a bulk approve can't overshoot the limit.
+    # call so a bulk approve can't overshoot the limit. Lock each competition row
+    # first (in id order to avoid deadlocks between concurrent bulk approvals) so
+    # the seeded count can't be raced by another approval running in parallel.
     comp_counts: dict[int, int] = {}
     comp_caps: dict[int, int | None] = {}
-    for cp in cps:
-        entry = cp.entry
-        if entry and entry.competition_id not in comp_counts:
-            cid = entry.competition_id
-            comp_counts[cid] = _approved_player_count(cid)
-            comp_caps[cid] = entry.competition.max_players if entry.competition else None
+    for cid in sorted({cp.entry.competition_id for cp in cps if cp.entry}):
+        comp = (
+            db.session.query(Tla3bnyCompetition)
+            .filter_by(id=cid)
+            .with_for_update()
+            .first()
+        )
+        if comp is None:
+            continue
+        comp_counts[cid] = _approved_player_count(cid)
+        comp_caps[cid] = comp.max_players
 
     for cp in cps:
         if cp.status == "approved":
@@ -1137,7 +1392,8 @@ def bulk_approve_roster_players():
                 None,
             )
             required = cage.documents if cage else entry.competition.documents
-            supplied = {f.label for f in player.files if f.label}
+            # This registration's papers, plus the player's global identity papers.
+            supplied = {f.label for f in cp.effective_files if f.label}
             missing = [d for d in required if d not in supplied]
             if missing:
                 errors.append({
@@ -1218,3 +1474,268 @@ def bulk_reject_roster_players():
 
     db.session.commit()
     return jsonify({"rejected": rejected})
+
+
+# ── registration documents: bulk export & cleanup ────────────────────────────
+# Registration papers belong to a single competition registration
+# (Tla3bnyCompetitionPlayer): each paper carries that entry's id, so a player who
+# plays several competitions — or the same one next season — keeps a separate set
+# for each, and the sets never overlap. A single competition's papers can run to
+# gigabytes, so the primary tools work per **sub-competition** (Tla3bnyCompetitionAge):
+# once the parent competition is ``finished``, download that sub-competition's
+# papers as one right-sized ZIP (to burn to CD/flash), then delete them to stop
+# paying to store them. Competition-level variants export or sweep everything at
+# once. Because papers are per registration, deleting one scope can never touch
+# another competition's papers or a player's global identity papers (those carry
+# no competition_player_id) — and player photos are never touched.
+
+def _document_regs_query():
+    """Base query: registrations joined to their team entry, with each entry's own
+    papers, plus player, team and academy eager-loaded (so an export is a few
+    queries, not N+1)."""
+    return (
+        Tla3bnyCompetitionPlayer.query
+        .join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        )
+        .options(
+            joinedload(Tla3bnyCompetitionPlayer.player),
+            selectinload(Tla3bnyCompetitionPlayer.files),
+            joinedload(Tla3bnyCompetitionPlayer.entry)
+            .joinedload(Tla3bnyCompetitionTeam.team)
+            .joinedload(Tla3bnyTeam.academy),
+        )
+    )
+
+
+def _cage_match(cage: Tla3bnyCompetitionAge):
+    """SQL condition selecting the team entries that belong to sub-competition
+    ``cage`` — by the explicit link, or (for legacy rows without it) by the
+    competition + age category."""
+    return sa.or_(
+        Tla3bnyCompetitionTeam.competition_age_id == cage.id,
+        sa.and_(
+            Tla3bnyCompetitionTeam.competition_age_id.is_(None),
+            Tla3bnyCompetitionTeam.competition_id == cage.competition_id,
+            Tla3bnyCompetitionTeam.age_category_id == cage.age_category_id,
+        ),
+    )
+
+
+def _safe_segment(value: str | None, fallback: str) -> str:
+    """A filename-safe path segment. Keeps Arabic/word characters, spaces, dot
+    and dash; replaces path separators and anything else with '_'."""
+    cleaned = re.sub(r"[^\w\-. ]", "_", (value or "").strip(), flags=re.UNICODE)
+    return cleaned or fallback
+
+
+def _build_documents_zip(regs) -> tuple[str, int, int]:
+    """Write every distinct player's papers in ``regs`` to a temp ZIP, organised
+    academy/team/player, plus a manifest.csv. Returns (temp_path, files, players).
+    The caller streams the file and is responsible for deleting it afterwards."""
+    tmp = tempfile.NamedTemporaryFile(prefix="tla3bny_docs_", suffix=".zip", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+
+    manifest = [(
+        "academy", "team", "player", "player_id",
+        "label", "original_name", "stored_path", "status",
+    )]
+    seen: set[int] = set()
+    file_count = 0
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for reg in regs:
+                player = reg.player
+                if not player:
+                    continue
+                seen.add(player.id)
+                entry = reg.entry
+                team = entry.team if entry else None
+                academy = team.academy if team else None
+                acad = _safe_segment(academy.name if academy else None, "no_academy")
+                team_name = _safe_segment(
+                    team.display_name() if team else None, "no_team"
+                )
+                pname = _safe_segment(player.name, f"player_{player.id}")
+                folder = f"{acad}/{team_name}/{pname}"
+                # This registration's own papers only — not the player's global set.
+                for f in reg.files:
+                    ext = os.path.splitext(f.file_path)[1] or os.path.splitext(
+                        f.original_name or ""
+                    )[1]
+                    label = _safe_segment(f.label, f"document_{f.id}")
+                    base = _safe_segment(f.original_name, f"{label}{ext}")
+                    arcname = f"{folder}/{f.id}_{label}__{base}"
+                    try:
+                        data = storage.read_bytes(f.file_path)
+                    except Exception:  # noqa: BLE001 - a missing object mustn't abort the whole export
+                        manifest.append((acad, team_name, pname, player.id,
+                                         f.label or "", f.original_name or "",
+                                         f.file_path, "MISSING"))
+                        continue
+                    zf.writestr(arcname, data)
+                    manifest.append((acad, team_name, pname, player.id,
+                                     f.label or "", f.original_name or "",
+                                     f.file_path, "ok"))
+                    file_count += 1
+
+            buf = io.StringIO()
+            csv.writer(buf).writerows(manifest)
+            # utf-8-sig so Excel opens the Arabic labels correctly.
+            zf.writestr("manifest.csv", buf.getvalue().encode("utf-8-sig"))
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+    return tmp_path, file_count, len(seen)
+
+
+def _send_documents_zip(regs, competition_id, cage_id, download_name):
+    """Build, log, stream and clean up a documents archive for a set of regs."""
+    tmp_path, file_count, players = _build_documents_zip(regs)
+
+    @after_this_request
+    def _cleanup(response):
+        # The response holds an open fd to the file; on the Linux host unlinking
+        # it now is safe (the inode lives until the stream finishes).
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        return response
+
+    _log(
+        "documents_exported",
+        "competition_age" if cage_id else "competition",
+        cage_id or competition_id,
+        {"files": file_count, "players": players},
+        competition_id=competition_id,
+    )
+    db.session.commit()
+    return send_file(
+        tmp_path, mimetype="application/zip",
+        as_attachment=True, download_name=download_name,
+    )
+
+
+def _delete_documents(reg_ids, competition_id, cage_id):
+    """Delete the papers uploaded for the registrations in ``reg_ids`` — each
+    paper carries its ``competition_player_id``, so this only ever clears this
+    scope's papers, never another competition's set nor a player's global identity
+    papers (those have no ``competition_player_id``). Returns the JSON body."""
+    files = (
+        Tla3bnyPlayerFile.query.filter(
+            Tla3bnyPlayerFile.competition_player_id.in_(reg_ids)
+        ).all()
+        if reg_ids
+        else []
+    )
+    deleted_files = 0
+    failed: list[str] = []
+    for f in files:
+        try:
+            ok = storage.delete_file(f.file_path)
+        except Exception:  # noqa: BLE001 - one bad object mustn't abort the batch
+            ok = False
+        if ok:
+            db.session.delete(f)
+            deleted_files += 1
+        else:
+            failed.append(f.file_path)
+
+    _log(
+        "documents_deleted",
+        "competition_age" if cage_id else "competition",
+        cage_id or competition_id,
+        {"deleted_files": deleted_files, "failed": len(failed)},
+        competition_id=competition_id,
+    )
+    db.session.commit()
+    return jsonify({
+        "deleted_files": deleted_files,
+        "skipped_players": [],
+        "failed": failed,
+    })
+
+
+# ── sub-competition (primary: right-sized per age) ───────────────────────────
+@tla3bny_bp.get("/competition-ages/<int:cage_id>/documents/archive")
+def download_subcompetition_documents(cage_id: int):
+    """ZIP of one sub-competition's registration papers (parent must be finished).
+    Keeps each archive small enough to download and burn to CD/flash."""
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
+        return _forbid()
+    if not cage.competition or cage.competition.status != "finished":
+        return _err("يمكن تنزيل المستندات بعد انتهاء البطولة فقط", 409)
+    regs = _document_regs_query().filter(_cage_match(cage)).all()
+    name = f"competition_{cage.competition_id}_sub_{cage_id}_documents.zip"
+    return _send_documents_zip(regs, cage.competition_id, cage_id, name)
+
+
+@tla3bny_bp.delete("/competition-ages/<int:cage_id>/documents")
+@auth.super_admin_required
+def delete_subcompetition_documents(cage_id: int):
+    """Delete one sub-competition's registration papers to reclaim storage. Papers
+    are per registration, so this clears exactly this sub-competition's set and
+    leaves every other competition's papers (and player photos) untouched."""
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    if not cage.competition or cage.competition.status != "finished":
+        return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
+
+    reg_ids = [
+        r.id for r in
+        Tla3bnyCompetitionPlayer.query.join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        ).filter(_cage_match(cage)).all()
+    ]
+    if not reg_ids:
+        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
+                        "message": "لا توجد مستندات لهذه البطولة الفرعية"})
+    return _delete_documents(reg_ids, cage.competition_id, cage_id)
+
+
+# ── whole competition (export all at once / final sweep) ─────────────────────
+@tla3bny_bp.get("/competitions/<int:comp_id>/documents/archive")
+def download_competition_documents(comp_id: int):
+    """ZIP of every registration paper in a finished competition (all
+    sub-competitions at once). For large competitions prefer the per-
+    sub-competition archive above."""
+    if not auth.is_competition_admin(auth.current_user(), comp_id):
+        return _forbid()
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
+    if comp.status != "finished":
+        return _err("يمكن تنزيل المستندات بعد انتهاء البطولة فقط", 409)
+    regs = _document_regs_query().filter(
+        Tla3bnyCompetitionTeam.competition_id == comp_id
+    ).all()
+    return _send_documents_zip(regs, comp_id, None, f"competition_{comp_id}_documents.zip")
+
+
+@tla3bny_bp.delete("/competitions/<int:comp_id>/documents")
+@auth.super_admin_required
+def delete_competition_documents(comp_id: int):
+    """Sweep every registration paper of a finished competition (all its
+    sub-competitions at once). Papers are per registration, so this only clears
+    this competition's set — another competition the same players are in keeps its
+    own papers, and player photos are never touched."""
+    comp = Tla3bnyCompetition.query.get_or_404(comp_id)
+    if comp.status != "finished":
+        return _err("يمكن حذف المستندات بعد انتهاء البطولة فقط", 409)
+
+    reg_ids = [
+        r.id for r in
+        Tla3bnyCompetitionPlayer.query.join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        ).filter(Tla3bnyCompetitionTeam.competition_id == comp_id).all()
+    ]
+    if not reg_ids:
+        return jsonify({"deleted_files": 0, "skipped_players": [], "failed": [],
+                        "message": "لا توجد مستندات لهذه البطولة"})
+    return _delete_documents(reg_ids, comp_id, None)

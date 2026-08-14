@@ -12,6 +12,7 @@ so saving a score updates every table that depends on it.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 
 import sqlalchemy as sa
@@ -20,8 +21,11 @@ from flask import Blueprint, jsonify, request
 from app.extensions import db
 from app.models import (
     AgeGroup,
+    ClubStaff,
+    Coach,
     Competition,
     CompetitionTeam,
+    Group,
     MatchCard,
     MatchGoal,
     MatchPenaltyShootout,
@@ -32,10 +36,12 @@ from app.models import (
     PlayerTeam,
     Stage,
     Team,
+    TeamCoach,
+    Venue,
 )
 from app.models import codes
 from app.api.manage import default_spell_start
-from app.services import auth
+from app.services import auth, notifications
 
 entry_bp = Blueprint("entry", __name__)
 
@@ -199,6 +205,98 @@ def competition_matches(cid: int):
     return jsonify({"matches": [_match_row(m) for m in matches]})
 
 
+def _venue_key(s: str) -> str:
+    """A spelling-insensitive key so the same ground groups together.
+
+    Folds the differences that made one ground show up several times in the
+    autocomplete: bidi marks and non-breaking space, tatweel, harakat, and the
+    alef / ya / ta-marbuta variants (أإآ→ا, ى→ي, ة→ه). Case and repeated
+    whitespace are folded too, which also handles Latin names.
+    """
+    s = s or ""
+    s = (s.replace("‏", "").replace("‎", "")
+          .replace(" ", " ").replace("ـ", ""))
+    s = re.sub(r"[ً-ْ]", "", s)  # harakat / tanwin / sukun / shadda
+    s = (s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+          .replace("ى", "ي").replace("ة", "ه"))
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+@entry_bp.get("/api/admin/competitions/<int:cid>/match-venues")
+@auth.login_required
+def competition_match_venues(cid: int):
+    """Venue-name suggestions for the entry form, scoped to ONE competition.
+
+    Only the grounds already used on this competition's own matches, so the list
+    stays short and relevant — empty for a brand-new competition, growing as
+    fixtures are entered — instead of scanning every match in the database.
+    Spelling variants are collapsed (preferring the registered directory's
+    spelling), and the free-text field still accepts any new ground.
+    """
+    stage_ids = [s.id for s in Stage.query.filter_by(competition_id=cid).all()]
+    if not stage_ids:
+        return jsonify({"venues": []})
+
+    typed = []
+    for col in (Match.venue_ar, Match.venue_en):
+        typed += [
+            r[0].strip() for r in
+            db.session.query(col).filter(
+                Match.stage_id.in_(stage_ids), col.isnot(None), col != ""
+            ).all()
+            if r[0] and r[0].strip()
+        ]
+
+    # Canonical spelling per ground — the registered directory's wins.
+    canonical: dict[str, str] = {}
+    for n_ar, n_en in db.session.query(Venue.name_ar, Venue.name_en).all():
+        for n in (n_ar, n_en):
+            if n and n.strip():
+                canonical.setdefault(_venue_key(n), n.strip())
+
+    # One entry per ground used in this competition: the directory's spelling
+    # when it has one, otherwise the most common way it was typed here.
+    rep: dict[str, str] = {}
+    for spelling, _ in Counter(typed).most_common():
+        key = _venue_key(spelling)
+        rep.setdefault(key, canonical.get(key, spelling))
+
+    return jsonify({"venues": sorted(rep.values())})
+
+
+@entry_bp.post("/api/admin/competitions/<int:cid>/notify-round")
+@auth.role_required("editor")
+def notify_round(cid: int):
+    """Send ONE round-results digest to this competition's followers.
+
+    The manual trigger the admin taps after entering a round's results — one
+    push per round beats one per match. Editor+, since it broadcasts to users.
+    Runs in dry-run (logs the payload) until Firebase credentials are set.
+    """
+    comp = db.session.get(Competition, cid)
+    if comp is None:
+        return jsonify({"error": "البطولة غير موجودة"}), 404
+    j = request.get_json(silent=True) or {}
+    week = (str(j.get("week") or "")).strip()
+    if not week:
+        return jsonify({"error": "اختر الجولة"}), 400
+
+    stage_ids = [s.id for s in Stage.query.filter_by(competition_id=cid).all()]
+    completed = (
+        Match.query.filter(
+            Match.stage_id.in_(stage_ids), Match.week == week,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        ).all()
+        if stage_ids else []
+    )
+    if not completed:
+        return jsonify({"error": "لا توجد مباريات مكتملة في هذه الجولة"}), 400
+
+    result = notifications.notify_round_results(comp, week, completed)
+    return jsonify({"notification": result, "count": len(completed)})
+
+
 def _parse_dt(date_s: str, time_s: str) -> datetime | None:
     date_s = (date_s or "").strip()
     if not date_s:
@@ -221,9 +319,20 @@ def create_match(cid: int):
         return jsonify({"error": "البطولة غير موجودة"}), 404
     j = request.get_json(silent=True) or {}
 
-    home_id, away_id = j.get("home_team_id"), j.get("away_team_id")
+    home_id, away_id = _as_int(j.get("home_team_id")), _as_int(j.get("away_team_id"))
     if not home_id or not away_id or home_id == away_id:
         return jsonify({"error": "اختر فريقين مختلفين"}), 400
+    # Both teams must be enrolled in this competition — otherwise an arbitrary
+    # (or non-existent) team id lands in the competition's standings and public
+    # feed. Enrolment already implies the right age group.
+    enrolled = {
+        ct.team_id for ct in CompetitionTeam.query.filter(
+            CompetitionTeam.competition_id == cid,
+            CompetitionTeam.team_id.in_([home_id, away_id]),
+        ).all()
+    }
+    if home_id not in enrolled or away_id not in enrolled:
+        return jsonify({"error": "أحد الفريقين غير مسجَّل في هذه البطولة"}), 400
     # A confirmed fixture may have no date yet (TBD). Only a date that was given
     # but does not parse is an error; a blank date stores NULL.
     date_s = (j.get("date") or "").strip()
@@ -236,12 +345,16 @@ def create_match(cid: int):
         stage = Stage.query.filter_by(id=req_stage_id, competition_id=cid).first() or _default_stage(comp)
     else:
         stage = _default_stage(comp)
-    req_group_id = j.get("group_id") or None
+    req_group_id = _as_int(j.get("group_id")) or None
+    # A group must belong to this match's stage, else its standings are skewed.
+    if req_group_id and not Group.query.filter_by(id=req_group_id, stage_id=stage.id).first():
+        return jsonify({"error": "المجموعة لا تنتمي لهذا الدور"}), 400
 
-    # Prevent duplicate fixtures: same stage, same pair of teams.
+    # Prevent duplicate fixtures: same stage, same pair of teams. Ignore
+    # soft-deleted matches so a deleted fixture can be re-created.
     duplicate = Match.query.filter_by(
         stage_id=stage.id, home_team_id=home_id, away_team_id=away_id
-    ).first()
+    ).filter(Match.deleted_at.is_(None)).first()
     if duplicate:
         return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
 
@@ -324,6 +437,15 @@ def _as_int(v):
         return None
 
 
+def _clamp_int(v, lo: int, hi: int):
+    """Parse and clamp an int into [lo, hi]; None stays None. Keeps a stray
+    negative/huge score or minute from corrupting the standings that these feed."""
+    n = _as_int(v)
+    if n is None:
+        return None
+    return max(lo, min(hi, n))
+
+
 @entry_bp.patch("/api/admin/matches/<int:mid>")
 @auth.login_required
 def update_match(mid: int):
@@ -335,13 +457,13 @@ def update_match(mid: int):
     if "status" in j and j["status"] in codes.MATCH_STATUS:
         m.status = j["status"]
     if "home_score" in j:
-        m.home_score = _as_int(j["home_score"])
+        m.home_score = _clamp_int(j["home_score"], 0, 99)
     if "away_score" in j:
-        m.away_score = _as_int(j["away_score"])
+        m.away_score = _clamp_int(j["away_score"], 0, 99)
     if "home_penalty_score" in j:
-        m.home_penalty_score = _as_int(j["home_penalty_score"])
+        m.home_penalty_score = _clamp_int(j["home_penalty_score"], 0, 99)
     if "away_penalty_score" in j:
-        m.away_penalty_score = _as_int(j["away_penalty_score"])
+        m.away_penalty_score = _clamp_int(j["away_penalty_score"], 0, 99)
     if "week" in j:
         m.week = (j["week"] or "").strip() or None
     if "round" in j:
@@ -366,6 +488,44 @@ def update_match(mid: int):
             dt = _parse_dt(date_s, j.get("time") or fallback)
             if dt:
                 m.match_date = dt
+
+    # Correcting the two teams (e.g. a fixture entered with the wrong side).
+    if "home_team_id" in j or "away_team_id" in j:
+        # Every event carries a team_id that must be one of the two sides
+        # (goals, cards, subs, shootout kicks, line-up rows). Swapping a side
+        # out would orphan those, so only allow this while none exist yet.
+        has_events = bool(
+            m.goals or m.cards or m.substitutions or m.shootout
+            or MatchPlayer.query.filter_by(match_id=m.id).first()
+        )
+        if has_events:
+            return jsonify({"error": "لا يمكن تغيير الفريقين بعد إدخال الأهداف أو البطاقات أو التبديلات أو التشكيلة — احذفها أولاً أو احذف المباراة وأنشئها من جديد"}), 400
+        new_home = _as_int(j.get("home_team_id", m.home_team_id)) or m.home_team_id
+        new_away = _as_int(j.get("away_team_id", m.away_team_id)) or m.away_team_id
+        if new_home == new_away:
+            return jsonify({"error": "اختر فريقين مختلفين"}), 400
+        cid = m.stage.competition_id
+        enrolled = {
+            ct.team_id for ct in CompetitionTeam.query.filter(
+                CompetitionTeam.competition_id == cid,
+                CompetitionTeam.team_id.in_([new_home, new_away]),
+            ).all()
+        }
+        if new_home not in enrolled or new_away not in enrolled:
+            return jsonify({"error": "أحد الفريقين غير مسجَّل في هذه البطولة"}), 400
+        # Same guard as creation: no duplicate fixture (same stage, same pair),
+        # ignoring this match itself and soft-deleted rows.
+        dup = Match.query.filter(
+            Match.stage_id == m.stage_id,
+            Match.home_team_id == new_home,
+            Match.away_team_id == new_away,
+            Match.id != m.id,
+            Match.deleted_at.is_(None),
+        ).first()
+        if dup:
+            return jsonify({"error": "هذه المباراة موجودة بالفعل في هذا الدور"}), 409
+        m.home_team_id = new_home
+        m.away_team_id = new_away
 
     db.session.commit()
     return jsonify(_match_detail(m))
@@ -437,9 +597,9 @@ def add_goal(mid: int):
     db.session.add(MatchGoal(
         match_id=m.id, team_id=team_id, scorer_id=scorer.id,
         assist_id=assist.id if assist else None,
-        minute=_as_int(j.get("minute")),
+        minute=_clamp_int(j.get("minute"), 0, 130),
         is_own_goal=is_own_goal,
-        is_penalty=bool(j.get("is_penalty")),
+        is_penalty=False if is_own_goal else bool(j.get("is_penalty")),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -479,7 +639,7 @@ def update_goal(gid: int):
     g.team_id = team_id
     g.scorer_id = scorer.id
     g.assist_id = assist.id if assist else None
-    g.minute = _as_int(j.get("minute"))
+    g.minute = _clamp_int(j.get("minute"), 0, 130)
     g.is_own_goal = is_own_goal
     g.is_penalty = False if is_own_goal else bool(j.get("is_penalty"))
     db.session.commit()
@@ -517,7 +677,7 @@ def add_card(mid: int):
 
     db.session.add(MatchCard(
         match_id=m.id, team_id=team_id, player_id=player.id,
-        card_type=j["card_type"], minute=_as_int(j.get("minute")),
+        card_type=j["card_type"], minute=_clamp_int(j.get("minute"), 0, 130),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -544,7 +704,7 @@ def update_card(card_id: int):
     c.team_id = team_id
     c.player_id = player.id
     c.card_type = card_type
-    c.minute = _as_int(j.get("minute"))
+    c.minute = _clamp_int(j.get("minute"), 0, 130)
     db.session.commit()
     return jsonify(_match_detail(m))
 
@@ -660,7 +820,7 @@ def add_sub(mid: int):
     db.session.add(MatchSubstitution(
         match_id=mid, team_id=team_id,
         player_out_id=out_p.id, player_in_id=in_p.id,
-        minute=_as_int(j.get("minute")),
+        minute=_clamp_int(j.get("minute"), 0, 130),
     ))
     db.session.commit()
     return jsonify(_match_detail(m)), 201
@@ -708,7 +868,7 @@ def update_sub(sid: int):
     s.team_id = team_id
     s.player_out_id = out_p.id
     s.player_in_id = in_p.id
-    s.minute = _as_int(j.get("minute"))
+    s.minute = _clamp_int(j.get("minute"), 0, 130)
     db.session.commit()
     return jsonify(_match_detail(m))
 
@@ -805,10 +965,50 @@ def search_players():
         .limit(20)
         .all()
     )
+
+    def player_club(p):
+        # Current club (else most recent) — so the merge search shows which club
+        # a player is at, not just their name and birth year.
+        reg = next((r for r in p.registrations if r.end_date is None), None)
+        if reg is None and p.registrations:
+            reg = max(p.registrations, key=lambda r: r.start_date)
+        club = reg.team.club if reg and reg.team else None
+        return (club.name_ar or club.name_en) if club else None
+
     return jsonify({"players": [
-        {"id": p.id, "name": p.full_name_ar or p.full_name_en, "birth_year": p.birth_year}
+        {"id": p.id, "name": p.full_name_ar or p.full_name_en,
+         "birth_year": p.birth_year, "club": player_club(p)}
         for p in rows
     ]})
+
+
+@entry_bp.get("/api/admin/players/<int:pid>/summary")
+@auth.login_required
+def player_summary(pid: int):
+    """Compact profile for the merge tool — birth year, teams (with age, guest
+    and goals), and totals — so an admin can confirm two records are the same
+    person before merging them."""
+    from app.api import serializers
+
+    p = db.session.get(Player, pid)
+    if p is None:
+        return jsonify({"error": "غير موجود"}), 404
+    full = serializers.player_full(p)
+    return jsonify({
+        "id": p.id,
+        "name": p.full_name_ar or p.full_name_en,
+        "birth_year": p.birth_year,
+        "goals": full["goals"],
+        "assists": full["assists"],
+        "appearances": full["appearances"],
+        "teams": [{
+            "club": c["club"],
+            "age": (c["age"] or {}).get("ar") or (c["age"] or {}).get("en") if c["age"] else None,
+            "current": c["current"],
+            "guest": c.get("is_guest", False),
+            "goals": c["goals"],
+        } for c in full["career"]],
+    })
 
 
 @entry_bp.post("/api/admin/players/<int:source_id>/merge-into/<int:target_id>")
@@ -840,6 +1040,13 @@ def merge_players(source_id: int, target_id: int):
         {"scorer_id": target_id}, synchronize_session=False)
     MatchGoal.query.filter_by(assist_id=source_id).update(
         {"assist_id": target_id}, synchronize_session=False)
+    # A goal where the two merged players were scorer and assister now has
+    # scorer_id == assist_id (a player assisting his own goal — forbidden and
+    # double-crediting the merged player). Clear the assist in that case.
+    MatchGoal.query.filter(
+        MatchGoal.scorer_id == target_id,
+        MatchGoal.assist_id == target_id,
+    ).update({"assist_id": None}, synchronize_session=False)
     MatchCard.query.filter_by(player_id=source_id).update(
         {"player_id": target_id}, synchronize_session=False)
     MatchPenaltyShootout.query.filter_by(player_id=source_id).update(
@@ -872,6 +1079,83 @@ def merge_players(source_id: int, target_id: int):
             db.session.delete(pt)
         else:
             pt.player_id = target_id
+
+    target_name = target.full_name_ar or target.full_name_en
+    db.session.flush()   # apply re-points before the source row is deleted
+    db.session.delete(source)
+    db.session.commit()
+    return jsonify({"merged": source_id, "into": target_id, "target_name": target_name})
+
+
+# ── coach / club-staff merge (same tool, one person = coach + staff history) ───
+@entry_bp.get("/api/admin/coaches/<int:cid>/summary")
+@auth.login_required
+def coach_summary(cid: int):
+    """Compact profile for the coach merge tool — birth year and every post
+    (team coaching stints and club youth-sector roles), so an admin can confirm
+    two records are the same person before merging them."""
+    from app.api import serializers
+
+    c = db.session.get(Coach, cid)
+    if c is None:
+        return jsonify({"error": "غير موجود"}), 404
+    full = serializers.coach_full(c)
+
+    def _one(v):
+        return (v or {}).get("ar") or (v or {}).get("en") if v else None
+
+    return jsonify({
+        "id": c.id,
+        "name": c.full_name_ar or c.full_name_en,
+        "birth_year": c.birth_year,
+        "roles": [{
+            "type": r["type"],                 # "coach" (team) or "manager" (club)
+            "club": r["club"],
+            "role": _one(r.get("role")),
+            "age": _one(r.get("age")),
+            "current": r["current"],
+        } for r in full["career"]],
+    })
+
+
+@entry_bp.post("/api/admin/coaches/<int:source_id>/merge-into/<int:target_id>")
+@auth.login_required
+def merge_coaches(source_id: int, target_id: int):
+    """Re-point a person's team-coaching stints and club roles from the duplicate
+    (source) record onto the correct (target) one, then delete the source.
+
+    A coach entity is a single person spanning both team stints (TeamCoach) and
+    club posts (ClubStaff); merging combines that whole history. Neither table
+    has a uniqueness constraint, so re-pointing is safe — an exact-duplicate
+    post (same team/club and start date on both records) is dropped rather than
+    duplicated.
+    """
+    if source_id == target_id:
+        return jsonify({"error": "لا يمكن دمج مدرّب مع نفسه"}), 400
+    source = db.session.get(Coach, source_id)
+    target = db.session.get(Coach, target_id)
+    if source is None:
+        return jsonify({"error": "المدرّب المصدر غير موجود"}), 404
+    if target is None:
+        return jsonify({"error": "المدرّب الهدف غير موجود"}), 404
+
+    # Team stints: drop an exact duplicate (same team + start date), else re-point.
+    target_stints = {(tc.team_id, tc.start_date)
+                     for tc in TeamCoach.query.filter_by(coach_id=target_id).all()}
+    for tc in TeamCoach.query.filter_by(coach_id=source_id).all():
+        if (tc.team_id, tc.start_date) in target_stints:
+            db.session.delete(tc)
+        else:
+            tc.coach_id = target_id
+
+    # Club posts: drop an exact duplicate (same club + start date), else re-point.
+    target_posts = {(cs.club_id, cs.start_date)
+                    for cs in ClubStaff.query.filter_by(coach_id=target_id).all()}
+    for cs in ClubStaff.query.filter_by(coach_id=source_id).all():
+        if (cs.club_id, cs.start_date) in target_posts:
+            db.session.delete(cs)
+        else:
+            cs.coach_id = target_id
 
     target_name = target.full_name_ar or target.full_name_en
     db.session.flush()   # apply re-points before the source row is deleted

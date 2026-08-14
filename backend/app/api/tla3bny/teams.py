@@ -1,7 +1,8 @@
+import sqlalchemy as sa
 from flask import jsonify, request
 from sqlalchemy.orm import selectinload
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import (
     Tla3bnyAgeCategory,
     Tla3bnyCoach,
@@ -9,10 +10,12 @@ from app.models import (
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
     Tla3bnyCompetitionTeam,
+    Tla3bnyMatch,
     Tla3bnyPlayerTeam,
     Tla3bnyTeam,
     Tla3bnyUser,
 )
+from app.services import notifications
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -20,11 +23,14 @@ from .audit import _log
 from ._helpers import (
     _credentials,
     _claim_login,
+    _clip,
     _err,
     _forbid,
     _int,
     _parse_date,
+    _parse_date_or_error,
     _read_payload,
+    _validate_password,
     save_upload,
 )
 from .academies import _resolve_academy_for_write
@@ -58,6 +64,8 @@ def create_team(academy_id: int):
         class_label=(data.get("class_label") or "").strip() or None,
         name=(data.get("name") or "").strip() or None,
         name_en=(data.get("name_en") or "").strip() or None,
+        photo_path=(data.get("photo_path") or "").strip() or None,
+        description=(data.get("description") or "").strip()[:500] or None,
     )
     db.session.add(team)
     db.session.commit()
@@ -77,8 +85,32 @@ def update_team(team_id: int):
         team.name = (data.get("name") or "").strip() or None
     if "name_en" in data:
         team.name_en = (data.get("name_en") or "").strip() or None
+    if "photo_path" in data:
+        team.photo_path = (data.get("photo_path") or "").strip() or None
+    if "description" in data:
+        team.description = (data.get("description") or "").strip()[:500] or None
     if "age_category_id" in data and _int(data.get("age_category_id")):
-        team.age_category_id = _int(data.get("age_category_id"))
+        new_age = _int(data.get("age_category_id"))
+        if new_age != team.age_category_id:
+            # The team's age is copied into every competition entry and match at
+            # registration. Changing it after the team is in play would desync
+            # cap lookups, match-team validation and standings, so block it once
+            # the team has any entry or match.
+            in_play = (
+                Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id).first()
+                or Tla3bnyMatch.query.filter(
+                    sa.or_(
+                        Tla3bnyMatch.home_team_id == team_id,
+                        Tla3bnyMatch.away_team_id == team_id,
+                    )
+                ).first()
+            )
+            if in_play:
+                return _err(
+                    "لا يمكن تغيير الفئة السنية لفريق مسجّل في بطولة أو له مباريات.",
+                    409,
+                )
+            team.age_category_id = new_age
     db.session.commit()
     return jsonify(team.to_dict())
 
@@ -91,12 +123,26 @@ def delete_team(team_id: int):
     # Only the owning academy or super admin may delete a team (not the team login).
     if not auth.can_manage_academy(user, team.academy_id):
         return _forbid()
+    # The match team FKs are intentionally RESTRICT: a team that has played can't
+    # be removed without orphaning matches and the standings built from them.
+    # Report that clearly instead of letting the delete raise a raw IntegrityError.
+    if Tla3bnyMatch.query.filter(
+        sa.or_(
+            Tla3bnyMatch.home_team_id == team_id,
+            Tla3bnyMatch.away_team_id == team_id,
+        )
+    ).first():
+        return _err(
+            "لا يمكن حذف فريق له مباريات. احذف مبارياته أو أزله من البطولة أولًا.",
+            409,
+        )
     db.session.delete(team)
     db.session.commit()
     return jsonify({"message": "deleted"})
 
 
 @tla3bny_bp.post("/teams/<int:team_id>/account")
+@limiter.limit("20 per hour")
 @auth.login_required
 def set_team_account(team_id: int):
     """The owning academy (or super admin) creates/resets the team manager's
@@ -109,6 +155,9 @@ def set_team_account(team_id: int):
     username, password = _credentials(data)
     if not username or not password:
         return _err("username and password are required")
+    pw_err = _validate_password(password)
+    if pw_err:
+        return _err(pw_err)
 
     account = Tla3bnyUser.query.filter_by(role="team", team_id=team.id).first()
     taken = _claim_login(
@@ -151,12 +200,27 @@ def get_team_account(team_id: int):
 
 
 # ── coaches ──────────────────────────────────────────────────────────────────
+@tla3bny_bp.get("/coaches/<int:coach_id>")
+def get_coach(coach_id: int):
+    """Public coach profile: the coach plus the team (and academy) they're on."""
+    coach = Tla3bnyCoach.query.get_or_404(coach_id)
+    data = coach.to_dict()
+    data["team"] = coach.team.to_dict() if coach.team else None
+    return jsonify(data)
+
+
 @tla3bny_bp.post("/teams/<int:team_id>/coaches")
 @auth.login_required
 def add_coach(team_id: int):
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
     Tla3bnyTeam.query.get_or_404(team_id)
+    # Like players: coaching staff can't be added until the team is entered in a
+    # competition — nothing to attach them to otherwise.
+    if not Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active").first():
+        return _err(
+            "الفريق لم يُضَف لأي بطولة بعد — تواصل مع المنظّم لإضافته أولًا", 403
+        )
     data, files = _read_payload()
     name = (data.get("name") or "").strip()
     if not name:
@@ -172,6 +236,8 @@ def add_coach(team_id: int):
         name=name,
         name_en=(data.get("name_en") or "").strip() or None,
         role_ar=(data.get("role_ar") or "").strip() or None,
+        license=_clip(data.get("license"), 255),
+        bio=_clip(data.get("bio"), 5000),
         phone=(data.get("phone") or "").strip() or None,
         photo_path=photo,
         start_date=_parse_date(data.get("start_date")),
@@ -193,6 +259,10 @@ def update_coach(coach_id: int):
     for field in ("name", "name_en", "role_ar", "phone"):
         if field in data:
             setattr(coach, field, (data.get(field) or "").strip() or None)
+    if "license" in data:
+        coach.license = _clip(data.get("license"), 255)
+    if "bio" in data:
+        coach.bio = _clip(data.get("bio"), 5000)
     if "start_date" in data:
         coach.start_date = _parse_date(data.get("start_date"))
     if "end_date" in data:
@@ -305,6 +375,13 @@ def team_competition_entries(team_id: int):
         rejected = Tla3bnyCompetitionPlayer.query.filter_by(
             competition_team_id=entry.id, status="rejected"
         ).all()
+        # Players still awaiting the organizer's approval — a newly added player,
+        # or one the academy edited (editing resubmits them). The academy needs
+        # to see these as "pending" the same way the organizer's approvals list
+        # does, so it knows the roster isn't finalised yet.
+        pending = Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id, status="pending"
+        ).all()
         replacements_open = cage.replacements_open if cage else False
         # Include the approved roster only when the replacement window is open so
         # the academy can pick which players to remove.
@@ -330,6 +407,9 @@ def team_competition_entries(team_id: int):
             "sub_competition_name": cage.name if cage else None,
             "status": entry.status,
             "registration_open": comp.registration_open if comp else False,
+            # Past the player-registration deadline the academy can no longer add
+            # or edit players in this sub-competition (only the organizer can).
+            "registration_deadline_passed": cage.registration_deadline_passed if cage else False,
             "max_players": cage.max_players_per_team if cage else None,
             "player_count": count,
             "replacements_open": replacements_open,
@@ -343,6 +423,13 @@ def team_competition_entries(team_id: int):
                     "rejection_reason": cp.rejection_reason,
                 }
                 for cp in rejected
+            ],
+            "pending_players": [
+                {
+                    "player_id": cp.player_id,
+                    "player_name": cp.player.name if cp.player else None,
+                }
+                for cp in pending
             ],
         })
     return jsonify(result)
@@ -410,12 +497,42 @@ def request_join_competition(team_id: int):
     comp = cage.competition
     if not comp:
         return _err("Competition not found", 404)
-    if cage.age_category_id != team.age_category_id:
+    # A team of the same age OR younger may enter (younger plays up); an older
+    # team may not play down. oldest_birth_year is higher for younger ages, so the
+    # team qualifies when its year >= the sub-competition's. Fall back to an exact
+    # age match if either category has no birth year set.
+    team_oby = team.age_category.oldest_birth_year if team.age_category else None
+    cage_oby = cage.age_category.oldest_birth_year if cage.age_category else None
+    if team_oby is not None and cage_oby is not None:
+        if team_oby < cage_oby:
+            return _err("عمر الفريق أكبر من فئة هذه البطولة الفرعية", 409)
+    elif cage.age_category_id != team.age_category_id:
         return _err("Team age does not match sub-competition age", 409)
     if Tla3bnyCompetitionTeam.query.filter_by(
         competition_id=comp.id, team_id=team_id
     ).first():
         return _err("Team has already joined or requested to join this competition", 409)
+    # One competition at a time: a team already in another competition that has
+    # not yet ended can't enter this one, so its player registrations are never
+    # split across two live competitions. The other competition frees the team on
+    # the second day after its end date (see Competition.locks_team_entry).
+    other_entries = (
+        Tla3bnyCompetitionTeam.query
+        .filter(
+            Tla3bnyCompetitionTeam.team_id == team_id,
+            Tla3bnyCompetitionTeam.competition_id != comp.id,
+            Tla3bnyCompetitionTeam.status.in_(("pending", "active")),
+        )
+        .all()
+    )
+    blocking = next((e for e in other_entries if e.competition and e.competition.locks_team_entry), None)
+    if blocking is not None:
+        other_name = blocking.competition.name if blocking.competition else ""
+        return _err(
+            f"الفريق مشترك بالفعل في بطولة \"{other_name}\" ولم تنتهِ بعد. "
+            "يمكن الاشتراك في بطولة أخرى بعد انتهاء البطولة الحالية.",
+            409,
+        )
     entry = Tla3bnyCompetitionTeam(
         competition_id=comp.id,
         team_id=team_id,
@@ -425,6 +542,7 @@ def request_join_competition(team_id: int):
     )
     db.session.add(entry)
     db.session.commit()
+    notifications.notify_tla3bny_join_request(entry)  # -> competition admins
     return jsonify(entry.to_dict()), 201
 
 
@@ -444,30 +562,13 @@ def approve_team_join(entry_id: int):
         "team_name": entry.team.display_name() if entry.team else None,
         "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
     }, competition_id=entry.competition_id)
-    # Auto-enqueue existing active players.
-    comp = entry.competition
-    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
-        competition_id=entry.competition_id,
-        age_category_id=entry.age_category_id,
-    ).first()
-    if comp and comp.registration_open:
-        cap = cage.max_players_per_team if cage else None
-        count = 0
-        for mem in Tla3bnyPlayerTeam.query.filter_by(
-            team_id=entry.team_id, end_date=None, status="active"
-        ).all():
-            if cap is not None and count >= cap:
-                break
-            if not Tla3bnyCompetitionPlayer.query.filter_by(
-                competition_team_id=entry.id, player_id=mem.player_id
-            ).first():
-                db.session.add(Tla3bnyCompetitionPlayer(
-                    competition_team_id=entry.id,
-                    player_id=mem.player_id,
-                    status="pending",
-                ))
-                count += 1
+    # Players are no longer carried over automatically. Approval only admits the
+    # team; the academy then registers players for *this* competition — picking
+    # who plays and uploading this competition's own required papers — via
+    # POST /competition-teams/<id>/players. This keeps each competition's roster
+    # and documents its own, even for a team that also played another season.
     db.session.commit()
+    notifications.notify_tla3bny_subscription_approved(entry)  # -> the academy
     return jsonify(entry.to_dict())
 
 
@@ -485,6 +586,7 @@ def reject_team_join(entry_id: int):
         "team_name": entry.team.display_name() if entry.team else None,
         "academy_name": entry.team.academy.name if entry.team and entry.team.academy else None,
     }, competition_id=entry.competition_id)
+    notifications.notify_tla3bny_subscription_rejected(entry)  # -> the academy, before delete
     db.session.delete(entry)
     db.session.commit()
     return jsonify({"message": "rejected"})

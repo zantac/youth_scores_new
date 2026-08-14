@@ -3,46 +3,48 @@ import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState }
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  tSeasons, tCompetitions, tCompetition, tStandings, tMatches, tAnalysis, tBracket, tNews,
+  tSeasons, tCompetitions, tCompetition, tStandings, tMatches, tAnalysis,
   mediaUrl,
   type TSeason, type TCompetition, type TStandingGroup,
-  type TMatch, type TAnalysis, type TBracketStage, type TNews, type TBoardRow,
+  type TMatch, type TAnalysis, type TBoardRow,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
+import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { formatMatchDate, sortAges, subCompLabel, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
-import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
-import NewsList from '@/components/tla3bny/NewsList';
+import CompetitionHero from '@/components/tla3bny/CompetitionHero';
+import SubCompetitionAbout from '@/components/tla3bny/SubCompetitionAbout';
 import { AdStrip } from '@/components/tla3bny/AdCard';
 import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
 import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { CompetitionHonours } from '@/components/tla3bny/Honours';
 
-type Tab = 'standings' | 'matches' | 'stats' | 'bracket' | 'news' | 'info';
+type Tab = 'standings' | 'matches' | 'stats' | 'honours' | 'about';
 
 /** The shareable URL for an open competition: ?comp, plus ?cage / ?tab when they
  *  are not the defaults. Loading it reopens the same view. */
 function compUrl(id: number, cage: number | null, t: Tab): string {
   const p = new URLSearchParams({ comp: String(id) });
   if (cage) p.set('cage', String(cage));
-  if (t !== 'matches') p.set('tab', t);
+  if (t !== 'about') p.set('tab', t);
   return `/competitions?${p.toString()}`;
 }
 
 function CompetitionsContent() {
   const tt = useTT();
+  const { token } = useTla3bnyAuth();
   const params = useSearchParams();
   const router = useRouter();
   const [seasons, setSeasons] = useState<TSeason[]>([]);
   const [comp, setComp] = useState<TCompetition | null>(null);
   const [cageId, setCageId] = useState<number | null>(null);
-  const [tab, setTab] = useState<Tab>('standings');
+  const [tab, setTab] = useState<Tab>('about');
   const [loading, setLoading] = useState(true);
 
-  // Accordion state — which seasons / competitions are expanded.
+  // Accordion state — which seasons are expanded.
   const [openSeasons, setOpenSeasons] = useState<Set<number>>(new Set());
-  const [openComps,   setOpenComps]   = useState<Set<number>>(new Set());
   // Lazily-loaded competitions keyed by season id.
   const [seasonComps, setSeasonComps] = useState<Record<number, TCompetition[]>>({});
 
@@ -60,9 +62,6 @@ function CompetitionsContent() {
     });
   }, [loadSeasonComps]);
 
-  const toggleComp = useCallback((cid: number) =>
-    setOpenComps(prev => { const n = new Set(prev); n.has(cid) ? n.delete(cid) : n.add(cid); return n; }), []);
-
   useEffect(() => {
     tSeasons().then(ss => {
       setSeasons(ss);
@@ -76,17 +75,14 @@ function CompetitionsContent() {
   }, []);
 
   const openComp = useCallback((id: number, initialCageId?: number, initialTab?: Tab) => {
-    tCompetition(id).then(c => {
+    tCompetition(id, token).then(c => {
       const cage = initialCageId ?? sortAges(c.ages ?? [])[0]?.id ?? null;
-      const koAge = sortAges(c.ages ?? []).find(a => a.id === cage);
-      const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
-      let t = initialTab ?? 'matches';
-      if (t === 'bracket' && !hasKnockout) t = 'matches';   // no bracket tab to land on
+      const t = initialTab ?? 'about';
       setComp(c); setCageId(cage); setTab(t);
       // Reflect the open competition in the address bar so it can be shared.
       router.replace(compUrl(id, cage, t), { scroll: false });
     });
-  }, [router]);
+  }, [router, token]);
 
   // Keep the view in sync with the URL: open the competition the address names
   // (on first load or a shared link), and close when it goes away. Guarded by
@@ -109,35 +105,20 @@ function CompetitionsContent() {
       setTab(t);
       router.replace(compUrl(comp.id, cageId, t), { scroll: false });
     };
-    const closeComp = () => { setComp(null); router.replace('/competitions', { scroll: false }); };
-    // Bracket only shows when the selected age actually has a knockout stage.
-    const koAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
-    const hasKnockout = !!koAge?.stages?.some(s => s.type === 'knockout');
-    const tabs = ['matches', 'standings', 'stats', ...(hasKnockout ? ['bracket'] : []), 'news'] as Exclude<Tab, 'info'>[];
+    // Back goes to this competition's own page (where its sub-competitions live).
+    const closeComp = () => { router.push(`/competition?id=${comp.id}`); };
+    // The open sub-competition — its own rules, description and (for academies)
+    // fee drive the hero and the About tab.
+    const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
+    const tabs = ['about', 'matches', 'standings', 'stats', 'honours'] as Tab[];
     return (
       <div className="space-y-4">
-        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">← {tt('كل البطولات', 'All competitions')}</button>
-        {(() => {
-          const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
-          return (
-            <Card className="p-4 flex items-center gap-3">
-              <LogoAvatar src={comp.logo_path} name={comp.name} size={52} />
-              <div className="min-w-0 flex-1">
-                <h1 className="text-lg font-black text-text">{comp.name}</h1>
-                <p className="text-[11px] text-hint">
-                  {[comp.season_name, selectedAge ? subCompLabel(selectedAge) : null, comp.location].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-              <button onClick={() => selectTab(tab === 'info' ? 'matches' : 'info')}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 border transition-colors ${
-                  tab === 'info' ? 'bg-aqua text-on-accent border-aqua' : 'bg-cardBg2 border-bdr text-teal hover:border-aqua/50'
-                }`}
-                title={tt('عن البطولة', 'About')}>
-                ℹ️
-              </button>
-            </Card>
-          );
-        })()}
+        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">→ {comp.name}</button>
+        {/* The hero belongs to this sub-competition: titled by it, showing its own
+            description (falling back to the competition's). */}
+        <CompetitionHero comp={comp}
+          title={selectedAge ? subCompLabel(selectedAge) : undefined}
+          description={selectedAge?.description ?? comp.description} />
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
           {tabs.map(t => (
@@ -145,15 +126,17 @@ function CompetitionsContent() {
               className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal hover:text-text'}`}>
               {tt(
-                { standings: 'الترتيب', matches: 'المباريات', stats: 'الإحصائيات', bracket: 'الأدوار', news: 'الأخبار' }[t],
-                { standings: 'Table', matches: 'Matches', stats: 'Stats', bracket: 'Bracket', news: 'News' }[t],
+                { standings: 'الترتيب', matches: 'المباريات', stats: 'الإحصائيات', honours: '🏆 الجوائز', about: 'عن المنافسة' }[t],
+                { standings: 'Table', matches: 'Matches', stats: 'Stats', honours: '🏆 Honours', about: 'About' }[t],
               )}
             </button>
           ))}
         </div>
 
-        {tab === 'info' ? <CompetitionInfo comp={comp} />
-          : tab === 'news' ? <NewsList compId={comp.id} />
+        {tab === 'about'
+          ? (selectedAge
+              ? <SubCompetitionAbout age={selectedAge} />
+              : <EmptyState icon="ℹ️" text={tt('لا معلومات بعد', 'No information yet')} />)
           : cageId == null
             ? <EmptyState icon="⚽" text={tt('لا فئات في هذه البطولة', 'No ages in this competition')} />
             : <TabBody comp={comp} cageId={cageId} tab={tab} />}
@@ -194,53 +177,21 @@ function CompetitionsContent() {
               <span className="text-aqua text-base flex-shrink-0">{seasonOpen ? '▲' : '▼'}</span>
             </button>
 
-            {/* Competitions within this season */}
+            {/* Competitions within this season — each a hero card that opens
+                its own page (info + المنافسات). */}
             {seasonOpen && (
-              <div className="bg-darkBg divide-y divide-bdr/60">
+              <div className="bg-darkBg p-3 space-y-3">
                 {comps.length === 0 && (
                   <p className="text-hint text-sm text-center py-6">
                     {tt('لا بطولات في هذا الموسم', 'No competitions this season')}
                   </p>
                 )}
-                {comps.map(c => {
-                  const compOpen = openComps.has(c.id);
-                  const ages = sortAges(c.ages ?? []);
-                  return (
-                    <div key={c.id}>
-                      {/* Competition row */}
-                      <button onClick={() => toggleComp(c.id)}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-aqua/[0.04] transition-colors">
-                        <LogoAvatar src={c.logo_path} name={c.name} size={32} />
-                        <div className="flex-1 text-start min-w-0">
-                          <p className="text-text font-semibold text-sm truncate">{c.name}</p>
-                          <p className="text-hint text-xs mt-0.5">
-                            {ages.length} {tt('فئة', 'age groups')}
-                          </p>
-                        </div>
-                        <span className="text-hint text-sm flex-shrink-0">{compOpen ? '▲' : '▼'}</span>
-                      </button>
-
-                      {/* Sub-competitions (ages) */}
-                      {compOpen && (
-                        <div className="bg-cardBg/60 border-t border-bdr/40">
-                          {ages.length === 0 && (
-                            <p className="text-hint text-xs text-center py-4">
-                              {tt('لا فئات', 'No age groups')}
-                            </p>
-                          )}
-                          {ages.map(a => (
-                            <button key={a.id} onClick={() => openComp(c.id, a.id)}
-                              className="w-full flex items-center gap-3 px-5 py-3 border-b border-bdr/30 last:border-0 active:bg-aqua/5 hover:bg-aqua/[0.04] transition-colors text-start">
-                              <span className="text-aqua text-xs flex-shrink-0">›</span>
-                              <span className="flex-1 text-teal text-sm font-medium">{subCompLabel(a)}</span>
-                              <span className="text-bdr text-xs flex-shrink-0">↗</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {comps.map(c => (
+                  <Link key={c.id} href={`/competition?id=${c.id}`}
+                    className="block hover:opacity-95 active:opacity-80 transition-opacity">
+                    <CompetitionHero comp={c} />
+                  </Link>
+                ))}
               </div>
             )}
           </div>
@@ -256,7 +207,8 @@ function TabBody({ comp, cageId, tab }: { comp: TCompetition; cageId: number; ta
   if (tab === 'standings') return <StandingsTab compId={comp.id} ageId={ageId} cageId={cageId} />;
   if (tab === 'matches') return <MatchesTab compId={comp.id} cageId={cageId} />;
   if (tab === 'stats') return <StatsTab compId={comp.id} ageId={ageId} cageId={cageId} />;
-  return <BracketTab compId={comp.id} ageId={ageId} />;
+  if (tab === 'honours') return <CompetitionHonours compId={comp.id} cageId={cageId} />;
+  return null;
 }
 
 function StandingsTab({ compId, ageId, cageId }: { compId: number; ageId: number; cageId?: number }) {
@@ -687,87 +639,6 @@ function StatsTab({ compId, ageId, cageId }: { compId: number; ageId: number; ca
   );
 }
 
-/** A compact two-row match card used inside knockout bracket rounds. */
-function BracketCard({ m }: { m: TMatch }) {
-  const finished = m.status === 'completed' || m.status === 'finished';
-  const homeWon = finished && m.home_score != null && m.away_score != null
-    && (m.home_score_pen ?? m.home_score) > (m.away_score_pen ?? m.away_score);
-  const awayWon = finished && m.home_score != null && m.away_score != null
-    && (m.away_score_pen ?? m.away_score) > (m.home_score_pen ?? m.home_score);
-
-  const scoreFor = (pen: number | null, reg: number | null) =>
-    pen != null ? pen : reg != null ? reg : '–';
-
-  const row = (
-    name: string | null, logo: string | null,
-    score: number | null, scorePen: number | null,
-    won: boolean, lost: boolean,
-  ) => (
-    <div className={`flex items-center justify-between gap-2 px-3 py-2
-      ${won ? 'bg-win/10' : ''}`}>
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <LogoAvatar src={logo} name={name} size={22} />
-        <span className={`text-sm font-bold truncate
-          ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
-          {name}
-        </span>
-      </div>
-      <span className={`text-sm font-black tnum shrink-0
-        ${won ? 'text-win' : lost ? 'text-hint' : 'text-text'}`}>
-        {scoreFor(scorePen, score)}
-      </span>
-    </div>
-  );
-
-  return (
-    <Link href={`/match?id=${m.id}`} className="block">
-      <div className="bg-cardBg border border-bdr rounded-xl overflow-hidden hover:border-aqua/40 transition-colors">
-        {row(m.home_team_name, m.home_logo, m.home_score, m.home_score_pen, homeWon, awayWon)}
-        <div className="h-px bg-bdr/50" />
-        {row(m.away_team_name, m.away_logo, m.away_score, m.away_score_pen, awayWon, homeWon)}
-        {m.home_score_pen != null && (
-          <div className="px-3 pb-1.5 text-[10px] text-gold tabular-nums">
-            {m.home_score_et}–{m.away_score_et} {m.home_score_pen != null ? `· ركلات ${m.home_score_pen}–${m.away_score_pen}` : ''}
-          </div>
-        )}
-      </div>
-    </Link>
-  );
-}
-
-function BracketTab({ compId, ageId }: { compId: number; ageId: number }) {
-  const tt = useTT();
-  const [stages, setStages] = useState<TBracketStage[] | null>(null);
-  useEffect(() => { setStages(null); tBracket(compId, ageId).then(setStages).catch(() => setStages([])); }, [compId, ageId]);
-  if (!stages) return <Spinner />;
-  if (stages.length === 0) return <EmptyState icon="🏆" text={tt('لا أدوار إقصائية', 'No knockout stages')} />;
-  return (
-    <div className="space-y-6">
-      {stages.map(s => (
-        <div key={s.stage_id} className="space-y-4">
-          {s.stage_name && (
-            <h3 className="font-black text-text text-sm">{s.stage_name}</h3>
-          )}
-          {s.rounds.map((r, i) => (
-            <div key={i}>
-              {r.round && (
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/20 rounded-full px-3 py-0.5 whitespace-nowrap">
-                    {r.round}
-                  </span>
-                  <span className="flex-1 h-px bg-bdr" />
-                </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {r.matches.map(m => <BracketCard key={m.id} m={m} />)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export default function CompetitionsPage() {
   return <Suspense fallback={<Spinner />}><CompetitionsContent /></Suspense>;

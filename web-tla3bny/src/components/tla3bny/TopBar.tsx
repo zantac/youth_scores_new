@@ -1,15 +1,19 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { useTT } from './kit';
+import SearchOverlay from './SearchOverlay';
+import NotifyBell from './NotifyBell';
 
 export default function TopBar() {
   const tt = useTT();
   const { locale, toggleLocale, isDark, toggleTheme } = useApp();
   const { user, isSuperAdmin, isCompetitionAdmin, logout } = useTla3bnyAuth();
   const router = useRouter();
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const isStaff = isSuperAdmin || isCompetitionAdmin;
   const accountHref = isStaff ? '/admin' : '/dashboard';
@@ -34,13 +38,20 @@ export default function TopBar() {
               className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors">
               {isDark ? '☀️' : '🌙'}
             </button>
+            <button onClick={() => setSearchOpen(true)} title={tt('بحث', 'Search')}
+              aria-label={tt('بحث', 'Search')}
+              className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors">
+              🔍
+            </button>
+            <NotifyBell />
           </div>
+
+          {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 
           {/* Center: logo */}
           <Link href="/" className="flex items-center gap-2 mx-auto shrink-0">
-            <div className="w-8 h-8 rounded-xl grid place-items-center font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_8px_20px_-8px_rgb(var(--accent-rgb))]">
-              ت
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="" className="w-8 h-8 rounded-xl shadow-[0_8px_20px_-8px_rgb(var(--accent-rgb))]" />
             <span className="font-extrabold text-text text-base">{tt('تلاعبني', 'Tla3bny')}</span>
           </Link>
 

@@ -1,10 +1,35 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import AdminShell from '@/components/admin/AdminShell';
-import { apiSearchPlayers, apiMergePlayer, type PlayerSearchResult } from '@/lib/adminApi';
+import { apiSearchPlayers, apiMergePlayer, apiPlayerSummary, type PlayerSearchResult, type PlayerMergeSummary } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
+
+/** Side-by-side card so the admin can confirm two records are the same person. */
+function SummaryCard({ label, danger, sum }: { label: string; danger?: boolean; sum: PlayerMergeSummary | null }) {
+  return (
+    <div className={`rounded-lg border p-2.5 space-y-1.5 ${danger ? 'border-loss/40 bg-loss/5' : 'border-win/40 bg-win/5'}`}>
+      <p className={`text-[10px] font-bold ${danger ? 'text-loss' : 'text-win'}`}>{label}</p>
+      {!sum ? <p className="text-hint text-[11px]">…</p> : (
+        <>
+          <p className="text-text text-sm font-bold truncate">{sum.name} <span className="text-hint text-[10px] font-normal">#{sum.id}</span></p>
+          <p className="text-hint text-[11px]">مواليد {sum.birth_year}</p>
+          <p className="text-hint text-[11px]">⚽ {sum.goals} · 🎯 {sum.assists} · مباريات {sum.appearances}</p>
+          <div className="border-t border-bdr/40 pt-1 space-y-0.5">
+            {sum.teams.length === 0 ? <p className="text-hint text-[10px]">لا فرق</p> : sum.teams.map((t, i) => (
+              <p key={i} className="text-[10px] text-text truncate">
+                {t.club}{t.age ? ` · ${t.age}` : ''}
+                {t.guest ? <span className="text-teal"> · صاعد</span> : t.current ? <span className="text-win"> · حالي</span> : ''}
+                {t.goals > 0 && <span className="text-gold"> · {t.goals}⚽</span>}
+              </p>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function PlayerPicker({ token, label, selected, onSelect }: {
   token: string; label: string;
@@ -42,6 +67,7 @@ function PlayerPicker({ token, label, selected, onSelect }: {
               <button onClick={() => pick(p)}
                 className="w-full text-start px-3 py-2.5 text-sm text-text hover:bg-bdr/40 transition-colors border-b border-bdr/40 last:border-0">
                 <span className="font-medium">{p.name}</span>
+                {p.club && <span className="text-teal text-[10px] mr-2">{p.club}</span>}
                 <span className="text-hint text-[10px] mr-2">مواليد {p.birth_year}</span>
                 <span className="text-hint text-[10px] mr-1">#{p.id}</span>
               </button>
@@ -66,6 +92,12 @@ export default function PlayersPage() {
   const [done, setDone] = useState<string | null>(null);
   const [sourceKey, setSourceKey] = useState(0);
   const [targetKey, setTargetKey] = useState(0);
+  const [srcSum, setSrcSum] = useState<PlayerMergeSummary | null>(null);
+  const [tgtSum, setTgtSum] = useState<PlayerMergeSummary | null>(null);
+
+  // Load each side's teams/goals so the admin can confirm they're the same person.
+  useEffect(() => { setSrcSum(null); if (token && source) apiPlayerSummary(token, source.id).then(setSrcSum).catch(() => {}); }, [token, source]);
+  useEffect(() => { setTgtSum(null); if (token && target) apiPlayerSummary(token, target.id).then(setTgtSum).catch(() => {}); }, [token, target]);
 
   const reset = () => {
     setSource(null); setTarget(null); setConfirm(false);
@@ -119,15 +151,16 @@ export default function PlayersPage() {
 
               {source && target && (
                 <div className="border border-gold/30 bg-gold/5 rounded-xl p-3 space-y-2">
-                  <p className="text-gold text-xs font-bold">معاينة الدمج</p>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="line-through text-hint">{source.name}</span>
-                    <span className="text-hint">←</span>
-                    <span className="font-bold text-text">{target.name}</span>
+                  <p className="text-gold text-xs font-bold">معاينة الدمج — تأكّد أنهما نفس اللاعب</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <SummaryCard label="المصدر — سيُحذف" danger sum={srcSum} />
+                    <SummaryCard label="الهدف — سيبقى" sum={tgtSum} />
                   </div>
-                  <p className="text-hint text-[10px]">
-                    مواليد {source.birth_year} → مواليد {target.birth_year}
-                  </p>
+                  {srcSum && tgtSum && srcSum.birth_year !== tgtSum.birth_year && (
+                    <p className="text-gold text-[10px] bg-gold/10 border border-gold/30 rounded px-2 py-1">
+                      ⚠️ سنتا الميلاد مختلفتان ({srcSum.birth_year} ≠ {tgtSum.birth_year}) — تأكّد أنهما نفس الشخص.
+                    </p>
+                  )}
                   {!confirm ? (
                     <button onClick={() => setConfirm(true)}
                       className="bg-gold text-black font-extrabold px-4 py-2 rounded-lg text-sm">

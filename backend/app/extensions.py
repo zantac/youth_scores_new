@@ -1,3 +1,5 @@
+import os
+
 import sqlalchemy as sa
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -27,9 +29,15 @@ migrate = Migrate()
 
 # Rate limiter — key on the real client IP (ProxyFix in create_app() ensures
 # request.remote_addr is the client, not the Railway/Heroku proxy).
-# Storage defaults to in-process memory; set RATELIMIT_STORAGE_URI=redis://...
-# in production for persistence across workers.
-limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
+# Storage defaults to in-process memory (per-worker); set RATELIMIT_STORAGE_URI=
+# redis://... in production so limits are shared across workers and survive
+# restarts. No global default_limits: this app also serves the high-volume public
+# feed and the static frontend, which must not be throttled — sensitive write
+# endpoints carry their own @limiter.limit instead.
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+)
 
 
 # Cleared by migrations/env.py for the duration of a migration run. Alembic's

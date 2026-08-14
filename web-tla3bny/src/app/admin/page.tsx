@@ -802,6 +802,12 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
 
   const otherSeasons = seasons.filter(s => s.id !== c.season_id);
 
+  // The assign form doubles as a password reset when the typed username already
+  // runs this competition — surface that so it isn't a hidden feature.
+  const resettingExisting =
+    af.username.trim() !== '' &&
+    (c.admins ?? []).some(a => (a.user_login ?? '').trim().toLowerCase() === af.username.trim().toLowerCase());
+
   const saveAds = async () => {
     setAdsBusy(true); setAdsMsg(null);
     try {
@@ -940,16 +946,25 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
             <input value={af.password} type="password" onChange={e => setAf({ ...af, password: e.target.value })} placeholder={tt('كلمة المرور', 'Password')} className={inputCls} />
           </div>
           <div className="flex items-center gap-2">
-            <PrimaryButton onClick={addAdmin} disabled={!af.username.trim()} className="text-sm">{tt('إسناد منظم', 'Assign organizer')}</PrimaryButton>
+            <PrimaryButton onClick={addAdmin} disabled={!af.username.trim() || (resettingExisting && !af.password)} className="text-sm">
+              {resettingExisting ? tt('تغيير كلمة المرور', 'Reset password') : tt('إسناد منظم', 'Assign organizer')}
+            </PrimaryButton>
             {msg && <span className="text-[11px] text-hint">{msg}</span>}
           </div>
           {(c.admins ?? []).map(a => (
-            <div key={a.id} className="flex items-center justify-between text-xs border-t border-bdr/50 pt-1.5">
-              <span className="text-text">
+            <div key={a.id} className="flex items-center justify-between gap-2 text-xs border-t border-bdr/50 pt-1.5">
+              <span className="text-text min-w-0 truncate">
                 {a.user_name || a.user_login}
                 {a.user_name && a.user_login && <span className="text-hint" dir="ltr"> · {a.user_login}</span>}
               </span>
-              <button onClick={async () => { await tRemoveCompAdmin(token, c.id, a.user_id); reload(); }} className="text-hint hover:text-loss">✕</button>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => { setAf({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
+                  className="text-teal hover:text-aqua font-bold" title={tt('تغيير كلمة المرور', 'Reset password')}>
+                  🔑 {tt('كلمة المرور', 'Password')}
+                </button>
+                <button onClick={async () => { await tRemoveCompAdmin(token, c.id, a.user_id); reload(); }} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
+              </div>
             </div>
           ))}
         </div>

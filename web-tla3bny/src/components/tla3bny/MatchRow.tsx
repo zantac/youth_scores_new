@@ -100,6 +100,14 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
               <span className="text-loss font-bold text-xs">{tt('ملغاة', 'Cancelled')}</span>
               <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
             </>
+          ) : finished ? (
+            <>
+              {/* Finished but no score entered yet — still reads as ended, not
+                  as an upcoming fixture. */}
+              <span className="text-hint font-extrabold text-base tnum">– : –</span>
+              <span className="text-hint text-[9px]">{tt('انتهت', 'FT')}</span>
+              <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
+            </>
           ) : (
             <div className="flex flex-col items-center">
               <span className="text-aqua font-bold text-base tnum">{m.time || '--:--'}</span>
@@ -118,6 +126,11 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
       </div>
 
       {m.venue && <p className="text-center text-[10px] text-hint mt-1 truncate">📍 {m.venue}</p>}
+      {m.player_of_match && (
+        <p className="text-center text-[10px] text-gold font-bold mt-0.5 truncate">
+          🎖️ {tt('رجل المباراة', 'Player of the match')}: {nm(m.player_of_match.player_name, m.player_of_match.player_name_en)}
+        </p>
+      )}
     </Link>
   );
 }

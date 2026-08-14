@@ -8,12 +8,22 @@ from flask import current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.extensions import db
-from app.models import Tla3bnyUser
+from app.models import Tla3bnyPlayerFile, Tla3bnyUser
+from app.services import storage
 
 # Images are resized / recompressed to stay within this budget.
 _IMAGE_MAX_BYTES = 500 * 1024   # 500 KB
 # Longest side (px) before we scale the image down first.
 _IMAGE_MAX_SIDE = 1920
+# Hard ceiling on decoded pixels — a decompression-bomb guard. A tiny highly
+# compressed file can claim enormous dimensions; decoding it would allocate the
+# full bitmap (many GB) and OOM the worker. 40 MP ≈ a 7000×5700 photo.
+_MAX_IMAGE_PIXELS = 40_000_000
+Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS  # make PIL itself raise on decode
+# Largest PDF we store (PDFs skip image compression, so cap them explicitly).
+_PDF_MAX_BYTES = 5 * 1024 * 1024   # 5 MB
+# Minimum length for any account password (every set-password path).
+_MIN_PASSWORD_LEN = 8
 # PIL format name keyed by canonical extension.
 _PIL_FMT = {"jpg": "JPEG", "png": "PNG", "gif": "GIF", "webp": "WEBP"}
 
@@ -76,7 +86,15 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     if ext == "gif":
         return raw, ext
 
-    img = Image.open(io.BytesIO(raw))
+    try:
+        img = Image.open(io.BytesIO(raw))
+        w, h = img.size
+    except Exception:
+        raise ValueError("File content is not a readable image")
+    # Reject decompression bombs *before* the decode below allocates the full
+    # bitmap. Image.open only reads the header, so img.size is available cheaply.
+    if w * h > _MAX_IMAGE_PIXELS:
+        raise ValueError("Image dimensions are too large")
 
     # Flatten transparency so JPEG output never errors on RGBA / palette images.
     if img.mode not in ("RGB", "L"):
@@ -123,58 +141,6 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     return out, ext
 
 
-# MIME types for S3 Content-Type header.
-_CONTENT_TYPE = {
-    "jpg": "image/jpeg",
-    "png": "image/png",
-    "gif": "image/gif",
-    "webp": "image/webp",
-    "pdf": "application/pdf",
-}
-
-
-def _s3_upload(data: bytes, filename: str, ext: str) -> str:
-    """Upload bytes to S3 (or any S3-compatible store) and return the public URL.
-
-    Tries to set ACL=public-read; silently skips the ACL parameter for
-    providers that do not support it (Cloudflare R2, MinIO with no ACL plugin).
-    Configure a public bucket policy on those providers instead.
-    """
-    import boto3  # lazy import — only needed when S3 is configured
-
-    cfg = current_app.config
-    client = boto3.client(
-        "s3",
-        region_name=cfg.get("AWS_S3_REGION", "us-east-1"),
-        aws_access_key_id=cfg.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=cfg.get("AWS_SECRET_ACCESS_KEY"),
-        endpoint_url=cfg.get("AWS_S3_ENDPOINT_URL"),
-    )
-    bucket: str = cfg["AWS_S3_BUCKET"]
-    content_type = _CONTENT_TYPE.get(ext, "application/octet-stream")
-
-    try:
-        client.put_object(
-            Bucket=bucket, Key=filename, Body=data,
-            ContentType=content_type, ACL="public-read",
-        )
-    except Exception:
-        # ACL not supported by this provider — upload without it.
-        client.put_object(
-            Bucket=bucket, Key=filename, Body=data, ContentType=content_type,
-        )
-
-    # Resolve the public URL: custom CDN prefix → endpoint → standard AWS URL.
-    public_url = (cfg.get("AWS_S3_PUBLIC_URL") or "").rstrip("/")
-    if public_url:
-        return f"{public_url}/{filename}"
-    endpoint = (cfg.get("AWS_S3_ENDPOINT_URL") or "").rstrip("/")
-    if endpoint:
-        return f"{endpoint}/{bucket}/{filename}"
-    region = cfg.get("AWS_S3_REGION", "us-east-1")
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{filename}"
-
-
 def save_upload(file_storage, kind: str = "image") -> str | None:
     """Save an uploaded file and return its URL or local path.
 
@@ -217,16 +183,19 @@ def save_upload(file_storage, kind: str = "image") -> str | None:
 
     raw = file_storage.read()
 
-    # Compress images; PDFs are stored as-is.
+    # Compress images; PDFs are stored as-is (but size-capped, since they skip
+    # the image compression that would otherwise bound their size).
     if real_ext != "pdf":
         data, final_ext = _compress_image(raw, claimed_ext)
     else:
+        if len(raw) > _PDF_MAX_BYTES:
+            raise ValueError("PDF is too large (max 5 MB)")
         data, final_ext = raw, claimed_ext
 
     filename = secure_filename(f"{uuid.uuid4().hex}.{final_ext}")
 
-    if current_app.config.get("AWS_S3_BUCKET"):
-        return _s3_upload(data, filename, final_ext)
+    if storage.s3_enabled():
+        return storage.s3_upload(data, filename, final_ext)
 
     folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(folder, exist_ok=True)
@@ -242,6 +211,57 @@ def _read_payload():
     return (request.get_json(silent=True) or {}), None
 
 
+def _save_documents(player, data, files, competition_player=None) -> None:
+    """Save uploaded registration papers, pairing each with its document label.
+
+    The client sends files under 'documents' and a parallel 'document_labels'
+    list (same order) naming which paper each is — birth certificate, school
+    letter, national id, health certificate, etc. A legacy single 'papers'
+    field is still accepted. Re-uploading a paper replaces the one already held
+    under that label, so a player keeps one file per required document.
+
+    ``competition_player`` scopes the papers to one competition registration:
+    documents are required *per competition*, so the same label uploaded for a
+    new competition (or the same one next season) is a distinct file and never
+    overwrites another entry's paper. When omitted, the file is a global identity
+    paper (``competition_player_id`` NULL) and replacement stays within that
+    global set.
+    """
+    if files is None:
+        return
+    uploaded = files.getlist("documents") if hasattr(files, "getlist") else []
+    labels = data.getlist("document_labels") if hasattr(data, "getlist") else []
+    if files.get("papers"):
+        uploaded = list(uploaded) + [files.get("papers")]
+    cp_id = competition_player.id if competition_player is not None else None
+    for i, f in enumerate(uploaded):
+        if f is None or f.filename == "":
+            continue
+        path = save_upload(f, kind="document")
+        if not path:
+            continue
+        label = (labels[i] if i < len(labels) else None) or None
+        if label:
+            for old in [
+                x for x in player.files
+                if x.label == label and x.competition_player_id == cp_id
+            ]:
+                db.session.delete(old)
+        db.session.add(
+            Tla3bnyPlayerFile(
+                player_id=player.id,
+                competition_player_id=cp_id,
+                file_path=path,
+                original_name=f.filename,
+                label=label,
+            )
+        )
+        # papers_path is the player's global "primary paper" pointer; only a
+        # global upload updates it, not a per-competition registration paper.
+        if cp_id is None:
+            player.papers_path = path
+
+
 def _parse_date(value):
     from datetime import datetime
     if not value:
@@ -250,6 +270,54 @@ def _parse_date(value):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         return None
+
+
+def _parse_date_or_error(value):
+    """Like ``_parse_date`` but distinguishes "absent/empty" from "present but
+    malformed". Returns (date_or_None, error_or_None): an empty value clears the
+    field (None, None); a non-empty unparseable value is an error rather than a
+    silent None that would wipe a stored date on a typo."""
+    if value in (None, ""):
+        return None, None
+    d = _parse_date(value)
+    if d is None:
+        return None, "Invalid date (expected YYYY-MM-DD)"
+    return d, None
+
+
+def _validate_password(password: str) -> str | None:
+    """Shared password-strength check for every set-password path. Returns an
+    error message, or None when acceptable."""
+    if not password or len(password) < _MIN_PASSWORD_LEN:
+        return f"Password must be at least {_MIN_PASSWORD_LEN} characters"
+    return None
+
+
+def _clean_url(value):
+    """Normalise a user-supplied URL. Returns an https-prefixed URL, or None for
+    empty/unsafe values — blocks ``javascript:``/``data:`` and other non-http
+    schemes that become stored-XSS vectors when rendered as an href."""
+    if not value:
+        return None
+    v = str(value).strip()
+    if not v:
+        return None
+    if v.lower().startswith(("http://", "https://")):
+        return v
+    # Any other explicit scheme (javascript:, data:, vbscript:, …) is rejected.
+    if "://" in v or ":" in v.split("/", 1)[0]:
+        return None
+    # Bare domain like "facebook.com/page" — assume https.
+    return "https://" + v
+
+
+def _clip(value, maxlen: int):
+    """Trim a user string to ``maxlen`` chars — protects String(n) columns from
+    500s and caps otherwise-unbounded Text fields. Returns None for empty."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s[:maxlen] or None
 
 
 def _int(value, default=None):

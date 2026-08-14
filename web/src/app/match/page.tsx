@@ -39,6 +39,7 @@ function MatchCenter() {
   const [m, setM] = useState<MatchFull | null>(null);
   const [loading, setLoading] = useState(true);
   const [share, setShare] = useState(false);
+  const [tab, setTab] = useState<'lineup' | 'events' | null>(null);
   const isAr = locale === 'ar';
   const isLive = m?.status === 'live';
 
@@ -66,7 +67,18 @@ function MatchCenter() {
   const isCancelled = m.status === 'cancelled';
   const hasScore = m.home_score != null && m.away_score != null;
   const compName = m.competition ? localize(m.competition.name, locale) : '';
-  const context = [compName, m.week ? `${isAr ? 'الجولة' : 'Round'} ${m.week}` : null].filter(Boolean).join(' · ');
+  const compAge = m.competition?.age ? localize(m.competition.age, locale) : '';
+  const context = [compName, compAge, m.week ? `${isAr ? 'الجولة' : 'Round'} ${m.week}` : null].filter(Boolean).join(' · ');
+
+  // Open a team's page *within this competition* — the same in-competition view
+  // the standings/teams tabs open (not the global cross-competition profile), by
+  // deep-linking into the competition page with ?team=.
+  const openTeam = (teamId?: number) => {
+    const c = m.competition;
+    if (!c || teamId == null) return;
+    const p = new URLSearchParams({ id: String(c.id), tab: '2', team: String(teamId) });
+    router.push(`/competition?${p.toString()}`);
+  };
 
   type Ev = { minute: number | null; side: 'home' | 'away'; main: string; sub?: string; icon: string; cls: string; playerId?: number | null };
   const events: Ev[] = [
@@ -93,6 +105,14 @@ function MatchCenter() {
 
   const hasEvents = events.length > 0;
 
+  const lu = m.lineup;
+  const hasLineup = !!lu && [lu.home, lu.away].some(s => s.starters.length + s.bench.length > 0);
+  const tabs = [
+    hasLineup ? { key: 'lineup' as const, label: isAr ? 'التشكيلة' : 'Lineup' } : null,
+    hasEvents ? { key: 'events' as const, label: isAr ? 'الأحداث' : 'Events' } : null,
+  ].filter(Boolean) as { key: 'lineup' | 'events'; label: string }[];
+  const activeTab = tab && tabs.some(t => t.key === tab) ? tab : (tabs[0]?.key ?? null);
+
   return (
     <div className="min-h-screen bg-darkBg pb-24">
       {/* Sticky header */}
@@ -107,10 +127,11 @@ function MatchCenter() {
         <div className="absolute inset-x-0 top-0 h-32 bg-[radial-gradient(60%_100%_at_50%_0,rgb(var(--accent-rgb)/0.18),transparent_70%)] pointer-events-none" />
         {context && <p className="relative text-hint text-xs mb-5">{context}</p>}
         <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <div className="flex flex-col items-center gap-2">
+          <button onClick={() => openTeam(m.home.id)} aria-label={homeName}
+            className="flex flex-col items-center gap-2 group focus:outline-none">
             <TeamAvatar url={m.home.logo} name={homeName} size={64} />
-            <p className="text-sm font-bold leading-tight text-center">{homeName}</p>
-          </div>
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua group-active:opacity-80 transition-colors">{homeName}</p>
+          </button>
           <div className="flex flex-col items-center gap-1 min-w-[100px]">
             {hasScore && (isCompleted || isLive) ? (
               <div className="flex items-baseline gap-2 font-extrabold tnum">
@@ -140,10 +161,11 @@ function MatchCenter() {
                formatMatchDate(m.date, locale)}
             </span>
           </div>
-          <div className="flex flex-col items-center gap-2">
+          <button onClick={() => openTeam(m.away.id)} aria-label={awayName}
+            className="flex flex-col items-center gap-2 group focus:outline-none">
             <TeamAvatar url={m.away.logo} name={awayName} size={64} />
-            <p className="text-sm font-bold leading-tight text-center">{awayName}</p>
-          </div>
+            <p className="text-sm font-bold leading-tight text-center group-hover:text-aqua group-active:opacity-80 transition-colors">{awayName}</p>
+          </button>
         </div>
         {m.venue && <p className="relative text-hint text-[11px] mt-4">🏟️ {m.venue}</p>}
         {m.note && (
@@ -153,22 +175,60 @@ function MatchCenter() {
         )}
       </div>
 
-      {/* Tab bar — only shown when there are events */}
-      {hasEvents && (
+      {/* Tab bar — shown when there is a lineup and/or events */}
+      {tabs.length > 0 && (
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar px-4 bg-cardBg/50">
-          <div className="px-3 py-2.5 text-sm font-bold border-b-2 border-aqua text-aqua whitespace-nowrap">
-            {isAr ? 'الأحداث' : 'Events'}
-          </div>
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`px-3 py-2.5 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
+                activeTab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-hint hover:text-text'}`}>
+              {t.label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Events timeline */}
       <div className="p-4">
-        {!hasEvents ? (
-          <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center text-hint text-sm">
-            {isAr ? 'لا توجد أحداث مسجّلة لهذه المباراة' : 'No recorded events for this match'}
+        {/* Lineup */}
+        {activeTab === 'lineup' && lu && (
+          <div className="grid grid-cols-2 gap-3">
+            {(['home', 'away'] as const).map(sideKey => {
+              const s = lu[sideKey];
+              const sideTeam = sideKey === 'home' ? m.home : m.away;
+              const sideName = sideKey === 'home' ? homeName : awayName;
+              return (
+                <div key={sideKey} className="bg-cardBg border border-bdr rounded-2xl p-3">
+                  <div className="flex items-center gap-2 mb-3">
+                    <TeamAvatar url={sideTeam.logo} name={sideName} size={26} />
+                    <span className="font-bold text-sm truncate">{sideName}</span>
+                  </div>
+                  <p className="text-aqua text-[11px] font-bold mb-1.5">{isAr ? 'التشكيلة الأساسية' : 'Starters'}</p>
+                  <ul className="space-y-1">
+                    {s.starters.length > 0 ? s.starters.map((n, i) => (
+                      <li key={i} className="flex items-center gap-2 text-text text-xs bg-darkBg border border-bdr/60 rounded-lg px-2.5 py-1.5">
+                        <span className="text-hint text-[10px] font-bold tnum w-4 text-center flex-shrink-0">{i + 1}</span>
+                        <span className="truncate">{n}</span>
+                      </li>
+                    )) : <li className="text-hint text-[11px]">—</li>}
+                  </ul>
+                  {s.bench.length > 0 && (
+                    <>
+                      <p className="text-hint text-[11px] font-bold mt-3 mb-1.5">{isAr ? 'البدلاء' : 'Bench'}</p>
+                      <ul className="space-y-1">
+                        {s.bench.map((n, i) => (
+                          <li key={i} className="text-hint text-xs px-2.5 py-1 truncate">{n}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        ) : (
+        )}
+
+        {/* Events timeline */}
+        {activeTab === 'events' && (
           <div className="relative">
             <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-px bg-gradient-to-b from-bdr to-transparent" />
             {events.map((e, i) => (
@@ -189,6 +249,13 @@ function MatchCenter() {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Nothing to show */}
+        {activeTab === null && (
+          <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center text-hint text-sm">
+            {isAr ? 'لا توجد أحداث أو تشكيلة مسجّلة لهذه المباراة' : 'No recorded events or lineup for this match'}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import AdminShell from '@/components/admin/AdminShell';
 import DeleteBtn from '@/components/admin/DeleteBtn';
 import MatchesEntry from '@/components/admin/MatchesEntry';
@@ -33,13 +33,23 @@ const TABS = [
   { v: 'ages', l: 'المراحل السنية', edit: true },
   { v: 'clubs', l: 'الأندية', edit: true },
   { v: 'comps', l: 'البطولات', edit: true },
-  { v: 'matches', l: '⚽ المباريات', edit: false },
   { v: 'teams', l: 'الفرق', edit: true },
+  { v: 'matches', l: '⚽ المباريات', edit: false },
 ] as const;
 
-export default function StructurePage() {
+type TabV = typeof TABS[number]['v'];
+
+function StructureInner() {
   const { canEdit } = useAdminAuth();
-  const [tab, setTab] = useState<typeof TABS[number]['v']>('matches');
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  // The active tab lives in the URL (?tab=…) so that opening a club or a
+  // competition and pressing Back returns to the tab you were on — not the
+  // matches default. An unknown or missing value falls back to matches.
+  const urlTab = params.get('tab');
+  const tab: TabV = (TABS.some(t => t.v === urlTab) ? urlTab : 'matches') as TabV;
+  const setTab = (v: TabV) => router.replace(v === 'matches' ? pathname : `${pathname}?tab=${v}`);
   const shown = TABS.filter(t => canEdit || !t.edit);
 
   return (
@@ -70,6 +80,14 @@ export default function StructurePage() {
         )}
       </div>
     </AdminShell>
+  );
+}
+
+export default function StructurePage() {
+  return (
+    <Suspense fallback={null}>
+      <StructureInner />
+    </Suspense>
   );
 }
 

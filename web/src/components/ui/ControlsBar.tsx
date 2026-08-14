@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
+import SearchOverlay from './SearchOverlay';
+import NotifyBell from './NotifyBell';
 
 export default function ControlsBar() {
   const { locale, isDark, toggleLocale, toggleTheme } = useApp();
   const isAr = locale === 'ar';
+  const [searchOpen, setSearchOpen] = useState(false);
   // On the home screen this row is pinned so login/theme/language stay reachable
   // while the matches feed scrolls; its height is published so the buttons below
   // it can pin directly underneath. On inner pages the AppBar owns the sticky top,
@@ -42,6 +45,16 @@ export default function ControlsBar() {
       >
         {isDark ? '☀️' : '🌙'}
       </button>
+      <button
+        onClick={() => setSearchOpen(true)}
+        className="text-sm leading-none bg-cardBg border border-bdr rounded-lg px-2 py-1 hover:bg-aqua/10 transition-colors"
+        aria-label={isAr ? 'بحث' : 'Search'}
+      >
+        🔍
+      </button>
+      <NotifyBell />
+
+      {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 
       {/* Pushed to the far end so it never crowds the language and theme
           toggles. The admin shell covers this bar, so it is only ever seen on

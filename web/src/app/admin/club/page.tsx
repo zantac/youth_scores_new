@@ -7,14 +7,45 @@ import DeleteBtn from '@/components/admin/DeleteBtn';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiClub, apiUpdateClub, apiUploadImage,
-  apiClubStaff, apiAddClubStaff, apiUpdateClubStaff, apiDeleteClubStaff, apiReorderClubStaff,
-  apiClubTeams, apiCreateClubTeam, apiAgeGroups, apiSeasons,
-  type MClub, type MClubStaff, type MTeamFull, type MAge, type MSeason,
+  apiClubStaff, apiAddClubStaff, apiAttachClubStaff, apiUpdateClubStaff, apiDeleteClubStaff, apiReorderClubStaff,
+  apiSearchCoaches, apiClubTeams, apiCreateClubTeam, apiAgeGroups, apiSeasons,
+  type MClub, type MClubStaff, type MTeamFull, type MAge, type MSeason, type CoachSearchResult,
 } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 const btn = "bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50";
 const card = "bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4";
+
+// Youth-sector posts offered as suggestions, most senior first — mirrors the
+// backend CLUB_STAFF_ROLE_ORDER so entries stay unified and sort consistently.
+// The field stays free text; picking a known post fills its English counterpart.
+const CLUB_STAFF_ROLES = [
+  { ar: 'عضو مجلس الإدارة',                  en: 'Board Member' },
+  { ar: 'رئيس قطاع الناشئين',                en: 'Head of Youth Sector' },
+  { ar: 'نائب رئيس القطاع',                  en: 'Vice President of the Sector' },
+  { ar: 'مشرف القطاع',                       en: 'Sector Supervisor' },
+  { ar: 'المدير الفني للقطاع',               en: 'Technical Director of the Sector' },
+  { ar: 'المشرف الفني للقطاع',               en: 'Technical Supervisor of the Sector' },
+  { ar: 'المدير الاداري للقطاع',             en: 'Administrative Director of the Sector' },
+  { ar: 'مدير الكرة',                        en: 'Football Director' },
+  { ar: 'نائب رئيس جهاز الكرة',              en: 'Deputy Head of Football Staff' },
+  { ar: 'مشرف الكرة',                        en: 'Football Supervisor' },
+  { ar: 'مدير حراس المرمى بالقطاع',          en: 'Goalkeeping Director' },
+  { ar: 'مشرف حراس المرمى',                  en: 'Goalkeeping Supervisor' },
+  { ar: 'رئيس الجهاز الطبي',                 en: 'Head of Medical Staff' },
+  { ar: 'طبيب القطاع',                       en: 'Sector Doctor' },
+  { ar: 'مشرف العلاج الطبيعي',               en: 'Physiotherapy Supervisor' },
+  { ar: 'اخصائي الفريق',                     en: 'Team Specialist' },
+  { ar: 'مخطط أحمال',                        en: 'Fitness Load Planner' },
+  { ar: 'محلل أداء',                         en: 'Performance Analyst' },
+  { ar: 'مسؤول شئون اللاعبين',               en: 'Player Affairs Officer' },
+  { ar: 'المدير المالي',                     en: 'Financial Director' },
+  { ar: 'مدير عام النادي',                   en: 'Club General Manager' },
+  { ar: 'مدير رياضي',                        en: 'Sporting Director' },
+  { ar: 'مشرف النشاط الرياضي',               en: 'Sports Activity Supervisor' },
+  { ar: 'مدير التسويق بالقطاع',              en: 'Sector Marketing Manager' },
+  { ar: 'المشرف العام علي الالعاب الجماعية', en: 'General Supervisor of Team Sports' },
+];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="block text-teal text-[11px] font-bold mb-1">{label}</label>{children}</div>;
@@ -88,6 +119,11 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
   });
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  // Choosing (or typing) a known post fills the English side automatically.
+  const setRole = (v: string) => {
+    const hit = CLUB_STAFF_ROLES.find(r => r.ar === v.trim());
+    setF(prev => ({ ...prev, role_ar: v, ...(hit ? { role_en: hit.en } : {}) }));
+  };
   const save = async () => {
     setErr(null); setBusy(true);
     try {
@@ -102,7 +138,12 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
       <div className="grid grid-cols-2 gap-3">
         <Field label="الاسم (عربي) *"><input value={f.name_ar} onChange={e => set('name_ar', e.target.value)} className={inputCls} /></Field>
         <Field label="الاسم (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
-        <Field label="المنصب (عربي)"><input value={f.role_ar} onChange={e => set('role_ar', e.target.value)} placeholder="مدير قطاع الناشئين" className={inputCls} /></Field>
+        <Field label="المنصب (عربي)">
+          <input list="staff-roles" value={f.role_ar} onChange={e => setRole(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="staff-roles">
+            {CLUB_STAFF_ROLES.map(r => <option key={r.ar} value={r.ar} />)}
+          </datalist>
+        </Field>
         <Field label="المنصب (إنجليزي)"><input value={f.role_en} onChange={e => set('role_en', e.target.value)} dir="ltr" placeholder="Youth Sector Manager" className={inputCls} /></Field>
         <Field label="تاريخ البداية"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ النهاية"><input type="date" value={f.end_date} onChange={e => set('end_date', e.target.value)} className={inputCls} /></Field>
@@ -117,12 +158,92 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
   );
 }
 
+// ── Attach an existing person as staff ────────────────────────────────────────
+// Team coaches and club managers share one Coach entity, so a coach who is
+// promoted to a management post is attached here rather than re-created — their
+// profile then spans both roles.
+function AttachStaffForm({ token, cid, onDone, onCancel }: {
+  token: string; cid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<CoachSearchResult[]>([]);
+  const [sel, setSel] = useState<CoachSearchResult | null>(null);
+  const [roleAr, setRoleAr] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchCoaches(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر الشخص'); return; }
+    setBusy(true); setErr(null);
+    try {
+      const role_en = CLUB_STAFF_ROLES.find(r => r.ar === roleAr.trim())?.en;
+      await apiAttachClubStaff(token, cid, { coach_id: sel.id, role_ar: roleAr || undefined, role_en, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2 border-aqua/40'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة مسؤول موجود (مثلاً مدرّب تمت ترقيته)</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name}{sel.club && <span className="text-teal text-[11px]"> · {sel.club}</span>}{sel.birth_year && <span className="text-hint text-[11px]"> · مواليد {sel.birth_year}</span>}</span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث بالاسم عن مدرّب أو مسؤول…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(c => (
+                <button key={c.id} onClick={() => { setSel(c); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {c.name}{c.club && <span className="text-teal text-[11px]"> · {c.club}</span>}{c.birth_year && <span className="text-hint text-[11px]"> · مواليد {c.birth_year}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">المنصب (اختياري)</label>
+          <input list="staff-roles-attach" value={roleAr} onChange={e => setRoleAr(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="staff-roles-attach">
+            {CLUB_STAFF_ROLES.map(r => <option key={r.ar} value={r.ar} />)}
+          </datalist>
+        </div>
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">تاريخ البداية</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Staff section ─────────────────────────────────────────────────────────────
 function StaffSection({ token, cid }: { token: string; cid: number }) {
   const [items, setItems] = useState<MClubStaff[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MClubStaff | null>(null);
+  const [showFormer, setShowFormer] = useState(false);
 
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
@@ -135,51 +256,72 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
     if (!confirm('حذف هذا المسؤول؟')) return;
     await apiDeleteClubStaff(token, s.id); reload();
   };
+  // Current staff (end_date NULL) lead the list and can be reordered; anyone
+  // with an end date drops into a separate "former" section below.
+  const current = items.filter(s => !s.end_date);
+  const former = items.filter(s => s.end_date);
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
+    if (j < 0 || j >= current.length) return;
+    const next = [...current];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setItems(next);
+    setItems([...next, ...former]);
     try { await apiReorderClubStaff(token, cid, next.map(x => x.id)); } catch { reload(); }
   };
+
+  const renderRow = (s: MClubStaff, idx: number, isFormer: boolean) => editing?.id === s.id ? (
+    <StaffForm key={s.id} token={token} cid={cid} staff={s} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+  ) : (
+    <div key={s.id} className={card + ' flex items-center gap-3' + (isFormer ? ' opacity-60' : '')}>
+      {!isFormer && current.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === current.length - 1} />}
+      {s.photo ? <img src={s.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
+      <div className="flex-1 min-w-0">
+        <p className="text-text font-bold text-sm truncate">{s.name_ar || s.name_en}</p>
+        <p className="text-teal text-[11px] truncate">{s.role_ar || s.role_en || '—'}</p>
+        {(s.start_date || s.end_date) && (
+          <p className="text-hint text-[10px] tnum">{s.start_date ?? '…'} {s.end_date ? `← ${s.end_date}` : ''}</p>
+        )}
+      </div>
+      {isFormer
+        ? <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">سابق</span>
+        : <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
+      <button onClick={() => setEditing(s)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
+      <button onClick={() => remove(s)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-aqua font-bold text-sm">👔 مسؤولو قطاع الناشئين</p>
-        {!adding && !editing && (
-          <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ مسؤول</button>
+        <p className="text-aqua font-bold text-sm">👔 مسؤولو قطاع الناشئين {current.length > 0 && <span className="text-hint text-xs font-normal">({current.length})</span>}</p>
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
         )}
       </div>
 
       {adding && <StaffForm token={token} cid={cid} staff={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachStaffForm token={token} cid={cid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
 
       {loading ? (
         <p className="text-hint text-sm text-center py-4">…</p>
-      ) : items.length === 0 && !adding ? (
+      ) : items.length === 0 && !adding && !attaching ? (
         <p className="text-hint text-sm text-center py-4">لا يوجد مسؤولون بعد</p>
       ) : (
         <div className="space-y-2">
-          {items.map((s, idx) => editing?.id === s.id ? (
-            <StaffForm key={s.id} token={token} cid={cid} staff={s} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
-          ) : (
-            <div key={s.id} className={card + ' flex items-center gap-3'}>
-              {items.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === items.length - 1} />}
-              {s.photo ? <img src={s.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
-              <div className="flex-1 min-w-0">
-                <p className="text-text font-bold text-sm truncate">{s.name_ar || s.name_en}</p>
-                <p className="text-teal text-[11px] truncate">{s.role_ar || s.role_en || '—'}</p>
-                {(s.start_date || s.end_date) && (
-                  <p className="text-hint text-[10px] tnum">{s.start_date ?? '…'} {s.end_date ? `← ${s.end_date}` : ''}</p>
-                )}
-              </div>
-              {!s.end_date && <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
-              <button onClick={() => setEditing(s)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
-              <button onClick={() => remove(s)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
-            </div>
-          ))}
+          {current.map((s, idx) => renderRow(s, idx, false))}
+          {former.length > 0 && (
+            <>
+              <button onClick={() => setShowFormer(v => !v)} className="w-full flex items-center gap-1.5 pt-3 text-hint text-[11px] font-bold">
+                <span className={`transition-transform ${showFormer ? 'rotate-90' : ''}`}>›</span>
+                مسؤولون سابقون ({former.length})
+              </button>
+              {showFormer && former.map(s => renderRow(s, -1, true))}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -288,7 +430,7 @@ function ClubPageInner() {
 
   return (
     <AdminShell title="النادي">
-      <Link href="/admin/structure" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع للهيكل</Link>
+      <Link href="/admin/structure?tab=clubs" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">
           <p className="text-3xl mb-3">🔒</p><p className="text-text text-sm font-bold">تحتاج صلاحية «محرّر» أو أعلى</p>

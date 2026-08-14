@@ -28,7 +28,17 @@ from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _err, _forbid, _int, _parse_date, _read_payload, _utcnow, save_upload
+from ._helpers import (
+    _err,
+    _forbid,
+    _int,
+    _parse_date,
+    _parse_date_or_error,
+    _read_payload,
+    _save_documents,
+    _utcnow,
+    save_upload,
+)
 
 
 def _can_view_player_files(player: Tla3bnyPlayer) -> bool:
@@ -57,42 +67,6 @@ def _can_view_player_files(player: Tla3bnyPlayer) -> bool:
         .distinct()
     )
     return any(auth.is_competition_admin(user, cid) for (cid,) in comp_ids)
-
-
-def _save_documents(player: Tla3bnyPlayer, data, files) -> None:
-    """Save uploaded registration papers, pairing each with its document label.
-
-    The client sends files under 'documents' and a parallel 'document_labels'
-    list (same order) naming which paper each is — birth certificate, school
-    letter, national id, health certificate, etc. A legacy single 'papers'
-    field is still accepted. Re-uploading a paper replaces the one already held
-    under that label, so a player keeps one file per required document.
-    """
-    if files is None:
-        return
-    uploaded = files.getlist("documents") if hasattr(files, "getlist") else []
-    labels = data.getlist("document_labels") if hasattr(data, "getlist") else []
-    if files.get("papers"):
-        uploaded = list(uploaded) + [files.get("papers")]
-    for i, f in enumerate(uploaded):
-        if f is None or f.filename == "":
-            continue
-        path = save_upload(f, kind="document")
-        if not path:
-            continue
-        label = (labels[i] if i < len(labels) else None) or None
-        if label:
-            for old in [x for x in player.files if x.label == label]:
-                db.session.delete(old)
-        db.session.add(
-            Tla3bnyPlayerFile(
-                player_id=player.id,
-                file_path=path,
-                original_name=f.filename,
-                label=label,
-            )
-        )
-        player.papers_path = path
 
 
 @tla3bny_bp.get("/players/<int:player_id>")
@@ -129,12 +103,20 @@ def player_registrations(player_id: int):
             "status": cp.status,
         }
         if detailed:
+            # Papers are per registration: this competition's own required set,
+            # matched against the papers uploaded for *this* entry.
+            cage = None
+            if comp:
+                cage = next(
+                    (a for a in comp.ages
+                     if a.age_category_id == cp.entry.age_category_id),
+                    None,
+                )
+            required = cage.documents if cage else (comp.documents if comp else [])
+            supplied = {f.label for f in cp.effective_files if f.label}
             item["rejection_reason"] = cp.rejection_reason
-            item["required_documents"] = comp.documents if comp else []
-            supplied = {f.label for f in player.files if f.label}
-            item["missing_documents"] = [
-                d for d in (comp.documents if comp else []) if d not in supplied
-            ]
+            item["required_documents"] = required
+            item["missing_documents"] = [d for d in required if d not in supplied]
         out.append(item)
     return jsonify(out)
 
@@ -234,61 +216,18 @@ def player_stats(player_id: int):
 @tla3bny_bp.post("/teams/<int:team_id>/players")
 @auth.login_required
 def create_player(team_id: int):
-    """Create a player and enqueue them as pending in the team's competitions.
+    """Add a player to the team's squad — the academy's durable global roster.
 
-    Registration is gated: the team must be in at least one competition with
-    open registration and an available slot (max_players_per_team not reached).
+    This only builds the squad; it does *not* enter the player in any
+    competition. Entering players in a competition — with that competition's own
+    required papers — is a separate step the academy does per competition:
+    ``POST /competition-teams/<entry_id>/players``. Keeping the two apart is what
+    lets a team play a new competition (or the same one next season) and submit a
+    fresh document set for it without touching last season's registration.
     """
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
     Tla3bnyTeam.query.get_or_404(team_id)
-
-    # Gate: team must be registered in at least one competition.
-    comp_entries = Tla3bnyCompetitionTeam.query.filter_by(
-        team_id=team_id, status="active"
-    ).all()
-    if not comp_entries:
-        return _err(
-            "الفريق لم يُضَف لأي بطولة بعد — تواصل مع المنظّم لإضافته أولًا", 403
-        )
-
-    # Gate: at least one open (registration or replacement) competition must have room.
-    has_room = False
-    for entry in comp_entries:
-        comp = entry.competition
-        if not comp:
-            continue
-        cage = Tla3bnyCompetitionAge.query.filter_by(
-            competition_id=entry.competition_id,
-            age_category_id=entry.age_category_id,
-        ).first()
-        in_registration = comp.registration_open
-        in_replacement = cage and cage.replacements_open
-        if not in_registration and not in_replacement:
-            continue
-        cap = cage.max_players_per_team if cage else None
-        # Lock rows to prevent a concurrent request from bypassing the cap.
-        active_rows = Tla3bnyCompetitionPlayer.query.filter(
-            Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
-            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
-        ).with_for_update().all()
-        active_count = len(active_rows)
-        if cap is not None and active_count >= cap:
-            continue
-        if in_replacement and not in_registration:
-            # Replacement window: also enforce the swap quota.
-            replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
-                competition_team_id=entry.id, status="replaced"
-            ).with_for_update().count()
-            if replaced_count >= cage.max_replacements:
-                continue
-        has_room = True
-        break
-    if not has_room:
-        return _err(
-            "وصل الفريق للحد الأقصى من اللاعبين أو أُغلق التسجيل والاستبدال في جميع البطولات",
-            409,
-        )
 
     data, files = _read_payload()
     name = (data.get("name") or "").strip()
@@ -296,6 +235,9 @@ def create_player(team_id: int):
         return _err("name is required")
     if len(name) > 200:
         return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
+    dob, dob_err = _parse_date_or_error(data.get("dob"))
+    if dob_err:
+        return _err(dob_err, 400)
 
     photo = None
     try:
@@ -307,17 +249,13 @@ def create_player(team_id: int):
     player = Tla3bnyPlayer(
         name=name,
         name_en=(data.get("name_en") or "").strip() or None,
-        dob=_parse_date(data.get("dob")),
+        dob=dob,
         position=(data.get("position") or "").strip() or None,
         sub_position=(data.get("sub_position") or "").strip() or None,
         photo_path=photo,
     )
     db.session.add(player)
     db.session.flush()
-    try:
-        _save_documents(player, data, files)
-    except ValueError as e:
-        return _err(str(e))
 
     db.session.add(
         Tla3bnyPlayerTeam(
@@ -328,52 +266,127 @@ def create_player(team_id: int):
             status="active",
         )
     )
-    # Auto-enqueue the new player as "pending" in every active competition this
-    # team is registered in — the organiser's Approvals tab shows them at once.
-    for entry in Tla3bnyCompetitionTeam.query.filter_by(team_id=team_id, status="active"):
-        comp = entry.competition
-        if not comp:
-            continue
-        cage = Tla3bnyCompetitionAge.query.filter_by(
-            competition_id=entry.competition_id, age_category_id=entry.age_category_id
-        ).first()
-        in_registration = comp.registration_open
-        in_replacement = cage and cage.replacements_open
-        if not in_registration and not in_replacement:
-            continue
-        cap = cage.max_players_per_team if cage else None
-        active_count = len(Tla3bnyCompetitionPlayer.query.filter(
-            Tla3bnyCompetitionPlayer.competition_team_id == entry.id,
-            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
-        ).with_for_update().all())
-        if cap is not None and active_count >= cap:
-            continue
-        if in_replacement and not in_registration:
-            replaced_count = Tla3bnyCompetitionPlayer.query.filter_by(
-                competition_team_id=entry.id, status="replaced"
-            ).with_for_update().count()
-            if replaced_count >= cage.max_replacements:
-                continue
-            # Prevent cycling: block if this player already has an approved or
-            # replaced entry anywhere in this competition (across all team entries).
-            already_in = (
-                db.session.query(Tla3bnyCompetitionPlayer)
-                .join(Tla3bnyCompetitionTeam,
-                      Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id)
-                .filter(
-                    Tla3bnyCompetitionTeam.competition_id == entry.competition_id,
-                    Tla3bnyCompetitionPlayer.player_id == player.id,
-                    Tla3bnyCompetitionPlayer.status.in_(("approved", "replaced")),
-                )
-                .first()
-            )
-            if already_in:
-                continue
-        db.session.add(Tla3bnyCompetitionPlayer(
-            competition_team_id=entry.id, player_id=player.id, status="pending"
-        ))
     db.session.commit()
     return jsonify(player.to_dict(with_files=True)), 201
+
+
+@tla3bny_bp.get("/competition-teams/<int:entry_id>/registration")
+@auth.login_required
+def competition_registration(entry_id: int):
+    """The per-competition registration screen for the academy: every squad
+    player, whether they are entered in *this* competition, and the papers this
+    competition requires for each of them (its own set, not the global one)."""
+    entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
+    if not auth.can_manage_team(auth.current_user(), entry.team_id):
+        return _forbid()
+    comp = entry.competition
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+        competition_id=entry.competition_id,
+        age_category_id=entry.age_category_id,
+    ).first()
+    required = cage.documents if cage else (comp.documents if comp else [])
+
+    # Registrations for this entry, keyed by player.
+    regs = {
+        cp.player_id: cp
+        for cp in Tla3bnyCompetitionPlayer.query.filter_by(
+            competition_team_id=entry.id
+        ).all()
+    }
+    active_count = sum(
+        1 for cp in regs.values() if cp.status in ("pending", "approved")
+    )
+
+    players = []
+    for mem in Tla3bnyPlayerTeam.query.filter_by(
+        team_id=entry.team_id, end_date=None, status="active"
+    ).all():
+        p = mem.player
+        if p is None:
+            continue
+        cp = regs.get(mem.player_id)
+        # This registration's papers (if any) plus the player's global identity
+        # papers — either satisfies a required document.
+        files = list(cp.effective_files) if cp else [
+            f for f in p.files if f.competition_player_id is None
+        ]
+        supplied = {f.label for f in files if f.label}
+        players.append({
+            "player_id": p.id,
+            "player_name": p.name,
+            "player_name_en": p.name_en,
+            "photo_path": p.photo_path,
+            "position": p.position,
+            "dob": p.dob.isoformat() if p.dob else None,
+            "jersey_number": mem.jersey_number,
+            "competition_player_id": cp.id if cp else None,
+            "registration_status": cp.status if cp else None,
+            "rejection_reason": cp.rejection_reason if cp else None,
+            "files": [f.to_dict() for f in files],
+            "missing_documents": [d for d in required if d not in supplied],
+        })
+
+    admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+    return jsonify({
+        "entry_id": entry.id,
+        "competition_id": entry.competition_id,
+        "competition_name": comp.name if comp else None,
+        "sub_competition_name": cage.name if cage else None,
+        "status": entry.status,
+        "required_documents": required,
+        "max_players": cage.max_players_per_team if cage else None,
+        "registered_count": active_count,
+        "registration_open": bool(comp and comp.registration_open) and (
+            admin or not (cage and cage.registration_deadline_passed)
+        ),
+        "replacements_open": cage.replacements_open if cage else False,
+        "players": players,
+    })
+
+
+@tla3bny_bp.post("/competition-players/<int:cp_id>/documents")
+@auth.login_required
+def upload_registration_documents(cp_id: int):
+    """Upload / refresh the papers for one competition registration.
+
+    Papers are per competition, so they attach to this ``Tla3bnyCompetitionPlayer``
+    entry — not the player globally — and never touch another competition's set.
+    Refreshing the papers of an already-reviewed registration re-opens it: an
+    approved or rejected entry goes back to the organiser as pending.
+    """
+    cp = Tla3bnyCompetitionPlayer.query.get_or_404(cp_id)
+    entry = cp.entry
+    if not auth.can_manage_team(auth.current_user(), entry.team_id):
+        return _forbid()
+    player = cp.player
+    if player is None:
+        return _err("player not found", 404)
+    is_admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)
+    # Once this registration is approved, its papers are frozen for the academy:
+    # swapping the evidence behind an approved player is the same fraud as swapping
+    # the photo. Only the competition's admin (or super admin) may change them —
+    # doing so re-opens the review below.
+    if cp.status == "approved" and not is_admin:
+        return _err("لا يمكن تعديل أوراق لاعب تم اعتماده — تواصل مع إدارة البطولة", 403)
+    # Frozen once the deadline passes, except for the competition's own admins.
+    cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+        competition_id=entry.competition_id, age_category_id=entry.age_category_id
+    ).first()
+    if cage and cage.registration_deadline_passed and not is_admin:
+        return _err("انتهى موعد تسجيل اللاعبين في هذه البطولة", 403)
+
+    data, files = _read_payload()
+    try:
+        _save_documents(player, data, files, competition_player=cp)
+    except ValueError as e:
+        return _err(str(e))
+
+    # A paper refresh re-opens the review.
+    if cp.status in ("approved", "rejected"):
+        cp.status = "pending"
+        cp.rejection_reason = None
+    db.session.commit()
+    return jsonify(cp.to_dict(with_files=True))
 
 
 @tla3bny_bp.post("/competition-players/<int:cp_id>/replace")
@@ -424,6 +437,39 @@ def _player_team_id(player: Tla3bnyPlayer) -> int | None:
     return cur.team_id if cur else None
 
 
+def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
+    """Changing a player's global data (name, photo, DOB, papers…) is frozen for
+    the academy in two cases; only the relevant competition's admin (or the super
+    admin, who counts as admin everywhere) may still edit. Returns a message if
+    the caller is locked out.
+
+      1. The player has been APPROVED in a competition — the identity is frozen so
+         the academy can't swap the photo and slip a different player onto the
+         approved player's papers. This holds regardless of any deadline.
+      2. A competition's player-registration deadline has passed — frozen for the
+         academy even while the registration is still only pending.
+    """
+    regs = Tla3bnyCompetitionPlayer.query.filter(
+        Tla3bnyCompetitionPlayer.player_id == player.id,
+        Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+    ).all()
+    for cp in regs:
+        entry = cp.entry
+        if entry is None:
+            continue
+        if auth.is_competition_admin(user, entry.competition_id):
+            continue  # that competition's admin (and the super admin) may edit
+        if cp.status == "approved":
+            return "لا يمكن تعديل بيانات لاعب تم اعتماده في بطولة — تواصل مع إدارة البطولة"
+        cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id,
+            age_category_id=entry.age_category_id,
+        ).first()
+        if cage and cage.registration_deadline_passed:
+            return "انتهى موعد تعديل بيانات اللاعبين في هذه البطولة"
+    return None
+
+
 @tla3bny_bp.put("/players/<int:player_id>")
 @auth.login_required
 def update_player(player_id: int):
@@ -431,11 +477,10 @@ def update_player(player_id: int):
     team_id = _player_team_id(player)
     if team_id is None or not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
+    locked = _player_edit_locked(player, auth.current_user())
+    if locked:
+        return _err(locked, 403)
     data, files = _read_payload()
-
-    # Snapshot identity-critical fields before applying changes.
-    old_name = player.name
-    old_dob = player.dob
 
     if data.get("name"):
         new_name = data.get("name").strip()
@@ -445,7 +490,10 @@ def update_player(player_id: int):
     if "name_en" in data:
         player.name_en = (data.get("name_en") or "").strip() or None
     if "dob" in data:
-        player.dob = _parse_date(data.get("dob"))
+        dob, dob_err = _parse_date_or_error(data.get("dob"))
+        if dob_err:
+            return _err(dob_err, 400)
+        player.dob = dob
     if "position" in data:
         player.position = (data.get("position") or "").strip() or None
     if "sub_position" in data:
@@ -481,6 +529,15 @@ def update_player(player_id: int):
         return _err(str(e))
 
     cur = player.current_membership()
+    # Any real change to the player — name, DOB, position, jersey, photo or
+    # papers — invalidates existing approvals; the competition admin re-reviews.
+    # (Checked before the commit clears the change tracking; a no-op save that
+    # changed nothing leaves approvals untouched.)
+    player_changed = (
+        db.session.is_modified(player)
+        or (cur is not None and db.session.is_modified(cur))
+        or has_new_docs
+    )
     _log("player_updated", "player", player.id, {
         "player_name": player.name,
         "team_id": cur.team_id if cur else None,
@@ -488,11 +545,7 @@ def update_player(player_id: int):
     })
     db.session.commit()
 
-    # Reset to pending ONLY for identity-critical changes (name, DOB, papers).
-    # Position, jersey, photo changes don't warrant re-review.
-    name_changed = player.name != old_name
-    dob_changed = player.dob != old_dob
-    if name_changed or dob_changed or has_new_docs:
+    if player_changed:
         Tla3bnyCompetitionPlayer.query.filter(
             Tla3bnyCompetitionPlayer.player_id == player.id,
             Tla3bnyCompetitionPlayer.status.in_(("approved", "rejected")),
@@ -512,10 +565,16 @@ def move_player(player_id: int):
     dest = Tla3bnyTeam.query.get(dest_team_id) if dest_team_id else None
     if dest is None:
         return _err("valid destination team_id is required")
-    if not auth.can_manage_academy(auth.current_user(), dest.academy_id):
+    user = auth.current_user()
+    if not auth.can_manage_academy(user, dest.academy_id):
         return _forbid()
     today = _utcnow().date()
     cur = player.current_membership()
+    # The mover must also control the player's *current* team — otherwise an
+    # academy could pull another academy's player into its own team, ending the
+    # victim's membership and deleting their roster entries. Super admin passes both.
+    if cur and not auth.can_manage_team(user, cur.team_id):
+        return _forbid()
     if cur:
         if cur.team_id == dest_team_id:
             return _err("Player is already on that team")

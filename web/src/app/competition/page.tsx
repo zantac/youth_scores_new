@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
+import FollowButton from '@/components/ui/FollowButton';
 import TabStrip from '@/components/ui/TabStrip';
 import Spinner from '@/components/ui/Spinner';
 import MatchCard from '@/components/competition/MatchCard';
@@ -11,8 +12,9 @@ import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
 import {
   standingsByGroup, topScorers, topAssisters, cleanSheets,
   yellowCards, redCards, teamGoalStats, splitScorers,
-  formatMatchDate, todayStr, localize, groupKey, teamNameLines,
+  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition,
 } from '@/lib/utils';
+import { competitionDataUrl } from '@/lib/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -879,7 +881,7 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
 
 // ── Team Detail Modal ─────────────────────────────────────────────────────────
 
-function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void }) {
+function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, compTitle }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void; compTitle?: string }) {
   const router = useRouter();
   const [tab, setTab] = useState(0);
   const [statsSub, setStatsSub] = useState(0);
@@ -926,7 +928,10 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
     <div className="fixed inset-0 z-[200] bg-darkBg flex flex-col">
       <div className="flex items-center bg-cardBg border-b border-bdr px-4 py-3 gap-3">
         <button onClick={onClose} className="text-aqua text-xl font-bold">✕</button>
-        <span className="flex-1 text-aqua font-bold text-sm truncate">{primary}</span>
+        <div className="flex-1 min-w-0">
+          <span className="block text-aqua font-bold text-sm truncate">{primary}</span>
+          {compTitle && <span className="block text-hint text-[11px] truncate">{compTitle}</span>}
+        </div>
       </div>
 
       <div className="relative bg-gradient-to-b from-cardBg to-cardBg2 border-b border-bdr p-4 overflow-hidden">
@@ -995,17 +1000,26 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick }: { 
 
         {tab === 1 && (
           (team.roster && team.roster.length > 0) ? (
-            <div className="space-y-2">
-              {team.roster.map(r => (
-                <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
-                  className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                  <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
-                    <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
+            <div className="space-y-5">
+              {groupRosterByPosition(team.roster, locale).map(sec => (
+                <div key={sec.label}>
+                  <p className="text-teal text-[11px] font-bold mb-2">
+                    {sec.label} <span className="text-hint font-normal">({sec.players.length})</span>
+                  </p>
+                  <div className="space-y-2">
+                    {sec.players.map(r => (
+                      <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
+                        className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
+                        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
+                          <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <span className="text-aqua text-xs flex-shrink-0">›</span>
+                      </button>
+                    ))}
                   </div>
-                  <span className="text-aqua text-xs flex-shrink-0">›</span>
-                </button>
+                </div>
               ))}
             </div>
           ) : team.players ? (
@@ -1214,16 +1228,22 @@ function CompetitionPageInner() {
     return () => ro.disconnect();
   }, [headEl]);
 
-  const url     = params.get('url')     ?? '';
+  // A competition is opened by id (?id=3) — the compact, shareable form. The
+  // data URL is derived from it; the older ?url=&titleAr=&titleEn= links still
+  // work for backward compatibility.
+  const idParam  = params.get('id')      ?? '';
+  const url      = idParam ? competitionDataUrl(idParam) : (params.get('url') ?? '');
   const rawTitle = params.get('title')   ?? '';
   const titleAr  = params.get('titleAr') ?? '';
   const titleEn  = params.get('titleEn') ?? '';
 
-  // Localize the heading reactively so it follows the language toggle, instead
-  // of freezing whatever locale was active when the competition was opened.
+  // Localize the heading reactively so it follows the language toggle. Prefer a
+  // title passed in the URL (legacy links); otherwise use the one the loaded
+  // data blob carries, so an ?id= link needs no title in the URL.
+  const metaTitle = competition?.competition ? localize(competition.competition.title, locale) : '';
   const title = (titleAr || titleEn)
     ? (localize({ ar: titleAr, en: titleEn }, locale) || rawTitle)
-    : rawTitle;
+    : (rawTitle || metaTitle);
 
   useEffect(() => {
     if (url) loadCompetition(url, rawTitle);
@@ -1264,7 +1284,8 @@ function CompetitionPageInner() {
   return (
     <>
       <div ref={setHeadEl} className="sticky top-0 z-40">
-        <AppBar title={title || compTitle} back embedded />
+        <AppBar title={title || compTitle} back embedded
+          actions={idParam ? <FollowButton competitionId={idParam} /> : undefined} />
         <TabStrip tabs={mainTabs} current={mainTab} onChange={i => setView({ tab: i })} />
       </div>
 
@@ -1274,7 +1295,7 @@ function CompetitionPageInner() {
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}
 
       {teamDetail && (
-        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} onClose={() => setView({ team: null })} onTeamClick={t => setView({ team: t })} />
+        <TeamDetail teamId={teamDetail} matches={matches} teams={teams} locale={locale} compTitle={title} onClose={() => setView({ team: null })} onTeamClick={t => setView({ team: t })} />
       )}
     </>
   );

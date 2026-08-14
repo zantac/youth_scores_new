@@ -24,7 +24,8 @@ Serialization is kept on the models (as ``to_dict``) rather than in a
 serializers module, so this subsystem stays a single, self-contained unit.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -164,10 +165,14 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
     # Public profile. A phone number is required at registration — it is how an
     # organiser reaches the academy about its entries.
     phone: Mapped[str | None] = mapped_column(sa.String(50))
+    # WhatsApp number for the chat button on the public advertising page.
+    whatsapp_number: Mapped[str | None] = mapped_column(sa.String(50))
     facebook_url: Mapped[str | None] = mapped_column(sa.String(512))
     training_place: Mapped[str | None] = mapped_column(sa.String(255))
     address: Mapped[str | None] = mapped_column(sa.String(255))
     description: Mapped[str | None] = mapped_column(sa.Text)
+    # Up to 3 gallery photos (list of stored image paths/URLs) for the ad page.
+    photos: Mapped[list | None] = mapped_column(sa.JSON)
 
     # Registration is open, so an academy starts "approved". The status is kept
     # so the super admin can still suspend one that misbehaves.
@@ -184,6 +189,11 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
         cascade="all, delete-orphan",
         order_by="Tla3bnyAcademyManager.sort_order",
     )
+    branches: Mapped[list["Tla3bnyAcademyBranch"]] = relationship(
+        back_populates="academy",
+        cascade="all, delete-orphan",
+        order_by="Tla3bnyAcademyBranch.sort_order",
+    )
 
     def to_dict(self, public: bool = False, with_teams: bool = False) -> dict:
         data = {
@@ -192,12 +202,15 @@ class Tla3bnyAcademy(TimestampMixin, db.Model):
             "name_en": self.name_en,
             "logo_path": self.logo_path,
             "phone": self.phone,
+            "whatsapp_number": self.whatsapp_number,
             "facebook_url": self.facebook_url,
             "training_place": self.training_place,
             "address": self.address,
             "description": self.description,
+            "photos": self.photos or [],
             "status": self.status,
             "managers": [m.to_dict() for m in self.managers],
+            "branches": [b.to_dict() for b in self.branches],
         }
         if not public:
             data["rejection_reason"] = self.rejection_reason
@@ -224,6 +237,7 @@ class Tla3bnyAcademyManager(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     role: Mapped[str | None] = mapped_column(sa.String(120))
     phone: Mapped[str | None] = mapped_column(sa.String(50))
+    photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
 
     academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="managers")
@@ -234,6 +248,41 @@ class Tla3bnyAcademyManager(TimestampMixin, db.Model):
             "academy_id": self.academy_id,
             "name": self.name,
             "role": self.role,
+            "phone": self.phone,
+            "photo_path": self.photo_path,
+            "sort_order": self.sort_order,
+        }
+
+
+class Tla3bnyAcademyBranch(TimestampMixin, db.Model):
+    """A branch/location of an academy, shown on its public advertising page —
+    a name plus where it is (address + map link) and an optional phone."""
+
+    __tablename__ = "tla3bny_academy_branches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    academy_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_academies.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
+    # Egyptian governorate (المحافظة) — drives the academies-page filter.
+    governorate: Mapped[str | None] = mapped_column(sa.String(60))
+    address: Mapped[str | None] = mapped_column(sa.String(512))
+    # A maps link (Google Maps, etc.) — scheme-sanitised on write.
+    location_url: Mapped[str | None] = mapped_column(sa.String(512))
+    phone: Mapped[str | None] = mapped_column(sa.String(50))
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="branches")
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "academy_id": self.academy_id,
+            "name": self.name,
+            "governorate": self.governorate,
+            "address": self.address,
+            "location_url": self.location_url,
             "phone": self.phone,
             "sort_order": self.sort_order,
         }
@@ -302,6 +351,9 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
     # Optional free-text override; otherwise the display name is derived.
     name: Mapped[str | None] = mapped_column(sa.String(255))
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
+    # Team badge/photo and a short blurb, shown on the team hero card.
+    photo_path: Mapped[str | None] = mapped_column(sa.String(512))
+    description: Mapped[str | None] = mapped_column(sa.String(500))
 
     academy: Mapped["Tla3bnyAcademy"] = relationship(back_populates="teams")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -339,9 +391,14 @@ class Tla3bnyTeam(TimestampMixin, db.Model):
             "academy_logo": self.academy.logo_path if self.academy else None,
             "age_category_id": self.age_category_id,
             "age_category": self.age_category.label if self.age_category else None,
+            "oldest_birth_year": (
+                self.age_category.oldest_birth_year if self.age_category else None
+            ),
             "class_label": self.class_label,
             "name": self.name,
             "name_en": self.name_en,
+            "photo_path": self.photo_path,
+            "description": self.description,
             "display_name": self.display_name(),
             "display_name_en": self.display_name("en"),
         }
@@ -404,6 +461,8 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
     role_ar: Mapped[str | None] = mapped_column(sa.String(120))
+    license: Mapped[str | None] = mapped_column(sa.String(255))
+    bio: Mapped[str | None] = mapped_column(sa.Text)
     phone: Mapped[str | None] = mapped_column(sa.String(50))
     photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     start_date: Mapped[date | None] = mapped_column(sa.Date)
@@ -419,6 +478,8 @@ class Tla3bnyCoach(TimestampMixin, db.Model):
             "name": self.name,
             "name_en": self.name_en,
             "role_ar": self.role_ar,
+            "license": self.license,
+            "bio": self.bio,
             "phone": self.phone,
             "photo_path": self.photo_path,
             "start_date": self.start_date.isoformat() if self.start_date else None,
@@ -495,6 +556,13 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
     player_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_players.id", ondelete="CASCADE"), nullable=False
     )
+    # The competition registration this paper was uploaded *for*. Documents are
+    # required per competition (a new competition — or the same one next season —
+    # needs its own fresh papers), so a file belongs to one Tla3bnyCompetitionPlayer
+    # entry. Null means a legacy/global identity paper not tied to a competition.
+    competition_player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_players.id", ondelete="CASCADE")
+    )
     file_path: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     original_name: Mapped[str | None] = mapped_column(sa.String(255))
     # Which required paper this file is (e.g. "شهادة الميلاد"); null for a
@@ -507,6 +575,7 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
         return {
             "id": self.id,
             "player_id": self.player_id,
+            "competition_player_id": self.competition_player_id,
             "file_path": self.file_path,
             "original_name": self.original_name,
             "label": self.label,
@@ -638,6 +707,13 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     registration_open: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=True
     )
+    # When True, a team entered here may not enter any other competition while
+    # this one is live (see locks_team_entry). Default False: teams may play
+    # several competitions at once (league + cup), since rosters and papers are
+    # per-competition now. Organizers who want an exclusive competition opt in.
+    exclusive_entry: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default=sa.false()
+    )
     # The cap on how many players may take part in this competition across every
     # team. Set by the super admin at creation: tla3bny is billed on the number
     # of contributing players, so this is the size the organiser is paying for.
@@ -677,6 +753,20 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     def documents(self) -> list[str]:
         return self.required_documents or list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
 
+    @property
+    def locks_team_entry(self) -> bool:
+        """While True, a team already entered here may not enter any other
+        competition. Only competitions explicitly marked ``exclusive_entry`` lock,
+        and only while still live — the competition is treated as over on the
+        *second day after* its end date (open-ended with no end date keeps the
+        lock). Non-exclusive competitions (the default) never lock, so a team may
+        play several at once; its rosters and papers are per-competition anyway."""
+        if not self.exclusive_entry:
+            return False
+        if self.end_date is None:
+            return True
+        return date.today() <= self.end_date + timedelta(days=1)
+
     def to_dict(self, with_ages: bool = False) -> dict:
         data = {
             "id": self.id,
@@ -699,6 +789,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "facebook_url": self.facebook_url,
             "location_url": self.location_url,
             "registration_open": self.registration_open,
+            "exclusive_entry": self.exclusive_entry,
             "max_players": self.max_players,
             "max_ads": self.max_ads,
             "ads_enabled": self.ads_enabled,
@@ -768,6 +859,12 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     )
     # Display name for this sub-competition (e.g. "Class A", "Elite Group").
     name: Mapped[str | None] = mapped_column(sa.String(200))
+    # Public "about this sub-competition" text — shown to everyone, describing
+    # what this bracket is (format, who it's for, notes). Set by the organizer.
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    # Per-team entry fee for this sub-competition, in EGP. Shown ONLY to academy
+    # accounts and the competition's admins — never to the anonymous public.
+    subscription_fee: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
     # Last day a player may be added or edited in this sub-competition's roster.
     player_registration_deadline: Mapped[date | None] = mapped_column(sa.Date)
 
@@ -792,6 +889,10 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     period_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=20
     )
+    # Extra-time format for knockout ties. Null means this sub-competition does
+    # not play extra time (a level knockout goes straight to penalties).
+    et_num_periods: Mapped[int | None] = mapped_column(sa.Integer)
+    et_period_minutes: Mapped[int | None] = mapped_column(sa.Integer)
     # How long before kickoff a coach must have submitted the lineup.
     lineup_deadline_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=60
@@ -840,7 +941,17 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             return self.age_category.documents
         return list(codes.TLA3BNY_DEFAULT_PLAYER_DOCS)
 
-    def to_dict(self, with_stages: bool = False) -> dict:
+    @property
+    def registration_deadline_passed(self) -> bool:
+        """True once the player-registration deadline is behind us. After it, a
+        team can no longer add, remove or register players in this
+        sub-competition (only the competition's admins still can)."""
+        return bool(
+            self.player_registration_deadline
+            and date.today() > self.player_registration_deadline
+        )
+
+    def to_dict(self, with_stages: bool = False, include_fee: bool = False) -> dict:
         data = {
             "id": self.id,
             "competition_id": self.competition_id,
@@ -849,6 +960,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
                 self.age_category.label if self.age_category else None
             ),
             "name": self.name,
+            "description": self.description,
             "player_registration_deadline": (
                 self.player_registration_deadline.isoformat()
                 if self.player_registration_deadline else None
@@ -860,6 +972,8 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "max_substitutes": self.max_substitutes,
             "num_periods": self.num_periods,
             "period_minutes": self.period_minutes,
+            "et_num_periods": self.et_num_periods,
+            "et_period_minutes": self.et_period_minutes,
             "lineup_deadline_minutes": self.lineup_deadline_minutes,
             "replacements_open": self.replacements_open,
             "max_replacements": self.max_replacements,
@@ -868,6 +982,15 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
                 self.age_category.oldest_birth_year if self.age_category else None
             ),
         }
+        # The fee is entered by the organizer and shown to academies deciding
+        # whether to enter — the caller (endpoint) decides who may see it. It is
+        # omitted entirely for the public, not just nulled, so the client can tell
+        # "not allowed to see" apart from "no fee set".
+        if include_fee:
+            data["subscription_fee"] = (
+                float(self.subscription_fee)
+                if self.subscription_fee is not None else None
+            )
         if with_stages:
             data["stages"] = [s.to_dict(with_groups=True) for s in self.stages]
         return data
@@ -1087,12 +1210,39 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
 
     entry: Mapped["Tla3bnyCompetitionTeam"] = relationship(back_populates="roster")
     player: Mapped["Tla3bnyPlayer"] = relationship()
+    # The papers uploaded for *this* registration. Documents are per-competition,
+    # so a player entered in two competitions keeps a separate set for each.
+    files: Mapped[list["Tla3bnyPlayerFile"]] = relationship(
+        "Tla3bnyPlayerFile",
+        primaryjoin="Tla3bnyCompetitionPlayer.id == Tla3bnyPlayerFile.competition_player_id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         sa.UniqueConstraint(
             "competition_team_id", "player_id", name="uq_tla3bny_comp_player"
         ),
+        # Backs the constant per-entry status counts (cap checks, dashboards,
+        # approved-player totals) — the most-counted table in the module.
+        sa.Index(
+            "ix_tla3bny_competition_players_entry_status",
+            "competition_team_id", "status",
+        ),
     )
+
+    @property
+    def effective_files(self) -> list["Tla3bnyPlayerFile"]:
+        """Papers that count for this registration: the ones uploaded *for it*,
+        plus the player's global identity papers (``competition_player_id`` NULL,
+        e.g. uploaded from the player's own profile). Either satisfies a required
+        document — an organizer shouldn't see "no document" for a paper the player
+        clearly has."""
+        own = list(self.files)
+        globals_ = [
+            f for f in (self.player.files if self.player else [])
+            if f.competition_player_id is None
+        ]
+        return own + globals_
 
     def to_dict(self, with_files: bool = False) -> dict:
         """The player's papers are private: ``with_files=True`` is for this
@@ -1111,7 +1261,9 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
             "rejection_reason": self.rejection_reason,
         }
         if with_files:
-            files = list(p.files) if p else []
+            # This registration's own papers plus the player's global identity
+            # papers — either satisfies a required document.
+            files = self.effective_files
             # Per-age documents take precedence over the competition's global list.
             required = []
             if self.entry and self.entry.competition:
@@ -1196,6 +1348,26 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     lineups: Mapped[list["Tla3bnyLineup"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
     )
+    # The player-of-the-match honour for this match, if the organizer set one.
+    player_of_match_award: Mapped["Tla3bnyAward | None"] = relationship(
+        "Tla3bnyAward",
+        primaryjoin=(
+            "and_(Tla3bnyMatch.id == Tla3bnyAward.match_id, "
+            "Tla3bnyAward.award_type == 'player_of_match')"
+        ),
+        viewonly=True,
+        uselist=False,
+    )
+
+    __table_args__ = (
+        # The matches feed and dashboards filter by competition + age + status…
+        sa.Index(
+            "ix_tla3bny_matches_comp_age_status",
+            "competition_id", "age_category_id", "status",
+        ),
+        # …and order/range by date (no FK auto-index covers a plain column).
+        sa.Index("ix_tla3bny_matches_date", "date"),
+    )
 
     @property
     def match_date(self) -> datetime | None:
@@ -1266,6 +1438,16 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "away_score_pen": self.away_score_pen,
             "note": self.note,
         }
+        pom = self.player_of_match_award
+        data["player_of_match"] = (
+            {
+                "player_id": pom.player_id,
+                "player_name": pom.player.name if pom.player else None,
+                "player_name_en": pom.player.name_en if pom.player else None,
+                "photo_path": pom.player.photo_path if pom.player else None,
+            }
+            if pom is not None and pom.player_id else None
+        )
         if include_events:
             data["events"] = [
                 e.to_dict()
@@ -1312,6 +1494,13 @@ class Tla3bnyMatchEvent(TimestampMixin, db.Model):
 
     match: Mapped["Tla3bnyMatch"] = relationship(back_populates="events")
     player: Mapped["Tla3bnyPlayer | None"] = relationship()
+
+    __table_args__ = (
+        # Analysis / top-scorer boards filter a match's events by type.
+        sa.Index(
+            "ix_tla3bny_match_events_match_type", "match_id", "event_type"
+        ),
+    )
 
     def to_dict(self) -> dict:
         return {
@@ -1606,4 +1795,166 @@ class Tla3bnyAuditLog(db.Model):
             "target_id": self.target_id,
             "competition_id": self.competition_id,
             "detail": self.detail or {},
+        }
+
+
+# ── honours: titles, individual awards, best XI of the round ──────────────────
+class Tla3bnyAward(TimestampMixin, db.Model):
+    """One honour granted by a competition's organizer: a team title (champion,
+    runner-up, third place) or an individual award (top scorer/assister, best
+    player/goalkeeper, player of the match, player of the round).
+
+    Scope is a sub-competition (``competition_age_id``) — each age bracket has its
+    own champion and awards. ``match_id`` pins a player-of-the-match; ``round``
+    (the free-text round label used on matches) pins a player-of-the-round. The
+    recipient is a team for the title types (see ``codes.TLA3BNY_TEAM_AWARD_TYPES``)
+    and a player for the rest. The "team of the round" best XI is a separate model.
+    """
+
+    __tablename__ = "tla3bny_awards"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    award_type: Mapped[str] = mapped_column(
+        code_enum(*codes.TLA3BNY_AWARD_TYPE), nullable=False
+    )
+    # player_of_round: the round label; player_of_match: the match.
+    round: Mapped[str | None] = mapped_column(sa.String(120))
+    match_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_matches.id", ondelete="CASCADE")
+    )
+    player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_players.id", ondelete="CASCADE")
+    )
+    team_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE")
+    )
+    note: Mapped[str | None] = mapped_column(sa.String(255))
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    player: Mapped["Tla3bnyPlayer | None"] = relationship()
+    team: Mapped["Tla3bnyTeam | None"] = relationship()
+
+    __table_args__ = (
+        sa.Index("ix_tla3bny_awards_player", "player_id"),
+        sa.Index("ix_tla3bny_awards_team", "team_id"),
+        sa.Index("ix_tla3bny_awards_comp_age", "competition_id", "competition_age_id"),
+    )
+
+    def to_dict(self) -> dict:
+        p = self.player
+        t = self.team
+        comp = self.competition
+        cage = self.competition_age
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_name": comp.name if comp else None,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "age_label": cage.age_category.label if cage and cage.age_category else None,
+            "award_type": self.award_type,
+            "round": self.round,
+            "match_id": self.match_id,
+            "note": self.note,
+            "player_id": self.player_id,
+            "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            "player_photo": p.photo_path if p else None,
+            "team_id": self.team_id,
+            "team_name": t.display_name() if t else None,
+            "team_logo": (t.academy.logo_path if t and t.academy else None),
+            "academy_id": (t.academy_id if t else None),
+        }
+
+
+class Tla3bnyTeamOfRound(TimestampMixin, db.Model):
+    """The best XI of one round — a fantasy line-up the organizer picks from the
+    standout players across *all* teams that played that round, placed by
+    position. Scoped to a sub-competition + round label; one per (sub-comp, round).
+    """
+
+    __tablename__ = "tla3bny_team_of_round"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    round: Mapped[str] = mapped_column(sa.String(120), nullable=False)
+    formation: Mapped[str | None] = mapped_column(sa.String(20))
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    slots: Mapped[list["Tla3bnyTeamOfRoundSlot"]] = relationship(
+        back_populates="team_of_round", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        sa.Index(
+            "ix_tla3bny_totr_comp_age_round",
+            "competition_id", "competition_age_id", "round",
+        ),
+    )
+
+    def to_dict(self) -> dict:
+        cage = self.competition_age
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "round": self.round,
+            "formation": self.formation,
+            "slots": [s.to_dict() for s in sorted(self.slots, key=lambda x: x.sort_order)],
+        }
+
+
+class Tla3bnyTeamOfRoundSlot(TimestampMixin, db.Model):
+    """One position in a team-of-the-round best XI: a player and where they sit."""
+
+    __tablename__ = "tla3bny_team_of_round_slots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    team_of_round_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_team_of_round.id", ondelete="CASCADE"), nullable=False
+    )
+    player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_players.id", ondelete="SET NULL")
+    )
+    position_slot: Mapped[str | None] = mapped_column(sa.String(20))
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+    team_of_round: Mapped["Tla3bnyTeamOfRound"] = relationship(back_populates="slots")
+    player: Mapped["Tla3bnyPlayer | None"] = relationship()
+
+    def to_dict(self) -> dict:
+        p = self.player
+        cur = p.current_membership() if p else None
+        team = cur.team if cur else None
+        return {
+            "id": self.id,
+            "team_of_round_id": self.team_of_round_id,
+            "position_slot": self.position_slot,
+            "sort_order": self.sort_order,
+            "player_id": self.player_id,
+            "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            "photo_path": p.photo_path if p else None,
+            "team_id": team.id if team else None,
+            "team_name": team.display_name() if team else None,
         }

@@ -53,7 +53,12 @@ function PlayerJourney() {
           <div>
             <h1 className="text-xl font-extrabold">{name}</h1>
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {localize(p.position, locale) && <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{localize(p.position, locale)}</span>}
+              {(() => {
+                // The specific sub-position takes the profile spot when set;
+                // otherwise the main position is shown.
+                const pos = localize(p.sub_position, locale) || localize(p.position, locale);
+                return pos ? <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span> : null;
+              })()}
               <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5 tnum">{isAr ? 'مواليد' : 'Born'} {p.birth_year}</span>
               {p.current_club && <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>}
             </div>
@@ -81,42 +86,49 @@ function PlayerJourney() {
         {p.career.length === 0 ? (
           <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات مسيرة' : 'No career data'}</p>
         ) : (
-          <div className="relative pr-4">
-            <div className="absolute top-3 bottom-3 right-[13px] w-0.5 bg-gradient-to-b from-aqua to-bdr" />
+          <div className="space-y-3">
             {p.career.map((c, i) => (
-              <div key={i} className="grid grid-cols-[28px_1fr] gap-3 pb-3">
-                <div className="relative z-10">
-                  {c.logo ? <img src={c.logo} alt="" className="w-7 h-7 object-contain rounded" /> : <div className="w-7 h-7 rounded bg-bdr grid place-items-center text-xs">🛡️</div>}
+              <div key={i}
+                className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${c.current ? 'border-gold/40' : 'border-bdr'}`}>
+                <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--gold-rgb)/0.12),transparent_65%)]" />
+                {/* Club logo — big, spanning the full card height */}
+                <div className="relative w-24 flex-shrink-0 bg-darkBg grid place-items-center p-2.5">
+                  {c.logo
+                    ? <img src={c.logo} alt="" className="w-full h-full object-contain" />
+                    : <span className="text-3xl">🛡️</span>}
                 </div>
-                <div className={`border rounded-xl p-3 space-y-2 ${c.current ? 'border-gold/35 bg-gold/[0.04]' : 'border-bdr bg-cardBg'}`}>
-                  {/* Club + season + season totals */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-text text-sm font-bold truncate">{c.club}</p>
-                      <p className="text-hint text-[10px] tnum">{localize(c.season, locale)}{c.current ? ` · ${isAr ? 'حالي' : 'now'}` : ''}{c.status === 'transferred' ? ` · ${isAr ? 'انتقال' : 'transfer'}` : ''}</p>
-                    </div>
-                    <div className="flex gap-3">
-                      {c.appearances > 0 && (
-                        <div className="text-center">
-                          <p className="text-text font-bold text-sm tnum">{c.appearances}</p>
-                          <p className="text-hint text-[9px]">{isAr ? 'مباراة' : 'apps'}</p>
-                        </div>
-                      )}
-                      {c.assists > 0 && (
-                        <div className="text-center">
-                          <p className="text-aqua font-bold text-sm tnum">{c.assists}</p>
-                          <p className="text-hint text-[9px]">{isAr ? 'صناعة' : 'ast'}</p>
-                        </div>
-                      )}
+                <div className="relative flex-1 min-w-0 p-3">
+                  {/* Club + tags */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-text text-base font-extrabold truncate flex-1">{c.club}</p>
+                    {c.is_guest && <span className="text-teal text-[9px] font-bold border border-teal/40 rounded px-1.5 py-0.5 flex-shrink-0">{isAr ? 'ضيف صاعد' : 'guest'}</span>}
+                    {c.current && <span className="text-[9px] font-bold text-gold bg-gold/10 border border-gold/30 rounded px-1.5 py-0.5 flex-shrink-0">{isAr ? 'حالي' : 'now'}</span>}
+                  </div>
+                  {localize(c.age, locale) && <p className="text-aqua text-xs font-bold mt-1 truncate">{localize(c.age, locale)}</p>}
+                  {localize(c.season, locale) && <p className="text-hint text-[11px] mt-0.5 tnum truncate">{localize(c.season, locale)}</p>}
+                  {!c.current && c.end_date && <p className="text-hint text-[11px] mt-0.5 tnum truncate">{isAr ? 'غادر' : 'left'} {c.end_date}</p>}
+                  {/* Season totals */}
+                  <div className="flex gap-4 mt-2">
+                    {c.appearances > 0 && (
                       <div className="text-center">
-                        <p className="text-gold font-extrabold text-lg tnum">{c.goals}</p>
-                        <p className="text-hint text-[9px]">{isAr ? 'هدف' : 'goals'}</p>
+                        <p className="text-text font-bold text-sm tnum">{c.appearances}</p>
+                        <p className="text-hint text-[9px]">{isAr ? 'مباراة' : 'apps'}</p>
                       </div>
+                    )}
+                    {c.assists > 0 && (
+                      <div className="text-center">
+                        <p className="text-aqua font-bold text-sm tnum">{c.assists}</p>
+                        <p className="text-hint text-[9px]">{isAr ? 'صناعة' : 'ast'}</p>
+                      </div>
+                    )}
+                    <div className="text-center">
+                      <p className="text-gold font-extrabold text-lg tnum leading-none">{c.goals}</p>
+                      <p className="text-hint text-[9px] mt-0.5">{isAr ? 'هدف' : 'goals'}</p>
                     </div>
                   </div>
                   {/* Per-competition breakdown */}
                   {c.competitions.length > 0 && (
-                    <div className="border-t border-bdr/40 pt-2 space-y-1">
+                    <div className="border-t border-bdr/40 mt-2 pt-2 space-y-1">
                       {c.competitions.map((comp, ci) => (
                         <div key={ci} className="flex items-center gap-2 text-[11px]">
                           <span className="flex-1 text-hint truncate">{localize(comp.name, locale)}</span>
@@ -140,8 +152,8 @@ function PlayerJourney() {
           <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الأهداف لكل موسم' : 'Goals per season'}</h2>
           <div className="space-y-2">
             {p.career.map((c, i) => (
-              <div key={i} className="grid grid-cols-[64px_1fr_28px] items-center gap-2.5">
-                <span className="text-hint text-[11px] tnum">{localize(c.season, locale)}</span>
+              <div key={i} className="grid grid-cols-[92px_1fr_28px] items-center gap-2.5">
+                <span className="text-hint text-[11px] tnum truncate">{[localize(c.season, locale), c.age && localize(c.age, locale)].filter(Boolean).join(' · ')}</span>
                 <div className="h-2.5 rounded-full bg-cardBg2 overflow-hidden">
                   <div className="h-full rounded-full bg-gradient-to-l from-gold to-gold/70" style={{ width: `${(c.goals / maxGoals) * 100}%` }} />
                 </div>

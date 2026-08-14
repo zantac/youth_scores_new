@@ -21,12 +21,12 @@ export default function CompetitionsPage() {
     setOC(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   const go = (url: string, title: { ar: string; en: string }) => {
-    const p = new URLSearchParams({
-      url,
-      title: title.ar || title.en,
-      titleAr: title.ar,
-      titleEn: title.en,
-    });
+    // The data URL embeds the competition id (…/competitions/<id>/data) — open
+    // by that compact id; fall back to the legacy url+title form if it's absent.
+    const m = url.match(/\/competitions\/(\d+)\/data/);
+    const p = m
+      ? new URLSearchParams({ id: m[1] })
+      : new URLSearchParams({ url, title: title.ar || title.en, titleAr: title.ar, titleEn: title.en });
     router.push(`/competition?${p.toString()}`);
   };
 

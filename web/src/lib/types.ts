@@ -14,6 +14,7 @@ export interface Venue {
 }
 
 export interface NewsItem {
+  id?: number;
   date: string;
   title: string | Localized;
   image?: string;
@@ -144,6 +145,9 @@ export interface StandingsBlock {
 }
 
 export interface CompetitionData {
+  // The competition's own id + title, so a page opened by ?id= can render its
+  // header without the title being passed in the URL.
+  competition?: { id: number; title: Localized };
   matches: Match[];
   teams: Team[];
   venues: string[];
@@ -197,27 +201,30 @@ export interface HomeMatch {
 export interface MatchGoalEv { side: 'home' | 'away'; minute: number | null; scorer: string | null; scorer_id: number | null; assist: string | null; is_penalty: boolean; is_own_goal: boolean; }
 export interface MatchCardEv { side: 'home' | 'away'; minute: number | null; player: string | null; type: string; }
 export interface MatchSubEv  { side: 'home' | 'away'; minute: number | null; in: string | null; out: string | null; }
+export interface MatchLineupSide { starters: string[]; bench: string[]; }
+export interface MatchLineup { home: MatchLineupSide; away: MatchLineupSide; }
 
 export interface MatchFull {
   id: number;
-  competition: { id: number; name: Localized } | null;
+  competition: { id: number; name: Localized; age?: Localized | null } | null;
   date: string; time: string; week: string | null; venue: string | null; note?: string | null; status: string;
   home: { id: number; name: Localized | string; logo?: string };
   away: { id: number; name: Localized | string; logo?: string };
   home_score: number | null; away_score: number | null;
   home_penalty: number | null; away_penalty: number | null;
   goals: MatchGoalEv[]; cards: MatchCardEv[]; subs: MatchSubEv[];
+  lineup?: MatchLineup | null;
 }
 
 export interface PlayerCareerComp { name: string | Localized; goals: number; assists: number; appearances: number; }
 export interface PlayerCareer {
-  club: string; logo: string | null; season: string | { ar: string; en: string };
+  club: string; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
   goals: number; assists: number; appearances: number;
-  current: boolean; status: string;
+  current: boolean; end_date?: string | null; status: string;
   competitions: PlayerCareerComp[];
 }
 export interface PlayerFull {
-  id: number; name: Localized; position: Localized | null; birth_year: number;
+  id: number; name: Localized; position: Localized | null; sub_position: Localized | null; birth_year: number;
   nationality: Localized | null; photo: string | null; current_club: string | null;
   goals: number; assists: number; appearances: number; career: PlayerCareer[];
 }
@@ -252,8 +259,14 @@ export interface CoachFull {
 // ── Public club profile ─────────────────────────────────────────────────────
 export interface ClubListItem { id: number; name: Localized; city: Localized | null; logo: string | null; }
 
+// Global search (clubs / players / coaches) — one row's worth of data each.
+export interface SearchClub   { id: number; name: Localized; city: Localized | null; logo: string | null; }
+export interface SearchPlayer { id: number; name: Localized; birth_year: number; position: Localized | null; club: Localized | null; photo: string | null; }
+export interface SearchCoach  { id: number; name: Localized; role: Localized | null; club: Localized | null; photo: string | null; }
+export interface SearchResults { clubs: SearchClub[]; players: SearchPlayer[]; coaches: SearchCoach[]; }
+
 export interface TeamStaffMember { id: number; name: Localized; photo: string | null; role: Localized | null; current: boolean; }
-export interface TeamRosterPlayer { id: number; name: Localized; photo: string | null; shirt: number | null; position: Localized | null; birth_year: number; current: boolean; }
+export interface TeamRosterPlayer { id: number; name: Localized; photo: string | null; shirt: number | null; position: Localized | null; birth_year: number; current: boolean; guest?: boolean; }
 export interface TeamPublic {
   id: number;
   name: Localized;
@@ -262,7 +275,12 @@ export interface TeamPublic {
   age: Localized | null;
   // A team carries across seasons; these are the ones it actually played,
   // newest first, derived from the competitions it entered.
-  seasons: Localized[];
+  seasons: { id: number; name: Localized }[];
+  // The season the roster/staff below are scoped to, or null for all-time.
+  season_id?: number | null;
+  // Each competition the team entered (newest season first) — the season block
+  // links to that competition's in-competition team view.
+  competitions: { competition_id: number; title: Localized; season: Localized }[];
   staff: TeamStaffMember[];
   roster: TeamRosterPlayer[];
 }

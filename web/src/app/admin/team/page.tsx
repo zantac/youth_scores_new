@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import AdminShell from '@/components/admin/AdminShell';
@@ -7,8 +7,11 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiTeam, apiUploadImage,
   apiTeamCoaches, apiAddTeamCoach, apiUpdateTeamCoach, apiDeleteTeamCoach, apiReorderTeamCoaches,
-  apiTeamRoster, apiAddTeamPlayer, apiUpdateTeamPlayer, apiDeleteTeamPlayer, apiReorderTeamRoster,
-  type MTeamFull, type MTeamCoach, type MRegistration,
+  apiTeamRoster, apiAddTeamPlayer, apiUpdateTeamPlayer, apiDeleteTeamPlayer,
+  apiTransferPlayer, apiAdminSearch,
+  apiAttachPlayer, apiSearchPlayers, apiAttachCoach, apiSearchCoaches,
+  type MTeamFull, type MTeamCoach, type MRegistration, type AdminSearchTeam,
+  type PlayerSearchResult, type CoachSearchResult,
 } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
@@ -40,6 +43,56 @@ const COACH_ROLES = [
   { ar: 'اخصائي',            en: 'Specialist' },
   { ar: 'عامل مهمات',        en: 'Kit Man' },
 ];
+
+// Canonical playing positions, in pitch order (keeper → attack). Offered as a
+// dropdown; picking a known one fills its English counterpart. The field stays
+// free text so unusual roles can still be typed.
+const POSITIONS = [
+  { ar: 'حارس مرمي', en: 'Goalkeeper' },
+  { ar: 'مدافع',      en: 'Defender' },
+  { ar: 'لاعب وسط',   en: 'Midfielder' },
+  { ar: 'مهاجم',      en: 'Forward' },
+] as const;
+
+// Normalise so ى/ي and stray spaces don't break the match (e.g. مرمى vs مرمي).
+const normPos = (p?: string | null) => (p ?? '').trim().replace(/ى/g, 'ي');
+const POSITION_ORDER = POSITIONS.map(p => normPos(p.ar));
+const posRank = (p?: string | null) => {
+  const i = POSITION_ORDER.indexOf(normPos(p));
+  return i === -1 ? 99 : i;   // unknown/empty positions sort last
+};
+// First by position (keeper → attack), then Arabic-alphabetically by name.
+const byPositionThenName = (a: MRegistration, b: MRegistration) => {
+  const d = posRank(a.position_ar) - posRank(b.position_ar);
+  if (d !== 0) return d;
+  return (a.name_ar || a.name_en || '').localeCompare(b.name_ar || b.name_en || '', 'ar');
+};
+
+// Specific roles offered under each main position. Keyed by the (normalised)
+// main Arabic position; picking a known one fills its English counterpart. The
+// field stays free text, so anything can be typed.
+const SUB_POSITIONS: Record<string, { ar: string; en: string }[]> = {
+  'حارس مرمي': [],
+  'مدافع': [
+    { ar: 'قلب دفاع',  en: 'Centre-Back' },
+    { ar: 'ظهير ايمن', en: 'Right-Back' },
+    { ar: 'ظهير ايسر', en: 'Left-Back' },
+  ],
+  'لاعب وسط': [
+    { ar: 'وسط دفاعي', en: 'Defensive Midfielder' },
+    { ar: 'وسط',        en: 'Central Midfielder' },
+    { ar: 'وسط هجومي',  en: 'Attacking Midfielder' },
+    { ar: 'جناح ايمن',  en: 'Right Winger' },
+    { ar: 'جناح ايسر',  en: 'Left Winger' },
+  ],
+  'مهاجم': [
+    { ar: 'رأس حربة',   en: 'Centre-Forward' },
+    { ar: 'ثاني مهاجم', en: 'Second Striker' },
+    { ar: 'جناح ايمن',  en: 'Right Winger' },
+    { ar: 'جناح ايسر',  en: 'Left Winger' },
+  ],
+};
+const subPositionsFor = (positionAr: string) => SUB_POSITIONS[normPos(positionAr)] ?? [];
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="block text-teal text-[11px] font-bold mb-1">{label}</label>{children}</div>;
@@ -122,54 +175,86 @@ function CoachForm({ token, tid, coach, onDone, onCancel }: {
   );
 }
 
-function CoachesSection({ token, tid }: { token: string; tid: number }) {
+function CoachesSection({ token, tid, focusCoach }: { token: string; tid: number; focusCoach?: number }) {
   const [items, setItems] = useState<MTeamCoach[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MTeamCoach | null>(null);
+  const [showFormer, setShowFormer] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
     setLoading(true); setErr(null);
     apiTeamCoaches(token, tid).then(setItems).catch(e => setErr(e instanceof Error ? e.message : 'خطأ')).finally(() => setLoading(false));
   }, [token, tid]);
   useEffect(() => { reload(); }, [reload]);
+  // Auto-open the edit form for a coach linked from global search (once).
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current || !focusCoach || items.length === 0) return;
+    const target = items.find(c => c.coach_id === focusCoach);
+    if (target) { focused.current = true; setEditing(target); }
+  }, [items, focusCoach]);
   const remove = async (c: MTeamCoach) => { if (confirm('حذف هذا المدرّب؟')) { await apiDeleteTeamCoach(token, c.id); reload(); } };
+  // Current staff (end_date NULL) lead the list and can be reordered; anyone
+  // with an end date drops into a separate "former" section below.
+  const current = items.filter(c => !c.end_date);
+  const former = items.filter(c => c.end_date);
   const move = async (idx: number, dir: -1 | 1) => {
     const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
+    if (j < 0 || j >= current.length) return;
+    const next = [...current];
     [next[idx], next[j]] = [next[j], next[idx]];
-    setItems(next);
+    setItems([...next, ...former]);
     try { await apiReorderTeamCoaches(token, tid, next.map(x => x.id)); } catch { reload(); }
   };
+
+  const renderRow = (c: MTeamCoach, idx: number, isFormer: boolean) => editing?.id === c.id ? (
+    <CoachForm key={c.id} token={token} tid={tid} coach={c} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+  ) : (
+    <div key={c.id} className={card + ' flex items-center gap-3' + (isFormer ? ' opacity-60' : '')}>
+      {!isFormer && current.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === current.length - 1} />}
+      {c.photo ? <img src={c.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
+      <div className="flex-1 min-w-0">
+        <p className="text-text font-bold text-sm truncate">{c.name_ar || c.name_en}</p>
+        <p className="text-teal text-[11px] truncate">{c.role_ar || c.role_en || '—'}</p>
+      </div>
+      {isFormer
+        ? <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">سابق</span>
+        : <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
+      <button onClick={() => setEditing(c)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
+      <button onClick={() => remove(c)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
+    </div>
+  );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-aqua font-bold text-sm">👔 الجهاز الفني</p>
-        {!adding && !editing && <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ مدرّب</button>}
+        <p className="text-aqua font-bold text-sm">👔 الجهاز الفني {current.length > 0 && <span className="text-hint text-xs font-normal">({current.length})</span>}</p>
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
+        )}
       </div>
       {adding && <CoachForm token={token} tid={tid} coach={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachCoachForm token={token} tid={tid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
       {loading ? <p className="text-hint text-sm text-center py-4">…</p>
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد مدرّبون بعد</p>
         : (
           <div className="space-y-2">
-            {items.map((c, idx) => editing?.id === c.id ? (
-              <CoachForm key={c.id} token={token} tid={tid} coach={c} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
-            ) : (
-              <div key={c.id} className={card + ' flex items-center gap-3'}>
-                {items.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === items.length - 1} />}
-                {c.photo ? <img src={c.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
-                <div className="flex-1 min-w-0">
-                  <p className="text-text font-bold text-sm truncate">{c.name_ar || c.name_en}</p>
-                  <p className="text-teal text-[11px] truncate">{c.role_ar || c.role_en || '—'}</p>
-                </div>
-                {!c.end_date && <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
-                <button onClick={() => setEditing(c)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
-                <button onClick={() => remove(c)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
-              </div>
-            ))}
+            {current.map((c, idx) => renderRow(c, idx, false))}
+            {former.length > 0 && (
+              <>
+                <button onClick={() => setShowFormer(v => !v)} className="w-full flex items-center gap-1.5 pt-3 text-hint text-[11px] font-bold">
+                  <span className={`transition-transform ${showFormer ? 'rotate-90' : ''}`}>›</span>
+                  مدرّبون سابقون ({former.length})
+                </button>
+                {showFormer && former.map(c => renderRow(c, -1, true))}
+              </>
+            )}
           </div>
         )}
     </div>
@@ -185,12 +270,22 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
     shirt_number: reg?.shirt_number != null ? String(reg.shirt_number) : '',
     birth_year: reg?.birth_year != null && reg.birth_year_verified ? String(reg.birth_year) : '',
     position_ar: reg?.position_ar ?? '', position_en: reg?.position_en ?? '',
+    sub_position_ar: reg?.sub_position_ar ?? '', sub_position_en: reg?.sub_position_en ?? '',
     photo: reg?.photo ?? '',
     status: reg?.status ?? 'active',
     start_date: reg?.start_date ?? '', end_date: reg?.end_date ?? '',
   });
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+  // Choosing (or typing) a known position fills the English side automatically.
+  const setPosition = (v: string) => {
+    const hit = POSITIONS.find(p => p.ar === v.trim());
+    setF(prev => ({ ...prev, position_ar: v, ...(hit ? { position_en: hit.en } : {}) }));
+  };
+  const setSubPosition = (v: string) => {
+    const hit = subPositionsFor(f.position_ar).find(o => o.ar === v.trim());
+    setF(prev => ({ ...prev, sub_position_ar: v, ...(hit ? { sub_position_en: hit.en } : {}) }));
+  };
   const save = async () => {
     setErr(null); setBusy(true);
     try {
@@ -207,8 +302,21 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
         <Field label="الاسم (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
         <Field label="رقم القميص"><input type="number" value={f.shirt_number} onChange={e => set('shirt_number', e.target.value)} className={inputCls} /></Field>
         <Field label="سنة الميلاد"><input type="number" value={f.birth_year} onChange={e => set('birth_year', e.target.value)} placeholder="2010" className={inputCls} /></Field>
-        <Field label="المركز (عربي)"><input value={f.position_ar} onChange={e => set('position_ar', e.target.value)} placeholder="مهاجم" className={inputCls} /></Field>
+        <Field label="المركز (عربي)">
+          <input list="player-positions" value={f.position_ar} onChange={e => setPosition(e.target.value)} placeholder="اختر من القائمة أو اكتب" className={inputCls} />
+          <datalist id="player-positions">
+            {POSITIONS.map(p => <option key={p.ar} value={p.ar} />)}
+          </datalist>
+        </Field>
         <Field label="المركز (إنجليزي)"><input value={f.position_en} onChange={e => set('position_en', e.target.value)} dir="ltr" placeholder="Striker" className={inputCls} /></Field>
+        <Field label="المركز الفرعي (عربي)">
+          <input list="player-sub-positions" value={f.sub_position_ar} onChange={e => setSubPosition(e.target.value)}
+            placeholder={subPositionsFor(f.position_ar).length ? 'اختر من القائمة أو اكتب' : 'ظهير أيمن…'} className={inputCls} />
+          <datalist id="player-sub-positions">
+            {subPositionsFor(f.position_ar).map(o => <option key={o.ar} value={o.ar} />)}
+          </datalist>
+        </Field>
+        <Field label="المركز الفرعي (إنجليزي)"><input value={f.sub_position_en} onChange={e => set('sub_position_en', e.target.value)} dir="ltr" placeholder="Right-Back" className={inputCls} /></Field>
         <Field label="الحالة"><select value={f.status} onChange={e => set('status', e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}</select></Field>
         <Field label="تاريخ التسجيل"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ الانتهاء"><input type="date" value={f.end_date} onChange={e => set('end_date', e.target.value)} className={inputCls} /></Field>
@@ -223,58 +331,300 @@ function PlayerForm({ token, tid, reg, onDone, onCancel }: {
   );
 }
 
-function RosterSection({ token, tid }: { token: string; tid: number }) {
+function AttachPlayerForm({ token, tid, onDone, onCancel }: {
+  token: string; tid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<PlayerSearchResult[]>([]);
+  const [sel, setSel] = useState<PlayerSearchResult | null>(null);
+  const [shirt, setShirt] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchPlayers(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر اللاعب'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiAttachPlayer(token, tid, { player_id: sel.id, shirt_number: shirt ? Number(shirt) : null, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة لاعب موجود إلى الفريق</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name}{sel.club && <span className="text-teal text-[11px]"> · {sel.club}</span>} <span className="text-hint text-[11px]">مواليد {sel.birth_year}</span></span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن اسم اللاعب…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(p => (
+                <button key={p.id} onClick={() => { setSel(p); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {p.name}{p.club && <span className="text-teal text-[11px]"> · {p.club}</span>} <span className="text-hint text-[11px]">· {p.birth_year}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="text-hint text-[10px] block mb-0.5">تاريخ الانضمام</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} /></div>
+        <div><label className="text-hint text-[10px] block mb-0.5">رقم القميص (اختياري)</label><input value={shirt} onChange={e => setShirt(e.target.value)} inputMode="numeric" className={inputCls} /></div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function AttachCoachForm({ token, tid, onDone, onCancel }: {
+  token: string; tid: number; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<CoachSearchResult[]>([]);
+  const [sel, setSel] = useState<CoachSearchResult | null>(null);
+  const [roleAr, setRoleAr] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => { apiSearchCoaches(token, term).then(r => { if (alive) setResults(r); }).catch(() => { if (alive) setResults([]); }); }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!sel) { setErr('اختر المدرّب'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiAttachCoach(token, tid, { coach_id: sel.id, role_ar: roleAr || undefined, start_date: startDate || undefined });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-aqua font-bold text-xs">➕ إضافة مدرّب موجود إلى الفريق</p>
+      {sel ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{sel.name}{sel.role && <span className="text-aqua text-[11px]"> · {sel.role}</span>}{sel.club && <span className="text-teal text-[11px]"> · {sel.club}</span>}{sel.birth_year && <span className="text-hint text-[11px]"> · مواليد {sel.birth_year}</span>}</span>
+          <button onClick={() => setSel(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن اسم المدرّب…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(c => (
+                <button key={c.id} onClick={() => { setSel(c); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {c.name}{c.role && <span className="text-aqua text-[11px]"> · {c.role}</span>}{c.club && <span className="text-teal text-[11px]"> · {c.club}</span>}{c.birth_year && <span className="text-hint text-[11px]"> · مواليد {c.birth_year}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div><label className="text-hint text-[10px] block mb-0.5">الدور (اختياري)</label><input value={roleAr} onChange={e => setRoleAr(e.target.value)} placeholder="مدرب عام" className={inputCls} /></div>
+        <div><label className="text-hint text-[10px] block mb-0.5">تاريخ الانضمام</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} /></div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !sel} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">إضافة</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function TransferForm({ token, reg, onDone, onCancel }: {
+  token: string; reg: MRegistration; onDone: () => void; onCancel: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<AdminSearchTeam[]>([]);
+  const [dest, setDest] = useState<AdminSearchTeam | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [shirt, setShirt] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setResults([]); return; }
+    let alive = true;
+    const t = setTimeout(() => {
+      apiAdminSearch(token, term).then(r => { if (alive) setResults(r.teams); }).catch(() => { if (alive) setResults([]); });
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q, token]);
+
+  const submit = async () => {
+    if (!dest) { setErr('اختر الفريق الجديد'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiTransferPlayer(token, reg.id, {
+        team_id: dest.id,
+        start_date: startDate || undefined,
+        shirt_number: shirt ? Number(shirt) : null,
+      });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); setBusy(false); }
+  };
+
+  return (
+    <div className={card + ' space-y-2'}>
+      <p className="text-gold font-bold text-xs">↪ نقل {reg.name_ar || reg.name_en} إلى فريق آخر</p>
+      {dest ? (
+        <div className="flex items-center gap-2 bg-darkBg border border-aqua/40 rounded-lg px-3 py-2">
+          <span className="flex-1 text-text text-sm">{dest.name}</span>
+          <button onClick={() => setDest(null)} className="text-hint text-xs font-bold">تغيير</button>
+        </div>
+      ) : (
+        <>
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="ابحث عن الفريق الجديد (باسم النادي)…" className={inputCls} />
+          {results.length > 0 && (
+            <div className="border border-bdr rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {results.map(tm => (
+                <button key={tm.id} onClick={() => { setDest(tm); setQ(''); setResults([]); }}
+                  className="w-full text-start px-3 py-2 text-sm text-text hover:bg-aqua/5 border-b border-bdr/40 last:border-0">
+                  {tm.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">تاريخ الانتقال</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="text-hint text-[10px] block mb-0.5">رقم القميص (اختياري)</label>
+          <input value={shirt} onChange={e => setShirt(e.target.value)} inputMode="numeric" className={inputCls} />
+        </div>
+      </div>
+      <Err e={err} />
+      <div className="flex gap-2">
+        <button disabled={busy || !dest} onClick={submit} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg disabled:opacity-50">تأكيد النقل</button>
+        <button onClick={onCancel} className="text-hint text-xs font-bold px-4 py-1.5">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
+function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number; focusPlayer?: number }) {
   const [items, setItems] = useState<MRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [editing, setEditing] = useState<MRegistration | null>(null);
+  const [transferring, setTransferring] = useState<MRegistration | null>(null);
+  const [showFormer, setShowFormer] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
     setLoading(true); setErr(null);
     apiTeamRoster(token, tid).then(setItems).catch(e => setErr(e instanceof Error ? e.message : 'خطأ')).finally(() => setLoading(false));
   }, [token, tid]);
   useEffect(() => { reload(); }, [reload]);
+  // Auto-open the edit form for a player linked from global search (once) —
+  // prefer their active stint on this team.
+  const focused = useRef(false);
+  useEffect(() => {
+    if (focused.current || !focusPlayer || items.length === 0) return;
+    const target = items.find(r => r.player_id === focusPlayer && !r.end_date)
+      ?? items.find(r => r.player_id === focusPlayer);
+    if (target) { focused.current = true; setEditing(target); }
+  }, [items, focusPlayer]);
   const remove = async (r: MRegistration) => { if (confirm('حذف هذا اللاعب من القائمة؟')) { await apiDeleteTeamPlayer(token, r.id); reload(); } };
-  const move = async (idx: number, dir: -1 | 1) => {
-    const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[idx], next[j]] = [next[j], next[idx]];
-    setItems(next);
-    try { await apiReorderTeamRoster(token, tid, next.map(x => x.id)); } catch { reload(); }
-  };
+  // Squad = current players of this team's own age; guests = younger players
+  // playing up (same club); former = transferred/ended stints kept for history.
+  // Current players are shown by position (keeper → attack) then alphabetically.
+  const active = items.filter(r => !r.end_date && !r.is_guest).sort(byPositionThenName);
+  const guests = items.filter(r => !r.end_date && r.is_guest).sort(byPositionThenName);
+  const former = items.filter(r => r.end_date);
+
+  const renderRow = (r: MRegistration, variant: 'active' | 'guest' | 'former') =>
+    editing?.id === r.id ? (
+      <PlayerForm key={r.id} token={token} tid={tid} reg={r} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
+    ) : transferring?.id === r.id ? (
+      <TransferForm key={r.id} token={token} reg={r} onDone={() => { setTransferring(null); reload(); }} onCancel={() => setTransferring(null)} />
+    ) : (
+      <div key={r.id} className={card + ' flex items-center gap-3' + (variant === 'former' ? ' opacity-60' : '')}>
+        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
+        <div className="flex-1 min-w-0">
+          <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
+          <p className="text-hint text-[11px] truncate">
+            {r.position_ar || r.position_en || ''}
+            {r.birth_year ? ` · ${r.birth_year}${r.birth_year_verified ? '' : '؟'}` : ''}
+            {r.status !== 'active' && variant === 'active' ? ` · ${statusLabel(r.status)}` : ''}
+          </p>
+        </div>
+        {variant === 'guest' && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">صاعد</span>}
+        {variant === 'former' && <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">{r.status === 'transferred' ? 'منتقل' : 'سابق'}</span>}
+        {variant === 'active' && <button onClick={() => setTransferring(r)} className="text-gold text-[11px] font-bold flex-shrink-0">نقل</button>}
+        <button onClick={() => setEditing(r)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
+        <button onClick={() => remove(r)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
+      </div>
+    );
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-aqua font-bold text-sm">🧑‍🤝‍🧑 قائمة اللاعبين {items.length > 0 && <span className="text-hint text-xs">({items.length})</span>}</p>
-        {!adding && !editing && <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-4 py-1.5 rounded-lg">+ لاعب</button>}
+        <p className="text-aqua font-bold text-sm">🧑‍🤝‍🧑 قائمة اللاعبين {active.length > 0 && <span className="text-hint text-xs">({active.length})</span>}</p>
+        {!adding && !attaching && !editing && (
+          <div className="flex gap-2">
+            <button onClick={() => setAttaching(true)} className="border border-aqua/40 text-aqua font-bold text-xs px-3 py-1.5 rounded-lg">+ موجود</button>
+            <button onClick={() => setAdding(true)} className="bg-aqua text-on-accent font-bold text-xs px-3 py-1.5 rounded-lg">+ جديد</button>
+          </div>
+        )}
       </div>
       {adding && <PlayerForm token={token} tid={tid} reg={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+      {attaching && <AttachPlayerForm token={token} tid={tid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
       {loading ? <p className="text-hint text-sm text-center py-4">…</p>
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>
         : (
           <div className="space-y-2">
-            {items.map((r, idx) => editing?.id === r.id ? (
-              <PlayerForm key={r.id} token={token} tid={tid} reg={r} onDone={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />
-            ) : (
-              <div key={r.id} className={card + ' flex items-center gap-3'}>
-                {items.length > 1 && <Arrows onUp={() => move(idx, -1)} onDown={() => move(idx, 1)} first={idx === 0} last={idx === items.length - 1} />}
-                <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
-                  <p className="text-hint text-[11px] truncate">
-                    {r.position_ar || r.position_en || ''}
-                    {r.birth_year ? ` · ${r.birth_year}${r.birth_year_verified ? '' : '؟'}` : ''}
-                    {r.status !== 'active' ? ` · ${statusLabel(r.status)}` : ''}
-                  </p>
-                </div>
-                {r.end_date && <span className="text-hint text-[10px] border border-bdr rounded px-2 py-0.5 flex-shrink-0">منتهٍ</span>}
-                <button onClick={() => setEditing(r)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
-                <button onClick={() => remove(r)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
-              </div>
-            ))}
+            {active.map(r => renderRow(r, 'active'))}
+            {guests.length > 0 && (
+              <>
+                <p className="text-teal text-[11px] font-bold pt-3">⬆️ ضيوف — يلعبون صاعداً ({guests.length})</p>
+                {guests.map(r => renderRow(r, 'guest'))}
+              </>
+            )}
+            {former.length > 0 && (
+              <>
+                <button onClick={() => setShowFormer(v => !v)} className="w-full flex items-center gap-1.5 pt-3 text-hint text-[11px] font-bold">
+                  <span className={`transition-transform ${showFormer ? 'rotate-90' : ''}`}>›</span>
+                  لاعبون سابقون / منتقلون ({former.length})
+                </button>
+                {showFormer && former.map(r => renderRow(r, 'former'))}
+              </>
+            )}
+            {active.length === 0 && guests.length === 0 && former.length === 0 && <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>}
           </div>
         )}
     </div>
@@ -286,8 +636,15 @@ function TeamPageInner() {
   const { token, canEdit } = useAdminAuth();
   const params = useSearchParams();
   const id = Number(params.get('id') || 0);
+  // Coming from global search: focus (auto-open the edit form of) a specific
+  // player or coach so the admin can edit/remove them right away.
+  const focusPlayer = Number(params.get('player') || 0) || undefined;
+  const focusCoach = Number(params.get('coach') || 0) || undefined;
   const [team, setTeam] = useState<MTeamFull | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Coaches by default; jump straight to the players tab when a specific player
+  // was linked from global search.
+  const [tab, setTab] = useState<'coaches' | 'players'>(focusPlayer ? 'players' : 'coaches');
 
   useEffect(() => {
     if (!token || !id) return;
@@ -320,8 +677,21 @@ function TeamPageInner() {
               </p>
             </div>
           </div>
-          <CoachesSection token={token!} tid={team.id} />
-          <RosterSection token={token!} tid={team.id} />
+          <div className="flex items-center gap-1 bg-darkBg border border-bdr rounded-xl p-1">
+            {([
+              { key: 'coaches' as const, label: '👔 الجهاز الفني' },
+              { key: 'players' as const, label: '🧑‍🤝‍🧑 اللاعبون' },
+            ]).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
+                  tab === t.key ? 'bg-aqua text-on-accent' : 'text-hint hover:text-text'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {tab === 'coaches'
+            ? <CoachesSection token={token!} tid={team.id} focusCoach={focusCoach} />
+            : <RosterSection token={token!} tid={team.id} focusPlayer={focusPlayer} />}
         </div>
       )}
     </AdminShell>

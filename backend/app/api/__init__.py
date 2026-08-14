@@ -7,6 +7,23 @@ from app.api import serializers
 api_bp = Blueprint("api", __name__)
 
 
+@api_bp.after_request
+def _public_cache(response):
+    """Let browsers and any CDN in front of Railway cache the public read feed.
+
+    Everything under this blueprint is public, unauthenticated read data (the
+    config/data feed, matches, clubs, teams, players). A short max-age with a
+    longer stale-while-revalidate means repeat visits and CDN hits are served
+    without re-running the queries, while updates still appear within a minute.
+    Only successful GETs are cached; writes never reach this blueprint.
+    """
+    if request.method == "GET" and response.status_code == 200:
+        response.headers.setdefault(
+            "Cache-Control", "public, max-age=60, stale-while-revalidate=300"
+        )
+    return response
+
+
 def _base_url() -> str:
     # Absolute URLs are embedded in the config so the clients can fetch each
     # competition directly. Honour a configured base (behind a proxy / real
@@ -41,12 +58,15 @@ def matches():
     order = request.args.get("order", "desc")
     if order not in ("asc", "desc"):
         order = "desc"
+    # Always bound the feed so a no-arg call can't stream every match ever.
+    raw_limit = request.args.get("limit", type=int)
+    limit = min(raw_limit, 2000) if raw_limit and raw_limit > 0 else 1000
     return jsonify(
         serializers.all_matches(
             _base_url(),
             date_from=_parse_date(request.args.get("from")),
             date_to=_parse_date(request.args.get("to")),
-            limit=request.args.get("limit", type=int),
+            limit=limit,
             order=order,
         )
     )
@@ -87,6 +107,16 @@ def clubs_index():
     return jsonify(serializers.clubs_index())
 
 
+@api_bp.get("/api/search")
+def search():
+    # Free-text search across clubs, players and coaches. Needs at least two
+    # characters so a single keystroke doesn't scan the whole name tables.
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"clubs": [], "players": [], "coaches": []})
+    return jsonify(serializers.search_all(q))
+
+
 @api_bp.get("/api/teams/<int:team_id>")
 def team_detail(team_id: int):
     from app.models import Team
@@ -94,7 +124,8 @@ def team_detail(team_id: int):
     t = Team.query.get(team_id)
     if t is None:
         return jsonify({"error": "not found"}), 404
-    return jsonify(serializers.team_public(t))
+    season_id = request.args.get("season_id", type=int)
+    return jsonify(serializers.team_public(t, season_id=season_id))
 
 
 @api_bp.get("/api/clubs/<int:club_id>")

@@ -8,6 +8,7 @@ const tabs = [
   { href: '/competitions', icon: '🏆', arLabel: 'البطولات',   enLabel: 'Competitions' },
   { href: '/academies',    icon: '🏫', arLabel: 'الأكاديميات', enLabel: 'Academies' },
   { href: '/news',         icon: '📰', arLabel: 'الأخبار',    enLabel: 'News' },
+  { href: '/contact',      icon: '✉️', arLabel: 'اتصل بنا',   enLabel: 'Contact' },
 ];
 
 export default function BottomNav() {

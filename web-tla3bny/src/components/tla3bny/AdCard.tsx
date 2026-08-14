@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mediaUrl, whatsappLink, tAdSettings, type TAd, type TAdSettings } from '@/lib/tla3bnyApi';
+import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { useTT } from './kit';
 
 // The carousel display settings (rotation speed + poster size) are one shared
@@ -34,6 +35,9 @@ function WhatsAppIcon() {
 export default function AdCard({ ad, variant = 'poster' }: { ad: TAd; variant?: 'poster' | 'strip' }) {
   const tt = useTT();
   const [zoom, setZoom] = useState(false);
+  const { user } = useTla3bnyAuth();
+  // Sponsor ads are shown to the public only — hidden once anyone signs in.
+  if (user) return null;
   const poster = mediaUrl(ad.poster_path);
   const wa = whatsappLink(ad.whatsapp_number);
 
@@ -110,6 +114,7 @@ export default function AdCard({ ad, variant = 'poster' }: { ad: TAd; variant?: 
  *  taps to fullscreen. Renders nothing when there are no ads, so callers can drop
  *  it in unconditionally. */
 export function AdStrip({ ads, className = '' }: { ads: TAd[]; className?: string }) {
+  const { user } = useTla3bnyAuth();
   const ref = useRef<HTMLDivElement>(null);
   const [i, setI] = useState(0);
   const [settings, setSettings] = useState<TAdSettings>(AD_DEFAULTS);
@@ -131,7 +136,7 @@ export function AdStrip({ ads, className = '' }: { ads: TAd[]; className?: strin
     }
   }, [i, settings.poster_scale]);
 
-  if (!ads.length) return null;
+  if (user || !ads.length) return null;   // public-only: hidden when signed in
   // Base card is 72% of the row; poster_scale (%) grows/shrinks it, and the side
   // padding keeps the first/last card centrable with the rest peeking.
   const cardW = Math.max(30, Math.min(96, 72 * settings.poster_scale / 100));
@@ -155,7 +160,8 @@ export function AdStrip({ ads, className = '' }: { ads: TAd[]; className?: strin
  *  it reads as content rather than a labelled "ads" box. Renders nothing when
  *  there are no ads, so callers can drop it in unconditionally. */
 export function AdBanner({ ads, className = '' }: { ads: TAd[]; className?: string }) {
-  if (!ads.length) return null;
+  const { user } = useTla3bnyAuth();
+  if (user || !ads.length) return null;   // public-only: hidden when signed in
   if (ads.length === 1) {
     return <div className={className}><AdCard ad={ads[0]} variant="poster" /></div>;
   }

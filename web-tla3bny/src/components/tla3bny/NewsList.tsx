@@ -46,7 +46,7 @@ function NewsDetail({ item, onClose }: { item: TNews; onClose: () => void }) {
         <div className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={photos[0]} alt="" onClick={() => setPhotoIdx(0)}
-            className="w-full max-h-[320px] object-cover cursor-zoom-in" />
+            className="w-full max-h-[320px] object-contain bg-darkBg cursor-zoom-in" />
           {photos.length > 1 && (
             <div className="flex gap-2 overflow-x-auto no-scrollbar p-2">
               {photos.slice(1).map((src, i) => (

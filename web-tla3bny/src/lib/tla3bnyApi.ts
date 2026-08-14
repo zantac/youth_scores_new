@@ -53,6 +53,18 @@ export interface TManager {
   name: string;
   role: string | null;
   phone: string | null;
+  photo_path: string | null;
+  sort_order: number;
+}
+
+export interface TBranch {
+  id: number;
+  academy_id: number;
+  name: string;
+  governorate: string | null;
+  address: string | null;
+  location_url: string | null;
+  phone: string | null;
   sort_order: number;
 }
 
@@ -62,13 +74,17 @@ export interface TAcademy {
   name_en: string | null;
   logo_path: string | null;
   phone: string | null;
+  whatsapp_number: string | null;
   facebook_url: string | null;
   training_place: string | null;
   address: string | null;
   description: string | null;
+  /** Up to 3 gallery photos (paths/URLs) for the advertising page. */
+  photos: string[];
   status: TAcademyStatus;
   rejection_reason?: string | null;
   managers: TManager[];
+  branches: TBranch[];
   teams?: TTeam[];
   created_at?: string;
 }
@@ -79,6 +95,8 @@ export interface TCoach {
   name: string;
   name_en: string | null;
   role_ar: string | null;
+  license: string | null;
+  bio: string | null;
   phone: string | null;
   photo_path: string | null;
   start_date: string | null;
@@ -109,9 +127,12 @@ export interface TTeam {
   academy_logo: string | null;
   age_category_id: number;
   age_category: string | null;
+  oldest_birth_year: number | null;
   class_label: string | null;
   name: string | null;
   name_en: string | null;
+  photo_path: string | null;
+  description: string | null;
   display_name: string;
   display_name_en: string;
   coaches?: TCoach[];
@@ -194,7 +215,14 @@ export interface TCompAge {
   competition_id: number;
   age_category_id: number;
   age_category: string | null;
+  oldest_birth_year: number | null;
   name: string | null;
+  /** Public "about this sub-competition" text, shown to everyone. */
+  description: string | null;
+  /** Per-team entry fee (EGP). Present ONLY when the viewer is an academy or a
+   *  competition admin — omitted for the public, so `undefined` means "not
+   *  allowed to see" while `null` means "no fee set". */
+  subscription_fee?: number | null;
   player_registration_deadline: string | null;
   required_documents: string[];
   max_players_per_team: number;
@@ -203,6 +231,9 @@ export interface TCompAge {
   max_substitutes: number;
   num_periods: number;
   period_minutes: number;
+  /** Extra-time format for knockout ties; null = no extra time (straight to pens). */
+  et_num_periods: number | null;
+  et_period_minutes: number | null;
   lineup_deadline_minutes: number;
   replacements_open: boolean;
   max_replacements: number;
@@ -369,6 +400,8 @@ export interface TRules {
   max_substitutes: number;
   num_periods: number;
   period_minutes: number;
+  et_num_periods?: number | null;
+  et_period_minutes?: number | null;
   lineup_deadline_minutes: number;
   max_players_per_team: number;
   oldest_birth_year: number | null;
@@ -433,6 +466,8 @@ export interface TMatch {
   home_score_pen: number | null;
   away_score_pen: number | null;
   note: string | null;
+  /** The organizer's player of the match, shown on the card and detail. */
+  player_of_match?: { player_id: number; player_name: string | null; player_name_en: string | null; photo_path: string | null } | null;
   events?: TMatchEvent[];
 }
 
@@ -560,8 +595,8 @@ export const tLogin = (login: string, password: string) =>
 
 export function tRegister(fd: {
   name: string; name_en?: string; username: string; password: string; phone: string;
-  email?: string; facebook_url?: string; training_place?: string; address?: string;
-  description?: string; logo?: File | null;
+  email?: string; facebook_url?: string; whatsapp_number?: string; training_place?: string;
+  address?: string; description?: string; logo?: File | null;
 }) {
   const body = new FormData();
   Object.entries(fd).forEach(([k, v]) => { if (v != null && v !== '' && k !== 'logo') body.append(k, String(v)); });
@@ -620,16 +655,29 @@ export const tSetAcademyAccount = (
   token: string, id: number, b: { username: string; password: string },
 ) => send<{ message: string; username: string }>('POST', `/academies/${id}/account`, b, token);
 
-export function tUpdateAcademy(token: string, fd: Record<string, string | undefined>, logo?: File | null) {
+export function tUpdateAcademy(
+  token: string, fd: Record<string, string | undefined>, logo?: File | null, photos?: string[],
+) {
   const body = new FormData();
   Object.entries(fd).forEach(([k, v]) => { if (v != null) body.append(k, v); });
   if (logo) body.append('logo', logo);
+  // Sending photos (even empty) replaces the gallery; empty marker clears it.
+  if (photos) (photos.length ? photos : ['']).forEach(p => body.append('photos', p));
   return sendForm<TAcademy>('PUT', '/academies/me', body, token);
 }
 export const tAddManager = (token: string, academyId: number, b: Record<string, unknown>) =>
   send<TManager>('POST', `/academies/${academyId}/managers`, b, token);
+export const tUpdateManager = (token: string, academyId: number, id: number, b: Record<string, unknown>) =>
+  send<TManager>('PUT', `/academies/${academyId}/managers/${id}`, b, token);
 export const tDeleteManager = (token: string, academyId: number, id: number) =>
   send<{ message: string }>('DELETE', `/academies/${academyId}/managers/${id}`, undefined, token);
+// ── academy branches (locations) ──────────────────────────────────────────────
+export const tAddBranch = (token: string, academyId: number, b: Record<string, unknown>) =>
+  send<TBranch>('POST', `/academies/${academyId}/branches`, b, token);
+export const tUpdateBranch = (token: string, academyId: number, id: number, b: Record<string, unknown>) =>
+  send<TBranch>('PUT', `/academies/${academyId}/branches/${id}`, b, token);
+export const tDeleteBranch = (token: string, academyId: number, id: number) =>
+  send<{ message: string }>('DELETE', `/academies/${academyId}/branches/${id}`, undefined, token);
 
 // ── teams ───────────────────────────────────────────────────────────────────
 export const tAcademyTeams = (academyId: number) => get<TTeam[]>(`/academies/${academyId}/teams`);
@@ -667,6 +715,8 @@ export interface TTeamCompEntry {
   sub_competition_name: string | null;
   status: string;
   registration_open: boolean;
+  /** Past the deadline the academy can no longer add/edit players (organizer can). */
+  registration_deadline_passed: boolean;
   max_players: number | null;
   player_count: number;
   replacements_open: boolean;
@@ -675,6 +725,8 @@ export interface TTeamCompEntry {
   /** Populated only when replacements_open is true. */
   approved_players: TApprovedPlayer[];
   rejected_players: { player_id: number; player_name: string | null; rejection_reason: string | null }[];
+  /** Players still awaiting the organizer's approval (newly added or edited). */
+  pending_players: { player_id: number; player_name: string | null }[];
 }
 /** Competitions this team is registered in (active + pending), with player quota — for the academy dashboard. */
 export const tTeamCompetitionEntries = (token: string, teamId: number) =>
@@ -707,6 +759,9 @@ export function tUpdateCoach(token: string, id: number, fd: Record<string, strin
 }
 export const tDeleteCoach = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/coaches/${id}`, undefined, token);
+/** Public coach profile: the coach plus the team (and academy) they're on. */
+export interface TCoachDetail extends TCoach { team: TTeam | null }
+export const tCoach = (id: number) => get<TCoachDetail>(`/coaches/${id}`);
 
 // ── players ─────────────────────────────────────────────────────────────────
 /** Pass the token to get the player's papers back (admins/owners only). */
@@ -770,7 +825,10 @@ export const tDeletePlayerFile = (token: string, playerId: number, fileId: numbe
 /** Pass a super admin's token to get each competition's organizers back too. */
 export const tCompetitions = (seasonId?: number, token?: string | null) =>
   get<TCompetition[]>(`/competitions${qs({ season_id: seasonId })}`, token);
-export const tCompetition = (id: number) => get<TCompetition>(`/competitions/${id}`);
+/** Pass a token to receive fields limited to academies/admins (subscription
+ *  fees on each sub-competition). Anonymous callers get the public shape. */
+export const tCompetition = (id: number, token?: string | null) =>
+  get<TCompetition>(`/competitions/${id}`, token);
 /** `documents` is the competition's required player papers — one entry per
  *  paper, in the order the organiser listed them. */
 function compBody(
@@ -813,6 +871,50 @@ export const tUpdateCompAge = (token: string, id: number, b: Record<string, unkn
   send<TCompAge>('PUT', `/competition-ages/${id}`, b, token);
 export const tDeleteCompAge = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/competition-ages/${id}`, undefined, token);
+
+// ── registration documents: export & cleanup ────────────────────────────────
+export interface TDocDeleteResult {
+  deleted_files: number;
+  skipped_players: { player_id: number; player_name: string | null; reason: string }[];
+  failed: string[];
+  message?: string;
+}
+
+/** Fetch a protected file with the bearer token and save it via the browser.
+ * A plain <a href> can't carry the Authorization header, so we stream the blob
+ * and trigger the download ourselves. */
+async function downloadAuthed(path: string, token: string, fallbackName: string): Promise<void> {
+  const res = await fetch(`${T_BASE}${path}`, { headers: authHeaders(token), cache: 'no-store' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  }
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  const name = m ? decodeURIComponent(m[1]) : fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Download one sub-competition's registration documents as a ZIP (finished only). */
+export const tDownloadSubCompDocs = (token: string, cageId: number) =>
+  downloadAuthed(`/competition-ages/${cageId}/documents/archive`, token, `sub_${cageId}_documents.zip`);
+/** Delete one sub-competition's documents; shared players are skipped & reported. */
+export const tDeleteSubCompDocs = (token: string, cageId: number) =>
+  send<TDocDeleteResult>('DELETE', `/competition-ages/${cageId}/documents`, undefined, token);
+/** Download every registration document in a competition as one ZIP (finished only). */
+export const tDownloadCompDocs = (token: string, compId: number) =>
+  downloadAuthed(`/competitions/${compId}/documents/archive`, token, `competition_${compId}_documents.zip`);
+/** Final sweep: delete all remaining documents of a finished competition. */
+export const tDeleteCompDocs = (token: string, compId: number) =>
+  send<TDocDeleteResult>('DELETE', `/competitions/${compId}/documents`, undefined, token);
 
 // ── stages + groups ─────────────────────────────────────────────────────────
 export const tAddStage = (token: string, cageId: number, b: Record<string, unknown>) =>
@@ -862,6 +964,57 @@ export const tRejectRosterPlayer = (token: string, cpId: number, reason?: string
 /** Academy marks an approved player as replaced during the replacement window. */
 export const tReplaceCompPlayer = (token: string, cpId: number) =>
   send<TCompPlayer>('POST', `/competition-players/${cpId}/replace`, undefined, token);
+
+// ── per-competition player registration (with that competition's papers) ─────
+/** One squad player as seen from a specific competition's registration screen. */
+export interface TRegistrationPlayer {
+  player_id: number;
+  player_name: string | null;
+  player_name_en: string | null;
+  photo_path: string | null;
+  position: string | null;
+  dob: string | null;
+  jersey_number: number | null;
+  /** Null until the player is entered in *this* competition. */
+  competition_player_id: number | null;
+  registration_status: TApprovalStatus | 'replaced' | null;
+  rejection_reason: string | null;
+  /** Papers uploaded for *this* competition only. */
+  files: TPlayerFile[];
+  missing_documents: string[];
+}
+export interface TCompetitionRegistration {
+  entry_id: number;
+  competition_id: number;
+  competition_name: string | null;
+  sub_competition_name: string | null;
+  status: string;
+  required_documents: string[];
+  max_players: number | null;
+  registered_count: number;
+  registration_open: boolean;
+  replacements_open: boolean;
+  players: TRegistrationPlayer[];
+}
+/** The academy's registration screen for one competition entry: the whole squad,
+ *  who is entered here, and the papers this competition needs for each. */
+export const tCompetitionRegistration = (token: string, entryId: number) =>
+  get<TCompetitionRegistration>(`/competition-teams/${entryId}/registration`, token);
+
+function docsBody(playerId: number | undefined, documents: LabeledDoc[]) {
+  const body = new FormData();
+  if (playerId != null) body.append('player_id', String(playerId));
+  documents.forEach(d => { body.append('documents', d.file); body.append('document_labels', d.label); });
+  return body;
+}
+/** Enter a squad player in this competition, with this competition's papers. */
+export const tRegisterCompetitionPlayer = (
+  token: string, entryId: number, playerId: number, documents: LabeledDoc[] = [],
+) => sendForm<TCompPlayer>('POST', `/competition-teams/${entryId}/players`, docsBody(playerId, documents), token);
+/** Add / refresh the papers on an existing registration (re-opens the review). */
+export const tUploadRegistrationDocs = (
+  token: string, cpId: number, documents: LabeledDoc[],
+) => sendForm<TCompPlayer>('POST', `/competition-players/${cpId}/documents`, docsBody(undefined, documents), token);
 
 // ── matches ─────────────────────────────────────────────────────────────────
 export const tMatches = (params: {
@@ -927,6 +1080,113 @@ export const tBracket = (compId: number, ageId: number) =>
   get<TBracketStage[]>(`/bracket${qs({ competition_id: compId, age_category_id: ageId })}`);
 export const tAnalysis = (compId: number, ageId: number) =>
   get<TAnalysis>(`/analysis${qs({ competition_id: compId, age_category_id: ageId })}`);
+
+// ── honours: titles, individual awards, team of the round ──────────────────
+export type TAwardType =
+  | 'champion' | 'runner_up' | 'third_place'
+  | 'top_scorer' | 'top_assister' | 'best_player' | 'best_goalkeeper'
+  | 'player_of_match' | 'player_of_round';
+/** Team titles go to a team; every other award goes to a player. */
+export const TEAM_AWARD_TYPES: TAwardType[] = ['champion', 'runner_up', 'third_place'];
+
+export interface TAward {
+  id: number;
+  competition_id: number;
+  competition_name: string | null;
+  competition_age_id: number | null;
+  sub_competition_name: string | null;
+  age_label: string | null;
+  award_type: TAwardType;
+  round: string | null;
+  match_id: number | null;
+  note: string | null;
+  player_id: number | null;
+  player_name: string | null;
+  player_name_en: string | null;
+  player_photo: string | null;
+  team_id: number | null;
+  team_name: string | null;
+  team_logo: string | null;
+  academy_id: number | null;
+}
+export interface TTotrSlot {
+  id: number;
+  position_slot: string | null;
+  sort_order: number;
+  player_id: number | null;
+  player_name: string | null;
+  player_name_en: string | null;
+  photo_path: string | null;
+  team_id: number | null;
+  team_name: string | null;
+}
+export interface TTeamOfRound {
+  id: number;
+  competition_id: number;
+  competition_age_id: number | null;
+  sub_competition_name: string | null;
+  round: string;
+  formation: string | null;
+  slots: TTotrSlot[];
+}
+export interface TPlayerAchievements {
+  individual_awards: TAward[];
+  team_titles: TAward[];
+  team_of_round: { competition_id: number; sub_competition_name: string | null; round: string; position_slot: string | null }[];
+}
+export interface TTeamHonours { titles: TAward[]; player_awards: TAward[] }
+
+// public honours reads
+export const tCompetitionAwards = (compId: number) =>
+  get<TAward[]>(`/competitions/${compId}/awards`);
+export const tPlayerAchievements = (playerId: number) =>
+  get<TPlayerAchievements>(`/players/${playerId}/achievements`);
+export const tTeamHonours = (teamId: number) =>
+  get<TTeamHonours>(`/teams/${teamId}/honours`);
+export const tAcademyHonours = (academyId: number) =>
+  get<TAward[]>(`/academies/${academyId}/honours`);
+export const tTeamOfRoundAll = (compId: number, cageId?: number) =>
+  get<TTeamOfRound[]>(`/competitions/${compId}/team-of-round${qs({ competition_age_id: cageId })}`);
+export const tTeamOfRound = (compId: number, round: string, cageId?: number) =>
+  get<TTeamOfRound | null>(`/competitions/${compId}/team-of-round${qs({ competition_age_id: cageId, round })}`);
+
+// admin: grant / revoke / suggest / round labels / team-of-round builder
+export interface TAwardInput {
+  award_type: TAwardType;
+  competition_age_id?: number;
+  round?: string;
+  match_id?: number;
+  player_id?: number;
+  team_id?: number;
+  note?: string;
+}
+export const tGrantAward = (token: string, compId: number, body: TAwardInput) =>
+  send<TAward>('POST', `/competitions/${compId}/awards`, body, token);
+export const tRevokeAward = (token: string, awardId: number) =>
+  send<{ message: string }>('DELETE', `/awards/${awardId}`, undefined, token);
+/** Set (playerId) or clear (null) the player of the match from its edit panel. */
+export const tSetPlayerOfMatch = (token: string, matchId: number, playerId: number | null) =>
+  send<TMatch>('PUT', `/matches/${matchId}/player-of-match`, { player_id: playerId }, token);
+export interface TAwardSuggestions {
+  players?: { player_id: number; player_name: string | null; photo_path: string | null; team_id: number | null; team_name: string | null; count?: number }[];
+  teams?: { team_id: number; team_name: string | null; detail?: string }[];
+}
+export const tAwardSuggestions = (
+  token: string, compId: number,
+  params: { award_type: TAwardType; competition_age_id?: number; round?: string; match_id?: number },
+) => get<TAwardSuggestions>(`/competitions/${compId}/awards/suggestions${qs(params)}`, token);
+export const tCompetitionRounds = (compId: number, cageId?: number) =>
+  get<string[]>(`/competitions/${compId}/rounds${qs({ competition_age_id: cageId })}`);
+export interface TTotrInput {
+  competition_age_id?: number;
+  round: string;
+  formation?: string;
+  slots: { player_id: number; position_slot?: string; sort_order?: number }[];
+}
+export const tSaveTeamOfRound = (token: string, compId: number, body: TTotrInput) =>
+  send<TTeamOfRound>('PUT', `/competitions/${compId}/team-of-round`, body, token);
+export const tDeleteTeamOfRound = (token: string, id: number) =>
+  send<{ message: string }>('DELETE', `/team-of-round/${id}`, undefined, token);
 
 // ── news / home ─────────────────────────────────────────────────────────────
 /** Published news. An editor passes their token with `drafts` to see their own
@@ -1081,3 +1341,11 @@ export interface TCompDashboard {
 }
 export const tCompDashboard = (token: string, compId: number) =>
   get<TCompDashboard>(`/competitions/${compId}/dashboard`, token);
+
+// ── global search ─────────────────────────────────────────────────────────────
+export interface TSearchAcademy { id: number; name: string; name_en: string | null; logo_path: string | null }
+export interface TSearchPlayer { id: number; name: string; name_en: string | null; position: string | null; photo_path: string | null }
+export interface TSearchCoach { id: number; name: string; name_en: string | null; role_ar: string | null; photo_path: string | null; team_name: string | null }
+export interface TSearchResults { academies: TSearchAcademy[]; players: TSearchPlayer[]; coaches: TSearchCoach[] }
+/** Free-text search across academies, players and coaches (public). */
+export const tSearch = (q: string) => get<TSearchResults>(`/search${qs({ q })}`);

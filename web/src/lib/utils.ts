@@ -1,4 +1,4 @@
-import type { Match, Team, Standing, PlayerStat, TeamGoalStat } from './types';
+import type { Match, Team, Standing, PlayerStat, TeamGoalStat, Localized } from './types';
 
 // ── Date ──────────────────────────────────────────────────────────────────────
 
@@ -327,6 +327,44 @@ export function localize(val: string | { ar: string; en: string } | undefined | 
   if (val == null) return fallback;
   if (typeof val === 'string') return val || fallback;
   return (locale === 'ar' ? (val.ar || val.en) : (val.en || val.ar)) || fallback;
+}
+
+// ── Roster grouping ─────────────────────────────────────────────────────────
+
+// Roster players are shown in these position groups, in pitch order. A player
+// is matched by their Arabic position (ى/ي tolerant), falling back to English.
+export const POSITION_GROUPS = [
+  { key: 'gk',  ar: 'حراس المرمي', en: 'Goalkeepers', matchAr: 'حارس مرمي', matchEn: 'goalkeeper' },
+  { key: 'def', ar: 'المدافعون',   en: 'Defenders',   matchAr: 'مدافع',      matchEn: 'defender' },
+  { key: 'mid', ar: 'لاعبو الوسط', en: 'Midfielders', matchAr: 'لاعب وسط',   matchEn: 'midfielder' },
+  { key: 'fwd', ar: 'المهاجمون',   en: 'Forwards',    matchAr: 'مهاجم',       matchEn: 'forward' },
+] as const;
+
+const normArabic = (s?: string | null) => (s ?? '').trim().replace(/ى/g, 'ي');
+
+/** The position group a player belongs to, or 'other' when unrecognised/empty. */
+export function positionGroupKey(position: Localized | null | undefined): string {
+  const ar = normArabic(position?.ar);
+  const en = (position?.en ?? '').trim().toLowerCase();
+  return POSITION_GROUPS.find(g => (ar && ar === g.matchAr) || (en && en === g.matchEn))?.key ?? 'other';
+}
+
+/**
+ * Split a roster into position sections (keeper → attack), each sorted
+ * alphabetically by name, dropping empty groups. Anything with an unknown or
+ * missing position falls into a final "أخرى / Other" section so no one is hidden.
+ */
+export function groupRosterByPosition<T extends { name: Localized; position: Localized | null }>(
+  roster: T[], locale: string,
+): { label: string; players: T[] }[] {
+  const isAr = locale === 'ar';
+  const buckets: Record<string, T[]> = {};
+  for (const p of roster) (buckets[positionGroupKey(p.position)] ??= []).push(p);
+  const byName = (a: T, b: T) => localize(a.name, locale).localeCompare(localize(b.name, locale), 'ar');
+  return [
+    ...POSITION_GROUPS.map(g => ({ label: isAr ? g.ar : g.en, players: buckets[g.key] ?? [] })),
+    { label: isAr ? 'أخرى' : 'Other', players: buckets['other'] ?? [] },
+  ].filter(s => s.players.length > 0).map(s => ({ label: s.label, players: [...s.players].sort(byName) }));
 }
 
 /**

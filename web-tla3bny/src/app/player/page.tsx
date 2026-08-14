@@ -10,6 +10,7 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
 import AdCard from '@/components/tla3bny/AdCard';
 import { PapersUploader, PapersReview, PapersProgress } from '@/components/tla3bny/PlayerPapers';
+import { PlayerAchievements } from '@/components/tla3bny/Honours';
 import { Card, EmptyState, LogoAvatar, StatusBadge, useTT } from '@/components/tla3bny/kit';
 
 function PlayerContent() {
@@ -115,6 +116,8 @@ function PlayerContent() {
         </div>
       )}
 
+      <PlayerAchievements playerId={p.id} />
+
       <Card className="p-4">
         <dl className="grid grid-cols-2 gap-3">
           {info.filter(([, v]) => v).map(([k, v]) => (
@@ -126,7 +129,11 @@ function PlayerContent() {
         </dl>
       </Card>
 
-      {ads.length > 0 && <AdCard ad={ads[adIdx % ads.length]} variant="poster" />}
+      {ads.length > 0 && (
+        <div className="max-w-[260px] mx-auto">
+          <AdCard ad={ads[adIdx % ads.length]} variant="poster" />
+        </div>
+      )}
 
       {/* Registration papers — never rendered for a public visitor. */}
       {canSeePapers && (

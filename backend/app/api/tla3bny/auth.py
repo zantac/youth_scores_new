@@ -5,7 +5,16 @@ from app.models import Tla3bnyAcademy, Tla3bnyCompetitionAdmin, Tla3bnyUser
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
-from ._helpers import _credentials, _claim_login, _err, save_upload, _read_payload
+from ._helpers import (
+    _credentials,
+    _claim_login,
+    _clean_url,
+    _clip,
+    _err,
+    _validate_password,
+    save_upload,
+    _read_payload,
+)
 
 
 @tla3bny_bp.post("/auth/register")
@@ -32,6 +41,9 @@ def register():
         return _err("name, username and password are required")
     if not phone:
         return _err("phone is required")
+    pw_err = _validate_password(password)
+    if pw_err:
+        return _err(pw_err)
     taken = _claim_login(username, email)
     if taken:
         return taken
@@ -44,14 +56,15 @@ def register():
             return _err(str(e))
 
     academy = Tla3bnyAcademy(
-        name=name,
-        name_en=(data.get("name_en") or "").strip() or None,
+        name=_clip(name, 255),
+        name_en=_clip(data.get("name_en"), 255),
         logo_path=logo_path,
-        phone=phone,
-        facebook_url=(data.get("facebook_url") or "").strip() or None,
-        training_place=(data.get("training_place") or "").strip() or None,
-        address=(data.get("address") or "").strip() or None,
-        description=(data.get("description") or "").strip() or None,
+        phone=_clip(phone, 50),
+        facebook_url=_clean_url(data.get("facebook_url")),
+        whatsapp_number=_clip(data.get("whatsapp_number"), 50),
+        training_place=_clip(data.get("training_place"), 255),
+        address=_clip(data.get("address"), 255),
+        description=_clip(data.get("description"), 20000),
         status="approved",
     )
     db.session.add(academy)
@@ -96,6 +109,7 @@ def login():
 
 
 @tla3bny_bp.put("/auth/credentials")
+@limiter.limit("10 per hour")
 @auth.login_required
 def update_own_credentials():
     """Change your own username / email / password."""
@@ -120,8 +134,9 @@ def update_own_credentials():
         user.email = new_email
     password = data.get("password") or ""
     if password:
-        if len(password) < 4:
-            return _err("Password is too short")
+        pw_err = _validate_password(password)
+        if pw_err:
+            return _err(pw_err)
         user.set_password(password)
     db.session.commit()
     return jsonify(user.to_dict())

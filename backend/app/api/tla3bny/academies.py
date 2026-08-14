@@ -1,12 +1,28 @@
 from flask import jsonify, request
 
-from app.extensions import db
-from app.models import Tla3bnyAcademy, Tla3bnyAcademyManager, Tla3bnyUser
+from app.extensions import db, limiter
+from app.models import (
+    Tla3bnyAcademy,
+    Tla3bnyAcademyBranch,
+    Tla3bnyAcademyManager,
+    Tla3bnyUser,
+)
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _credentials, _claim_login, _err, _forbid, _int, save_upload, _read_payload
+from ._helpers import (
+    _credentials,
+    _claim_login,
+    _clean_url,
+    _clip,
+    _err,
+    _forbid,
+    _int,
+    _validate_password,
+    save_upload,
+    _read_payload,
+)
 
 
 @tla3bny_bp.get("/academies")
@@ -80,6 +96,7 @@ def suspend_academy(academy_id: int):
 
 
 @tla3bny_bp.post("/academies/<int:academy_id>/account")
+@limiter.limit("20 per hour")
 @auth.super_admin_required
 def set_academy_account(academy_id: int):
     """Create or reset the academy owner's login. Registration hands the owner
@@ -89,6 +106,9 @@ def set_academy_account(academy_id: int):
     username, password = _credentials(data)
     if not username or not password:
         return _err("username and password are required")
+    pw_err = _validate_password(password)
+    if pw_err:
+        return _err(pw_err)
 
     account = Tla3bnyUser.query.filter_by(role="academy", academy_id=academy.id).first()
     taken = _claim_login(username, None, exclude_id=account.id if account else None)
@@ -118,10 +138,16 @@ def _target_academy():
 def update_own_academy():
     academy = _target_academy()
     data, files = _read_payload()
-    for field in ("name", "name_en", "phone", "facebook_url", "training_place", "address", "description"):
+    for field in ("name", "name_en", "phone", "whatsapp_number", "facebook_url",
+                  "training_place", "address", "description"):
         if field in data:
-            val = (data.get(field) or "").strip()
-            setattr(academy, field, val or None)
+            if field == "facebook_url":
+                value = _clean_url(data.get(field))
+            elif field in ("phone", "whatsapp_number"):
+                value = _clip(data.get(field), 50)
+            else:
+                value = _clip(data.get(field), 20000 if field == "description" else 255)
+            setattr(academy, field, value)
     if not academy.name:
         return _err("name is required")
     logo = files.get("logo") if files is not None else None
@@ -130,8 +156,29 @@ def update_own_academy():
             academy.logo_path = save_upload(logo, kind="image")
         except ValueError as e:
             return _err(str(e))
+    # Gallery photos — up to 3 paths already uploaded via /uploads/image. Sending
+    # the field (even empty) replaces the set; an empty list clears it.
+    photos = _photos_field(data)
+    if photos is not None:
+        academy.photos = photos or None
     db.session.commit()
     return jsonify(academy.to_dict())
+
+
+def _photos_field(data):
+    """Read up to 3 gallery photo paths from a JSON or multipart body, or None
+    when the field was not sent at all (so it isn't touched)."""
+    if hasattr(data, "getlist"):
+        if "photos" not in data:
+            return None
+        raw = data.getlist("photos")
+    else:
+        if "photos" not in data:
+            return None
+        raw = data.get("photos") or []
+        if not isinstance(raw, list):
+            raw = [raw]
+    return [str(p).strip() for p in raw if str(p).strip()][:3]
 
 
 # ── academy managers ─────────────────────────────────────────────────────────
@@ -157,11 +204,36 @@ def add_manager(academy_id: int):
         name=name,
         role=(data.get("role") or "").strip() or None,
         phone=(data.get("phone") or "").strip() or None,
+        photo_path=(data.get("photo_path") or "").strip() or None,
         sort_order=_int(data.get("sort_order"), 0),
     )
     db.session.add(m)
     db.session.commit()
     return jsonify(m.to_dict()), 201
+
+
+@tla3bny_bp.put("/academies/<int:academy_id>/managers/<int:manager_id>")
+@auth.login_required
+def update_manager(academy_id: int, manager_id: int):
+    if _resolve_academy_for_write(academy_id) is None:
+        return _forbid()
+    m = Tla3bnyAcademyManager.query.filter_by(id=manager_id, academy_id=academy_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            return _err("name is required")
+        m.name = name
+    if "role" in data:
+        m.role = (data.get("role") or "").strip() or None
+    if "phone" in data:
+        m.phone = (data.get("phone") or "").strip() or None
+    if "photo_path" in data:
+        m.photo_path = (data.get("photo_path") or "").strip() or None
+    if "sort_order" in data:
+        m.sort_order = _int(data.get("sort_order"), m.sort_order)
+    db.session.commit()
+    return jsonify(m.to_dict())
 
 
 @tla3bny_bp.delete("/academies/<int:academy_id>/managers/<int:manager_id>")
@@ -171,5 +243,67 @@ def delete_manager(academy_id: int, manager_id: int):
         return _forbid()
     m = Tla3bnyAcademyManager.query.filter_by(id=manager_id, academy_id=academy_id).first_or_404()
     db.session.delete(m)
+    db.session.commit()
+    return jsonify({"message": "deleted"})
+
+
+# ── academy branches (locations) ──────────────────────────────────────────────
+@tla3bny_bp.post("/academies/<int:academy_id>/branches")
+@auth.login_required
+def add_branch(academy_id: int):
+    academy = _resolve_academy_for_write(academy_id)
+    if academy is None:
+        return _forbid()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return _err("name is required")
+    b = Tla3bnyAcademyBranch(
+        academy_id=academy.id,
+        name=_clip(name, 255),
+        governorate=_clip(data.get("governorate"), 60),
+        address=_clip(data.get("address"), 512),
+        location_url=_clean_url(data.get("location_url")),
+        phone=_clip(data.get("phone"), 50),
+        sort_order=_int(data.get("sort_order"), 0),
+    )
+    db.session.add(b)
+    db.session.commit()
+    return jsonify(b.to_dict()), 201
+
+
+@tla3bny_bp.put("/academies/<int:academy_id>/branches/<int:branch_id>")
+@auth.login_required
+def update_branch(academy_id: int, branch_id: int):
+    if _resolve_academy_for_write(academy_id) is None:
+        return _forbid()
+    b = Tla3bnyAcademyBranch.query.filter_by(id=branch_id, academy_id=academy_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            return _err("name is required")
+        b.name = _clip(name, 255)
+    if "governorate" in data:
+        b.governorate = _clip(data.get("governorate"), 60)
+    if "address" in data:
+        b.address = _clip(data.get("address"), 512)
+    if "location_url" in data:
+        b.location_url = _clean_url(data.get("location_url"))
+    if "phone" in data:
+        b.phone = _clip(data.get("phone"), 50)
+    if "sort_order" in data:
+        b.sort_order = _int(data.get("sort_order"), b.sort_order)
+    db.session.commit()
+    return jsonify(b.to_dict())
+
+
+@tla3bny_bp.delete("/academies/<int:academy_id>/branches/<int:branch_id>")
+@auth.login_required
+def delete_branch(academy_id: int, branch_id: int):
+    if _resolve_academy_for_write(academy_id) is None:
+        return _forbid()
+    b = Tla3bnyAcademyBranch.query.filter_by(id=branch_id, academy_id=academy_id).first_or_404()
+    db.session.delete(b)
     db.session.commit()
     return jsonify({"message": "deleted"})

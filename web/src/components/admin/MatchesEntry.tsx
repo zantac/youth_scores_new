@@ -3,12 +3,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
 import {
-  apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers,
+  apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
-  apiStages,
+  apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
   type EntryCard, type EntrySub, type EntryShootoutKick, type MStage,
 } from '@/lib/adminApi';
@@ -34,7 +34,7 @@ const STATUS: { v: string; l: string }[] = [
 const STATUS_L: Record<string, string> = Object.fromEntries(STATUS.map(s => [s.v, s.l]));
 
 export default function MatchesEntry() {
-  const { token } = useAdminAuth();
+  const { token, canEdit } = useAdminAuth();
   const [comps, setComps] = useState<EntryCompetition[]>([]);
   const [cid, setCid] = useState<number | null>(null);
   const [teams, setTeams] = useState<EntryTeam[]>([]);
@@ -46,8 +46,17 @@ export default function MatchesEntry() {
   const [fTeam, setFTeam] = useState('');
   const [fWeek, setFWeek] = useState('');
   const [fDate, setFDate] = useState('');
+  const [venues, setVenues] = useState<string[]>([]);
 
   useEffect(() => { if (token) apiCompetitions(token).then(setComps).catch(e => setErr(e.message)); }, [token]);
+  // Venue suggestions are scoped to the chosen competition, so the list is the
+  // grounds used in it (empty until a match is entered) rather than every venue
+  // ever typed. Re-runs when the competition changes.
+  const refreshVenues = useCallback(() => {
+    if (token && cid) apiMatchVenues(token, cid).then(setVenues).catch(() => {});
+    else setVenues([]);
+  }, [token, cid]);
+  useEffect(() => { refreshVenues(); }, [refreshVenues]);
 
   const loadComp = useCallback((id: number) => {
     if (!token) return;
@@ -92,6 +101,7 @@ export default function MatchesEntry() {
 
   if (editing) {
     return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
+      venues={venues} onVenueSaved={refreshVenues}
       onChange={setEditing} onBack={() => { setEditing(null); refreshMatches(); }} />;
   }
 
@@ -113,19 +123,9 @@ export default function MatchesEntry() {
 
       {cid && (
         <>
-          <div className="flex items-center justify-between">
-            <p className="text-hint text-xs">
-              {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
-            </p>
-            <button onClick={() => setShowNew(s => !s)}
-              className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
-                showNew
-                  ? 'border-loss text-loss hover:bg-loss/10'
-                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
-              }`}>
-              {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
-            </button>
-          </div>
+          <p className="text-hint text-xs">
+            {filtering ? `${shown.length} من ${active.length} مباراة` : `${active.length} مباراة`}
+          </p>
 
           <div className="bg-cardBg border border-bdr rounded-xl p-3 space-y-2">
             <input value={fTeam} onChange={e => setFTeam(e.target.value)}
@@ -143,8 +143,24 @@ export default function MatchesEntry() {
             )}
           </div>
 
+          {/* Broadcasting to users is editorial, so only editors+ see it. */}
+          {canEdit && <RoundNotify token={token!} cid={cid} matches={active} />}
+
+          {/* The new-match toggle sits right above the list — so entering
+              several matches in a row keeps it within reach instead of scrolling
+              back up past the filters, especially on small screens. */}
+          <button onClick={() => setShowNew(s => !s)}
+            className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+              showNew
+                ? 'border-loss text-loss hover:bg-loss/10'
+                : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+            }`}>
+            {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
+          </button>
+
           {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
-            onDone={() => { setShowNew(false); refreshMatches(); }} />}
+            venues={venues}
+            onDone={() => { setShowNew(false); refreshMatches(); refreshVenues(); }} />}
 
           <div className="space-y-2">
             {shown.map(m => (
@@ -203,7 +219,14 @@ function field(label: string, node: React.ReactNode) {
 }
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 
-function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; onDone: () => void }) {
+// Shared suggestion list of venue names already used on matches. A native
+// <datalist> filters as the user types yet still allows any new name through.
+const VENUES_LIST_ID = "match-venues";
+function VenuesDatalist({ venues }: { venues: string[] }) {
+  return <datalist id={VENUES_LIST_ID}>{venues.map(v => <option key={v} value={v} />)}</datalist>;
+}
+
+function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string; cid: number; teams: EntryTeam[]; stages: MStage[]; venues: string[]; onDone: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({ home_team_id: '', away_team_id: '', date: today, time: '18:00', week: '', venue: '', status: 'scheduled', stage_id: '', group_id: '' });
   const [tbd, setTbd] = useState(false);
@@ -255,8 +278,9 @@ function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: n
         {field('الوقت', <input type="time" value={f.time} disabled={tbd} onChange={e => set('time', e.target.value)} className={inputCls + (tbd ? ' opacity-40' : '')} />)}
         {field('الجولة', <input value={f.week} onChange={e => set('week', e.target.value)} placeholder="27" className={inputCls} />)}
         {field('الحالة', <select value={f.status} onChange={e => set('status', e.target.value)} className={inputCls}>{STATUS.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}</select>)}
-        <div className="col-span-2">{field('الملعب', <input value={f.venue} onChange={e => set('venue', e.target.value)} placeholder="اسم الملعب (اختياري)" className={inputCls} />)}</div>
+        <div className="col-span-2">{field('الملعب', <input value={f.venue} onChange={e => set('venue', e.target.value)} list={VENUES_LIST_ID} placeholder="اسم الملعب (اختياري)" className={inputCls} />)}</div>
       </div>
+      <VenuesDatalist venues={venues} />
       <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
         <input type="checkbox" checked={tbd} onChange={e => setTbd(e.target.checked)} />
         التاريخ غير محدد بعد (مباراة مؤكدة بدون موعد)
@@ -270,8 +294,9 @@ function NewMatch({ token, cid, teams, stages, onDone }: { token: string; cid: n
   );
 }
 
-function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
+function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChange, onBack }: {
   token: string; match: EntryMatch; teams: EntryTeam[]; stages: MStage[];
+  venues: string[]; onVenueSaved: () => void;
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
   const [players, setPlayers] = useState<Record<number, string[]>>({});
@@ -304,6 +329,14 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
 
   const editorStage = stages.find(s => s.id === Number(stageId));
   const editorGroups = editorStage?.groups ?? [];
+
+  // Teams may only be corrected while nothing is tied to a specific side yet:
+  // goals, cards, subs, shootout kicks and line-up rows all carry a team_id.
+  const matchHasEvents =
+    match.goals.length > 0 || match.cards.length > 0 || match.subs.length > 0 ||
+    (match.shootout?.length ?? 0) > 0 ||
+    match.lineup.home.starters.length + match.lineup.home.bench.length +
+    match.lineup.away.starters.length + match.lineup.away.bench.length > 0;
 
   const saveStage = async () => {
     setErr(null);
@@ -362,7 +395,7 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
     setErr(null);
     try {
       const m = await apiUpdateMatch(token, match.id, { venue });
-      onChange(m); setVenue(m.venue || '');
+      onChange(m); setVenue(m.venue || ''); onVenueSaved();
       setVenueSaved(true); setTimeout(() => setVenueSaved(false), 1500);
     } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
   };
@@ -464,12 +497,26 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
         </div>
         {/* Venue (الملعب). */}
         <div className="mt-3 flex items-end gap-2">
-          <div className="flex-1">{field('الملعب', <input value={venue} onChange={e => setVenue(e.target.value)} placeholder="اسم الملعب" className={inputCls} />)}</div>
+          <div className="flex-1">{field('الملعب', <input value={venue} onChange={e => setVenue(e.target.value)} list={VENUES_LIST_ID} placeholder="اسم الملعب" className={inputCls} />)}</div>
           <button onClick={saveVenue}
             className="bg-aqua text-on-accent font-bold px-3 py-2 rounded-lg text-xs whitespace-nowrap">
             {venueSaved ? '✓ حُفظ' : 'حفظ الملعب'}
           </button>
         </div>
+        <VenuesDatalist venues={venues} />
+      </div>
+
+      {/* Teams — correct a fixture entered with the wrong side. */}
+      <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+        <p className="text-text font-bold text-sm">🔁 الفريقان</p>
+        {matchHasEvents ? (
+          <p className="text-hint text-[11px] leading-relaxed">
+            لتغيير الفريقين، احذف أولاً الأهداف والبطاقات والتبديلات والتشكيلة المسجّلة لهذه المباراة
+            (أو احذف المباراة وأنشئها من جديد) — فالفريقان مرتبطان بهذه الأحداث.
+          </p>
+        ) : (
+          <TeamsEditor token={token} match={match} teams={teams} onChange={onChange} />
+        )}
       </div>
 
       {/* Stage / Group assignment */}
@@ -608,6 +655,129 @@ function MatchEditor({ token, match, teams, stages, onChange, onBack }: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Round-results notification ───────────────────────────────────────────────
+// After a round's results are entered, send ONE digest push to the competition's
+// followers (a round at a time is how entry works), instead of one per match.
+// Editors+ only; runs in dry-run until Firebase credentials are configured.
+function RoundNotify({ token, cid, matches }: {
+  token: string; cid: number; matches: EntryMatchRow[];
+}) {
+  const [week, setWeek] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const weeks = useMemo(() => {
+    const seen = [...new Set(matches.map(m => m.week).filter(Boolean))];
+    return seen.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
+  }, [matches]);
+
+  const inWeek = useMemo(() => matches.filter(m => m.week === week), [matches, week]);
+  const done = inWeek.filter(m => m.status === 'completed').length;
+  const total = inWeek.length;
+  const allDone = total > 0 && done === total;
+
+  const send = async () => {
+    setErr(null); setMsg(null); setBusy(true);
+    try {
+      const r = await apiNotifyRound(token, cid, week);
+      const dry = r.notification?.status === 'dry_run';
+      setMsg(dry
+        ? `✓ جُهّز الإشعار (وضع التجربة) — ${r.count} مباراة. يُرسل فعليًا بعد ربط Firebase.`
+        : `✓ أُرسل الإشعار — ${r.count} مباراة.`);
+      setConfirm(false);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+      <p className="text-text font-bold text-sm">🔔 إشعار نتائج الجولة</p>
+      <p className="text-hint text-[11px] leading-relaxed">
+        بعد إدخال نتائج الجولة، أرسِل إشعارًا واحدًا لمتابعي هذه البطولة — بدل إشعار لكل مباراة.
+      </p>
+      <select value={week} onChange={e => { setWeek(e.target.value); setMsg(null); setConfirm(false); }} className={inputCls}>
+        <option value="">— اختر الجولة —</option>
+        {weeks.map(w => <option key={w} value={w}>الجولة {w}</option>)}
+      </select>
+      {week && (
+        <p className={`text-[11px] font-bold ${allDone ? 'text-win' : 'text-gold'}`}>
+          {allDone ? '✅' : '⏳'} {done}/{total} مباراة لها نتيجة
+        </p>
+      )}
+      {err && <p className="text-loss text-xs">{err}</p>}
+      {msg && <p className="text-win text-[11px] bg-win/10 border border-win/30 rounded-lg px-3 py-2">{msg}</p>}
+      {!confirm ? (
+        <button onClick={() => setConfirm(true)} disabled={!week || done === 0}
+          className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+          🔔 أرسل إشعار نتائج الجولة
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-teal text-xs">إرسال إشعار بـ{done} نتيجة لمتابعي البطولة؟</span>
+          <button onClick={() => setConfirm(false)} className="text-hint text-xs font-bold px-3 py-2">إلغاء</button>
+          <button onClick={send} disabled={busy}
+            className="bg-aqua text-on-accent font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+            {busy ? '…' : 'تأكيد الإرسال'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Teams (correction) ───────────────────────────────────────────────────────
+// Fix a match saved with the wrong side. Only rendered while the match has no
+// team-bound events; the backend enforces the same rule.
+function TeamsEditor({ token, match, teams, onChange }: {
+  token: string; match: EntryMatch; teams: EntryTeam[]; onChange: (m: EntryMatch) => void;
+}) {
+  const [home, setHome] = useState(String(match.home.id));
+  const [away, setAway] = useState(String(match.away.id));
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Follow the server's teams if they change under us (e.g. after a save).
+  useEffect(() => {
+    setHome(String(match.home.id)); setAway(String(match.away.id));
+  }, [match.home.id, match.away.id]);
+
+  const dirty = home !== String(match.home.id) || away !== String(match.away.id);
+
+  const save = async () => {
+    if (home === away) { setErr('اختر فريقين مختلفين'); return; }
+    setErr(null); setBusy(true);
+    try {
+      const m = await apiUpdateMatch(token, match.id, { home_team_id: Number(home), away_team_id: Number(away) });
+      onChange(m); setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  const opts = teams.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>);
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        {field('المضيف', <select value={home} onChange={e => setHome(e.target.value)} className={inputCls}>{opts}</select>)}
+        {field('الضيف', <select value={away} onChange={e => setAway(e.target.value)} className={inputCls}>{opts}</select>)}
+      </div>
+      {err && <p className="text-loss text-xs">{err}</p>}
+      <div className="flex items-center gap-2">
+        <button onClick={() => { const h = home; setHome(away); setAway(h); }}
+          className="text-teal text-xs font-bold border border-bdr rounded-lg px-3 py-1.5 hover:border-aqua/40">
+          ⇄ تبديل المضيف والضيف
+        </button>
+        <button onClick={save} disabled={busy || !dirty || home === away}
+          className="bg-aqua text-on-accent font-bold px-4 py-1.5 rounded-lg text-sm disabled:opacity-50">
+          {saved ? '✓ حُفظ' : 'حفظ الفريقين'}
+        </button>
+      </div>
     </div>
   );
 }

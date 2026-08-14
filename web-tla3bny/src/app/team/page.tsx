@@ -8,6 +8,8 @@ import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
+import TeamHero from '@/components/tla3bny/TeamHero';
+import { TeamHonours } from '@/components/tla3bny/Honours';
 
 function TeamContent() {
   const tt = useTT();
@@ -53,13 +55,7 @@ function TeamContent() {
         </Link>
       )}
 
-      <Card className="p-5 flex items-center gap-4">
-        <LogoAvatar src={t.academy_logo} name={nm(t.academy_name, t.academy_name_en)} size={60} />
-        <div>
-          <h1 className="text-xl font-black text-text">{nm(t.display_name, t.display_name_en)}</h1>
-          <p className="text-sm text-teal font-bold">{t.age_category}</p>
-        </div>
-      </Card>
+      <TeamHero team={t} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
@@ -74,18 +70,21 @@ function TeamContent() {
       {/* Staff & Players */}
       {tab === 'squad' && (
         <div className="space-y-4">
+          <TeamHonours teamId={t.id} />
           {t.coaches && t.coaches.length > 0 && (
             <section>
               <h2 className="font-black text-text mb-2">{tt('الجهاز الفني', 'Coaching staff')}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {t.coaches.map(c => (
-                  <Card key={c.id} className="p-3 flex items-center gap-3">
-                    <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={40} />
-                    <div className="min-w-0">
-                      <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
-                      <div className="text-[11px] text-hint">{c.role_ar}</div>
-                    </div>
-                  </Card>
+                  <Link key={c.id} href={`/coach?id=${c.id}`}>
+                    <Card className="p-3 flex items-center gap-3 hover:border-aqua/50 transition-colors">
+                      <LogoAvatar src={c.photo_path} name={nm(c.name, c.name_en)} size={40} />
+                      <div className="min-w-0">
+                        <div className="font-bold text-text text-sm truncate">{nm(c.name, c.name_en)}</div>
+                        <div className="text-[11px] text-hint">{c.role_ar}</div>
+                      </div>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             </section>
