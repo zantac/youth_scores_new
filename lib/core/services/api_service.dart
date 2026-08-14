@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
 import '../models/home_match.dart';
+import '../models/match_full.dart';
 import '../models/profile_models.dart';
 
 class ApiService {
@@ -81,6 +82,11 @@ class ApiService {
     }
     return json.decode(res.body) as Map<String, dynamic>;
   }
+
+  /// A single match by id from `/api/matches/<id>` — carries goals, cards, subs
+  /// and the line-up, and reflects live status independently of any competition.
+  Future<MatchFull> fetchMatchFull(int id) async =>
+      MatchFull.fromJson(await _getJson('/api/matches/$id'));
 
   Future<PlayerFull> fetchPlayer(int id) async =>
       PlayerFull.fromJson(await _getJson('/api/players/$id'));

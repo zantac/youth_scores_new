@@ -11,6 +11,7 @@ import '../../core/services/api_service.dart';
 import '../../core/utils/date_utils.dart';
 import '../../widgets/match/match_card.dart';
 import '../competition/competition_data_screen.dart';
+import '../match/match_detail_screen.dart';
 import '../news/news_detail_screen.dart';
 import '../info/about_screen.dart';
 
@@ -296,7 +297,10 @@ class _HomeTabState extends State<HomeTab> {
           homeTeam: m.homeTeam?.toTeam(),
           awayTeam: m.awayTeam?.toTeam(),
           locale: locale,
-          onTap: () => _openCompetition(ctx, m.competition, locale),
+          onTap: () => Navigator.push(
+            ctx,
+            MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: m.id)),
+          ),
         ),
       );
     }
