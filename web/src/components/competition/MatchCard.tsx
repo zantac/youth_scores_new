@@ -80,12 +80,17 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
             </>
           ) : isLive ? (
             <>
+              {/* Always flag a live match with an explicit LIVE badge (mirrors the
+                  detail page), so it reads as live at a glance in the list — not
+                  just a red-tinted score/kickoff-time box. */}
+              <span className="inline-flex items-center gap-1 text-red-400 text-[9px] font-bold border border-red-500/50 bg-red-500/15 rounded px-1.5 py-px">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />{locale === 'ar' ? 'مباشر' : 'LIVE'}
+              </span>
               {/* A live match shows its running score once one is entered; until
-                  then it just flags that it is live. */}
+                  then it falls back to the kickoff time. */}
               {match.homeScore != null ? (
                 <>
-                  <div className="bg-red-500/20 border border-red-500 rounded-lg px-3 py-1 flex items-center gap-1.5 shadow-inner">
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <div className="bg-red-500/20 border border-red-500 rounded-lg px-3 py-1 shadow-inner">
                     <span className="text-red-400 font-extrabold text-lg tnum tracking-tight">{match.homeScore} - {match.awayScore}</span>
                   </div>
                   {match.homePenalty != null && match.awayPenalty != null && (
@@ -95,10 +100,7 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
                   )}
                 </>
               ) : (
-                <div className="bg-red-500/20 border border-red-500 rounded-lg px-2 py-1 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  <span className="text-red-400 font-bold text-sm tnum">{match.time || 'LIVE'}</span>
-                </div>
+                <span className="text-aqua font-bold text-base tnum">{match.time || '--:--'}</span>
               )}
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
             </>
