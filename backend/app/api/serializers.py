@@ -47,8 +47,10 @@ STATUS_OUT = {
     "completed": "completed",
     "scheduled": "upcoming",
     "live": "live",
-    "postponed": "delayed",
-    "cancelled": "delayed",
+    # Kept distinct (not collapsed to a generic "delayed") so clients can show a
+    # proper "postponed" vs "cancelled" label instead of falling back to a date.
+    "postponed": "postponed",
+    "cancelled": "cancelled",
 }
 
 
