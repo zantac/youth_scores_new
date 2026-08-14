@@ -1,14 +1,16 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
-import '../../core/models/competition_data_model.dart';
 import '../../core/models/config_model.dart';
+import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/date_utils.dart';
 import '../../widgets/match/match_card.dart';
+import '../competition/competition_data_screen.dart';
 import '../news/news_detail_screen.dart';
 import '../info/about_screen.dart';
 
@@ -29,152 +31,365 @@ class HomeTab extends StatefulWidget {
   State<HomeTab> createState() => _HomeTabState();
 }
 
+const int _kStep = 120; // matches pulled per direction per "load more"
+
 class _HomeTabState extends State<HomeTab> {
   final _api = ApiService();
+  final ItemScrollController _itemCtrl = ItemScrollController();
 
-  List<_MatchEntry> _todayMatches = [];
-  bool _loading = false;
-  bool _fetched = false;
+  List<HomeMatch> _past = [];   // strictly before today, desc from server
+  List<HomeMatch> _future = []; // today and later, asc from server
+  bool _loading = true;
+  bool _error = false;
+  int _pastLimit = _kStep;
+  int _futureLimit = _kStep;
+  bool _didScroll = false;
+  String? _restoreDate;
+  List<_Row> _rows = const [];
 
-  Future<void> _fetchTodayMatches(ConfigData? config) async {
-    if (config == null) return;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-    // Dart weekday: 1=Mon...7=Sun → convert to JS: 0=Sun,1=Mon...6=Sat
-    final todayJs = DateTime.now().weekday % 7;
+  String _ymd(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String get _today => _ymd(DateTime.now());
+  String get _yesterday => _ymd(DateTime.now().subtract(const Duration(days: 1)));
 
-    final urls = <String>{};
-    for (final season in config.seasons) {
-      for (final comp in season.competitions) {
-        for (final age in comp.ages) {
-          final days = age.matchDays;
-          if (days == null || !days.contains(todayJs)) continue;
-          if (age.directMatchesUrl != null) { urls.add(age.directMatchesUrl!); }
-          for (final sec in age.sectors) { urls.add(sec.url); }
-        }
-      }
-    }
-
-    setState(() => _loading = true);
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = false; });
     try {
-      final results = await Future.wait(
-        urls.map((url) => _api
-            .fetchCompetition(url)
-            .catchError((_) => const CompetitionData(matches: [], teams: [], venues: []))),
-      );
-
-      final entries = <_MatchEntry>[];
-      for (final data in results) {
-        final teamMap = {for (final t in data.teams) t.id: t};
-        for (final m in data.matches) {
-          if (AppDateUtils.isToday(m.date)) {
-            entries.add(_MatchEntry(
-              match: m,
-              home: teamMap[m.homeTeamId],
-              away: teamMap[m.awayTeamId],
-            ));
-          }
-        }
-      }
-
-      if (mounted) setState(() { _todayMatches = entries; _loading = false; });
+      final res = await Future.wait([
+        _api.fetchAllMatches(from: _today, order: 'asc', limit: _futureLimit),
+        _api.fetchAllMatches(to: _yesterday, order: 'desc', limit: _pastLimit),
+      ]);
+      if (!mounted) return;
+      setState(() { _future = res[0]; _past = res[1]; _loading = false; });
+      _scheduleScroll();
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() { _error = true; _loading = false; });
     }
+  }
+
+  Future<void> _loadOlder() async {
+    // Keep the viewport steady: after older matches prepend, jump back to the
+    // date that was previously on top.
+    _restoreDate = _ascending.isNotEmpty ? _ascending.first.date : null;
+    setState(() => _pastLimit += _kStep);
+    try {
+      final p = await _api.fetchAllMatches(to: _yesterday, order: 'desc', limit: _pastLimit);
+      if (!mounted) return;
+      setState(() => _past = p);
+      _scheduleScroll();
+    } catch (_) {/* keep what we have */}
+  }
+
+  Future<void> _loadNewer() async {
+    setState(() => _futureLimit += _kStep);
+    try {
+      final f = await _api.fetchAllMatches(from: _today, order: 'asc', limit: _futureLimit);
+      if (!mounted) return;
+      setState(() => _future = f);
+    } catch (_) {/* keep what we have */}
+  }
+
+  // Oldest → nearest(today) → newest.
+  List<HomeMatch> get _ascending => [..._past.reversed, ..._future];
+  bool get _hasMoreOlder => _past.length >= _pastLimit;
+  bool get _hasMoreNewer => _future.length >= _futureLimit;
+
+  // Land on today if present, else the nearest upcoming, else the most recent.
+  String? get _anchorDate =>
+      _future.isNotEmpty ? _future.first.date : (_past.isNotEmpty ? _past.first.date : null);
+
+  void _scheduleScroll() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_itemCtrl.isAttached) return;
+      final restore = _restoreDate;
+      if (restore != null) {
+        _restoreDate = null;
+        final i = _dateIndex(restore);
+        if (i != null) _itemCtrl.jumpTo(index: i);
+        return;
+      }
+      if (_didScroll) return;
+      final a = _anchorDate;
+      if (a == null) return;
+      final i = _dateIndex(a);
+      if (i != null) {
+        _didScroll = true;
+        _itemCtrl.jumpTo(index: i);
+      }
+    });
+  }
+
+  int? _dateIndex(String date) {
+    for (var i = 0; i < _rows.length; i++) {
+      final r = _rows[i];
+      if (r is _DateRow && r.date == date) return i;
+    }
+    return null;
+  }
+
+  List<_Row> _buildRows(List<NewsItem> news) {
+    final rows = <_Row>[const _BannerRow()];
+
+    if (_loading && _ascending.isEmpty) {
+      rows.add(const _MsgRow(loading: true));
+    } else if (_error && _ascending.isEmpty) {
+      rows.add(const _MsgRow(error: true));
+    } else if (_ascending.isEmpty) {
+      rows.add(const _MsgRow());
+    } else {
+      if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
+      String? date;
+      String? comp;
+      for (final m in _ascending) {
+        if (m.date != date) {
+          date = m.date;
+          comp = null;
+          rows.add(_DateRow(m.date, m.date == _today));
+        }
+        if (m.competition.id != comp) {
+          comp = m.competition.id;
+          rows.add(_CompRow(m.competition));
+        }
+        rows.add(_MatchRow(m));
+      }
+      if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
+    }
+
+    // Latest news + footer trail the feed, mirroring the website home order.
+    rows.add(const _NewsHeaderRow());
+    if (news.isEmpty) {
+      rows.add(const _MsgRow(news: true));
+    } else {
+      for (final n in news.take(3)) {
+        rows.add(_NewsRow(n));
+      }
+    }
+    rows.add(const _FooterRow());
+    return rows;
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
-    final l10n = L10n(provider.locale);
-
-    if (provider.config != null && !_fetched) {
-      _fetched = true;
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _fetchTodayMatches(provider.config),
-      );
-    }
+    final locale = provider.locale;
+    _rows = _buildRows(provider.config?.news ?? const []);
 
     return RefreshIndicator(
       onRefresh: () async {
-        _fetched = true;
-        await _fetchTodayMatches(provider.config);
+        _didScroll = false;
+        await _load();
       },
       color: AppColors.aqua,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // ── Banner ───────────────────────────────────────────────────────
-          CachedNetworkImage(
-            imageUrl: _bannerUrl,
-            width: double.infinity,
-            fit: BoxFit.fitWidth,
-            errorWidget: (context, url, err) => const SizedBox.shrink(),
-          ),
+      child: ScrollablePositionedList.builder(
+        itemScrollController: _itemCtrl,
+        physics: const AlwaysScrollableScrollPhysics(),
+        itemCount: _rows.length,
+        itemBuilder: (ctx, i) => _rowWidget(ctx, _rows[i], locale),
+      ),
+    );
+  }
 
-          // ── Today's matches ──────────────────────────────────────────────
-          _SectionHeader(
-            title: l10n.todaysMatches,
-            actionLabel: l10n.competitions,
-            onAction: widget.onGoToCompetitions,
+  Widget _rowWidget(BuildContext ctx, _Row r, String locale) {
+    final l10n = L10n(locale);
+    final isAr = locale == 'ar';
+
+    if (r is _BannerRow) {
+      return CachedNetworkImage(
+        imageUrl: _bannerUrl,
+        width: double.infinity,
+        fit: BoxFit.fitWidth,
+        errorWidget: (context, url, err) => const SizedBox.shrink(),
+      );
+    }
+    if (r is _MsgRow) {
+      if (r.loading) return _LoadingCard();
+      final msg = r.error
+          ? (isAr ? 'تعذر تحميل المباريات' : 'Could not load matches')
+          : r.news
+              ? l10n.noNews
+              : l10n.noMatches;
+      return _EmptyCard(message: msg);
+    }
+    if (r is _LoadRow) {
+      final label = r.older
+          ? (isAr ? '↑ مباريات أقدم' : '↑ Older matches')
+          : (isAr ? '↓ مباريات أحدث' : '↓ Newer matches');
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: OutlinedButton(
+          onPressed: r.older ? _loadOlder : _loadNewer,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.aqua,
+            side: BorderSide(color: AppColors.aqua.withValues(alpha: 0.4)),
+            minimumSize: const Size.fromHeight(44),
           ),
-          if (provider.loadingConfig || _loading)
-            _LoadingCard()
-          else if (_todayMatches.isEmpty)
-            _EmptyCard(
-              message: l10n.noMatches,
-              buttonLabel: l10n.competitions,
-              onButton: widget.onGoToCompetitions,
-            )
-          else
-            ...(_todayMatches.map((e) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: MatchCard(
-                match: e.match,
-                homeTeam: e.home,
-                awayTeam: e.away,
-                locale: provider.locale,
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
+    if (r is _DateRow) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+        child: Row(children: [
+          Icon(Icons.calendar_today, size: 13, color: AppColors.aqua),
+          const SizedBox(width: 8),
+          Text(
+            AppDateUtils.formatMatchDate(r.date, locale),
+            style: TextStyle(
+              color: r.isToday ? AppColors.aqua : AppColors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Container(height: 1, color: AppColors.border)),
+        ]),
+      );
+    }
+    if (r is _CompRow) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+        child: InkWell(
+          onTap: () => _openCompetition(ctx, r.comp, locale),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.aqua.withValues(alpha: 0.3)),
+            ),
+            child: Row(children: [
+              const Text('🏆', style: TextStyle(fontSize: 15)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  r.comp.getTitle(locale),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.aqua,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
               ),
-            ))),
-
-          const SizedBox(height: 8),
-
-          // ── Latest news ──────────────────────────────────────────────────
-          _SectionHeader(
-            title: l10n.news,
-            actionLabel: l10n.more,
-            onAction: widget.onGoToNews,
+              Icon(Icons.chevron_right, color: AppColors.aqua, size: 18),
+            ]),
           ),
-          if (provider.loadingConfig)
-            _LoadingCard()
-          else if ((provider.config?.news ?? []).isEmpty)
-            _EmptyCard(message: l10n.noNews)
-          else
-            ...(provider.config!.news.take(3).map((item) => _MiniNewsCard(
-              item: item,
-              locale: provider.locale,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => NewsDetailScreen(item: item)),
-              ),
-            ))),
+        ),
+      );
+    }
+    if (r is _MatchRow) {
+      final m = r.m;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        child: MatchCard(
+          match: m.toMatch(),
+          homeTeam: m.homeTeam?.toTeam(),
+          awayTeam: m.awayTeam?.toTeam(),
+          locale: locale,
+          onTap: () => _openCompetition(ctx, m.competition, locale),
+        ),
+      );
+    }
+    if (r is _NewsHeaderRow) {
+      return _SectionHeader(
+        title: l10n.news,
+        actionLabel: l10n.more,
+        onAction: widget.onGoToNews,
+      );
+    }
+    if (r is _NewsRow) {
+      return _MiniNewsCard(
+        item: r.item,
+        locale: locale,
+        onTap: () => Navigator.push(
+          ctx,
+          MaterialPageRoute(builder: (_) => NewsDetailScreen(item: r.item)),
+        ),
+      );
+    }
+    if (r is _FooterRow) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 24),
+        child: _InfoFooter(locale: locale),
+      );
+    }
+    return const SizedBox.shrink();
+  }
 
-          // ── Footer ──────────────────────────────────────────────────────
-          _InfoFooter(locale: provider.locale),
-
-          const SizedBox(height: 20),
-        ],
+  void _openCompetition(BuildContext ctx, HomeMatchCompetition comp, String locale) {
+    if (comp.dataUrl.isEmpty) return;
+    Navigator.push(
+      ctx,
+      MaterialPageRoute(
+        builder: (_) => CompetitionDataScreen(
+          dataUrl: comp.dataUrl,
+          title: comp.getTitle(locale),
+          seasonName: '',
+        ),
       ),
     );
   }
 }
 
-// ── Data holder ───────────────────────────────────────────────────────────────
+// ── Feed row model ────────────────────────────────────────────────────────────
 
-class _MatchEntry {
-  final Match match;
-  final Team? home;
-  final Team? away;
-  const _MatchEntry({required this.match, this.home, this.away});
+sealed class _Row {
+  const _Row();
+}
+
+class _BannerRow extends _Row {
+  const _BannerRow();
+}
+
+class _MsgRow extends _Row {
+  final bool loading;
+  final bool error;
+  final bool news;
+  const _MsgRow({this.loading = false, this.error = false, this.news = false});
+}
+
+class _LoadRow extends _Row {
+  final bool older;
+  const _LoadRow({required this.older});
+}
+
+class _DateRow extends _Row {
+  final String date;
+  final bool isToday;
+  const _DateRow(this.date, this.isToday);
+}
+
+class _CompRow extends _Row {
+  final HomeMatchCompetition comp;
+  const _CompRow(this.comp);
+}
+
+class _MatchRow extends _Row {
+  final HomeMatch m;
+  const _MatchRow(this.m);
+}
+
+class _NewsHeaderRow extends _Row {
+  const _NewsHeaderRow();
+}
+
+class _NewsRow extends _Row {
+  final NewsItem item;
+  const _NewsRow(this.item);
+}
+
+class _FooterRow extends _Row {
+  const _FooterRow();
 }
 
 // ── Section header ────────────────────────────────────────────────────────────
@@ -239,10 +454,8 @@ class _LoadingCard extends StatelessWidget {
 
 class _EmptyCard extends StatelessWidget {
   final String message;
-  final String? buttonLabel;
-  final VoidCallback? onButton;
 
-  const _EmptyCard({required this.message, this.buttonLabel, this.onButton});
+  const _EmptyCard({required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -254,18 +467,10 @@ class _EmptyCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(message, style: TextStyle(color: AppColors.teal, fontSize: 13)),
-          if (buttonLabel != null && onButton != null) ...[
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: onButton,
-              child: Text(buttonLabel!, style: TextStyle(color: AppColors.aqua)),
-            ),
-          ],
-        ],
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AppColors.teal, fontSize: 13),
       ),
     );
   }

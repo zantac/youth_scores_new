@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
+import '../models/home_match.dart';
 import '../models/profile_models.dart';
 
 class ApiService {
@@ -47,6 +48,29 @@ class ApiService {
       throw Exception('Competition fetch failed: ${res.statusCode}');
     }
     return res.body;
+  }
+
+  /// The aggregate match feed the home screen groups by date then competition.
+  /// `from`/`to` are inclusive YYYY-MM-DD bounds; `order` is asc|desc.
+  Future<List<HomeMatch>> fetchAllMatches({
+    String? from,
+    String? to,
+    String order = 'desc',
+    int limit = 300,
+  }) async {
+    final qp = <String, String>{'order': order, 'limit': '$limit'};
+    if (from != null) qp['from'] = from;
+    if (to != null) qp['to'] = to;
+    final uri = Uri.parse('$_origin/api/matches').replace(queryParameters: qp);
+    final res = await http.get(uri).timeout(_timeout);
+    if (res.statusCode != 200) {
+      throw Exception('Matches fetch failed: ${res.statusCode}');
+    }
+    final j = json.decode(res.body) as Map<String, dynamic>;
+    return (j['matches'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(HomeMatch.fromJson)
+        .toList();
   }
 
   // ── Public profiles (fetched by id, independent of the loaded competition) ──
