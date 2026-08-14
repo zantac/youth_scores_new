@@ -50,40 +50,6 @@ function shiftDay(dateStr: string, days: number): string {
 
 const STEP = 300; // matches pulled per direction per "load more"
 
-function HeroCard({ m, locale, onOpen }: { m: HomeMatch; locale: string; onOpen: () => void }) {
-  const isAr = locale === 'ar';
-  const isLive = m.status === 'live';
-  const isCompleted = m.status === 'completed';
-  const hn = localize(m.homeTeam?.name, locale, m.homeTeam?.id ?? '');
-  const an = localize(m.awayTeam?.name, locale, m.awayTeam?.id ?? '');
-  const Crest = ({ url }: { url?: string }) =>
-    url ? <img src={url} alt="" className="w-14 h-14 object-contain drop-shadow-lg" />
-        : <div className="w-14 h-14 rounded-full bg-bdr grid place-items-center text-lg">⚽</div>;
-  return (
-    <button onClick={onOpen}
-      className="relative w-full overflow-hidden rounded-2xl border border-aqua/25 bg-gradient-to-br from-cardBg to-cardBg2 p-4 text-start hover:border-aqua/50 transition-colors">
-      <div className="absolute inset-0 opacity-60 bg-[radial-gradient(70%_100%_at_100%_0,rgb(var(--gold-rgb)/0.12),transparent_55%),radial-gradient(70%_100%_at_0_0,rgb(var(--accent-rgb)/0.14),transparent_55%)]" />
-      <div className="relative flex items-center gap-2 mb-4">
-        {isLive
-          ? <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-loss px-2.5 py-0.5 rounded-md"><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />{isAr ? 'مباشر' : 'LIVE'}</span>
-          : <span className="text-[11px] text-gold font-bold bg-gold/10 border border-gold/25 px-2.5 py-0.5 rounded-md">{isCompleted ? (isAr ? 'أبرز مباراة' : 'Featured') : (isAr ? 'قادم' : 'Upcoming')}</span>}
-        <span className="text-hint text-[11px] truncate flex-1">{localize(m.competition.title, locale)}</span>
-        <span className="text-aqua">{isAr ? '‹' : '›'}</span>
-      </div>
-      <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
-        <div className="flex flex-col items-center gap-2"><Crest url={m.homeTeam?.logo} /><span className="text-sm font-bold leading-tight">{hn}</span></div>
-        <div className="flex flex-col items-center min-w-[72px]">
-          {(isCompleted || isLive)
-            ? <span className="text-3xl font-extrabold tnum">{m.homeScore} - {m.awayScore}</span>
-            : <span className="text-2xl font-extrabold text-aqua tnum">{m.time || '--:--'}</span>}
-          <span className="text-hint text-[10px] mt-1">{formatMatchDate(m.date, locale)}</span>
-        </div>
-        <div className="flex flex-col items-center gap-2"><Crest url={m.awayTeam?.logo} /><span className="text-sm font-bold leading-tight">{an}</span></div>
-      </div>
-    </button>
-  );
-}
-
 export default function MatchesFeed({ locale }: { locale: string }) {
   const router = useRouter();
   const isAr = locale === 'ar';
@@ -119,12 +85,6 @@ export default function MatchesFeed({ locale }: { locale: string }) {
 
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
-
-  // The one match to feature at the top: a live one, else nearest upcoming, else most recent.
-  const featured = useMemo(
-    () => [...future, ...past].find(x => x.status === 'live') || future[0] || past[0] || null,
-    [future, past],
-  );
 
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -186,7 +146,6 @@ export default function MatchesFeed({ locale }: { locale: string }) {
 
   return (
     <div className="space-y-5">
-      {featured && <HeroCard m={featured} locale={locale} onOpen={() => router.push(`/match?id=${featured.id}`)} />}
       {hasMoreOlder && (
         <button onClick={loadOlder} disabled={loading}
           className="w-full bg-cardBg border border-aqua/30 text-aqua font-bold text-sm py-3 rounded-xl active:bg-aqua/10 disabled:opacity-50">
