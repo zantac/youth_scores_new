@@ -25,6 +25,7 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
   const isCompleted = match.status.toLowerCase() === 'completed';
   const isLive      = match.status.toLowerCase() === 'live';
   const isPostponed = match.status.toLowerCase() === 'postponed';
+  const isCancelled = match.status.toLowerCase() === 'cancelled';
   const homeWon = isCompleted && match.homeScore != null &&
     (match.homeScore > match.awayScore! ||
      (match.homeScore === match.awayScore && match.homePenalty != null && match.homePenalty > match.awayPenalty!));
@@ -58,16 +59,23 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
 
         {/* Centre */}
         <div className="flex flex-col items-center min-w-[72px] gap-0.5">
-          {isCompleted && match.homeScore != null ? (
+          {isCompleted ? (
             <>
-              <div className="bg-darkBg border border-bdr rounded-lg px-3 py-1 shadow-inner">
-                <span className="text-aqua font-extrabold text-lg tnum tracking-tight">{match.homeScore} - {match.awayScore}</span>
-              </div>
+              {match.homeScore != null ? (
+                <div className="bg-darkBg border border-bdr rounded-lg px-3 py-1 shadow-inner">
+                  <span className="text-aqua font-extrabold text-lg tnum tracking-tight">{match.homeScore} - {match.awayScore}</span>
+                </div>
+              ) : (
+                <span className="text-hint font-extrabold text-base tnum">– : –</span>
+              )}
               {match.homePenalty != null && match.awayPenalty != null && (
                 <span className="text-gold text-[10px] font-medium tnum">
                   {locale === 'ar' ? 'ر.ت' : 'Pens'}: {match.homePenalty} - {match.awayPenalty}
                 </span>
               )}
+              {/* Explicit finished flag so a played match reads as ended in the
+                  list, not just as a past date (matches the detail page). */}
+              <span className="text-win text-[9px] font-bold border border-win/30 bg-win/10 rounded px-1.5 py-px">{locale === 'ar' ? 'انتهت' : 'FT'}</span>
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
             </>
           ) : isLive ? (
@@ -100,6 +108,13 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }
                 <span className="text-orange-400 text-xs font-bold">{locale === 'ar' ? 'مؤجلة' : 'PPD'}</span>
               </div>
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
+            </>
+          ) : isCancelled ? (
+            <>
+              <div className="bg-loss/10 border border-loss/40 rounded-lg px-2 py-1">
+                <span className="text-loss text-xs font-bold">{locale === 'ar' ? 'ملغاة' : 'Canc.'}</span>
+              </div>
+              <span className="text-hint text-[9px] line-through">{formatMatchDate(match.date, locale)}</span>
             </>
           ) : (
             <div className="flex flex-col items-center">
