@@ -121,7 +121,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
       ),
       body: ListView(
         children: [
-          _hero(m, homeName, awayName, locale, isAr),
+          _hero(m, homeName, awayName, context0, isAr),
           if (tabs.isNotEmpty) ...[
             const SizedBox(height: 8),
             _tabBar(tabs, tabIndex),
@@ -150,16 +150,26 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
   }
 
   // ── Hero ──────────────────────────────────────────────────────────────────
-  Widget _hero(MatchFull m, String homeName, String awayName, String locale, bool isAr) {
+  Widget _hero(MatchFull m, String homeName, String awayName, String context0, bool isAr) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 18),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
       decoration: BoxDecoration(
-        color: AppColors.cardBg,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.cardBg, AppColors.cardGradientEnd],
+        ),
         border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Column(
         children: [
+          if (context0.isNotEmpty) ...[
+            Text(context0,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.hint, fontSize: 11)),
+            const SizedBox(height: 16),
+          ],
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -226,7 +236,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
           Text('${m.homeScore} - ${m.awayScore}',
               style: TextStyle(
                   color: AppColors.white,
-                  fontSize: 34,
+                  fontSize: 44,
                   fontWeight: FontWeight.w800))
         else
           Text(m.time.isNotEmpty ? m.time : '--:--',
@@ -363,16 +373,26 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
           if (lu.starters.isEmpty)
             Text('—', style: TextStyle(color: AppColors.hint, fontSize: 11))
           else
-            ...List.generate(lu.starters.length, (i) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
+            ...List.generate(lu.starters.length, (i) => Container(
+                  margin: const EdgeInsets.only(bottom: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+                  ),
                   child: Row(children: [
                     SizedBox(
                       width: 16,
                       child: Text('${i + 1}',
+                          textAlign: TextAlign.center,
                           style: TextStyle(color: AppColors.hint, fontSize: 10, fontWeight: FontWeight.bold)),
                     ),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: Text(lu.starters[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: AppColors.white, fontSize: 12)),
                     ),
                   ]),
@@ -400,6 +420,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
           minute: g.minute,
           side: g.side,
           icon: '⚽',
+          color: AppColors.orange,
           main: g.scorer.isNotEmpty ? g.scorer : '—',
           sub: [
             if (g.assist != null) '🅰️ ${g.assist}',
@@ -417,6 +438,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
               : c.type == 'second_yellow'
                   ? '🟨🟥'
                   : '🟨',
+          color: c.type == 'yellow' ? AppColors.yellow : AppColors.red,
           main: c.player.isNotEmpty ? c.player : '—',
           sub: c.type == 'second_yellow' ? (isAr ? 'صفراء ثانية' : '2nd yellow') : '',
         ),
@@ -425,15 +447,22 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
           minute: s.minute,
           side: s.side,
           icon: '🔁',
+          color: AppColors.green,
           main: s.playerIn.isNotEmpty ? s.playerIn : '—',
           sub: s.playerOut.isNotEmpty ? '🔻 ${s.playerOut}' : '',
         ),
     ]..sort((a, b) => (b.minute ?? -1).compareTo(a.minute ?? -1));
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Column(
-        children: events.map((e) => _eventRow(e)).toList(),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Stack(
+        children: [
+          // The web's central timeline spine.
+          Positioned.fill(
+            child: Center(child: Container(width: 1, color: AppColors.border)),
+          ),
+          Column(children: events.map(_eventRow).toList()),
+        ],
       ),
     );
   }
@@ -451,7 +480,16 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
         mainAxisSize: MainAxisSize.min,
         textDirection: isHome ? TextDirection.rtl : TextDirection.ltr,
         children: [
-          Text(e.icon, style: const TextStyle(fontSize: 13)),
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: e.color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(e.icon, style: const TextStyle(fontSize: 11)),
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Column(
@@ -540,6 +578,7 @@ class _Ev {
   final int? minute;
   final String side;
   final String icon;
+  final Color color;
   final String main;
   final String sub;
   final int? playerId;
@@ -547,6 +586,7 @@ class _Ev {
     required this.minute,
     required this.side,
     required this.icon,
+    required this.color,
     required this.main,
     required this.sub,
     this.playerId,
