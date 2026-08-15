@@ -3,9 +3,10 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
+import 'admin_competitions_screen.dart';
 
 /// Admin landing after sign-in. Shows who is logged in and the data-entry
-/// sections. Match-result entry is wired here next.
+/// sections.
 class AdminHomeScreen extends StatelessWidget {
   const AdminHomeScreen({super.key});
 
@@ -86,28 +87,76 @@ class AdminHomeScreen extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                   letterSpacing: 0.5)),
           const SizedBox(height: 10),
-          // Placeholder — match-result entry lands here in the next step.
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.cardBg,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
+          _EntryTile(
+            icon: Icons.sports_soccer,
+            title: isAr ? 'إدخال نتائج المباريات' : 'Match results',
+            subtitle: isAr
+                ? 'اختر بطولة لإدخال النتائج والأهداف والبطاقات'
+                : 'Pick a competition to enter scores, goals and cards',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AdminCompetitionsScreen()),
             ),
-            child: Row(children: [
-              Icon(Icons.sports_soccer, color: AppColors.aqua),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  isAr
-                      ? 'إدخال نتائج المباريات — قيد الإنشاء'
-                      : 'Match-result entry — coming next',
-                  style: TextStyle(color: AppColors.white, fontSize: 13.5),
-                ),
-              ),
-            ]),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _EntryTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _EntryTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: AppColors.aqua.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: AppColors.aqua, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        color: AppColors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14.5)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    style: TextStyle(
+                        color: AppColors.teal, fontSize: 12, height: 1.3)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: AppColors.aqua, size: 20),
+        ]),
       ),
     );
   }

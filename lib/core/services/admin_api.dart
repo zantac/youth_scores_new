@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../models/admin/match_entry.dart';
 
 /// A logged-in admin user, as returned by `/api/auth/login` and `/api/auth/me`.
 class AdminUser {
@@ -101,4 +102,119 @@ class AdminApi {
       return null;
     }
   }
+
+  // ── Generic authed helpers ────────────────────────────────────────────────
+  Future<Map<String, dynamic>> _get(String token, String path) async {
+    final res = await http
+        .get(Uri.parse('$_origin$path'), headers: _headers(token))
+        .timeout(_timeout);
+    return _parse(res);
+  }
+
+  Future<Map<String, dynamic>> _send(
+      String token, String method, String path,
+      [Object? body]) async {
+    final req = http.Request(method, Uri.parse('$_origin$path'));
+    req.headers.addAll(_headers(token, json: body != null));
+    if (body != null) req.body = json.encode(body);
+    final res = await http.Response.fromStream(await req.send())
+        .timeout(_timeout);
+    return _parse(res);
+  }
+
+  // ── Match entry ───────────────────────────────────────────────────────────
+  Future<List<EntryCompetition>> competitions(String token) async =>
+      ((await _get(token, '/api/admin/competitions'))['competitions'] as List? ??
+              [])
+          .whereType<Map>()
+          .map((e) => EntryCompetition.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<List<EntryTeam>> competitionTeams(String token, int cid) async =>
+      ((await _get(token, '/api/admin/competitions/$cid/teams'))['teams']
+                  as List? ??
+              [])
+          .whereType<Map>()
+          .map((e) => EntryTeam.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<List<EntryMatchRow>> competitionMatches(String token, int cid) async =>
+      ((await _get(token, '/api/admin/competitions/$cid/matches'))['matches']
+                  as List? ??
+              [])
+          .whereType<Map>()
+          .map((e) => EntryMatchRow.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<List<String>> teamPlayers(String token, int teamId) async =>
+      ((await _get(token, '/api/admin/teams/$teamId/players'))['players']
+                  as List? ??
+              [])
+          .map((e) => e.toString())
+          .toList();
+
+  Future<List<String>> matchVenues(String token, int cid) async =>
+      ((await _get(token, '/api/admin/competitions/$cid/match-venues'))['venues']
+                  as List? ??
+              [])
+          .map((e) => e.toString())
+          .toList();
+
+  Future<EntryMatch> getMatch(String token, int mid) async =>
+      EntryMatch.fromJson(await _get(token, '/api/admin/matches/$mid'));
+
+  Future<EntryMatch> createMatch(
+          String token, int cid, Map<String, dynamic> body) async =>
+      EntryMatch.fromJson(
+          await _send(token, 'POST', '/api/admin/competitions/$cid/matches', body));
+
+  Future<EntryMatch> updateMatch(
+          String token, int mid, Map<String, dynamic> body) async =>
+      EntryMatch.fromJson(
+          await _send(token, 'PATCH', '/api/admin/matches/$mid', body));
+
+  Future<void> deleteMatch(String token, int mid) =>
+      _send(token, 'DELETE', '/api/admin/matches/$mid');
+
+  Future<EntryMatch> restoreMatch(String token, int mid) async =>
+      EntryMatch.fromJson(
+          await _send(token, 'POST', '/api/admin/matches/$mid/restore'));
+
+  Future<Map<String, dynamic>> notifyRound(String token, int cid, String week) =>
+      _send(token, 'POST', '/api/admin/competitions/$cid/notify-round',
+          {'week': week});
+
+  // Goals / cards / subs / shootout / lineup — each returns the full match.
+  Future<EntryMatch> addGoal(String token, int mid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'POST', '/api/admin/matches/$mid/goals', b));
+  Future<EntryMatch> updateGoal(String token, int gid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'PATCH', '/api/admin/goals/$gid', b));
+  Future<EntryMatch> deleteGoal(String token, int gid) async =>
+      EntryMatch.fromJson(await _send(token, 'DELETE', '/api/admin/goals/$gid'));
+
+  Future<EntryMatch> addCard(String token, int mid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'POST', '/api/admin/matches/$mid/cards', b));
+  Future<EntryMatch> updateCard(String token, int cid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'PATCH', '/api/admin/cards/$cid', b));
+  Future<EntryMatch> deleteCard(String token, int cid) async =>
+      EntryMatch.fromJson(await _send(token, 'DELETE', '/api/admin/cards/$cid'));
+
+  Future<EntryMatch> addSub(String token, int mid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'POST', '/api/admin/matches/$mid/subs', b));
+  Future<EntryMatch> updateSub(String token, int sid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'PATCH', '/api/admin/subs/$sid', b));
+  Future<EntryMatch> deleteSub(String token, int sid) async =>
+      EntryMatch.fromJson(await _send(token, 'DELETE', '/api/admin/subs/$sid'));
+
+  Future<EntryMatch> addShootoutKick(String token, int mid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'POST', '/api/admin/matches/$mid/shootout', b));
+  Future<EntryMatch> updateShootoutKick(String token, int kid, Map<String, dynamic> b) async =>
+      EntryMatch.fromJson(await _send(token, 'PATCH', '/api/admin/shootout/$kid', b));
+  Future<EntryMatch> deleteShootoutKick(String token, int kid) async =>
+      EntryMatch.fromJson(await _send(token, 'DELETE', '/api/admin/shootout/$kid'));
+
+  Future<EntryMatch> setLineup(String token, int mid, int teamId,
+          List<String> starters, List<String> bench) async =>
+      EntryMatch.fromJson(await _send(token, 'PUT', '/api/admin/matches/$mid/lineup',
+          {'team_id': teamId, 'starters': starters, 'bench': bench}));
 }
