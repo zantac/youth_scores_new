@@ -267,11 +267,13 @@ def competition_match_venues(cid: int):
 @entry_bp.post("/api/admin/competitions/<int:cid>/notify-round")
 @auth.role_required("editor")
 def notify_round(cid: int):
-    """Send ONE round-results digest to this competition's followers.
+    """Notify followers about a finished round.
 
-    The manual trigger the admin taps after entering a round's results — one
-    push per round beats one per match. Editor+, since it broadcasts to users.
-    Runs in dry-run (logs the payload) until Firebase credentials are set.
+    Sends ONE digest to the competition's followers, plus a per-match result to
+    each playing team's followers (people who follow a club, not the league). The
+    manual trigger the admin taps after entering a round's results. Editor+, since
+    it broadcasts to users. Runs in dry-run (logs the payload) until Firebase
+    credentials are set.
     """
     comp = db.session.get(Competition, cid)
     if comp is None:
@@ -294,7 +296,14 @@ def notify_round(cid: int):
         return jsonify({"error": "لا توجد مباريات مكتملة في هذه الجولة"}), 400
 
     result = notifications.notify_round_results(comp, week, completed)
-    return jsonify({"notification": result, "count": len(completed)})
+    # Also notify followers of each team that played — the digest above only
+    # reaches people who follow the whole competition.
+    team_results = notifications.notify_round_results_to_teams(comp, completed)
+    return jsonify({
+        "notification": result,
+        "team_notifications": team_results,
+        "count": len(completed),
+    })
 
 
 def _parse_dt(date_s: str, time_s: str) -> datetime | None:
