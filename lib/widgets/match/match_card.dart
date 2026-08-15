@@ -108,86 +108,128 @@ class MatchCard extends StatelessWidget {
   }
 
   Widget _buildScoreOrTime() {
-    // Completed
-    if (match.isCompleted && match.homeScore != null) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.darkBg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${match.homeScore} - ${match.awayScore}',
-              style: TextStyle(
-                color: AppColors.aqua,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+    final pens = (match.homePenalty != null && match.awayPenalty != null)
+        ? Text(
+            '${locale == 'ar' ? 'ر.ت' : 'Pens'}: ${match.homePenalty} - ${match.awayPenalty}',
+            style: TextStyle(color: AppColors.orange, fontSize: 10),
+          )
+        : null;
+    Widget dateLabel({bool strike = false}) => Text(
+          AppDateUtils.formatMatchDate(match.date, locale),
+          style: TextStyle(
+            color: AppColors.hint,
+            fontSize: 9,
+            decoration: strike ? TextDecoration.lineThrough : null,
+          ),
+          textAlign: TextAlign.center,
+        );
+
+    // Completed — score (or – : –), a clear "ended" flag, and the date.
+    if (match.isCompleted) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (match.homeScore != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
               ),
-            ),
-            if (match.homePenalty != null && match.awayPenalty != null)
-              Text(
-                'ر.ت: ${match.homePenalty} - ${match.awayPenalty}',
-                style: TextStyle(color: AppColors.orange, fontSize: 10),
+              child: Text(
+                '${match.homeScore} - ${match.awayScore}',
+                style: TextStyle(
+                  color: AppColors.aqua,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-          ],
-        ),
+            )
+          else
+            Text('– : –',
+                style: TextStyle(
+                    color: AppColors.hint,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
+          if (pens != null) pens,
+          const SizedBox(height: 2),
+          _statusChip(locale == 'ar' ? 'انتهت' : 'FT', AppColors.green),
+          const SizedBox(height: 2),
+          dateLabel(),
+        ],
       );
     }
 
-    // Live
+    // Live — always a clear LIVE badge, then the running score once one is
+    // entered, otherwise the kickoff time.
     if (match.isLive) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: AppColors.red.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.red),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const _PulsingDot(),
-            const SizedBox(height: 2),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _liveBadge(),
+          const SizedBox(height: 3),
+          if (match.homeScore != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.red.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.red),
+              ),
+              child: Text(
+                '${match.homeScore} - ${match.awayScore}',
+                style: TextStyle(
+                  color: AppColors.red,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (pens != null) pens,
+          ] else
             Text(
-              match.time.isNotEmpty ? match.time : 'LIVE',
+              match.time.isNotEmpty ? match.time : '--:--',
               style: TextStyle(
-                color: AppColors.red,
-                fontSize: 13,
+                color: AppColors.aqua,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
             ),
-          ],
-        ),
+          const SizedBox(height: 2),
+          dateLabel(),
+        ],
       );
     }
 
     // Postponed
     if (match.status.toLowerCase() == 'postponed') {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: AppColors.orange.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.orange.withValues(alpha: 0.5)),
-        ),
-        child: Text(
-          locale == 'ar' ? 'مؤجلة' : 'PPD',
-          style: TextStyle(
-            color: AppColors.orange,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _statusBox(locale == 'ar' ? 'مؤجلة' : 'PPD', AppColors.orange),
+          const SizedBox(height: 2),
+          dateLabel(),
+        ],
+      );
+    }
+
+    // Cancelled
+    if (match.status.toLowerCase() == 'cancelled') {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _statusBox(locale == 'ar' ? 'ملغاة' : 'Canc.', AppColors.red),
+          const SizedBox(height: 2),
+          dateLabel(strike: true),
+        ],
       );
     }
 
     // Upcoming
     final countdown = AppDateUtils.countdownLabel(match.date, match.time, locale);
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           match.time.isNotEmpty ? match.time : '--:--',
@@ -207,15 +249,64 @@ class MatchCard extends StatelessWidget {
             ),
             textAlign: TextAlign.center,
           ),
-        if (!AppDateUtils.isToday(match.date))
-          Text(
-            AppDateUtils.formatMatchDate(match.date, locale),
-            style: TextStyle(color: AppColors.hint, fontSize: 10),
-            textAlign: TextAlign.center,
-          ),
+        if (!AppDateUtils.isToday(match.date)) dateLabel(),
       ],
     );
   }
+
+  // Red pulsing "LIVE / مباشر" pill — the unmistakable live flag, matching the
+  // match detail page.
+  Widget _liveBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.red.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const _PulsingDot(),
+          const SizedBox(width: 4),
+          Text(
+            locale == 'ar' ? 'مباشر' : 'LIVE',
+            style: TextStyle(
+              color: AppColors.red,
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Small outlined chip (FT).
+  Widget _statusChip(String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+      );
+
+  // Larger status box (postponed / cancelled).
+  Widget _statusBox(String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+      );
 }
 
 // ── Pulsing live indicator ─────────────────────────────────────────────────────

@@ -5,7 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
+import '../models/follows.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 
 class AppProvider extends ChangeNotifier {
   final _api = ApiService();
@@ -29,9 +31,90 @@ class AppProvider extends ChangeNotifier {
     _locale = prefs.getString('locale') ?? 'ar';
     _isDark = prefs.getBool('isDark') ?? true;
     AppColors.setTheme(_isDark);
+    _loadFollows(prefs);
     final info = await PackageInfo.fromPlatform();
     _appBuildNumber = int.tryParse(info.buildNumber) ?? 0;
     notifyListeners();
+  }
+
+  // ── Follows (favorite competitions + teams) ───────────────────────────────────
+  // Local-only for now (device favorites); push notifications can layer on later.
+  static const _kFollowComps = 'followedComps';
+  static const _kFollowTeams = 'followedTeams';
+
+  List<FollowedComp> _followedComps = [];
+  List<FollowedTeam> _followedTeams = [];
+
+  List<FollowedComp> get followedComps => List.unmodifiable(_followedComps);
+  List<FollowedTeam> get followedTeams => List.unmodifiable(_followedTeams);
+
+  bool isFollowingComp(String id) => _followedComps.any((c) => c.id == id);
+  bool isFollowingTeam(String id) => _followedTeams.any((t) => t.id == id);
+
+  void _loadFollows(SharedPreferences prefs) {
+    _followedComps = _decode(prefs.getString(_kFollowComps), FollowedComp.fromJson);
+    _followedTeams = _decode(prefs.getString(_kFollowTeams), FollowedTeam.fromJson);
+  }
+
+  List<T> _decode<T>(String? raw, T Function(Map<String, dynamic>) f) {
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      return (json.decode(raw) as List)
+          .whereType<Map<String, dynamic>>()
+          .map(f)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> toggleFollowComp(FollowedComp c) async {
+    final wasFollowing = isFollowingComp(c.id);
+    if (wasFollowing) {
+      _followedComps.removeWhere((x) => x.id == c.id);
+    } else {
+      _followedComps = [..._followedComps, c];
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kFollowComps, json.encode(_followedComps.map((x) => x.toJson()).toList()));
+    try {
+      wasFollowing
+          ? await NotificationService.instance.unfollowComp(c.id)
+          : await NotificationService.instance.followComp(c.id);
+    } catch (_) {/* push is best-effort */}
+  }
+
+  Future<void> toggleFollowTeam(FollowedTeam t) async {
+    final wasFollowing = isFollowingTeam(t.id);
+    if (wasFollowing) {
+      _followedTeams.removeWhere((x) => x.id == t.id);
+    } else {
+      _followedTeams = [..._followedTeams, t];
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kFollowTeams, json.encode(_followedTeams.map((x) => x.toJson()).toList()));
+    try {
+      wasFollowing
+          ? await NotificationService.instance.unfollowTeam(t.id)
+          : await NotificationService.instance.followTeam(t.id);
+    } catch (_) {/* push is best-effort */}
+  }
+
+  /// Re-join FCM topics for everything already followed — topic subscriptions are
+  /// lost on reinstall, so re-assert them on startup. Best-effort.
+  Future<void> resubscribeFollows() async {
+    try {
+      for (final c in _followedComps) {
+        await NotificationService.instance.followComp(c.id);
+      }
+      for (final t in _followedTeams) {
+        await NotificationService.instance.followTeam(t.id);
+      }
+    } catch (_) {}
   }
 
   Future<void> toggleLocale() async {
@@ -84,6 +167,7 @@ class AppProvider extends ChangeNotifier {
   CompetitionData? get competition    => _competition;
   bool             get loadingComp    => _loadingComp;
   String?          get compError      => _compError;
+  String?          get compUrl        => _compUrl;
 
   final _memCache = <String, CompetitionData>{};
 

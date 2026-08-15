@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
+import '../models/home_match.dart';
+import '../models/match_full.dart';
 import '../models/profile_models.dart';
 
 class ApiService {
@@ -11,6 +13,11 @@ class ApiService {
   // The API origin, derived from the config URL (strip the trailing /api/config).
   static final String _origin =
       _configUrl.replaceFirst(RegExp(r'/api/config/?$'), '');
+
+  /// Absolute URL of a competition's data blob — used to open a competition by
+  /// id (e.g. from a notification tap).
+  static String competitionDataUrl(String id) =>
+      '$_origin/api/competitions/$id/data';
 
   Future<ConfigData> fetchConfig() async {
     final cfg = await http.get(Uri.parse(_configUrl)).timeout(_timeout);
@@ -49,6 +56,29 @@ class ApiService {
     return res.body;
   }
 
+  /// The aggregate match feed the home screen groups by date then competition.
+  /// `from`/`to` are inclusive YYYY-MM-DD bounds; `order` is asc|desc.
+  Future<List<HomeMatch>> fetchAllMatches({
+    String? from,
+    String? to,
+    String order = 'desc',
+    int limit = 300,
+  }) async {
+    final qp = <String, String>{'order': order, 'limit': '$limit'};
+    if (from != null) qp['from'] = from;
+    if (to != null) qp['to'] = to;
+    final uri = Uri.parse('$_origin/api/matches').replace(queryParameters: qp);
+    final res = await http.get(uri).timeout(_timeout);
+    if (res.statusCode != 200) {
+      throw Exception('Matches fetch failed: ${res.statusCode}');
+    }
+    final j = json.decode(res.body) as Map<String, dynamic>;
+    return (j['matches'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(HomeMatch.fromJson)
+        .toList();
+  }
+
   // ── Public profiles (fetched by id, independent of the loaded competition) ──
   Future<Map<String, dynamic>> _getJson(String path) async {
     final res = await http.get(Uri.parse('$_origin$path')).timeout(_timeout);
@@ -57,6 +87,11 @@ class ApiService {
     }
     return json.decode(res.body) as Map<String, dynamic>;
   }
+
+  /// A single match by id from `/api/matches/<id>` — carries goals, cards, subs
+  /// and the line-up, and reflects live status independently of any competition.
+  Future<MatchFull> fetchMatchFull(int id) async =>
+      MatchFull.fromJson(await _getJson('/api/matches/$id'));
 
   Future<PlayerFull> fetchPlayer(int id) async =>
       PlayerFull.fromJson(await _getJson('/api/players/$id'));

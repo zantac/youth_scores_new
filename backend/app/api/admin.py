@@ -441,6 +441,45 @@ def push_unfollow():
     return jsonify({"unfollowed": cid, "result": result})
 
 
+@admin_bp.post("/api/push/follow-team")
+@limiter.limit("60 per minute")
+def push_follow_team():
+    """Public: subscribe a web client's token to one team's results topic (the
+    user tapped "follow" on that team). Idempotent. The native app subscribes to
+    team_<id> itself via the FCM SDK; web has no client-side topic API, so it
+    routes the follow through the server here."""
+    j = request.get_json(silent=True) or {}
+    token = _push_token(j)
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+    try:
+        tid = int(j.get("team_id"))
+    except (TypeError, ValueError):
+        tid = 0
+    if tid <= 0:
+        return jsonify({"error": "team_id is required"}), 400
+    result = notifications.subscribe_token_to_topic(token, notifications.team_topic(tid))
+    return jsonify({"followed_team": tid, "result": result})
+
+
+@admin_bp.post("/api/push/unfollow-team")
+@limiter.limit("60 per minute")
+def push_unfollow_team():
+    """Public: unsubscribe a web client's token from one team's topic."""
+    j = request.get_json(silent=True) or {}
+    token = _push_token(j)
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+    try:
+        tid = int(j.get("team_id"))
+    except (TypeError, ValueError):
+        tid = 0
+    if tid <= 0:
+        return jsonify({"error": "team_id is required"}), 400
+    result = notifications.unsubscribe_token_from_topic(token, notifications.team_topic(tid))
+    return jsonify({"unfollowed_team": tid, "result": result})
+
+
 # ── global admin search ───────────────────────────────────────────────────────
 
 @admin_bp.get("/api/admin/search")

@@ -22,6 +22,11 @@ IID_TOPIC_URL = "https://iid.googleapis.com/iid/v1/{token}/rel/topics/{topic}"
 IID_BATCH_REMOVE_URL = "https://iid.googleapis.com/iid/v1:batchRemove"
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
+# Notification channel the youthscores native Android app creates (see the app's
+# NotificationService and AndroidManifest default_notification_channel_id). A
+# killed-app push must name it so Android shows it on the high-importance channel.
+ANDROID_CHANNEL_ID = "youthscores_default"
+
 # Topics the clients subscribe to.
 TOPIC_NEWS = "news"
 TOPIC_VENUES = "venues"
@@ -124,15 +129,25 @@ def _access_token() -> tuple[str, str]:
     return creds.token, project_id
 
 
+def _android_tag(data: dict) -> str:
+    """The Android notification tag, mirroring the web SW's notifTag() so a device
+    following both sides of a fixture (two topic sends, same match) collapses them
+    into one, and a re-sent digest replaces the old one instead of stacking."""
+    return f"{data.get('type') or 'msg'}:{data.get('id') or data.get('url') or data.get('title') or ''}"
+
+
 def send_to_topic(topic: str, title: str, body: str, data: dict | None = None) -> dict:
     """Send one push to an FCM topic. Never raises — logs and reports.
 
-    Sent as a **data-only** message: the title and body ride inside ``data`` and
-    the web service worker draws the notification itself. A top-level
-    ``notification`` block would make the browser pop a SECOND, duplicate one, so
-    we deliberately omit it. When the native Android app ships it will add an
-    ``android``/``notification`` override here for reliable delivery to a killed
-    app (web needs the data-only form; Android's killed-app case needs the block).
+    Web receives a **data-only** message: title/body/url ride inside ``data`` and
+    the service worker draws the notification itself. A top-level ``notification``
+    block would make the browser pop a SECOND, duplicate one, so it is omitted.
+
+    Native Android additionally gets an ``android.notification`` block: a data-only
+    message to a backgrounded or killed app would only wake the (empty) background
+    isolate and show nothing, so the OS needs the block to display it. FCM delivers
+    ``android`` only to Android tokens, so web still sees a data-only message and
+    draws exactly one notification — the two platforms don't collide.
     """
     # FCM data values must all be strings. Title/body travel in data so the
     # service worker can render the notification (see the note above).
@@ -147,7 +162,22 @@ def send_to_topic(topic: str, title: str, body: str, data: dict | None = None) -
         )
         return {"status": "dry_run", "topic": topic, "title": title, "body": body}
 
-    message = {"message": {"topic": topic, "data": str_data}}
+    message = {
+        "message": {
+            "topic": topic,
+            "data": str_data,
+            "android": {
+                "priority": "high",
+                "notification": {
+                    "title": title,
+                    "body": body,
+                    "channel_id": ANDROID_CHANNEL_ID,
+                    "tag": _android_tag(str_data),
+                    "default_sound": True,
+                },
+            },
+        }
+    }
     try:
         token, project_id = _access_token()
         resp = requests.post(
@@ -281,6 +311,78 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
             "url": f"/competition?id={competition.id}&week={week}",
         },
     )
+
+
+def team_topic(team_id: int) -> str:
+    """Per-team follow topic. The native app subscribes here via the FCM SDK when a
+    user follows a team; a match's result is broadcast to both sides' topics so a
+    follower of just one club still hears about it."""
+    return f"team_{team_id}"
+
+
+def _ys_team_name(team, competition_id: int) -> str:
+    """A team's Arabic name for a competition: the second name it plays under there
+    (academy/sponsor branding, which differs per competition) if any, else the
+    club's name. Mirrors serializers._team_name for a single competition."""
+    if team is None:
+        return "فريق"
+    from app.extensions import db
+    from app.models import CompetitionTeam
+
+    ct = (
+        db.session.query(CompetitionTeam)
+        .filter_by(competition_id=competition_id, team_id=team.id)
+        .first()
+    )
+    if ct and (ct.name_ar or ct.name_en):
+        return ct.name_ar or ct.name_en
+    club = getattr(team, "club", None)
+    return (club.name_ar or club.name_en or "فريق") if club else "فريق"
+
+
+def notify_match_result(competition, match) -> dict:
+    """A completed match's final score to BOTH sides' followers (team_<id>).
+
+    The round digest (notify_round_results) reaches people who follow the *league*;
+    this reaches people who follow just one of the *clubs*. Deep-links to the
+    competition, not the match — the clients route by the `id` query param as a
+    competition id, so a per-match link would open the wrong screen.
+    """
+    home = _ys_team_name(match.home_team, competition.id)
+    away = _ys_team_name(match.away_team, competition.id)
+    hs = match.home_score if match.home_score is not None else 0
+    as_ = match.away_score if match.away_score is not None else 0
+    body = f"{home} {hs} - {as_} {away}"
+    if match.home_penalty_score is not None and match.away_penalty_score is not None:
+        body += f" (ركلات {match.home_penalty_score}-{match.away_penalty_score})"
+    name = competition.name_ar or competition.name_en or "البطولة"
+    title = f"نتيجة — {name}"
+    data = {
+        "type": "match",
+        "id": match.id,
+        "competition_id": competition.id,
+        "url": f"/competition?id={competition.id}",
+    }
+    # Same title/body/tag to both topics, so a device following both clubs in this
+    # fixture collapses the two into one notification (see _android_tag / web SW).
+    return {
+        "match_id": match.id,
+        "sent": [
+            send_to_topic(team_topic(match.home_team_id), title, body, data=data),
+            send_to_topic(team_topic(match.away_team_id), title, body, data=data),
+        ],
+    }
+
+
+def notify_round_results_to_teams(competition, matches) -> list[dict]:
+    """Fan every completed match in a round out to its two teams' followers. Called
+    alongside notify_round_results from the admin's round-notify action, so both
+    league followers and team followers are covered by the one manual trigger.
+
+    One FCM request per team per match — fine for a round's handful of fixtures;
+    topics with no subscribers are a harmless no-op.
+    """
+    return [notify_match_result(competition, m) for m in matches]
 
 
 def notify_tla3bny_round_results(competition, round_label, matches, age_label=None) -> dict:
