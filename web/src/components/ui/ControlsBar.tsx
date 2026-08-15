@@ -18,7 +18,8 @@ export default function ControlsBar() {
   const pinned = pathname === '/';
   // The admin login lives only on the More page now; it used to sit on every
   // page's controls bar, duplicating something that belongs in one place.
-  const showLogin = pathname === '/more';
+  // trailingSlash is on, so the route is "/more/" — tolerate the trailing slash.
+  const showLogin = pathname.replace(/\/+$/, '') === '/more';
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = document.documentElement;
