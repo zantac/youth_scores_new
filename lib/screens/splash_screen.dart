@@ -25,7 +25,9 @@ class _SplashScreenState extends State<SplashScreen>
     );
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _ctrl.forward();
-    _load();
+    // Defer the config load: loadConfig() notifies listeners synchronously, so
+    // kicking it off during initState would fire a notification mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {

@@ -10,16 +10,11 @@ import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/date_utils.dart';
-import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
 import '../competition/competition_data_screen.dart';
 import '../match/match_detail_screen.dart';
 import '../news/news_detail_screen.dart';
-import '../team/team_detail_screen.dart';
 import '../info/about_screen.dart';
-
-const _bannerUrl =
-    'https://res.cloudinary.com/debq5s4sn/image/upload/v1783684931/youthscores-banner-v2_yqr3hs.png';
 
 class HomeTab extends StatefulWidget {
   final VoidCallback onGoToCompetitions;
@@ -138,9 +133,10 @@ class _HomeTabState extends State<HomeTab> {
     return null;
   }
 
-  List<_Row> _buildRows(List<NewsItem> news, bool hasFollows) {
-    final rows = <_Row>[const _BannerRow()];
-    if (hasFollows) rows.add(const _FollowingRow());
+  List<_Row> _buildRows(List<NewsItem> news) {
+    // The banner now lives in HomeTopBar above every tab, so the feed no longer
+    // carries its own banner row.
+    final rows = <_Row>[];
 
     if (_loading && _ascending.isEmpty) {
       rows.add(const _MsgRow(loading: true));
@@ -184,9 +180,7 @@ class _HomeTabState extends State<HomeTab> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
-    final hasFollows =
-        provider.followedComps.isNotEmpty || provider.followedTeams.isNotEmpty;
-    _rows = _buildRows(provider.config?.news ?? const [], hasFollows);
+    _rows = _buildRows(provider.config?.news ?? const []);
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -207,18 +201,6 @@ class _HomeTabState extends State<HomeTab> {
     final l10n = L10n(locale);
     final isAr = locale == 'ar';
 
-    if (r is _FollowingRow) {
-      return _followingSection(ctx, provider, locale, isAr);
-    }
-
-    if (r is _BannerRow) {
-      return CachedNetworkImage(
-        imageUrl: _bannerUrl,
-        width: double.infinity,
-        fit: BoxFit.fitWidth,
-        errorWidget: (context, url, err) => const SizedBox.shrink(),
-      );
-    }
     if (r is _MsgRow) {
       if (r.loading) return _LoadingCard();
       final msg = r.error
@@ -365,118 +347,12 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  Widget _followingSection(
-      BuildContext ctx, AppProvider provider, String locale, bool isAr) {
-    final comps = provider.followedComps;
-    final teams = provider.followedTeams;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Icon(Icons.star, color: AppColors.orange, size: 18),
-            const SizedBox(width: 6),
-            Text(isAr ? 'المتابَعة' : 'Following',
-                style: TextStyle(
-                    color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final c in comps)
-                _followChip(
-                  icon: const Text('🏆', style: TextStyle(fontSize: 13)),
-                  label: c.getTitle(locale),
-                  onTap: () => Navigator.push(
-                      ctx,
-                      MaterialPageRoute(
-                          builder: (_) => CompetitionDataScreen(
-                              dataUrl: c.dataUrl,
-                              title: c.getTitle(locale),
-                              seasonName: ''))),
-                  onRemove: () => provider.toggleFollowComp(c),
-                ),
-              for (final t in teams)
-                _followChip(
-                  icon: CachedLogo(url: t.logo, size: 18),
-                  label: t.getName(locale),
-                  onTap: () => _openTeam(ctx, provider, t),
-                  onRemove: () => provider.toggleFollowTeam(t),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Open a followed team: load the competition it was followed from (the team
-  // page reads team/matches from the loaded competition), then push it.
-  Future<void> _openTeam(BuildContext ctx, AppProvider provider, FollowedTeam t) async {
-    if (t.compDataUrl != null && t.compDataUrl!.isNotEmpty) {
-      await provider.loadCompetition(t.compDataUrl!);
-    }
-    if (!ctx.mounted) return;
-    Navigator.push(
-      ctx,
-      MaterialPageRoute(builder: (_) => TeamDetailScreen(teamId: t.id)),
-    );
-  }
-
-  Widget _followChip({
-    required Widget icon,
-    required String label,
-    required VoidCallback onTap,
-    required VoidCallback onRemove,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-        decoration: BoxDecoration(
-          color: AppColors.cardBg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.aqua.withValues(alpha: 0.35)),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          icon,
-          const SizedBox(width: 6),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 160),
-            child: Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: AppColors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-          ),
-          const SizedBox(width: 4),
-          InkWell(
-            onTap: onRemove,
-            borderRadius: BorderRadius.circular(20),
-            child: Icon(Icons.close, size: 15, color: AppColors.hint),
-          ),
-        ]),
-      ),
-    );
-  }
 }
 
 // ── Feed row model ────────────────────────────────────────────────────────────
 
 sealed class _Row {
   const _Row();
-}
-
-class _BannerRow extends _Row {
-  const _BannerRow();
-}
-
-class _FollowingRow extends _Row {
-  const _FollowingRow();
 }
 
 class _MsgRow extends _Row {

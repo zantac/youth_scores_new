@@ -10,6 +10,8 @@ import 'home_tab.dart';
 import 'competitions_tab.dart';
 import '../news/news_screen.dart';
 import '../venues/venues_screen.dart';
+import '../more/more_screen.dart';
+import '../../widgets/common/home_top_bar.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -78,15 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _openWhatsApp() async {
-    final uri = Uri.parse('https://wa.me/201064428821');
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      await launchUrl(uri, mode: LaunchMode.platformDefault);
-    }
-  }
-
   @override
   void dispose() {
     _connSub.cancel();
@@ -112,45 +105,33 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.appName),
-        actions: [
-          IconButton(
-            icon: Icon(
-              provider.isDark ? Icons.light_mode : Icons.dark_mode,
-              color: AppColors.aqua,
+      // No AppBar / title — the banner + controls row (HomeTopBar) sits above
+      // every tab, mirroring the website's layout header.
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // ── Banner + controls (language / theme / search / admin) ───────
+            const HomeTopBar(),
+            // ── Connectivity banners ────────────────────────────────────────
+            _ConnBanner(
+              isOffline:  _isOffline,
+              showOnline: _showOnline,
+              isAr:       l10n.isAr,
             ),
-            onPressed: () => provider.toggleTheme(),
-          ),
-          TextButton(
-            onPressed: () => provider.toggleLocale(),
-            child: Text(
-              l10n.switchLang,
-              style: TextStyle(
-                color: AppColors.aqua,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // ── Connectivity banners ─────────────────────────────────────────
-          _ConnBanner(
-            isOffline:  _isOffline,
-            showOnline: _showOnline,
-            isAr:       l10n.isAr,
-          ),
-          // ── Tab content ──────────────────────────────────────────────────
-          Expanded(child: screens[_tab]),
-        ],
+            // ── Tab content ─────────────────────────────────────────────────
+            Expanded(child: screens[_tab]),
+          ],
+        ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _tab,
         onTap: (i) {
           if (i == 4) {
-            _openWhatsApp();
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MoreScreen()),
+            );
             return;
           }
           setState(() => _tab = i);
@@ -177,9 +158,9 @@ class _HomeScreenState extends State<HomeScreen> {
             label: l10n.venues,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF25D366)),
-            activeIcon: const Icon(Icons.chat_bubble, color: Color(0xFF25D366)),
-            label: l10n.contactUs,
+            icon: const Icon(Icons.more_horiz),
+            activeIcon: const Icon(Icons.more_horiz),
+            label: l10n.moreLabel,
           ),
         ],
       ),

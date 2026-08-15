@@ -5,6 +5,7 @@ import '../models/competition_data_model.dart';
 import '../models/home_match.dart';
 import '../models/match_full.dart';
 import '../models/profile_models.dart';
+import '../models/search_results.dart';
 
 class ApiService {
   static const _configUrl = 'https://www.youthscores.org/api/config';
@@ -101,4 +102,18 @@ class ApiService {
 
   Future<ClubPublic> fetchClub(int id) async =>
       ClubPublic.fromJson(await _getJson('/api/clubs/$id'));
+
+  /// Global search over teams, players and coaches (`/api/search?q=`). Mirrors
+  /// the website's search; returns empty for terms shorter than two chars.
+  Future<SearchResults> fetchSearch(String q) async {
+    final term = q.trim();
+    if (term.length < 2) return SearchResults.empty;
+    final uri = Uri.parse('$_origin/api/search')
+        .replace(queryParameters: {'q': term});
+    final res = await http.get(uri).timeout(_timeout);
+    if (res.statusCode != 200) return SearchResults.empty;
+    return SearchResults.fromJson(
+      json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>,
+    );
+  }
 }

@@ -21,6 +21,9 @@ class L10n {
   String get todaysMatches => isAr ? 'مباريات اليوم'       : "Today's Matches";
   String get more          => isAr ? 'المزيد ›'             : 'More ›';
   String get contactUs     => isAr ? 'تواصل معنا'          : 'Contact Us';
+  String get moreLabel     => isAr ? 'المزيد'               : 'More';
+  String get connect       => isAr ? 'تواصل معنا'          : 'Connect';
+  String get favorites     => isAr ? 'المفضلة'             : 'Favourites';
 
   // Match status
   String get completed     => isAr ? 'انتهت'               : 'Completed';
