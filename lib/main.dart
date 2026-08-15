@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 import 'core/providers/app_provider.dart';
+import 'core/providers/admin_auth.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/splash_screen.dart';
@@ -28,9 +29,16 @@ void main() async {
   await provider.init();
   await provider.resubscribeFollows();
 
+  // Admin session — restore any saved token in the background; the login screen
+  // reacts once it resolves.
+  final adminAuth = AdminAuth()..restore();
+
   runApp(
-    ChangeNotifierProvider.value(
-      value: provider,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: provider),
+        ChangeNotifierProvider.value(value: adminAuth),
+      ],
       child: const YouthScoresApp(),
     ),
   );
