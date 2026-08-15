@@ -14,6 +14,11 @@ class ApiService {
   static final String _origin =
       _configUrl.replaceFirst(RegExp(r'/api/config/?$'), '');
 
+  /// Absolute URL of a competition's data blob — used to open a competition by
+  /// id (e.g. from a notification tap).
+  static String competitionDataUrl(String id) =>
+      '$_origin/api/competitions/$id/data';
+
   Future<ConfigData> fetchConfig() async {
     final cfg = await http.get(Uri.parse(_configUrl)).timeout(_timeout);
     if (cfg.statusCode != 200) {

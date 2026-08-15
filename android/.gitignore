@@ -6,6 +6,10 @@ gradle-wrapper.jar
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/
+.kotlin/
+
+# Firebase config holds project API keys — keep it out of the repo.
+app/google-services.json
 
 # Remember to never publicly share your keystore.
 # See https://flutter.dev/to/reference-keystore

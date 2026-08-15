@@ -7,6 +7,7 @@ import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
 import '../models/follows.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 
 class AppProvider extends ChangeNotifier {
   final _api = ApiService();
@@ -68,7 +69,8 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFollowComp(FollowedComp c) async {
-    if (isFollowingComp(c.id)) {
+    final wasFollowing = isFollowingComp(c.id);
+    if (wasFollowing) {
       _followedComps.removeWhere((x) => x.id == c.id);
     } else {
       _followedComps = [..._followedComps, c];
@@ -77,10 +79,16 @@ class AppProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _kFollowComps, json.encode(_followedComps.map((x) => x.toJson()).toList()));
+    try {
+      wasFollowing
+          ? await NotificationService.instance.unfollowComp(c.id)
+          : await NotificationService.instance.followComp(c.id);
+    } catch (_) {/* push is best-effort */}
   }
 
   Future<void> toggleFollowTeam(FollowedTeam t) async {
-    if (isFollowingTeam(t.id)) {
+    final wasFollowing = isFollowingTeam(t.id);
+    if (wasFollowing) {
       _followedTeams.removeWhere((x) => x.id == t.id);
     } else {
       _followedTeams = [..._followedTeams, t];
@@ -89,6 +97,24 @@ class AppProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _kFollowTeams, json.encode(_followedTeams.map((x) => x.toJson()).toList()));
+    try {
+      wasFollowing
+          ? await NotificationService.instance.unfollowTeam(t.id)
+          : await NotificationService.instance.followTeam(t.id);
+    } catch (_) {/* push is best-effort */}
+  }
+
+  /// Re-join FCM topics for everything already followed — topic subscriptions are
+  /// lost on reinstall, so re-assert them on startup. Best-effort.
+  Future<void> resubscribeFollows() async {
+    try {
+      for (final c in _followedComps) {
+        await NotificationService.instance.followComp(c.id);
+      }
+      for (final t in _followedTeams) {
+        await NotificationService.instance.followTeam(t.id);
+      }
+    } catch (_) {}
   }
 
   Future<void> toggleLocale() async {
