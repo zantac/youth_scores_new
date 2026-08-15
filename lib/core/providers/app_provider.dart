@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_colors.dart';
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
+import '../models/follows.dart';
 import '../services/api_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -29,9 +30,65 @@ class AppProvider extends ChangeNotifier {
     _locale = prefs.getString('locale') ?? 'ar';
     _isDark = prefs.getBool('isDark') ?? true;
     AppColors.setTheme(_isDark);
+    _loadFollows(prefs);
     final info = await PackageInfo.fromPlatform();
     _appBuildNumber = int.tryParse(info.buildNumber) ?? 0;
     notifyListeners();
+  }
+
+  // ── Follows (favorite competitions + teams) ───────────────────────────────────
+  // Local-only for now (device favorites); push notifications can layer on later.
+  static const _kFollowComps = 'followedComps';
+  static const _kFollowTeams = 'followedTeams';
+
+  List<FollowedComp> _followedComps = [];
+  List<FollowedTeam> _followedTeams = [];
+
+  List<FollowedComp> get followedComps => List.unmodifiable(_followedComps);
+  List<FollowedTeam> get followedTeams => List.unmodifiable(_followedTeams);
+
+  bool isFollowingComp(String id) => _followedComps.any((c) => c.id == id);
+  bool isFollowingTeam(String id) => _followedTeams.any((t) => t.id == id);
+
+  void _loadFollows(SharedPreferences prefs) {
+    _followedComps = _decode(prefs.getString(_kFollowComps), FollowedComp.fromJson);
+    _followedTeams = _decode(prefs.getString(_kFollowTeams), FollowedTeam.fromJson);
+  }
+
+  List<T> _decode<T>(String? raw, T Function(Map<String, dynamic>) f) {
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      return (json.decode(raw) as List)
+          .whereType<Map<String, dynamic>>()
+          .map(f)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> toggleFollowComp(FollowedComp c) async {
+    if (isFollowingComp(c.id)) {
+      _followedComps.removeWhere((x) => x.id == c.id);
+    } else {
+      _followedComps = [..._followedComps, c];
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kFollowComps, json.encode(_followedComps.map((x) => x.toJson()).toList()));
+  }
+
+  Future<void> toggleFollowTeam(FollowedTeam t) async {
+    if (isFollowingTeam(t.id)) {
+      _followedTeams.removeWhere((x) => x.id == t.id);
+    } else {
+      _followedTeams = [..._followedTeams, t];
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _kFollowTeams, json.encode(_followedTeams.map((x) => x.toJson()).toList()));
   }
 
   Future<void> toggleLocale() async {
@@ -84,6 +141,7 @@ class AppProvider extends ChangeNotifier {
   CompetitionData? get competition    => _competition;
   bool             get loadingComp    => _loadingComp;
   String?          get compError      => _compError;
+  String?          get compUrl        => _compUrl;
 
   final _memCache = <String, CompetitionData>{};
 

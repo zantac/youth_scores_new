@@ -5,14 +5,17 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
+import '../../core/models/follows.dart';
 import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/date_utils.dart';
+import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
 import '../competition/competition_data_screen.dart';
 import '../match/match_detail_screen.dart';
 import '../news/news_detail_screen.dart';
+import '../team/team_detail_screen.dart';
 import '../info/about_screen.dart';
 
 const _bannerUrl =
@@ -135,8 +138,9 @@ class _HomeTabState extends State<HomeTab> {
     return null;
   }
 
-  List<_Row> _buildRows(List<NewsItem> news) {
+  List<_Row> _buildRows(List<NewsItem> news, bool hasFollows) {
     final rows = <_Row>[const _BannerRow()];
+    if (hasFollows) rows.add(const _FollowingRow());
 
     if (_loading && _ascending.isEmpty) {
       rows.add(const _MsgRow(loading: true));
@@ -180,7 +184,9 @@ class _HomeTabState extends State<HomeTab> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
-    _rows = _buildRows(provider.config?.news ?? const []);
+    final hasFollows =
+        provider.followedComps.isNotEmpty || provider.followedTeams.isNotEmpty;
+    _rows = _buildRows(provider.config?.news ?? const [], hasFollows);
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -192,14 +198,18 @@ class _HomeTabState extends State<HomeTab> {
         itemScrollController: _itemCtrl,
         physics: const AlwaysScrollableScrollPhysics(),
         itemCount: _rows.length,
-        itemBuilder: (ctx, i) => _rowWidget(ctx, _rows[i], locale),
+        itemBuilder: (ctx, i) => _rowWidget(ctx, _rows[i], locale, provider),
       ),
     );
   }
 
-  Widget _rowWidget(BuildContext ctx, _Row r, String locale) {
+  Widget _rowWidget(BuildContext ctx, _Row r, String locale, AppProvider provider) {
     final l10n = L10n(locale);
     final isAr = locale == 'ar';
+
+    if (r is _FollowingRow) {
+      return _followingSection(ctx, provider, locale, isAr);
+    }
 
     if (r is _BannerRow) {
       return CachedNetworkImage(
@@ -255,13 +265,14 @@ class _HomeTabState extends State<HomeTab> {
       );
     }
     if (r is _CompRow) {
+      final following = provider.isFollowingComp(r.comp.id);
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
         child: InkWell(
           onTap: () => _openCompetition(ctx, r.comp, locale),
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
             decoration: BoxDecoration(
               color: AppColors.cardBg,
               borderRadius: BorderRadius.circular(12),
@@ -281,6 +292,16 @@ class _HomeTabState extends State<HomeTab> {
                     fontSize: 12,
                   ),
                 ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                icon: Icon(following ? Icons.star : Icons.star_border,
+                    color: following ? AppColors.orange : AppColors.hint, size: 20),
+                tooltip: following ? (isAr ? 'إلغاء المتابعة' : 'Unfollow') : (isAr ? 'متابعة' : 'Follow'),
+                onPressed: () => provider.toggleFollowComp(FollowedComp(
+                    id: r.comp.id, title: r.comp.title, dataUrl: r.comp.dataUrl)),
               ),
               Icon(Icons.chevron_right, color: AppColors.aqua, size: 18),
             ]),
@@ -343,6 +364,105 @@ class _HomeTabState extends State<HomeTab> {
       ),
     );
   }
+
+  Widget _followingSection(
+      BuildContext ctx, AppProvider provider, String locale, bool isAr) {
+    final comps = provider.followedComps;
+    final teams = provider.followedTeams;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.star, color: AppColors.orange, size: 18),
+            const SizedBox(width: 6),
+            Text(isAr ? 'المتابَعة' : 'Following',
+                style: TextStyle(
+                    color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final c in comps)
+                _followChip(
+                  icon: const Text('🏆', style: TextStyle(fontSize: 13)),
+                  label: c.getTitle(locale),
+                  onTap: () => Navigator.push(
+                      ctx,
+                      MaterialPageRoute(
+                          builder: (_) => CompetitionDataScreen(
+                              dataUrl: c.dataUrl,
+                              title: c.getTitle(locale),
+                              seasonName: ''))),
+                  onRemove: () => provider.toggleFollowComp(c),
+                ),
+              for (final t in teams)
+                _followChip(
+                  icon: CachedLogo(url: t.logo, size: 18),
+                  label: t.getName(locale),
+                  onTap: () => _openTeam(ctx, provider, t),
+                  onRemove: () => provider.toggleFollowTeam(t),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Open a followed team: load the competition it was followed from (the team
+  // page reads team/matches from the loaded competition), then push it.
+  Future<void> _openTeam(BuildContext ctx, AppProvider provider, FollowedTeam t) async {
+    if (t.compDataUrl != null && t.compDataUrl!.isNotEmpty) {
+      await provider.loadCompetition(t.compDataUrl!);
+    }
+    if (!ctx.mounted) return;
+    Navigator.push(
+      ctx,
+      MaterialPageRoute(builder: (_) => TeamDetailScreen(teamId: t.id)),
+    );
+  }
+
+  Widget _followChip({
+    required Widget icon,
+    required String label,
+    required VoidCallback onTap,
+    required VoidCallback onRemove,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.aqua.withValues(alpha: 0.35)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          icon,
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: AppColors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            onTap: onRemove,
+            borderRadius: BorderRadius.circular(20),
+            child: Icon(Icons.close, size: 15, color: AppColors.hint),
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 // ── Feed row model ────────────────────────────────────────────────────────────
@@ -353,6 +473,10 @@ sealed class _Row {
 
 class _BannerRow extends _Row {
   const _BannerRow();
+}
+
+class _FollowingRow extends _Row {
+  const _FollowingRow();
 }
 
 class _MsgRow extends _Row {

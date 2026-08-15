@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/competition_data_model.dart';
+import '../../core/models/follows.dart';
 import '../../core/providers/app_provider.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
@@ -157,6 +158,24 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
       appBar: AppBar(
         title: Text(team.nameLines(l10n.locale).primary,
             maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          Builder(builder: (_) {
+            final following = provider.isFollowingTeam(widget.teamId);
+            return IconButton(
+              icon: Icon(following ? Icons.star : Icons.star_border,
+                  color: following ? AppColors.orange : null),
+              tooltip: following
+                  ? (provider.isAr ? 'إلغاء المتابعة' : 'Unfollow')
+                  : (provider.isAr ? 'متابعة الفريق' : 'Follow team'),
+              onPressed: () => provider.toggleFollowTeam(FollowedTeam(
+                id: widget.teamId,
+                name: team.name,
+                logo: team.logo,
+                compDataUrl: provider.compUrl,
+              )),
+            );
+          }),
+        ],
       ),
       body: Column(
         children: [
