@@ -2,20 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/admin/match_entry.dart';
+import '../../core/models/admin/structure_models.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
 import 'admin_error.dart';
 import 'admin_widgets.dart';
 
-/// Edit an existing match: score, status, schedule, venue, note, plus goals and
-/// cards. Mirrors the core of the web MatchEditor. (Subs / shootout / line-up
-/// are a later increment.)
+/// Edit an existing match: score, status, schedule, venue, note, stage/group,
+/// goals, cards, line-up and substitutions. Mirrors the web MatchEditor.
 class AdminMatchEditorScreen extends StatefulWidget {
   final EntryMatch initial;
   final List<EntryTeam> teams;
+  final List<MStage> stages;
   const AdminMatchEditorScreen(
-      {super.key, required this.initial, required this.teams});
+      {super.key, required this.initial, required this.teams, this.stages = const []});
 
   @override
   State<AdminMatchEditorScreen> createState() => _AdminMatchEditorScreenState();
@@ -37,6 +38,20 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   TimeOfDay? _time;
   bool _busy = false;
 
+  // Stage / group assignment.
+  int? _stageId;
+  int? _groupId;
+
+  // Line-up (edited one side at a time, saved as a whole).
+  final _lnExtra = TextEditingController();
+  String _lnSide = 'home';
+  List<String> _lnStarters = const [];
+  List<String> _lnBench = const [];
+  // Named players per team id, for line-up suggestions.
+  final Map<int, List<String>> _players = {};
+
+  List<MStage> get _stages => widget.stages;
+
   @override
   void initState() {
     super.initState();
@@ -51,11 +66,33 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     _status = _m.row.status;
     _date = _parseDate(_m.row.date);
     _time = _parseTime(_m.row.time);
+    _stageId = _m.row.stageId;
+    _groupId = _m.row.groupId;
+    _resetLineup();
+    _loadPlayers();
+  }
+
+  Future<void> _loadPlayers() async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    for (final id in [_m.row.home.id, _m.row.away.id]) {
+      try {
+        final ps = await _api.teamPlayers(token, id);
+        if (!mounted) return;
+        setState(() => _players[id] = ps);
+      } catch (_) {}
+    }
+  }
+
+  void _resetLineup() {
+    final side = _lnSide == 'home' ? _m.lineupHome : _m.lineupAway;
+    _lnStarters = List<String>.from(side.starters);
+    _lnBench = List<String>.from(side.bench);
   }
 
   @override
   void dispose() {
-    for (final c in [_home, _away, _homePen, _awayPen, _week, _venue, _note]) {
+    for (final c in [_home, _away, _homePen, _awayPen, _week, _venue, _note, _lnExtra]) {
       c.dispose();
     }
     super.dispose();
@@ -124,6 +161,92 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(isAr ? 'تم الحفظ' : 'Saved')));
     }
+  }
+
+  MStage? get _selectedStage {
+    for (final s in _stages) {
+      if (s.id == _stageId) return s;
+    }
+    return null;
+  }
+
+  Future<void> _saveStage() async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    final groups = _selectedStage?.groups ?? const <MGroup>[];
+    MGroup? g;
+    for (final x in groups) {
+      if (x.id == _groupId) g = x;
+    }
+    final isAr = context.read<AppProvider>().locale == 'ar';
+    final body = <String, dynamic>{
+      'stage_id': _stageId,
+      'group_id': _groupId,
+      if (g != null) 'round': g.name(isAr),
+    };
+    await _run(() => _api.updateMatch(token, _m.id, body));
+  }
+
+  // ── Line-up ───────────────────────────────────────────────────────────────
+  int get _lnTeamId => _lnSide == 'home' ? _m.row.home.id : _m.row.away.id;
+
+  List<String> get _lnRoster {
+    final seen = <String>{};
+    final out = <String>[];
+    for (final n in [...(_players[_lnTeamId] ?? const []), ..._lnStarters, ..._lnBench]) {
+      if (seen.add(n)) out.add(n);
+    }
+    return out;
+  }
+
+  void _setRole(String name, String? role) {
+    setState(() {
+      _lnStarters = _lnStarters.where((x) => x != name).toList();
+      _lnBench = _lnBench.where((x) => x != name).toList();
+      if (role == 'start') _lnStarters = [..._lnStarters, name];
+      if (role == 'bench') _lnBench = [..._lnBench, name];
+    });
+  }
+
+  Future<void> _saveLineup() async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    setState(() => _busy = true);
+    try {
+      final m = await _api.setLineup(token, _m.id, _lnTeamId, _lnStarters, _lnBench);
+      if (!mounted) return;
+      setState(() => _m = m);
+      _resetLineup();
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      showAdminError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // ── Substitutions ───────────────────────────────────────────────────────────
+  Future<void> _editSub(EntrySub? sub) async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    final locale = context.read<AppProvider>().locale;
+    final body = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      builder: (_) => _SubSheet(
+        sub: sub,
+        homeName: _m.row.home.getName(locale),
+        awayName: _m.row.away.getName(locale),
+      ),
+    );
+    if (body == null) return;
+    final side = body.remove('side') as String;
+    body['team_id'] = _teamIdForSide(side);
+    await _run(() => sub == null
+        ? _api.addSub(token, _m.id, body)
+        : _api.updateSub(token, sub.id, body));
   }
 
   @override
@@ -313,6 +436,133 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               onDelete: () => _run(() =>
                   _api.deleteCard(context.read<AdminAuth>().token!, c.id)),
             ),
+          // ── Stage / group ─────────────────────────────────────────────────
+          if (_stages.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(isAr ? 'الدور والمجموعة' : 'Stage & group',
+                  style: TextStyle(
+                      color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
+            AdminField(
+              label: isAr ? 'الدور' : 'Stage',
+              child: DropdownButtonFormField<int?>(
+                initialValue: _stageId,
+                isExpanded: true,
+                dropdownColor: AppColors.cardBg,
+                decoration: adminInputDecoration(),
+                items: [
+                  DropdownMenuItem(value: null, child: Text(isAr ? '— بدون دور' : '— No stage')),
+                  for (final s in _stages)
+                    DropdownMenuItem(value: s.id, child: Text(s.name(isAr))),
+                ],
+                onChanged: (v) => setState(() {
+                  _stageId = v;
+                  _groupId = null;
+                }),
+              ),
+            ),
+            if ((_selectedStage?.groups ?? const []).isNotEmpty)
+              AdminField(
+                label: isAr ? 'المجموعة' : 'Group',
+                child: DropdownButtonFormField<int?>(
+                  initialValue: _groupId,
+                  isExpanded: true,
+                  dropdownColor: AppColors.cardBg,
+                  decoration: adminInputDecoration(),
+                  items: [
+                    DropdownMenuItem(value: null, child: Text(isAr ? '— بدون مجموعة' : '— No group')),
+                    for (final g in _selectedStage!.groups)
+                      DropdownMenuItem(value: g.id, child: Text(g.name(isAr))),
+                  ],
+                  onChanged: (v) => setState(() => _groupId = v),
+                ),
+              ),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _busy ? null : _saveStage,
+                style: FilledButton.styleFrom(backgroundColor: AppColors.aqua),
+                child: Text(isAr ? 'حفظ الدور / المجموعة' : 'Save stage / group'),
+              ),
+            ),
+          ],
+          // ── Line-up ───────────────────────────────────────────────────────
+          const SizedBox(height: 8),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(children: [
+              Text(isAr ? 'التشكيلة' : 'Line-up',
+                  style: TextStyle(
+                      color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+              const Spacer(),
+              Text('${_lnStarters.length} ${isAr ? 'أساسي' : 'start'} · ${_lnBench.length} ${isAr ? 'بديل' : 'bench'}',
+                  style: TextStyle(color: AppColors.hint, fontSize: 11)),
+            ]),
+          ),
+          _SideToggle(
+            side: _lnSide,
+            homeName: _m.row.home.getName(locale),
+            awayName: _m.row.away.getName(locale),
+            onChanged: (s) => setState(() {
+              _lnSide = s;
+              _resetLineup();
+            }),
+          ),
+          for (final n in _lnRoster) _lineupRow(n, isAr),
+          if (_lnRoster.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(isAr ? 'لا توجد قائمة لهذا الفريق بعد' : 'No squad for this team yet',
+                  style: TextStyle(color: AppColors.hint, fontSize: 12)),
+            ),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _lnExtra,
+                style: TextStyle(color: AppColors.white),
+                decoration: adminInputDecoration(hint: isAr ? 'أضف لاعبًا غير مسجّل…' : 'Add unlisted player…'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: () {
+                final n = _lnExtra.text.trim();
+                if (n.isNotEmpty && !_lnRoster.contains(n)) {
+                  setState(() => _lnBench = [..._lnBench, n]);
+                }
+                _lnExtra.clear();
+              },
+              icon: Icon(Icons.add_circle, color: AppColors.aqua),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _busy ? null : _saveLineup,
+              style: FilledButton.styleFrom(backgroundColor: AppColors.aqua),
+              child: Text(isAr ? 'حفظ التشكيلة' : 'Save line-up'),
+            ),
+          ),
+          // ── Substitutions ─────────────────────────────────────────────────
+          const SizedBox(height: 8),
+          const Divider(),
+          _sectionHeader(isAr ? 'التبديلات' : 'Substitutions', onAdd: () => _editSub(null)),
+          for (final s in _m.subs)
+            _eventTile(
+              side: s.side,
+              locale: locale,
+              main: '↑ ${s.playerIn}',
+              sub: '↓ ${s.playerOut}',
+              minute: s.minute,
+              onEdit: () => _editSub(s),
+              onDelete: () => _run(() =>
+                  _api.deleteSub(context.read<AdminAuth>().token!, s.id)),
+            ),
           const SizedBox(height: 40),
         ],
       ),
@@ -437,6 +687,52 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
           icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
           onPressed: _busy ? null : onDelete,
         ),
+      ]),
+    );
+  }
+
+  Widget _lineupRow(String n, bool isAr) {
+    final isStart = _lnStarters.contains(n);
+    final isBench = _lnBench.contains(n);
+    Widget pill(String label, bool on, Color color, VoidCallback onTap) => InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: on ? color.withValues(alpha: 0.15) : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: on ? color : AppColors.border),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: on ? color : AppColors.hint,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold)),
+          ),
+        );
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(children: [
+        Expanded(
+          child: Text(n,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: (isStart || isBench) ? AppColors.white : AppColors.hint,
+                  fontSize: 13)),
+        ),
+        pill(isAr ? 'أساسي' : 'Start', isStart, AppColors.aqua,
+            () => _setRole(n, isStart ? null : 'start')),
+        const SizedBox(width: 6),
+        pill(isAr ? 'بديل' : 'Bench', isBench, AppColors.orange,
+            () => _setRole(n, isBench ? null : 'bench')),
       ]),
     );
   }
@@ -705,6 +1001,88 @@ class _CardSheetState extends State<_CardSheet> {
             ),
           ),
         ]),
+      ],
+    );
+  }
+}
+
+// ── Substitution entry sheet ─────────────────────────────────────────────────
+class _SubSheet extends StatefulWidget {
+  final EntrySub? sub;
+  final String homeName;
+  final String awayName;
+  const _SubSheet({required this.sub, required this.homeName, required this.awayName});
+
+  @override
+  State<_SubSheet> createState() => _SubSheetState();
+}
+
+class _SubSheetState extends State<_SubSheet> {
+  late String _side;
+  final _out = TextEditingController();
+  final _in = TextEditingController();
+  final _minute = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.sub;
+    _side = s?.side ?? 'home';
+    _out.text = s?.playerOut ?? '';
+    _in.text = s?.playerIn ?? '';
+    _minute.text = s?.minute?.toString() ?? '';
+  }
+
+  @override
+  void dispose() {
+    _out.dispose();
+    _in.dispose();
+    _minute.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = context.read<AppProvider>().locale == 'ar';
+    return _SheetScaffold(
+      title: isAr ? 'تبديل' : 'Substitution',
+      onSave: () {
+        if (_out.text.trim().isEmpty || _in.text.trim().isEmpty) return;
+        Navigator.pop(context, {
+          'side': _side,
+          'player_out': _out.text.trim(),
+          'player_in': _in.text.trim(),
+          'minute': _minute.text.trim().isEmpty ? null : int.tryParse(_minute.text.trim()),
+        });
+      },
+      children: [
+        _SideToggle(
+            side: _side,
+            homeName: widget.homeName,
+            awayName: widget.awayName,
+            onChanged: (s) => setState(() => _side = s)),
+        AdminField(
+          label: isAr ? 'خارج ↓' : 'Out ↓',
+          child: TextField(
+              controller: _out,
+              style: TextStyle(color: AppColors.white),
+              decoration: adminInputDecoration()),
+        ),
+        AdminField(
+          label: isAr ? 'داخل ↑' : 'In ↑',
+          child: TextField(
+              controller: _in,
+              style: TextStyle(color: AppColors.white),
+              decoration: adminInputDecoration()),
+        ),
+        AdminField(
+          label: isAr ? 'الدقيقة' : 'Minute',
+          child: TextField(
+              controller: _minute,
+              keyboardType: TextInputType.number,
+              style: TextStyle(color: AppColors.white),
+              decoration: adminInputDecoration()),
+        ),
       ],
     );
   }

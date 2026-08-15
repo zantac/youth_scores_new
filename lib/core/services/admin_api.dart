@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/admin/match_entry.dart';
+import '../models/admin/admin_data.dart';
+import '../models/admin/structure_models.dart';
 
 /// A logged-in admin user, as returned by `/api/auth/login` and `/api/auth/me`.
 class AdminUser {
@@ -122,6 +124,17 @@ class AdminApi {
     return _parse(res);
   }
 
+  /// Upload an image file; the server resizes it and returns a hosted URL.
+  /// Mirrors apiUploadImage in the web client.
+  Future<String> uploadImage(String token, String filePath, {String? filename}) async {
+    final req = http.MultipartRequest('POST', Uri.parse('$_origin/api/admin/upload'));
+    req.headers['Authorization'] = 'Bearer $token';
+    req.files.add(await http.MultipartFile.fromPath('file', filePath, filename: filename));
+    final res = await http.Response.fromStream(await req.send()).timeout(_timeout);
+    final data = _parse(res);
+    return data['url']?.toString() ?? '';
+  }
+
   // ── Match entry ───────────────────────────────────────────────────────────
   Future<List<EntryCompetition>> competitions(String token) async =>
       ((await _get(token, '/api/admin/competitions'))['competitions'] as List? ??
@@ -217,4 +230,347 @@ class AdminApi {
           List<String> starters, List<String> bench) async =>
       EntryMatch.fromJson(await _send(token, 'PUT', '/api/admin/matches/$mid/lineup',
           {'team_id': teamId, 'starters': starters, 'bench': bench}));
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  Future<AdminStats> stats(String token, {int? seasonId, int? competitionId}) async {
+    final q = <String, String>{};
+    if (seasonId != null) q['season_id'] = '$seasonId';
+    if (competitionId != null) q['competition_id'] = '$competitionId';
+    final qs = q.isEmpty
+        ? ''
+        : '?${q.entries.map((e) => '${e.key}=${e.value}').join('&')}';
+    return AdminStats.fromJson(await _get(token, '/api/admin/stats$qs'));
+  }
+
+  // ── Players (merge) ─────────────────────────────────────────────────────────
+  Future<List<PlayerSearchResult>> searchPlayers(String token, String q) async =>
+      ((await _get(token,
+                  '/api/admin/players/search?q=${Uri.encodeQueryComponent(q)}'))['players']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => PlayerSearchResult.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<PlayerMergeSummary> playerSummary(String token, int id) async =>
+      PlayerMergeSummary.fromJson(await _get(token, '/api/admin/players/$id/summary'));
+
+  Future<Map<String, dynamic>> mergePlayer(String token, int sourceId, int targetId) =>
+      _send(token, 'POST', '/api/admin/players/$sourceId/merge-into/$targetId');
+
+  // ── Coaches (merge) ─────────────────────────────────────────────────────────
+  Future<List<CoachSearchResult>> searchCoaches(String token, String q) async =>
+      ((await _get(token,
+                  '/api/admin/coaches/search?q=${Uri.encodeQueryComponent(q)}'))['coaches']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => CoachSearchResult.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<CoachMergeSummary> coachSummary(String token, int id) async =>
+      CoachMergeSummary.fromJson(await _get(token, '/api/admin/coaches/$id/summary'));
+
+  Future<Map<String, dynamic>> mergeCoach(String token, int sourceId, int targetId) =>
+      _send(token, 'POST', '/api/admin/coaches/$sourceId/merge-into/$targetId');
+
+  // ── Users (superadmin) ──────────────────────────────────────────────────────
+  Future<List<AdminUser>> users(String token) async =>
+      ((await _get(token, '/api/admin/users'))['users'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => AdminUser.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<AdminUser> createUser(String token, Map<String, dynamic> body) async =>
+      AdminUser.fromJson(
+          (await _send(token, 'POST', '/api/admin/users', body))['user']
+              as Map<String, dynamic>);
+
+  Future<AdminUser> updateUser(String token, int id, Map<String, dynamic> body) async =>
+      AdminUser.fromJson(
+          (await _send(token, 'PATCH', '/api/admin/users/$id', body))['user']
+              as Map<String, dynamic>);
+
+  Future<void> deleteUser(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/users/$id');
+
+  // ── Content: news ───────────────────────────────────────────────────────────
+  Future<List<AdminNews>> listNews(String token) async =>
+      ((await _get(token, '/api/admin/news'))['news'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => AdminNews.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<Map<String, dynamic>> createNews(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/news', body);
+
+  Future<AdminNews> updateNews(String token, int id, Map<String, dynamic> body) async =>
+      AdminNews.fromJson(
+          (await _send(token, 'PATCH', '/api/admin/news/$id', body))['news']
+              as Map<String, dynamic>);
+
+  Future<void> deleteNews(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/news/$id');
+
+  // ── Content: venues ─────────────────────────────────────────────────────────
+  Future<List<AdminVenue>> listVenues(String token) async =>
+      ((await _get(token, '/api/admin/venues'))['venues'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => AdminVenue.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<Map<String, dynamic>> createVenue(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/venues', body);
+
+  Future<AdminVenue> updateVenue(String token, int id, Map<String, dynamic> body) async =>
+      AdminVenue.fromJson(
+          (await _send(token, 'PATCH', '/api/admin/venues/$id', body))['venue']
+              as Map<String, dynamic>);
+
+  Future<void> deleteVenue(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/venues/$id');
+
+  // ── Content: ads ────────────────────────────────────────────────────────────
+  Future<List<AdminAd>> listAds(String token) async =>
+      ((await _get(token, '/api/admin/ads'))['ads'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => AdminAd.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createAd(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/ads', body);
+
+  Future<void> updateAd(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/ads/$id', body);
+
+  Future<void> deleteAd(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/ads/$id');
+
+  // ── Structure: seasons ──────────────────────────────────────────────────────
+  Future<List<MSeason>> seasons(String token) async =>
+      ((await _get(token, '/api/admin/seasons'))['seasons'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MSeason.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createSeason(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/seasons', body);
+
+  Future<void> updateSeason(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/seasons/$id', body);
+
+  Future<void> deleteSeason(String token, int id, String password) =>
+      _send(token, 'DELETE', '/api/admin/seasons/$id', {'password': password});
+
+  // ── Structure: age groups ───────────────────────────────────────────────────
+  Future<List<MAge>> ageGroups(String token) async =>
+      ((await _get(token, '/api/admin/age-groups'))['age_groups'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MAge.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createAge(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/age-groups', body);
+
+  Future<void> updateAge(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/age-groups/$id', body);
+
+  Future<void> deleteAge(String token, int id, String password) =>
+      _send(token, 'DELETE', '/api/admin/age-groups/$id', {'password': password});
+
+  // ── Structure: clubs ────────────────────────────────────────────────────────
+  Future<List<MClub>> clubs(String token, [String q = '']) async =>
+      ((await _get(token,
+                  '/api/admin/clubs${q.isEmpty ? '' : '?q=${Uri.encodeQueryComponent(q)}'}'))['clubs']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => MClub.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createClub(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/clubs', body);
+
+  Future<void> updateClub(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/clubs/$id', body);
+
+  Future<void> deleteClub(String token, int id, String password) =>
+      _send(token, 'DELETE', '/api/admin/clubs/$id', {'password': password});
+
+  // ── Structure: competitions ─────────────────────────────────────────────────
+  Future<List<MComp>> compsManage(String token) async =>
+      ((await _get(token, '/api/admin/competitions-manage'))['competitions']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => MComp.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createComp(String token, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/competitions-manage', body);
+
+  Future<void> updateComp(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/competitions-manage/$id', body);
+
+  Future<void> deleteComp(String token, int id, String password) =>
+      _send(token, 'DELETE', '/api/admin/competitions-manage/$id', {'password': password});
+
+  // ── Structure: teams (per competition enrolment) ────────────────────────────
+  Future<List<MTeam>> compTeamsManage(String token, int cid) async =>
+      ((await _get(token, '/api/admin/competitions/$cid/teams-manage'))['teams']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => MTeam.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> enrollTeam(String token, int cid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/competitions/$cid/teams-manage', body);
+
+  Future<void> unenrollTeam(String token, int cid, int tid) =>
+      _send(token, 'DELETE', '/api/admin/competitions/$cid/teams-manage/$tid');
+
+  Future<void> updateTeam(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/teams/$id', body);
+
+  // ── Structure: delete preview ───────────────────────────────────────────────
+  // kind: season | age-group | club | competition | team
+  Future<DeletePreview> deletePreview(String token, String kind, int id) async =>
+      DeletePreview.fromJson(await _get(token, '/api/admin/delete-preview/$kind/$id'));
+
+  Future<void> deleteTeam(String token, int id, String password) =>
+      _send(token, 'DELETE', '/api/admin/teams/$id', {'password': password});
+
+  // ── Stages & groups ─────────────────────────────────────────────────────────
+  Future<List<MStage>> stages(String token, int cid) async =>
+      ((await _get(token, '/api/admin/competitions-manage/$cid/stages'))['stages']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => MStage.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createStage(String token, int cid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/competitions-manage/$cid/stages', body);
+
+  Future<void> updateStage(String token, int sid, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/stages/$sid', body);
+
+  Future<void> deleteStage(String token, int sid) =>
+      _send(token, 'DELETE', '/api/admin/stages/$sid');
+
+  Future<void> createGroup(String token, int sid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/stages/$sid/groups', body);
+
+  Future<void> deleteGroup(String token, int gid) =>
+      _send(token, 'DELETE', '/api/admin/groups/$gid');
+
+  Future<List<MGroupTeam>> groupTeams(String token, int gid) async =>
+      ((await _get(token, '/api/admin/groups/$gid/teams'))['teams'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MGroupTeam.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> addGroupTeam(String token, int gid, int teamId) =>
+      _send(token, 'POST', '/api/admin/groups/$gid/teams', {'team_id': teamId});
+
+  Future<void> removeGroupTeam(String token, int groupTeamId) =>
+      _send(token, 'DELETE', '/api/admin/group-teams/$groupTeamId');
+
+  // ── Club staff (youth-sector managers) ──────────────────────────────────────
+  Future<List<MClubStaff>> clubStaff(String token, int cid) async =>
+      ((await _get(token, '/api/admin/clubs/$cid/staff'))['staff'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MClubStaff.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> addClubStaff(String token, int cid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/clubs/$cid/staff', body);
+
+  Future<void> attachClubStaff(String token, int cid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/clubs/$cid/staff/attach', body);
+
+  Future<void> updateClubStaff(String token, int sid, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/club-staff/$sid', body);
+
+  Future<void> deleteClubStaff(String token, int sid) =>
+      _send(token, 'DELETE', '/api/admin/club-staff/$sid');
+
+  Future<void> reorderClubStaff(String token, int cid, List<int> ids) =>
+      _send(token, 'POST', '/api/admin/clubs/$cid/staff/reorder', {'ids': ids});
+
+  // ── Club squads (teams) ─────────────────────────────────────────────────────
+  Future<List<MTeamFull>> clubTeams(String token, int cid) async =>
+      ((await _get(token, '/api/admin/clubs/$cid/teams'))['teams'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MTeamFull.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> createClubTeam(String token, int cid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/clubs/$cid/teams', body);
+
+  // ── Team coaches ────────────────────────────────────────────────────────────
+  Future<List<MTeamCoach>> teamCoaches(String token, int tid) async =>
+      ((await _get(token, '/api/admin/teams/$tid/coaches'))['coaches'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MTeamCoach.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> addTeamCoach(String token, int tid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/teams/$tid/coaches', body);
+
+  Future<void> attachTeamCoach(String token, int tid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/teams/$tid/coaches/attach', body);
+
+  Future<void> updateTeamCoach(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/team-coaches/$id', body);
+
+  Future<void> deleteTeamCoach(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/team-coaches/$id');
+
+  Future<void> reorderTeamCoaches(String token, int tid, List<int> ids) =>
+      _send(token, 'POST', '/api/admin/teams/$tid/coaches/reorder', {'ids': ids});
+
+  // ── Team roster (players) ───────────────────────────────────────────────────
+  Future<List<MRegistration>> teamRoster(String token, int tid) async =>
+      ((await _get(token, '/api/admin/teams/$tid/roster'))['roster'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => MRegistration.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<void> addTeamPlayer(String token, int tid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/teams/$tid/roster', body);
+
+  Future<void> attachTeamPlayer(String token, int tid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/teams/$tid/roster/attach', body);
+
+  Future<void> updateTeamPlayer(String token, int id, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/player-teams/$id', body);
+
+  Future<void> deleteTeamPlayer(String token, int id) =>
+      _send(token, 'DELETE', '/api/admin/player-teams/$id');
+
+  Future<void> transferPlayer(String token, int ptid, Map<String, dynamic> body) =>
+      _send(token, 'POST', '/api/admin/player-teams/$ptid/transfer', body);
+
+  // Global admin search — used to find a transfer destination team.
+  Future<List<AdminSearchTeam>> searchTeams(String token, String q) async =>
+      ((await _get(token, '/api/admin/search?q=${Uri.encodeQueryComponent(q)}'))['teams']
+              as List? ??
+          [])
+          .whereType<Map>()
+          .map((e) => AdminSearchTeam.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  // Global admin search across clubs, teams, players and coaches.
+  Future<AdminSearchResults> adminSearch(String token, String q) async =>
+      AdminSearchResults.fromJson(
+          await _get(token, '/api/admin/search?q=${Uri.encodeQueryComponent(q)}'));
+
+  // Single-entity fetches, for opening a search result on its management screen.
+  Future<MClub> club(String token, int id) async =>
+      MClub.fromJson((await _get(token, '/api/admin/clubs/$id'))['club'] as Map<String, dynamic>);
+
+  Future<MTeamFull> team(String token, int tid) async =>
+      MTeamFull.fromJson((await _get(token, '/api/admin/teams/$tid'))['team'] as Map<String, dynamic>);
 }

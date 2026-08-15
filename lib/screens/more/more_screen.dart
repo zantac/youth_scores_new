@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/providers/app_provider.dart';
+import '../admin/admin_login_screen.dart';
 import '../connect/connect_screen.dart';
 import '../favourites/favourites_screen.dart';
 
@@ -18,7 +19,30 @@ class MoreScreen extends StatelessWidget {
     final isAr = l10n.isAr;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.moreLabel)),
+      appBar: AppBar(
+        title: Text(l10n.moreLabel),
+        actions: [
+          // Admin login lives here only — removed from the top bar on the other
+          // tabs (Home / Competitions / News / Venues).
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: TextButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.aqua,
+                side: BorderSide(color: AppColors.aqua.withValues(alpha: 0.4)),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              icon: const Text('🔑', style: TextStyle(fontSize: 14)),
+              label: Text(isAr ? 'دخول' : 'Log in',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [

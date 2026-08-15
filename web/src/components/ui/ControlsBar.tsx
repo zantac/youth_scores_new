@@ -14,7 +14,11 @@ export default function ControlsBar() {
   // while the matches feed scrolls; its height is published so the buttons below
   // it can pin directly underneath. On inner pages the AppBar owns the sticky top,
   // so the bar just scrolls away as before.
-  const pinned = usePathname() === '/';
+  const pathname = usePathname();
+  const pinned = pathname === '/';
+  // The admin login lives only on the More page now; it used to sit on every
+  // page's controls bar, duplicating something that belongs in one place.
+  const showLogin = pathname === '/more';
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const root = document.documentElement;
@@ -56,16 +60,17 @@ export default function ControlsBar() {
 
       {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}
 
-      {/* Pushed to the far end so it never crowds the language and theme
-          toggles. The admin shell covers this bar, so it is only ever seen on
-          the public site. */}
-      <Link
-        href="/admin/login"
-        className="ms-auto flex items-center gap-1.5 text-[11px] font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1 leading-none bg-cardBg hover:bg-aqua/10 transition-colors"
-      >
-        <span aria-hidden="true">🔑</span>
-        {isAr ? 'دخول' : 'Log in'}
-      </Link>
+      {/* Login is shown only on the More page; pushed to the far end so it never
+          crowds the language and theme toggles. */}
+      {showLogin && (
+        <Link
+          href="/admin/login"
+          className="ms-auto flex items-center gap-1.5 text-[11px] font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1 leading-none bg-cardBg hover:bg-aqua/10 transition-colors"
+        >
+          <span aria-hidden="true">🔑</span>
+          {isAr ? 'دخول' : 'Log in'}
+        </Link>
+      )}
     </div>
   );
 }

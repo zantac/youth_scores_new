@@ -43,8 +43,17 @@ class Season {
 
   const Season({required this.name, required this.competitions});
 
+  // The season label is a year range (e.g. "2025-2026"), the same in both
+  // languages. The backend may send it either as a plain string or as a
+  // localized {ar, en} object — flatten both to one string so the card shows
+  // the name, not a raw map.
+  static String _seasonName(dynamic v) {
+    if (v is Map) return (v['ar'] ?? v['en'] ?? '').toString();
+    return v?.toString() ?? '';
+  }
+
   factory Season.fromJson(Map<String, dynamic> json) => Season(
-    name: json['season']?.toString() ?? '',
+    name: _seasonName(json['season']),
     competitions: (json['competitions'] as List? ?? [])
         .whereType<Map<String, dynamic>>()
         .map(Competition.fromJson)

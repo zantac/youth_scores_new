@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/app_provider.dart';
 import '../../screens/search/search_overlay.dart';
-import '../../screens/admin/admin_login_screen.dart';
 
 const _bannerUrl =
     'https://res.cloudinary.com/debq5s4sn/image/upload/v1783684931/youthscores-banner-v2_yqr3hs.png';
@@ -30,7 +29,7 @@ class HomeTopBar extends StatelessWidget {
           imageUrl: _bannerUrl,
           width: double.infinity,
           fit: BoxFit.fitWidth,
-          errorWidget: (_, __, ___) => const SizedBox.shrink(),
+          errorWidget: (_, _, _) => const SizedBox.shrink(),
         ),
         // ── Controls row ───────────────────────────────────────────────────
         Container(
@@ -56,39 +55,16 @@ class HomeTopBar extends StatelessWidget {
                 const SizedBox(width: 8),
                 _Pill(
                   onTap: provider.toggleTheme,
-                  child: Icon(
-                    provider.isDark ? Icons.light_mode : Icons.dark_mode,
-                    color: AppColors.aqua,
-                    size: 16,
-                  ),
+                  child: Text(provider.isDark ? '☀️' : '🌙',
+                      style: const TextStyle(fontSize: 15)),
                 ),
                 const SizedBox(width: 8),
                 _Pill(
                   onTap: () => showSearchOverlay(context),
-                  child: Icon(Icons.search, color: AppColors.aqua, size: 16),
+                  child: const Text('🔍', style: TextStyle(fontSize: 15)),
                 ),
-                const Spacer(),
-                _Pill(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.vpn_key, color: AppColors.aqua, size: 14),
-                      const SizedBox(width: 5),
-                      Text(
-                        isAr ? 'دخول' : 'Log in',
-                        style: TextStyle(
-                          color: AppColors.aqua,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                // The admin login moved to the "More" tab's app bar, so it no
+                // longer appears above Home / Competitions / News / Venues.
               ],
             ),
           ),

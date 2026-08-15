@@ -138,28 +138,23 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         items: [
           BottomNavigationBarItem(
-            icon: const Icon(Icons.home_outlined),
-            activeIcon: const Icon(Icons.home),
+            icon: const Text('🏠', style: TextStyle(fontSize: 20)),
             label: l10n.home,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.emoji_events_outlined),
-            activeIcon: const Icon(Icons.emoji_events),
+            icon: const Text('🏆', style: TextStyle(fontSize: 20)),
             label: l10n.competitions,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.newspaper_outlined),
-            activeIcon: const Icon(Icons.newspaper),
+            icon: const Text('📰', style: TextStyle(fontSize: 20)),
             label: l10n.news,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.stadium_outlined),
-            activeIcon: const Icon(Icons.stadium),
+            icon: const Text('🏟️', style: TextStyle(fontSize: 20)),
             label: l10n.venues,
           ),
           BottomNavigationBarItem(
-            icon: const Icon(Icons.more_horiz),
-            activeIcon: const Icon(Icons.more_horiz),
+            icon: const Text('⋯', style: TextStyle(fontSize: 22, height: 1.0)),
             label: l10n.moreLabel,
           ),
         ],

@@ -130,23 +130,9 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-darkBg">
 
-      {/* ── CTA buttons ──────────────────────────────────────────────────── */}
-      {/* Pinned just under the controls bar so Competitions/News stay reachable
-          while the matches feed below scrolls. */}
-      <div className="sticky top-[var(--controls-h,0px)] z-30 bg-darkBg flex gap-3 justify-center py-5 px-5">
-        <Link href="/competitions"
-          className="flex items-center gap-2 bg-aqua text-on-accent font-bold text-sm px-5 py-3 rounded-2xl active:opacity-80">
-          <span>🏆</span>
-          {isAr ? 'البطولات' : 'Competitions'}
-        </Link>
-        <Link href="/news"
-          className="flex items-center gap-2 bg-cardBg border border-aqua/40 text-aqua font-bold text-sm px-5 py-3 rounded-2xl active:opacity-80">
-          <span>📰</span>
-          {isAr ? 'الأخبار' : 'News'}
-        </Link>
-      </div>
-
-      <div className="px-4 space-y-6 pb-8">
+      {/* The Competitions/News CTA row was removed — both are always reachable
+          from the bottom navigation, so a duplicate top row just added clutter. */}
+      <div className="px-4 pt-4 space-y-6 pb-8">
 
         {/* ── All matches, by date then competition ─────────────────────── */}
         <section>
