@@ -9,7 +9,7 @@ const tabs = [
   { href: '/clubs',         icon: '🛡️', arLabel: 'الأندية',  enLabel: 'Clubs' },
   { href: '/news',          icon: '📰', arLabel: 'الأخبار',  enLabel: 'News' },
   { href: '/venues',        icon: '🏟️', arLabel: 'الملاعب',  enLabel: 'Venues' },
-  { href: '/contact',       icon: '💬', arLabel: 'تواصل',    enLabel: 'Contact' },
+  { href: '/more',          icon: '⋯',  arLabel: 'المزيد',   enLabel: 'More' },
 ];
 
 export default function BottomNav() {
