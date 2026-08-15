@@ -39,6 +39,8 @@ const SW_SCOPE = '/firebase-cloud-messaging-push-scope';
 // subscribed to each one's FCM topic server-side; this list lets us re-subscribe
 // after a token rotation and drive the follow button's on/off state.
 const LS_FOLLOWS = 'followedCompetitions';
+// Followed teams live in their own localStorage list, mirroring competitions.
+const LS_FOLLOWS_TEAMS = 'followedTeams';
 
 export type NotifState = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -56,6 +58,20 @@ export function isFollowing(cid: string | number): boolean {
 
 function setFollowed(ids: string[]): void {
   localStorage.setItem(LS_FOLLOWS, JSON.stringify([...new Set(ids)]));
+}
+
+export function followedTeams(): string[] {
+  if (typeof window === 'undefined') return [];
+  try { return JSON.parse(localStorage.getItem(LS_FOLLOWS_TEAMS) || '[]'); }
+  catch { return []; }
+}
+
+export function isFollowingTeam(tid: string | number): boolean {
+  return followedTeams().includes(String(tid));
+}
+
+function setFollowedTeams(ids: string[]): void {
+  localStorage.setItem(LS_FOLLOWS_TEAMS, JSON.stringify([...new Set(ids)]));
 }
 
 /** Current permission, without touching Firebase. */
@@ -139,9 +155,10 @@ export async function initNotifications(): Promise<void> {
   const token = await currentToken(m);
   if (!token) return;
   await postJson('/api/push/subscribe', { token });
-  await Promise.all(
-    followedCompetitions().map(cid => postJson('/api/push/follow', { token, competition_id: Number(cid) })),
-  );
+  await Promise.all([
+    ...followedCompetitions().map(cid => postJson('/api/push/follow', { token, competition_id: Number(cid) })),
+    ...followedTeams().map(tid => postJson('/api/push/follow-team', { token, team_id: Number(tid) })),
+  ]);
 }
 
 /**
@@ -190,4 +207,35 @@ export async function unfollowCompetition(cid: string | number): Promise<void> {
   if (!m) return;
   const token = await currentToken(m);
   if (token) await postJson('/api/push/unfollow', { token, competition_id: Number(cid) });
+}
+
+/**
+ * Follow a team: mirrors followCompetition. Prompt for permission if needed,
+ * subscribe this device's token to the team's topic, and remember it locally.
+ */
+export async function followTeam(tid: string | number): Promise<NotifState> {
+  const m = await ready();
+  if (!m) return 'unsupported';
+  if (Notification.permission !== 'granted') {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return perm as NotifState;
+  }
+  // Local record is the source of truth (turns the star gold); the server call is
+  // best-effort and re-asserted on every load (initNotifications).
+  setFollowedTeams([...followedTeams(), String(tid)]);
+  const token = await currentToken(m);
+  if (token) {
+    await postJson('/api/push/subscribe', { token }); // join the always-on topics too
+    await postJson('/api/push/follow-team', { token, team_id: Number(tid) });
+  }
+  return 'granted';
+}
+
+/** Unfollow a team: forget it locally (optimistic) and unsubscribe. */
+export async function unfollowTeam(tid: string | number): Promise<void> {
+  setFollowedTeams(followedTeams().filter(id => id !== String(tid)));
+  const m = await ready();
+  if (!m) return;
+  const token = await currentToken(m);
+  if (token) await postJson('/api/push/unfollow-team', { token, team_id: Number(tid) });
 }

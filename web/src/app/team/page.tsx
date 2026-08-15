@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
+import FollowButton from '@/components/ui/FollowButton';
 import Spinner from '@/components/ui/Spinner';
 import { fetchTeam } from '@/lib/api';
 import { localize, teamNameLines, groupRosterByPosition } from '@/lib/utils';
@@ -49,7 +50,7 @@ function TeamProfile() {
 
   return (
     <>
-      <AppBar title={title} back />
+      <AppBar title={title} back actions={id ? <FollowButton teamId={id} /> : undefined} />
       {loading ? <Spinner label={isAr ? 'جاري التحميل...' : 'Loading...'} />
         : !t ? <div className="p-8 text-center text-hint">{isAr ? 'الفريق غير موجود' : 'Team not found'}</div>
         : (

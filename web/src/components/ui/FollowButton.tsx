@@ -2,15 +2,22 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import {
-  followCompetition, unfollowCompetition, isFollowing, notifState, type NotifState,
+  followCompetition, unfollowCompetition, isFollowing,
+  followTeam, unfollowTeam, isFollowingTeam,
+  notifState, type NotifState,
 } from '@/lib/notifications';
 
-// A star toggle in a competition's header: follow it to get a push when a new
-// round's results are posted. A device can follow any number of competitions.
-// Hidden on browsers that can't do web push so it never dead-ends.
-export default function FollowButton({ competitionId }: { competitionId: string }) {
+// A star toggle in a competition's or team's header: follow it to get a push when
+// a new result is posted. A device can follow any number of each. Pass exactly one
+// of competitionId / teamId. Hidden on browsers that can't do web push so it never
+// dead-ends.
+export default function FollowButton(
+  { competitionId, teamId }: { competitionId?: string; teamId?: string },
+) {
   const { locale } = useApp();
   const isAr = locale === 'ar';
+  const isTeam = !!teamId;
+  const targetId = teamId ?? competitionId ?? '';
   const [supported, setSupported] = useState(false);
   const [following, setFollowing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -18,11 +25,11 @@ export default function FollowButton({ competitionId }: { competitionId: string 
 
   useEffect(() => {
     setSupported(notifState() !== 'unsupported');
-    setFollowing(isFollowing(competitionId));
+    setFollowing(isTeam ? isFollowingTeam(targetId) : isFollowing(targetId));
     setBlocked(notifState() === 'denied');
-  }, [competitionId]);
+  }, [isTeam, targetId]);
 
-  if (!supported || !competitionId) return null;
+  if (!supported || !targetId) return null;
 
   const label = following
     ? (isAr ? 'إلغاء متابعة إشعارات النتائج' : 'Unfollow results notifications')
@@ -35,10 +42,10 @@ export default function FollowButton({ competitionId }: { competitionId: string 
     setBusy(true);
     try {
       if (following) {
-        await unfollowCompetition(competitionId);
+        await (isTeam ? unfollowTeam(targetId) : unfollowCompetition(targetId));
         setFollowing(false);
       } else {
-        const res: NotifState = await followCompetition(competitionId);
+        const res: NotifState = await (isTeam ? followTeam(targetId) : followCompetition(targetId));
         if (res === 'granted') { setFollowing(true); setBlocked(false); }
         else if (res === 'denied') setBlocked(true);
       }
