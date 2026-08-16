@@ -23,7 +23,7 @@ function GroupFilter({ groups, selected, onChange, locale, stickyTop }: { groups
   const all = locale === 'ar' ? 'الكل' : 'All';
   return (
     <div className={`flex gap-2 px-3 py-2 overflow-x-auto bg-darkBg border-b border-bdr no-scrollbar ${stickyTop != null ? 'sticky z-30' : ''}`}
-      style={stickyTop != null ? { top: stickyTop } : undefined}>
+      style={stickyTop != null ? { top: `calc(var(--header-h, 0px) + ${stickyTop}px)` } : undefined}>
       {[null, ...groups].map(g => (
         <button key={g ?? '__all'} onClick={() => onChange(g)}
           className={`flex-shrink-0 text-xs px-3.5 py-1.5 rounded-full border transition-all ${selected === g ? 'bg-gradient-to-l from-aqua to-aqua/80 text-on-accent border-transparent font-bold shadow-[0_6px_16px_-8px_rgb(var(--accent-rgb))]' : 'border-bdr text-teal hover:border-aqua/40'}`}>
@@ -470,7 +470,7 @@ function StatsTab({ matches, teams, locale, stickyTop }: { matches: Match[]; tea
     <div>
       {/* Sub-tabs and the group filter ride together as one bar, pinned right
           below the main header so they stay reachable through a long list. */}
-      <div className={stickyTop != null ? 'sticky z-30' : ''} style={stickyTop != null ? { top: stickyTop } : undefined}>
+      <div className={stickyTop != null ? 'sticky z-30' : ''} style={stickyTop != null ? { top: `calc(var(--header-h, 0px) + ${stickyTop}px)` } : undefined}>
         <TabStrip tabs={subTabs} current={sub} onChange={i => { setSub(i); setGroup(null); }} />
         <GroupFilter groups={activeGroups} selected={group} onChange={setGroup} locale={locale} />
       </div>
@@ -1283,7 +1283,7 @@ function CompetitionPageInner() {
 
   return (
     <>
-      <div ref={setHeadEl} className="sticky top-0 z-40">
+      <div ref={setHeadEl} className="sticky top-[var(--header-h,0px)] z-40">
         <AppBar title={title || compTitle} back embedded
           actions={idParam ? <FollowButton competitionId={idParam} /> : undefined} />
         <TabStrip tabs={mainTabs} current={mainTab} onChange={i => setView({ tab: i })} />

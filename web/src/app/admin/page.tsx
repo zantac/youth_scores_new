@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import { apiStats, type AdminStats } from '@/lib/adminApi';
@@ -33,11 +33,22 @@ function Dashboard() {
   const [err, setErr] = useState<string | null>(null);
   const [seasonId, setSeasonId] = useState<number | null>(null);
   const [competitionId, setCompetitionId] = useState<number | null>(null);
+  // Default the season filter to the active season on first load. It's a one-off
+  // default — the admin can still switch to "كل المواسم" (or clear) and it won't
+  // snap back — so a ref guards it rather than re-running whenever seasonId is null.
+  const defaulted = useRef(false);
 
   useEffect(() => {
     if (!token) return;
     apiStats(token, { seasonId, competitionId })
-      .then(setS)
+      .then(data => {
+        setS(data);
+        if (!defaulted.current) {
+          defaulted.current = true;
+          const active = data.filters.seasons.find(o => o.name === data.active_season);
+          if (active) setSeasonId(active.id);
+        }
+      })
       .catch(e => setErr(e instanceof Error ? e.message : 'خطأ'));
   }, [token, seasonId, competitionId]);
 
