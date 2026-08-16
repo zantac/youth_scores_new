@@ -15,6 +15,8 @@ export interface TeamCandidate {
 export interface MatchedTeam {
   id: number | null;
   score: number; // 0..1
+  /** true when the admin should double-check (a low-confidence guess, or blank). */
+  needsReview: boolean;
 }
 
 export interface MatchedFixture {
@@ -27,8 +29,11 @@ export interface MatchedFixture {
   raw: RawFixture;
 }
 
-// Accept a match automatically at/above this score; below it, leave blank + warn.
+// Above CONFIDENT → auto-accept silently. Between GUESS_FLOOR and CONFIDENT →
+// pre-fill the best guess but flag it for review. Below GUESS_FLOOR → leave
+// blank. Two strong, near-tied candidates → blank (can't tell them apart).
 export const TEAM_MATCH_THRESHOLD = 0.5;
+export const TEAM_GUESS_FLOOR = 0.3;
 export const VENUE_MATCH_THRESHOLD = 0.55;
 
 // Fold Arabic so spelling variants collapse: drop diacritics/tatweel, unify
@@ -73,38 +78,75 @@ function dice(aFold: string, bFold: string): number {
   return (2 * inter) / (aTot + bTot);
 }
 
-/** Best similarity of an OCR string against one candidate's spellings. */
-function scoreAgainst(queryFold: string, queryRevFold: string, names: string[]): number {
+// Token (whole-word) Jaccard. This is what separates subset names like
+// "الأهلي" from "البنك الأهلي": the distinctive word "البنك" only overlaps when
+// it's actually present, so the two stop looking identical.
+function jaccard(a: string[], b: string[]): number {
+  if (!a.length || !b.length) return 0;
+  const sa = new Set(a), sb = new Set(b);
+  let inter = 0;
+  for (const x of sa) if (sb.has(x)) inter++;
+  return inter / (sa.size + sb.size - inter);
+}
+
+// Blend character similarity (tolerant of OCR letter noise) with token overlap
+// (tolerant of word order, strict about which words are present).
+function similarity(qFold: string, qTokens: string[], name: string): number {
+  const nf = fold(name);
+  if (!nf) return 0;
+  const d = dice(qFold, nf);
+  const j = jaccard(qTokens, nf.split(' ').filter(Boolean));
+  return 0.6 * d + 0.4 * j;
+}
+
+/** Best similarity of an OCR string (both orientations) against one candidate. */
+function scoreAgainst(qf: string, qft: string[], qrf: string, qrt: string[], names: string[]): number {
   let best = 0;
   for (const n of names) {
-    const nf = fold(n);
-    if (!nf) continue;
-    best = Math.max(best, dice(queryFold, nf), dice(queryRevFold, nf));
+    best = Math.max(best, similarity(qf, qft, n), similarity(qrf, qrt, n));
   }
   return best;
 }
 
+const tokensOf = (folded: string) => folded.split(' ').filter(Boolean);
+
+// Require the winner to beat the runner-up by this much; otherwise the two
+// candidates are too alike (e.g. الأهلي vs البنك الأهلي on a noisy read) and we
+// leave it blank so the admin disambiguates rather than guess wrong.
+const AMBIGUITY_MARGIN = 0.12;
+
 function bestTeam(query: string, candidates: TeamCandidate[]): MatchedTeam {
   const qf = fold(query);
-  if (!qf) return { id: null, score: 0 };
+  if (!qf) return { id: null, score: 0, needsReview: true };
+  const qft = tokensOf(qf);
   const qrf = fold(reverse(query));
-  let bestId: number | null = null, bestScore = 0;
+  const qrt = tokensOf(qrf);
+
+  let bestId: number | null = null, bestScore = 0, secondScore = 0;
   for (const c of candidates) {
-    const s = scoreAgainst(qf, qrf, c.names);
-    if (s > bestScore) { bestScore = s; bestId = c.id; }
+    const s = scoreAgainst(qf, qft, qrf, qrt, c.names);
+    if (s > bestScore) { secondScore = bestScore; bestScore = s; bestId = c.id; }
+    else if (s > secondScore) { secondScore = s; }
   }
-  return bestId != null && bestScore >= TEAM_MATCH_THRESHOLD
-    ? { id: bestId, score: bestScore }
-    : { id: null, score: bestScore };
+  if (bestId == null) return { id: null, score: 0, needsReview: true };
+  // Ambiguous only when the runner-up is ALSO strong and near-tied (e.g. الأهلي
+  // vs البنك الأهلي) — then we can't safely guess, so leave it blank.
+  const ambiguous = secondScore >= TEAM_MATCH_THRESHOLD && (bestScore - secondScore) < AMBIGUITY_MARGIN;
+  if (ambiguous) return { id: null, score: bestScore, needsReview: true };
+  if (bestScore >= TEAM_MATCH_THRESHOLD) return { id: bestId, score: bestScore, needsReview: false };
+  if (bestScore >= TEAM_GUESS_FLOOR) return { id: bestId, score: bestScore, needsReview: true }; // flagged guess
+  return { id: null, score: bestScore, needsReview: true };
 }
 
 function bestVenue(query: string, venues: string[]): { value: string; score: number; matched: boolean } {
   const qf = fold(query);
   if (!qf) return { value: '', score: 0, matched: false };
+  const qft = tokensOf(qf);
   const qrf = fold(reverse(query));
+  const qrt = tokensOf(qrf);
   let bestV = '', bestScore = 0;
   for (const v of venues) {
-    const s = scoreAgainst(qf, qrf, [v]);
+    const s = scoreAgainst(qf, qft, qrf, qrt, [v]);
     if (s > bestScore) { bestScore = s; bestV = v; }
   }
   // Snap to a known venue when confident; otherwise keep the raw OCR text so the

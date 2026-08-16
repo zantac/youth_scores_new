@@ -8,19 +8,42 @@ import { matchFixtures } from '@/lib/ocr/matchFixtures';
 type Loc = { ar: string; en: string };
 const loc = (l?: Loc | null) => (l ? l.ar || l.en : '');
 const inputCls = 'w-full bg-darkBg border border-bdr rounded-lg px-2.5 py-2 text-text text-sm outline-none focus:border-aqua';
+const cellCls = 'bg-cardBg border border-bdr rounded px-2 py-1 text-text text-xs outline-none focus:border-aqua';
 
 interface ReviewRow {
   enabled: boolean;
   homeId: string; awayId: string;
-  homeScore: number; awayScore: number; // match confidence 0..1
+  homeReview: boolean; awayReview: boolean;
   venue: string; venueMatched: boolean;
   date: string; time: string; week: string;
   rawHome: string; rawAway: string; rawVenue: string;
 }
 
+// The admin describes the rounds BEFORE scanning: round number, its date+time,
+// and how many matches it holds. OCR then only reads the team pairings/venue,
+// and matches are sliced into rounds by count (table order) — no reliance on the
+// unreadable round column or noisy OCR dates.
+interface RoundPlan { num: string; date: string; time: string; count: string }
+
 type Phase = 'setup' | 'processing' | 'review' | 'creating' | 'done';
 
 const VENUES_ID = 'import-venues';
+const emptyRound = (num: number): RoundPlan => ({ num: String(num), date: '', time: '16:30', count: '' });
+
+// Slice the OCR'd matches into the planned rounds by count, stamping each match
+// with its round's number/date/time. Leftover matches (OCR read more than the
+// plan expects) keep their own values so the mismatch is visible.
+function applyPlan(rows: ReviewRow[], plan: RoundPlan[]): ReviewRow[] {
+  const out = rows.map(r => ({ ...r }));
+  let idx = 0;
+  for (const p of plan) {
+    const c = Number(p.count) || 0;
+    for (let k = 0; k < c && idx < out.length; k++, idx++) {
+      out[idx] = { ...out[idx], week: p.num, date: p.date || out[idx].date, time: p.time || out[idx].time };
+    }
+  }
+  return out;
+}
 
 export default function ImportFromPhoto({
   token, cid, teams, stages, venues, existing, onCreated, onCancel,
@@ -37,11 +60,13 @@ export default function ImportFromPhoto({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [created, setCreated] = useState({ ok: 0, fail: 0 });
+  const [plan, setPlan] = useState<RoundPlan[]>([emptyRound(1)]);
 
   const stage = stages.find(s => String(s.id) === stageId);
   const groups = stage?.groups ?? [];
   const isGroupStage = stage?.type === 'group';
-  const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId));
+  const planTotal = plan.reduce((s, p) => s + (Number(p.count) || 0), 0);
+  const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId)) && planTotal > 0;
 
   const teamOpts = useMemo(
     () => [...teams].sort((a, b) => loc(a.name).localeCompare(loc(b.name), 'ar')), [teams]);
@@ -50,6 +75,17 @@ export default function ImportFromPhoto({
 
   const setRow = (i: number, patch: Partial<ReviewRow>) =>
     setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const setPlanRow = (i: number, patch: Partial<RoundPlan>) =>
+    setPlan(ps => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  // Grow/shrink the plan to N rounds, numbering new ones after the last.
+  const setRoundCount = (n: number) =>
+    setPlan(ps => {
+      if (n <= ps.length) return ps.slice(0, Math.max(1, n));
+      const next = [...ps];
+      let num = Number(ps[ps.length - 1]?.num) || 0;
+      while (next.length < n) next.push(emptyRound(++num));
+      return next;
+    });
 
   const onFile = async (file: File) => {
     setErr(null); setPhase('processing'); setPct(0);
@@ -64,16 +100,17 @@ export default function ImportFromPhoto({
       });
       const rec = reconstructFixtures(words, px.width);
       const matched = matchFixtures(rec.fixtures, teamCandidates, venues);
-      setWarnings(rec.warnings);
-      setRows(matched.map(m => ({
+      setWarnings(rec.warnings.filter(w => !w.includes('Round')));
+      const built: ReviewRow[] = matched.map(m => ({
         enabled: true,
         homeId: m.home.id ? String(m.home.id) : '',
         awayId: m.away.id ? String(m.away.id) : '',
-        homeScore: m.home.score, awayScore: m.away.score,
+        homeReview: m.home.needsReview, awayReview: m.away.needsReview,
         venue: m.venue.value, venueMatched: m.venue.matched,
         date: m.date, time: m.time, week: m.week,
         rawHome: m.raw.home, rawAway: m.raw.away, rawVenue: m.raw.venue,
-      })));
+      }));
+      setRows(applyPlan(built, plan));
       setPhase('review');
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'تعذّرت قراءة الصورة');
@@ -87,6 +124,18 @@ export default function ImportFromPhoto({
       String(x.home.id) === r.homeId && String(x.away.id) === r.awayId);
 
   const enabledCount = rows.filter(r => r.enabled && r.homeId && r.awayId).length;
+
+  // Round header shown before the first match of each planned round.
+  const roundHeaders = useMemo(() => {
+    const map = new Map<number, RoundPlan>();
+    let idx = 0;
+    for (const p of plan) {
+      const c = Number(p.count) || 0;
+      if (c > 0) map.set(idx, p);
+      idx += c;
+    }
+    return { map, total: idx };
+  }, [plan]);
 
   const create = async () => {
     setPhase('creating'); setErr(null);
@@ -110,7 +159,40 @@ export default function ImportFromPhoto({
     if (ok > 0) onCreated();
   };
 
-  // ── setup / processing gate ──────────────────────────────────────────────────
+  // ── The round-plan editor (used in setup and review) ─────────────────────────
+  const planEditor = (
+    <div className="bg-darkBg border border-bdr rounded-lg p-2.5 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <p className="text-teal text-[11px] font-bold">🗓️ جولات الصورة</p>
+        <span className="flex-1" />
+        <span className="text-hint text-[10px]">عدد الجولات</span>
+        <input type="number" min="1" value={plan.length}
+          onChange={e => setRoundCount(Math.max(1, Number(e.target.value) || 1))}
+          className={cellCls + ' w-14'} />
+      </div>
+      <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_1.2rem] gap-1 text-hint text-[9px] px-0.5">
+        <span>جولة</span><span>التاريخ</span><span>الوقت</span><span>عدد</span><span />
+      </div>
+      {plan.map((p, i) => (
+        <div key={i} className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_1.2rem] gap-1 items-center">
+          <input type="number" min="1" value={p.num} onChange={e => setPlanRow(i, { num: e.target.value })} className={cellCls} />
+          <input type="date" value={p.date} onChange={e => setPlanRow(i, { date: e.target.value })} className={cellCls} />
+          <input type="time" value={p.time} onChange={e => setPlanRow(i, { time: e.target.value })} className={cellCls} />
+          <input type="number" min="0" value={p.count} onChange={e => setPlanRow(i, { count: e.target.value })} placeholder="0" className={cellCls} />
+          <button onClick={() => setPlan(ps => ps.length > 1 ? ps.filter((_, j) => j !== i) : ps)}
+            className="text-loss text-xs" aria-label="حذف">✕</button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2 pt-0.5">
+        <button onClick={() => setPlan(ps => [...ps, emptyRound((Number(ps[ps.length - 1]?.num) || 0) + 1)])}
+          className="text-teal text-[11px] font-bold">+ جولة</button>
+        <span className="flex-1" />
+        <span className="text-hint text-[10px]">إجمالي {planTotal} مباراة</span>
+      </div>
+    </div>
+  );
+
+  // ── setup / processing ───────────────────────────────────────────────────────
   if (phase === 'setup' || phase === 'processing') {
     return (
       <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
@@ -119,8 +201,8 @@ export default function ImportFromPhoto({
           <button onClick={onCancel} className="text-hint text-xs font-bold">✕ إغلاق</button>
         </div>
         <p className="text-hint text-[11px] leading-relaxed">
-          اختر الدور (والمجموعة إن وُجدت) ثم ارفع صورة جدول المباريات. تتم القراءة على جهازك،
-          وتُطابَق أسماء الفرق والملاعب مع قاعدة البيانات، وتُراجِعها قبل الحفظ.
+          اختر الدور، ثم عرّف جولات الصورة (رقم/تاريخ/وقت/عدد المباريات)، ثم ارفع الصورة.
+          يقرأ النظام الفرق فقط ويوزّعها على الجولات بالترتيب. تتم القراءة على جهازك.
         </p>
         <div className="grid grid-cols-2 gap-3">
           <select value={stageId} onChange={e => { setStageId(e.target.value); setGroupId(''); }} className={inputCls}>
@@ -134,6 +216,8 @@ export default function ImportFromPhoto({
             </select>
           ) : <div />}
         </div>
+
+        {planEditor}
 
         {phase === 'processing' ? (
           <div className="bg-darkBg border border-bdr rounded-xl p-3 space-y-2">
@@ -149,7 +233,7 @@ export default function ImportFromPhoto({
             ready ? 'border-aqua/40 text-aqua hover:bg-aqua/10' : 'border-bdr text-hint opacity-50 cursor-not-allowed'}`}>
             <input type="file" accept="image/*" disabled={!ready} className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }} />
-            {ready ? '📤 اختر صورة الجدول' : 'اختر الدور أولاً'}
+            {ready ? '📤 اختر صورة الجدول' : 'اختر الدور وعرّف الجولات أولاً'}
           </label>
         )}
         {err && <p className="text-loss text-xs">{err}</p>}
@@ -158,6 +242,7 @@ export default function ImportFromPhoto({
   }
 
   // ── review / results ─────────────────────────────────────────────────────────
+  const mismatch = roundHeaders.total !== rows.length;
   return (
     <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -179,43 +264,64 @@ export default function ImportFromPhoto({
         </div>
       ) : (
         <>
+          {planEditor}
+          <div className="flex items-center gap-2">
+            {mismatch && (
+              <span className="text-gold text-[11px]">
+                ⚠️ الخطة {roundHeaders.total} مباراة، وقرأنا {rows.length} — عدّل الأعداد ثم طبّق
+              </span>
+            )}
+            <span className="flex-1" />
+            <button onClick={() => setRows(rs => applyPlan(rs, plan))}
+              className="text-aqua text-[11px] font-bold border border-aqua/40 rounded px-3 py-1 hover:bg-aqua/10">
+              طبّق الخطة على المباريات
+            </button>
+          </div>
+
           <datalist id={VENUES_ID}>{venues.map(v => <option key={v} value={v} />)}</datalist>
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          <div className="space-y-2 max-h-[55vh] overflow-y-auto">
             {rows.map((r, i) => {
-              const dup = isDup(r);
-              const homeWarn = !r.homeId;
-              const awayWarn = !r.awayId;
+              const header = roundHeaders.map.get(i);
+              const homeWarn = !r.homeId || r.homeReview;
+              const awayWarn = !r.awayId || r.awayReview;
               return (
-                <div key={i} className={`rounded-xl border p-2.5 space-y-2 ${
-                  r.enabled ? 'bg-darkBg border-bdr' : 'bg-darkBg/40 border-bdr/50 opacity-60'}`}>
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" checked={r.enabled} onChange={e => setRow(i, { enabled: e.target.checked })} />
-                    <span className="text-hint text-[10px]">#{i + 1}</span>
-                    {dup && <span className="text-gold text-[10px] font-bold">↻ موجودة</span>}
-                    <span className="flex-1" />
-                    <span className="text-hint text-[9px]">🏠 {r.rawHome} × {r.rawAway} 🚩</span>
+                <div key={i}>
+                  {header && (
+                    <p className="text-aqua text-[11px] font-bold mt-2 mb-1 border-b border-aqua/20 pb-1">
+                      الجولة {header.num} · {header.date || '—'} · {header.time}
+                    </p>
+                  )}
+                  <div className={`rounded-xl border p-2.5 space-y-2 ${
+                    r.enabled ? 'bg-darkBg border-bdr' : 'bg-darkBg/40 border-bdr/50 opacity-60'}`}>
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" checked={r.enabled} onChange={e => setRow(i, { enabled: e.target.checked })} />
+                      <span className="text-hint text-[10px]">#{i + 1}</span>
+                      {isDup(r) && <span className="text-gold text-[10px] font-bold">↻ موجودة</span>}
+                      <span className="flex-1" />
+                      <span className="text-hint text-[9px]">🏠 {r.rawHome} × {r.rawAway}</span>
+                    </div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+                      <select value={r.homeId} onChange={e => setRow(i, { homeId: e.target.value, homeReview: false })}
+                        className={`${inputCls} ${homeWarn ? 'border-gold' : ''}`}>
+                        <option value="">— المضيف ⚠️</option>
+                        {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
+                      </select>
+                      <span className="text-hint text-xs">×</span>
+                      <select value={r.awayId} onChange={e => setRow(i, { awayId: e.target.value, awayReview: false })}
+                        className={`${inputCls} ${awayWarn ? 'border-gold' : ''}`}>
+                        <option value="">— الضيف ⚠️</option>
+                        {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <input type="date" value={r.date} onChange={e => setRow(i, { date: e.target.value })} className={inputCls} />
+                      <input type="time" value={r.time} onChange={e => setRow(i, { time: e.target.value })} className={inputCls} />
+                      <input value={r.week} onChange={e => setRow(i, { week: e.target.value })} placeholder="الجولة" className={inputCls} />
+                    </div>
+                    <input value={r.venue} onChange={e => setRow(i, { venue: e.target.value, venueMatched: true })}
+                      list={VENUES_ID} placeholder="الملعب"
+                      className={`${inputCls} ${!r.venueMatched && r.venue ? 'border-gold/50' : ''}`} />
                   </div>
-                  <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
-                    <select value={r.homeId} onChange={e => setRow(i, { homeId: e.target.value })}
-                      className={`${inputCls} ${homeWarn ? 'border-gold' : ''}`}>
-                      <option value="">— المضيف {homeWarn ? '⚠️' : ''}</option>
-                      {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
-                    </select>
-                    <span className="text-hint text-xs">×</span>
-                    <select value={r.awayId} onChange={e => setRow(i, { awayId: e.target.value })}
-                      className={`${inputCls} ${awayWarn ? 'border-gold' : ''}`}>
-                      <option value="">— الضيف {awayWarn ? '⚠️' : ''}</option>
-                      {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <input type="date" value={r.date} onChange={e => setRow(i, { date: e.target.value })} className={inputCls} />
-                    <input type="time" value={r.time} onChange={e => setRow(i, { time: e.target.value })} className={inputCls} />
-                    <input value={r.week} onChange={e => setRow(i, { week: e.target.value })} placeholder="الجولة" className={inputCls} />
-                  </div>
-                  <input value={r.venue} onChange={e => setRow(i, { venue: e.target.value, venueMatched: true })}
-                    list={VENUES_ID} placeholder="الملعب"
-                    className={`${inputCls} ${!r.venueMatched && r.venue ? 'border-gold/50' : ''}`} />
                 </div>
               );
             })}
