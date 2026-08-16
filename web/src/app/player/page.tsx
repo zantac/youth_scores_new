@@ -38,7 +38,7 @@ function PlayerJourney() {
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
-      <div className="sticky top-0 z-30 bg-cardBg/90 backdrop-blur border-b border-bdr flex items-center gap-3 px-4 py-3">
+      <div className="sticky top-[var(--header-h,0px)] z-30 bg-cardBg/90 backdrop-blur border-b border-bdr flex items-center gap-3 px-4 py-3">
         <button onClick={() => router.back()} className="text-aqua text-xl font-bold">‹</button>
         <span className="flex-1 text-aqua font-bold text-sm truncate">{name}</span>
       </div>

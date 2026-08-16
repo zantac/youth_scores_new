@@ -95,11 +95,15 @@ export default function AdminShell({
         {/* Nav */}
         <nav className="max-w-3xl mx-auto flex gap-1 px-2 overflow-x-auto no-scrollbar">
           {links.map(n => {
-            const active = pathname === n.href;
+            // trailingSlash is on, so pathname is e.g. "/admin/structure/" while
+            // href is "/admin/structure" — strip the trailing slash so the active
+            // tab actually matches and gets highlighted.
+            const active = pathname.replace(/\/+$/, '') === n.href;
             return (
               <Link key={n.href} href={n.href}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-xs font-bold border-b-2 transition-colors ${active ? 'border-aqua text-aqua' : 'border-transparent text-hint hover:text-teal'}`}>
-                <span>{n.icon}</span>{n.label}
+                className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-3 py-2 text-xs font-bold border-b-2 transition-colors ${active ? 'border-aqua text-aqua' : 'border-transparent text-hint hover:text-teal'}`}>
+                <span className="text-base leading-none">{n.icon}</span>
+                <span className="leading-none">{n.label}</span>
               </Link>
             );
           })}

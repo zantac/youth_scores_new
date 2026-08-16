@@ -116,7 +116,7 @@ function MatchCenter() {
   return (
     <div className="min-h-screen bg-darkBg pb-24">
       {/* Sticky header */}
-      <div className="sticky top-0 z-30 bg-cardBg/90 backdrop-blur border-b border-bdr flex items-center gap-3 px-4 py-3">
+      <div className="sticky top-[var(--header-h,0px)] z-30 bg-cardBg/90 backdrop-blur border-b border-bdr flex items-center gap-3 px-4 py-3">
         <button onClick={() => router.back()} className="text-aqua text-xl font-bold leading-none">‹</button>
         <span className="flex-1 text-aqua font-bold text-sm truncate">{context || (isAr ? 'المباراة' : 'Match')}</span>
         <button onClick={() => setShare(true)} className="text-gold text-lg leading-none" aria-label="share">↗</button>

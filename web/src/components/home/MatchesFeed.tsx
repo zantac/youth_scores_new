@@ -158,7 +158,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
         const isToday = today != null && dg.date === today;
         return (
           <div key={dg.date} ref={isAnchor ? anchorRef : undefined}
-            className="space-y-3 scroll-mt-[calc(var(--controls-h,3rem)_+_5.5rem)]">
+            className="space-y-3 scroll-mt-[calc(var(--header-h,9rem)_+_0.5rem)]">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${isToday || isAnchor ? 'text-aqua' : 'text-text'}`}>
