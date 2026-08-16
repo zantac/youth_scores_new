@@ -6,6 +6,9 @@ import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../widgets/common/cached_logo.dart';
 
+// Career highlights (goals / current club) use a warm gold, matching the site.
+const _gold = Color(0xFFF5C542);
+
 class PlayerDetailScreen extends StatefulWidget {
   final int playerId;
   const PlayerDetailScreen({super.key, required this.playerId});
@@ -53,6 +56,9 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                 const SizedBox(height: 14),
                 _sectionTitle(isAr ? 'المسيرة' : 'Career'),
                 ...p.career.map((c) => _careerTile(c, locale, isAr)),
+                const SizedBox(height: 8),
+                _sectionTitle(isAr ? 'الأهداف لكل موسم' : 'Goals per season'),
+                _goalsPerSeason(p.career, locale, isAr),
               ],
             ],
           );
@@ -139,51 +145,220 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
             style: TextStyle(color: AppColors.aqua, fontSize: 14, fontWeight: FontWeight.bold)),
       );
 
+  // A career card mirroring the website: full-height club logo, club + guest/now
+  // tags, age, season, a "left" date for past clubs, the season's app/assist/goal
+  // totals, and a per-competition breakdown.
   Widget _careerTile(PlayerCareerEntry c, String locale, bool isAr) {
+    final age    = c.ageName(locale);
     final season = c.seasonName(locale);
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 10),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+            color: c.current ? _gold.withValues(alpha: 0.5) : AppColors.border),
+        gradient: LinearGradient(
+          colors: [AppColors.cardBg, AppColors.cardGradientEnd],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Big club logo, spanning the full card height.
+            Container(
+              width: 84,
+              color: AppColors.darkBg,
+              padding: const EdgeInsets.all(10),
+              child: Center(child: CachedLogo(url: c.logo, size: 62)),
+            ),
+            // Details
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Club + tags
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(c.club,
+                              style: TextStyle(
+                                  color: AppColors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                        if (c.isGuest) _tag(isAr ? 'ضيف صاعد' : 'guest', AppColors.teal),
+                        if (c.current) ...[
+                          const SizedBox(width: 6),
+                          _tag(isAr ? 'حالي' : 'now', _gold),
+                        ],
+                      ],
+                    ),
+                    if (age != null) ...[
+                      const SizedBox(height: 4),
+                      Text(age,
+                          style: TextStyle(
+                              color: AppColors.aqua,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                    if (season.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(season, style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                    ],
+                    if (!c.current && c.endDate != null && c.endDate!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text('${isAr ? 'غادر' : 'left'} ${c.endDate}',
+                          style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                    ],
+                    // Season totals
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        if (c.appearances > 0)
+                          _total('${c.appearances}', isAr ? 'مباراة' : 'apps', AppColors.white),
+                        if (c.assists > 0)
+                          _total('${c.assists}', isAr ? 'صناعة' : 'ast', AppColors.aqua),
+                        _total('${c.goals}', isAr ? 'هدف' : 'goals', _gold, big: true),
+                      ],
+                    ),
+                    // Per-competition breakdown
+                    if (c.competitions.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Divider(height: 1, color: AppColors.border),
+                      const SizedBox(height: 8),
+                      ...c.competitions.map((comp) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(comp.getName(locale),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                                ),
+                                if (comp.appearances > 0) ...[
+                                  Text('${comp.appearances}${isAr ? ' م' : ' ap'}',
+                                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                                  const SizedBox(width: 8),
+                                ],
+                                if (comp.assists > 0) ...[
+                                  Text('${comp.assists}${isAr ? ' ص' : ' a'}',
+                                      style: TextStyle(color: AppColors.aqua, fontSize: 11)),
+                                  const SizedBox(width: 8),
+                                ],
+                                SizedBox(
+                                  width: 22,
+                                  child: Text('${comp.goals}',
+                                      textAlign: TextAlign.end,
+                                      style: TextStyle(
+                                          color: _gold,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // One app/assist/goal total in a career card.
+  Widget _total(String value, String label, Color color, {bool big = false}) => Padding(
+        padding: const EdgeInsetsDirectional.only(end: 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value,
+                style: TextStyle(
+                    color: color,
+                    fontSize: big ? 18 : 14,
+                    fontWeight: FontWeight.bold,
+                    height: 1.1)),
+            Text(label, style: TextStyle(color: AppColors.hint, fontSize: 9)),
+          ],
+        ),
+      );
+
+  // A small pill tag ("guest" / "now").
+  Widget _tag(String text, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Text(text,
+            style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
+      );
+
+  // Horizontal bars of goals per career season.
+  Widget _goalsPerSeason(List<PlayerCareerEntry> career, String locale, bool isAr) {
+    final maxGoals = career.fold<int>(1, (m, c) => c.goals > m ? c.goals : m);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(
-        children: [
-          CachedLogo(url: c.logo, size: 36),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        children: career.map((c) {
+          final label = [c.seasonName(locale), c.ageName(locale)]
+              .whereType<String>()
+              .where((s) => s.isNotEmpty)
+              .join(' · ');
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(c.club,
-                          style: TextStyle(color: AppColors.white, fontSize: 14, fontWeight: FontWeight.w600)),
-                    ),
-                    if (c.current)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.green.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(isAr ? 'حالي' : 'Current',
-                            style: TextStyle(color: AppColors.green, fontSize: 10)),
-                      ),
-                  ],
+                SizedBox(
+                  width: 96,
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
                 ),
-                if (season.isNotEmpty)
-                  Text(season, style: TextStyle(color: AppColors.hint, fontSize: 12)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: c.goals / maxGoals,
+                      minHeight: 8,
+                      backgroundColor: AppColors.darkBg,
+                      valueColor: const AlwaysStoppedAnimation<Color>(_gold),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 24,
+                  child: Text('${c.goals}',
+                      textAlign: TextAlign.end,
+                      style: TextStyle(
+                          color: AppColors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
+                ),
               ],
             ),
-          ),
-          if (c.goals > 0)
-            Text('${c.goals} ⚽',
-                style: TextStyle(color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold)),
-        ],
+          );
+        }).toList(),
       ),
     );
   }

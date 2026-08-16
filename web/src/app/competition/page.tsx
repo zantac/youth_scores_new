@@ -460,7 +460,7 @@ function StatsTab({ matches, teams, locale, stickyTop }: { matches: Match[]; tea
 
   const subTabs = [
     { label: isAr ? 'إحصائيات' : 'Overview', icon: '📊' },
-    { label: isAr ? 'الهدافون' : 'Scorers',   icon: '⚽' },
+    { label: isAr ? 'الهدافون' : 'Scorers',   icon: '🥅' },
     { label: isAr ? 'صناعة'   : 'Assists',    icon: '🎯' },
     { label: isAr ? 'نظيفة'   : 'Clean',      icon: '🛡️' },
     { label: isAr ? 'بطاقات'  : 'Cards',      icon: '🟨' },
@@ -482,7 +482,7 @@ function StatsTab({ matches, teams, locale, stickyTop }: { matches: Match[]; tea
             {[
               { icon: '⚽', v: filteredMatches.length, l: isAr ? 'المباريات' : 'Matches', c: 'text-aqua' },
               { icon: '✅', v: completed.length,       l: isAr ? 'منتهية' : 'Completed', c: 'text-aqua' },
-              { icon: '🎯', v: totalGoals,              l: isAr ? 'أهداف' : 'Goals',      c: 'text-gold' },
+              { icon: '🥅', v: totalGoals,              l: isAr ? 'أهداف' : 'Goals',      c: 'text-gold' },
             ].map(({ icon, v, l, c }) => (
               <div key={l} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 flex flex-col items-center gap-1">
                 <span className="text-xl">{icon}</span>
@@ -1254,7 +1254,7 @@ function CompetitionPageInner() {
   const mainTabs = [
     { label: isAr ? 'المباريات' : 'Matches',   icon: '⚽' },
     { label: isAr ? 'الترتيب'  : 'Standings',  icon: '📊' },
-    { label: isAr ? 'الفرق'    : 'Teams',       icon: '🛡️' },
+    { label: isAr ? 'الفرق'    : 'Teams',       icon: '👕' },
     { label: isAr ? 'إحصائيات' : 'Stats',       icon: '📈' },
   ];
 

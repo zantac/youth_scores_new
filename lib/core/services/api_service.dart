@@ -103,6 +103,15 @@ class ApiService {
   Future<ClubPublic> fetchClub(int id) async =>
       ClubPublic.fromJson(await _getJson('/api/clubs/$id'));
 
+  /// The clubs directory (`/api/clubs`) — id, name, city and logo per club.
+  Future<List<ClubListItem>> fetchClubs() async {
+    final j = await _getJson('/api/clubs');
+    return (j['clubs'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(ClubListItem.fromJson)
+        .toList();
+  }
+
   /// Global search over teams, players and coaches (`/api/search?q=`). Mirrors
   /// the website's search; returns empty for terms shorter than two chars.
   Future<SearchResults> fetchSearch(String q) async {

@@ -220,12 +220,14 @@ class _StatsTabState extends State<StatsTab> with AutomaticKeepAliveClientMixin 
       return EmptyWidget(message: l10n.noStats, icon: Icons.bar_chart);
     }
 
+    // Colored emoji mirror the website's stats sub-tabs; scorers uses a goal
+    // net (⚽ is reserved for the matches tab).
     final tabs = [
-      (Icons.bar_chart,          l10n.statsOverview),
-      (Icons.sports_score,       l10n.scorers),
-      (Icons.assistant,          l10n.assists),
-      (Icons.shield_outlined,    l10n.cleanSheets),
-      (Icons.style_outlined,     l10n.cards),
+      ('📊', l10n.statsOverview),
+      ('🥅', l10n.scorers),
+      ('🎯', l10n.assists),
+      ('🛡️', l10n.cleanSheets),
+      ('🟨', l10n.cards),
     ];
 
     return Column(
@@ -338,7 +340,7 @@ class _StatsTabState extends State<StatsTab> with AutomaticKeepAliveClientMixin 
 // ── Tab strip ─────────────────────────────────────────────────────────────────
 
 class _TabStrip extends StatelessWidget {
-  final List<(IconData, String)> tabs;
+  final List<(String, String)> tabs;
   final int current;
   final ValueChanged<int> onTap;
 
@@ -373,9 +375,10 @@ class _TabStrip extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon,
-                        size: 18,
-                        color: active ? AppColors.aqua : AppColors.hint),
+                    Opacity(
+                      opacity: active ? 1.0 : 0.6,
+                      child: Text(icon, style: const TextStyle(fontSize: 18)),
+                    ),
                     const SizedBox(height: 3),
                     Text(
                       label,
@@ -604,7 +607,7 @@ class _CompStatsPage extends StatelessWidget {
               ),
               Container(width: 1, height: 44, color: AppColors.border),
               _StatPill(
-                icon: Icons.radar,
+                emoji: '🥅',
                 value: '$totalGoals',
                 label: l10n.goals,
                 highlight: true,
@@ -821,13 +824,15 @@ class _Card extends StatelessWidget {
 // ── Overview stat pill ────────────────────────────────────────────────────────
 
 class _StatPill extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final String? emoji;
   final String value;
   final String label;
   final bool highlight;
 
   const _StatPill({
-    required this.icon,
+    this.icon,
+    this.emoji,
     required this.value,
     required this.label,
     this.highlight = false,
@@ -838,9 +843,11 @@ class _StatPill extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon,
-            size: 20,
-            color: highlight ? AppColors.aqua : AppColors.teal),
+        emoji != null
+            ? Text(emoji!, style: const TextStyle(fontSize: 18))
+            : Icon(icon,
+                size: 20,
+                color: highlight ? AppColors.aqua : AppColors.teal),
         const SizedBox(height: 6),
         Text(
           value,

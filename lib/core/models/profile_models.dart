@@ -8,31 +8,80 @@ int _int(dynamic v, [int fallback = 0]) {
 int? _intN(dynamic v) => v is int ? v : int.tryParse(v?.toString() ?? '');
 
 // ── Player profile (GET /api/players/<id>) ───────────────────────────────────
+
+/// One competition's tally within a career season.
+class PlayerCareerComp {
+  final Map<String, String> name;
+  final int goals;
+  final int assists;
+  final int appearances;
+  const PlayerCareerComp({
+    this.name = const {},
+    this.goals = 0,
+    this.assists = 0,
+    this.appearances = 0,
+  });
+
+  String getName(String locale) => pickLocale(name, locale);
+
+  factory PlayerCareerComp.fromJson(Map<String, dynamic> j) => PlayerCareerComp(
+        name: localizedMap(j['name']),
+        goals: _int(j['goals']),
+        assists: _int(j['assists']),
+        appearances: _int(j['appearances']),
+      );
+}
+
 class PlayerCareerEntry {
   final String club;
   final String? logo;
+  final Map<String, String>? age;
   final Map<String, String> season;
+  final bool isGuest;
   final int goals;
+  final int assists;
+  final int appearances;
   final bool current;
+  final String? endDate;
   final String status;
+  final List<PlayerCareerComp> competitions;
   const PlayerCareerEntry({
     required this.club,
     this.logo,
+    this.age,
     this.season = const {},
+    this.isGuest = false,
     this.goals = 0,
+    this.assists = 0,
+    this.appearances = 0,
     this.current = false,
+    this.endDate,
     this.status = '',
+    this.competitions = const [],
   });
 
   String seasonName(String locale) => pickLocale(season, locale);
+  String? ageName(String locale) {
+    final a = pickLocale(age, locale);
+    return a.isEmpty ? null : a;
+  }
 
   factory PlayerCareerEntry.fromJson(Map<String, dynamic> j) => PlayerCareerEntry(
         club: j['club']?.toString() ?? '',
         logo: j['logo']?.toString(),
+        age: localizedMapOrNull(j['age']),
         season: localizedMap(j['season']),
+        isGuest: j['is_guest'] == true,
         goals: _int(j['goals']),
+        assists: _int(j['assists']),
+        appearances: _int(j['appearances']),
         current: j['current'] == true,
+        endDate: j['end_date']?.toString(),
         status: j['status']?.toString() ?? '',
+        competitions: (j['competitions'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(PlayerCareerComp.fromJson)
+            .toList(),
       );
 }
 
@@ -218,6 +267,28 @@ class ClubTeamEntry {
         id: _int(j['id']),
         name: localizedMap(j['name']),
         age: localizedMapOrNull(j['age']),
+        logo: j['logo']?.toString(),
+      );
+}
+
+/// A row in the clubs list (`GET /api/clubs`). Lightweight: identity + logo.
+class ClubListItem {
+  final int id;
+  final Map<String, String> name;
+  final Map<String, String>? city;
+  final String? logo;
+  const ClubListItem({required this.id, required this.name, this.city, this.logo});
+
+  String getName(String locale) => pickLocale(name, locale);
+  String? getCity(String locale) {
+    final c = pickLocale(city, locale);
+    return c.isEmpty ? null : c;
+  }
+
+  factory ClubListItem.fromJson(Map<String, dynamic> j) => ClubListItem(
+        id: _int(j['id']),
+        name: localizedMap(j['name']),
+        city: localizedMapOrNull(j['city']),
         logo: j['logo']?.toString(),
       );
 }

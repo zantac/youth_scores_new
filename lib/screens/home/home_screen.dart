@@ -8,6 +8,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/providers/app_provider.dart';
 import 'home_tab.dart';
 import 'competitions_tab.dart';
+import '../club/clubs_screen.dart';
 import '../news/news_screen.dart';
 import '../venues/venues_screen.dart';
 import '../more/more_screen.dart';
@@ -97,9 +98,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       HomeTab(
         onGoToCompetitions: () => setState(() => _tab = 1),
-        onGoToNews: () => setState(() => _tab = 2),
+        onGoToNews: () => setState(() => _tab = 3),
       ),
       const CompetitionsTab(),
+      const ClubsScreen(),
       const NewsScreen(),
       const VenuesScreen(),
     ];
@@ -126,8 +128,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _tab,
+        type: BottomNavigationBarType.fixed,
         onTap: (i) {
-          if (i == 4) {
+          if (i == 5) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const MoreScreen()),
@@ -144,6 +147,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: const Text('🏆', style: TextStyle(fontSize: 20)),
             label: l10n.competitions,
+          ),
+          BottomNavigationBarItem(
+            icon: const Text('🛡️', style: TextStyle(fontSize: 20)),
+            label: l10n.clubs,
           ),
           BottomNavigationBarItem(
             icon: const Text('📰', style: TextStyle(fontSize: 20)),

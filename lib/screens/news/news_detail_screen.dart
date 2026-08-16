@@ -33,28 +33,11 @@ class NewsDetailScreen extends StatelessWidget {
           ),
         ],
       ),
+      // Mirror the website: text first (title, date, details), photos at the
+      // bottom of the article.
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // ── Photo gallery ──────────────────────────────────────────────────
-          if (photos.isNotEmpty)
-            _ImageGallery(
-              images: photos,
-              onTap: (index) => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => _FullScreenGallery(
-                    urls: photos,
-                    initialIndex: index,
-                    l10n: l10n,
-                  ),
-                  fullscreenDialog: true,
-                ),
-              ),
-            ),
-
-          const SizedBox(height: 16),
-
           // ── Title ──────────────────────────────────────────────────────────
           Text(
             title,
@@ -77,12 +60,12 @@ class NewsDetailScreen extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          const Divider(),
-          const SizedBox(height: 12),
 
           // ── Body ───────────────────────────────────────────────────────────
-          if (details != null)
+          if (details != null) ...[
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
             Text(
               details,
               style: TextStyle(
@@ -91,6 +74,26 @@ class NewsDetailScreen extends StatelessWidget {
                 height: 1.8,
               ),
             ),
+          ],
+
+          // ── Photo gallery ──────────────────────────────────────────────────
+          if (photos.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            _ImageGallery(
+              images: photos,
+              onTap: (index) => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => _FullScreenGallery(
+                    urls: photos,
+                    initialIndex: index,
+                    l10n: l10n,
+                  ),
+                  fullscreenDialog: true,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 32),
         ],
       ),
