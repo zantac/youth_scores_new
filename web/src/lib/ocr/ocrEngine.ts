@@ -54,12 +54,30 @@ interface RawResult {
   box: number[][] | { x: number; y: number; width: number; height: number };
 }
 
+// onnxruntime-web's native (WASM) logger writes a benign "VerifyOutputSizes"
+// warning straight to console.error — not gated by ort.env.logLevel, and it
+// binds console.error when the module loads, so the filter must be installed
+// BEFORE importing onnxruntime-web. Next.js's dev overlay otherwise treats the
+// warning as a fatal error. We drop only that ORT line; everything else passes.
+let consolePatched = false;
+function filterOrtConsoleNoise() {
+  if (consolePatched || typeof console === 'undefined') return;
+  consolePatched = true;
+  const isNoise = (args: unknown[]) =>
+    args.some((a) => typeof a === 'string' && (a.includes('onnxruntime') || a.includes('VerifyOutputSizes')));
+  (['error', 'warn'] as const).forEach((m) => {
+    const orig = console[m].bind(console);
+    console[m] = (...args: unknown[]) => { if (!isNoise(args)) orig(...args); };
+  });
+}
+
 async function getService(opts: OcrOptions): Promise<PaddleService> {
   if (servicePromise) return servicePromise;
   servicePromise = (async () => {
     const version = opts.version ?? MODEL_VERSION;
     const modelBase = opts.modelBaseUrl ?? DEFAULTS.modelBaseUrl;
 
+    filterOrtConsoleNoise();
     const ort = await import('onnxruntime-web');
     const { PaddleOcrService } = await import('paddleocr');
 
@@ -67,6 +85,10 @@ async function getService(opts: OcrOptions): Promise<PaddleService> {
     // Single-thread avoids the COOP/COEP header requirement (a static host like
     // gh-pages can't set those). WebGPU, when present, still accelerates.
     ort.env.wasm.numThreads = 1;
+    // Silence the benign VerifyOutputSizes warning the detection model emits on
+    // every run (dynamic output shape). At 'warning' it hits console.error and
+    // Next.js's dev overlay treats it as a fatal error, which it is not.
+    ort.env.logLevel = 'error';
 
     opts.onStage?.('download');
     const [det, rec] = await Promise.all([
@@ -116,15 +138,24 @@ export async function runOcr(
   });
 }
 
-/** Decode a File/Blob into ImageData via an offscreen canvas (browser only). */
+/**
+ * Decode a File/Blob into RGBA pixels (browser only), upscaling small photos so
+ * the detection model finds faint/small text — this markedly improves capture on
+ * phone snaps of printed tables. Capped near ~1500px wide and ≤2.5× so a large
+ * upload doesn't explode memory.
+ */
 export async function imageToPixels(
   file: Blob,
 ): Promise<{ width: number; height: number; data: Uint8Array }> {
   const bmp = await createImageBitmap(file);
+  const scale = Math.min(2.5, Math.max(1, 1500 / bmp.width));
+  const w = Math.round(bmp.width * scale);
+  const h = Math.round(bmp.height * scale);
   const canvas = document.createElement('canvas');
-  canvas.width = bmp.width; canvas.height = bmp.height;
+  canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(bmp, 0, 0);
-  const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return { width: canvas.width, height: canvas.height, data: new Uint8Array(id.data.buffer) };
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, 0, 0, w, h);
+  const id = ctx.getImageData(0, 0, w, h);
+  return { width: w, height: h, data: new Uint8Array(id.data.buffer) };
 }

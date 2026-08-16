@@ -60,6 +60,10 @@ const HEADERS: Record<string, string> = {
   round: 'اسبوع',
 };
 
+// Day-of-week words to exclude from the name tokens (folded spellings).
+const DAY_NAMES = new Set(
+  ['الاحد', 'الاثنين', 'الثلاثاء', 'الاربعاء', 'الخميس', 'الجمعه', 'السبت'].map(foldAr));
+
 // ── row clustering ────────────────────────────────────────────────────────────
 
 function clusterRows(words: OcrWord[]): OcrWord[][] {
@@ -119,16 +123,6 @@ function fallbackColumns(width: number): Record<string, number> {
   };
 }
 
-/** Assign an x to the nearest of the given column centres, returning its key. */
-function nearestColumn(x: number, centres: Record<string, number>): string {
-  let best = '', bestD = Infinity;
-  for (const [k, cx] of Object.entries(centres)) {
-    const d = Math.abs(x - cx);
-    if (d < bestD) { bestD = d; best = k; }
-  }
-  return best;
-}
-
 // ── cell parsers ──────────────────────────────────────────────────────────────
 
 function parseDate(tokens: OcrWord[]): { value: string; conf: number } {
@@ -155,14 +149,6 @@ function parseTime(tokens: OcrWord[]): { value: string; conf: number } {
   return { value: '', conf: 0 };
 }
 
-function parseRound(tokens: OcrWord[]): string {
-  for (const t of tokens) {
-    const s = normalizeDigits(t.text).match(/\d{1,2}/);
-    if (s) return s[0];
-  }
-  return '';
-}
-
 // ── main ──────────────────────────────────────────────────────────────────────
 
 export function reconstructFixtures(words: OcrWord[], imageWidth: number): ReconstructResult {
@@ -180,67 +166,71 @@ export function reconstructFixtures(words: OcrWord[], imageWidth: number): Recon
     centres = fallbackColumns(imageWidth);
   }
   const orient = (s: string) => (orientation === 'visual' ? reverse(s) : s);
-
-  // Column bands we read cells from: order by X for home/away split logic.
-  const teamsCentre = centres.teams;
   const dateCentre = centres.date ?? imageWidth * 0.71;
   const venueCentre = centres.venue ?? imageWidth * 0.29;
+  const teamsCentre = centres.teams ?? imageWidth * 0.52;
+  // A name belongs to the venue column if its cluster sits left of here.
+  const venueBoundary = (venueCentre + teamsCentre) / 2;
+  // Gaps wider than this separate columns / the × ; narrower ones are the spaces
+  // between words of one name.
+  const gapThreshold = imageWidth * 0.07;
 
   const fixtures: RawFixture[] = [];
-  let lastRound = '';
 
   for (const row of rows.slice(1)) {
-    // Bucket each word into its nearest known column.
-    const byCol: Record<string, OcrWord[]> = {};
-    for (const w of row) {
-      const col = nearestColumn(w.cx, centres);
-      (byCol[col] ??= []).push(w);
-    }
+    // Date/time by CONTENT, not position — so team words that sit close to the
+    // date column aren't stolen by it (the bug that dropped home-team words).
+    const date = parseDate(row);
+    const time = parseTime(row);
 
-    const date = parseDate(byCol.date ?? []);
-    const time = parseTime(byCol.time ?? []);
-    let round = parseRound([...(byCol.round ?? []), ...(byCol.match ?? [])]);
-    if (round) lastRound = round; else round = lastRound; // fill-down merged cell
+    // The team + venue names are the Arabic tokens left of the date column
+    // (day names and the numeric round/match columns sit to its right).
+    const nameToks = row.filter(w =>
+      /[؀-ۿ]/.test(w.text) && !DAY_NAMES.has(foldAr(w.text)) && w.cx < dateCentre - 30);
 
-    // Teams band: split into home (nearer date = higher X) vs away (nearer venue).
-    const teamWords = (byCol.teams ?? []).slice().sort((a, b) => b.cx - a.cx); // right→left
-    const midX = (venueCentre + dateCentre) / 2 || teamsCentre;
-    const homeW = teamWords.filter((w) => w.cx >= midX);
-    const awayW = teamWords.filter((w) => w.cx < midX);
-    // If the simple midpoint split fails, fall back to the largest X gap.
-    let home = homeW, away = awayW;
-    if (!home.length || !away.length) {
-      const g = largestGap(teamWords);
-      home = teamWords.slice(0, g);
-      away = teamWords.slice(g);
-    }
+    // Cluster the names on real gaps, then place clusters by position: the
+    // leftmost (near the venue column) is the venue, the rest are home (rightmost,
+    // next to the date) then away. Robust when the venue or a team is missing.
+    const { home: homeW, away: awayW, venue: venueW } = splitRow(nameToks, venueBoundary, gapThreshold);
 
     const joinRtl = (ws: OcrWord[]) =>
       ws.slice().sort((a, b) => b.cx - a.cx).map((w) => orient(w.text)).join(' ').trim();
+    const homeStr = joinRtl(homeW);
+    const awayStr = joinRtl(awayW);
+    const venueStr = joinRtl(venueW);
 
-    const homeStr = joinRtl(home);
-    const awayStr = joinRtl(away);
-    const venueStr = joinRtl(byCol.venue ?? []);
+    if (!homeStr && !awayStr) continue; // stray header/footer line
 
-    // Skip rows that carry no team text at all (stray header/footer lines).
-    if (!homeStr && !awayStr) continue;
-
-    const confs = [date.conf, time.conf, ...home.map((w) => w.conf), ...away.map((w) => w.conf)].filter((c) => c > 0);
+    const confs = [date.conf, time.conf, ...homeW.map(w => w.conf), ...awayW.map(w => w.conf)].filter(c => c > 0);
     const conf = confs.length ? Math.min(...confs) : 0;
 
-    fixtures.push({ round, date: date.value, time: time.value, home: homeStr, away: awayStr, venue: venueStr, conf, y: row[0].cy });
+    fixtures.push({ round: '', date: date.value, time: time.value, home: homeStr, away: awayStr, venue: venueStr, conf, y: row[0].cy });
   }
 
-  if (!fixtures.some((f) => f.round)) warnings.push('Round numbers were not readable (merged cells) — set them manually');
   return { fixtures, warnings, orientation, columns: centres };
 }
 
-// Index at which the biggest horizontal gap occurs (words pre-sorted right→left).
-function largestGap(words: OcrWord[]): number {
-  let idx = Math.ceil(words.length / 2), max = -1;
-  for (let i = 1; i < words.length; i++) {
-    const gap = Math.abs(words[i - 1].cx - words[i].cx);
-    if (gap > max) { max = gap; idx = i; }
+// Cluster name tokens on real column gaps, then assign clusters to home / away /
+// venue by position. Keeps multi-word names intact and degrades gracefully when
+// the venue or one team is missing (no forced over-split).
+function splitRow(
+  toks: OcrWord[], venueBoundary: number, gapThreshold: number,
+): { home: OcrWord[]; away: OcrWord[]; venue: OcrWord[] } {
+  const sorted = [...toks].sort((a, b) => b.cx - a.cx); // right → left
+  const clusters: OcrWord[][] = [];
+  let cur: OcrWord[] = [];
+  for (const w of sorted) {
+    if (cur.length && cur[cur.length - 1].cx - w.cx > gapThreshold) { clusters.push(cur); cur = []; }
+    cur.push(w);
   }
-  return idx;
+  if (cur.length) clusters.push(cur);
+
+  const medianCx = (c: OcrWord[]) => [...c].map(w => w.cx).sort((a, b) => a - b)[Math.floor(c.length / 2)];
+  const venue: OcrWord[] = [];
+  const teams: OcrWord[][] = [];
+  for (const c of clusters) { if (medianCx(c) < venueBoundary) venue.push(...c); else teams.push(c); }
+
+  const home = teams[0] ?? [];
+  const away = teams.slice(1).flat();
+  return { home, away, venue };
 }
