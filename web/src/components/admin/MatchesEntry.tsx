@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
+import ImportFromPhoto from './ImportFromPhoto';
 import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
@@ -42,6 +43,7 @@ export default function MatchesEntry() {
   const [matches, setMatches] = useState<EntryMatchRow[]>([]);
   const [editing, setEditing] = useState<EntryMatch | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [fTeam, setFTeam] = useState('');
   const [fWeek, setFWeek] = useState('');
@@ -149,18 +151,33 @@ export default function MatchesEntry() {
           {/* The new-match toggle sits right above the list — so entering
               several matches in a row keeps it within reach instead of scrolling
               back up past the filters, especially on small screens. */}
-          <button onClick={() => setShowNew(s => !s)}
-            className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
-              showNew
-                ? 'border-loss text-loss hover:bg-loss/10'
-                : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
-            }`}>
-            {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { setShowNew(s => !s); setShowImport(false); }}
+              className={`font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+                showNew
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
+              {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
+            </button>
+            <button onClick={() => { setShowImport(s => !s); setShowNew(false); }}
+              className={`font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+                showImport
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
+              {showImport ? '✕ إلغاء' : '📷 من صورة'}
+            </button>
+          </div>
 
           {showNew && <NewMatch token={token!} cid={cid} teams={teams} stages={stages}
             venues={venues}
             onDone={() => { setShowNew(false); refreshMatches(); refreshVenues(); }} />}
+
+          {showImport && <ImportFromPhoto token={token!} cid={cid} teams={teams} stages={stages}
+            venues={venues} existing={active}
+            onCreated={() => { refreshMatches(); refreshVenues(); }}
+            onCancel={() => setShowImport(false)} />}
 
           <div className="space-y-2">
             {shown.map(m => (
