@@ -45,4 +45,7 @@ ENV FLASK_APP=wsgi.py \
 
 WORKDIR /app/backend
 # Run pending migrations, then serve. Railway provides $PORT.
-CMD ["sh", "-c", "flask db upgrade && gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 60 wsgi:app"]
+# --preload loads the app once before forking so the 2 workers share code memory
+# (copy-on-write), and --threads handles concurrency without extra processes —
+# both trim always-on RAM (the main Railway cost) for this I/O-bound workload.
+CMD ["sh", "-c", "flask db upgrade && gunicorn --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --preload --timeout 60 wsgi:app"]
