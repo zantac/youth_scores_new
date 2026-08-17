@@ -927,20 +927,25 @@ class _AdEditor extends StatefulWidget {
 class _AdEditorState extends State<_AdEditor> {
   late final Map<String, TextEditingController> _c;
   bool _busy = false;
+  bool _active = true;
 
   @override
   void initState() {
     super.initState();
     final a = widget.ad;
+    _active = a?.active ?? true;
     _c = {
       'name': TextEditingController(text: a?.name ?? ''),
       'image': TextEditingController(text: a?.image ?? ''),
+      'link': TextEditingController(text: a?.link ?? ''),
       'mobile_number': TextEditingController(text: a?.mobileNumber ?? ''),
       'whatsapp_number': TextEditingController(text: a?.whatsappNumber ?? ''),
       'facebook_link': TextEditingController(text: a?.facebookLink ?? ''),
       'youtube_video': TextEditingController(text: a?.youtubeVideo ?? ''),
       'location': TextEditingController(text: a?.location ?? ''),
       'location_url': TextEditingController(text: a?.locationUrl ?? ''),
+      'weight': TextEditingController(text: '${a?.weight ?? 1}'),
+      'start_date': TextEditingController(text: a?.startDate ?? ''),
       'expire_date': TextEditingController(text: a?.expireDate ?? ''),
     };
   }
@@ -960,7 +965,10 @@ class _AdEditorState extends State<_AdEditor> {
       return;
     }
     setState(() => _busy = true);
-    final body = _c.map((k, v) => MapEntry(k, v.text.trim()));
+    final body = <String, dynamic>{
+      for (final e in _c.entries) e.key: e.value.text.trim(),
+      'active': _active,
+    };
     try {
       if (widget.ad == null) {
         await widget.api.createAd(widget.token, body);
@@ -1025,6 +1033,7 @@ class _AdEditorState extends State<_AdEditor> {
               ),
             ),
             const SizedBox(height: 10),
+            f('link', isAr ? '🔗 رابط الإعلان (بالضغط على الصورة)' : '🔗 Ad link (whole-ad tap)', hint: 'https://…'),
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
@@ -1037,7 +1046,20 @@ class _AdEditorState extends State<_AdEditor> {
             f('youtube_video', isAr ? '▶ فيديو يوتيوب' : '▶ YouTube video', hint: 'https://…'),
             f('location', isAr ? '📍 اسم الموقع' : '📍 Location name'),
             f('location_url', isAr ? '🗺️ رابط الخريطة' : '🗺️ Map URL', hint: 'https://…'),
+            f('start_date', isAr ? 'تاريخ البدء (فارغ = الآن)' : 'Start date (empty = now)', hint: 'YYYY-MM-DD'),
             f('expire_date', isAr ? 'تاريخ الانتهاء (فارغ = دائم)' : 'Expiry date (empty = permanent)', hint: 'YYYY-MM-DD'),
+            f('weight', isAr ? 'الوزن (الأعلى يظهر أكثر)' : 'Weight (higher shows more)', hint: '1'),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(children: [
+                Expanded(child: _label(isAr ? 'مُفعّل' : 'Active')),
+                Switch(
+                  value: _active,
+                  activeColor: AppColors.aqua,
+                  onChanged: (v) => setState(() => _active = v),
+                ),
+              ]),
+            ),
             const SizedBox(height: 4),
             SizedBox(
               width: double.infinity,

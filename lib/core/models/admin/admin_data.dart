@@ -342,6 +342,10 @@ class AdminAd {
   final String? whatsappNumber;
   final String? location;
   final String? locationUrl;
+  final String? link;
+  final String? startDate;
+  final bool active;
+  final int weight;
   final String? expireDate;
   const AdminAd({
     required this.id,
@@ -353,6 +357,10 @@ class AdminAd {
     this.whatsappNumber,
     this.location,
     this.locationUrl,
+    this.link,
+    this.startDate,
+    this.active = true,
+    this.weight = 1,
     this.expireDate,
   });
 
@@ -366,6 +374,10 @@ class AdminAd {
         whatsappNumber: _s(j['whatsapp_number']),
         location: _s(j['location']),
         locationUrl: _s(j['location_url']),
+        link: _s(j['link']),
+        startDate: _s(j['start_date']),
+        active: j['active'] != false,
+        weight: _i(j['weight']) < 1 ? 1 : _i(j['weight']),
         expireDate: _s(j['expire_date']),
       );
 }

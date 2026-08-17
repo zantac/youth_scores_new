@@ -52,6 +52,18 @@ class AdInterstitialScreen extends StatefulWidget {
   State<AdInterstitialScreen> createState() => _AdInterstitialScreenState();
 }
 
+/// Pick an ad weighted by its `weight` (higher weight → shown more often).
+AdItem _weightedPick(List<AdItem> ads) {
+  int w(AdItem a) => a.weight > 0 ? a.weight : 1;
+  final total = ads.fold<int>(0, (s, a) => s + w(a));
+  var r = Random().nextInt(total);
+  for (final a in ads) {
+    r -= w(a);
+    if (r < 0) return a;
+  }
+  return ads.last;
+}
+
 /// Show an interstitial at most once per [_minGap], persisted across launches.
 class _AdFrequency {
   static const _key = 'ad_last_shown_ms';
@@ -96,7 +108,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
             .where((a) => a.isLive)
             .toList() ??
         const [];
-    if (ads.isNotEmpty) _ad = ads[Random().nextInt(ads.length)];
+    if (ads.isNotEmpty) _ad = _weightedPick(ads);
 
     _pulseController = AnimationController(
       vsync: this,
@@ -166,17 +178,22 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Fullscreen image ───────────────────────────────────────────────
-          if (ad?.image != null && ad!.image!.startsWith('http'))
-            CachedNetworkImage(
-              imageUrl: ad.image!,
-              fit: BoxFit.contain,
-              width: double.infinity,
-              height: double.infinity,
-              errorWidget: (_, __, ___) => const _Placeholder(),
-            )
-          else
-            const _Placeholder(),
+          // ── Fullscreen image (tappable when the ad has a primary link) ─────
+          GestureDetector(
+            onTap: (ad?.link != null && ad!.link!.isNotEmpty)
+                ? () => _click(Uri.parse(ad.link!),
+                    mode: LaunchMode.externalApplication)
+                : null,
+            child: (ad?.image != null && ad!.image!.startsWith('http'))
+                ? CachedNetworkImage(
+                    imageUrl: ad.image!,
+                    fit: BoxFit.contain,
+                    width: double.infinity,
+                    height: double.infinity,
+                    errorWidget: (_, __, ___) => const _Placeholder(),
+                  )
+                : const _Placeholder(),
+          ),
 
           // ── Bottom gradient + ad info + actions ────────────────────────────
           Positioned(

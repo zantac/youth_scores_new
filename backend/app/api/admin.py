@@ -308,11 +308,18 @@ def delete_venue(vid: int):
 # contact/links shown as buttons. No notification — an ad is not news.
 
 # Optional string columns, set together on create and update. `name` is handled
-# apart because it is required; `expire_date` because it is a date.
+# apart (required); dates, `active` and `weight` are handled by type.
 _AD_STR_FIELDS = (
     "image", "youtube_video", "facebook_link", "mobile_number",
-    "whatsapp_number", "location", "location_url",
+    "whatsapp_number", "location", "location_url", "link",
 )
+
+
+def _ad_weight(v) -> int:
+    try:
+        return max(1, int(v))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _ad_dto(a: Ad) -> dict:
@@ -320,7 +327,9 @@ def _ad_dto(a: Ad) -> dict:
         "id": a.id, "name": a.name, "image": a.image,
         "youtube_video": a.youtube_video, "facebook_link": a.facebook_link,
         "mobile_number": a.mobile_number, "whatsapp_number": a.whatsapp_number,
-        "location": a.location, "location_url": a.location_url,
+        "location": a.location, "location_url": a.location_url, "link": a.link,
+        "active": a.active, "weight": a.weight,
+        "start_date": a.start_date.isoformat() if a.start_date else None,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
 
@@ -339,7 +348,13 @@ def create_ad():
     name = (j.get("name") or "").strip()
     if not name:
         return jsonify({"error": "اسم الإعلان مطلوب"}), 400
-    ad = Ad(name=name, expire_date=_parse_date(j.get("expire_date"), default_today=False))
+    ad = Ad(
+        name=name,
+        start_date=_parse_date(j.get("start_date"), default_today=False),
+        expire_date=_parse_date(j.get("expire_date"), default_today=False),
+        active=bool(j.get("active", True)),
+        weight=_ad_weight(j.get("weight", 1)),
+    )
     for k in _AD_STR_FIELDS:
         setattr(ad, k, (j.get(k) or None))
     db.session.add(ad)
@@ -362,8 +377,14 @@ def update_ad(aid: int):
     for k in _AD_STR_FIELDS:
         if k in j:
             setattr(ad, k, (j.get(k) or None))
+    if "start_date" in j:
+        ad.start_date = _parse_date(j.get("start_date"), default_today=False)
     if "expire_date" in j:
         ad.expire_date = _parse_date(j.get("expire_date"), default_today=False)
+    if "active" in j:
+        ad.active = bool(j.get("active"))
+    if "weight" in j:
+        ad.weight = _ad_weight(j.get("weight"))
     db.session.commit()
     return jsonify({"ad": _ad_dto(ad)})
 

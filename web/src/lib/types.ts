@@ -32,6 +32,8 @@ export interface AdItem {
   whatsapp_number?: string;
   location?: string;
   location_url?: string;
+  link?: string;
+  weight?: number;
   expire_date?: string;
 }
 

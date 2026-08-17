@@ -306,6 +306,8 @@ class AdItem {
   final String? whatsappNumber;
   final String? location;
   final String? locationUrl;
+  final String? link;        // primary tap-through URL (whole-ad tap)
+  final int weight;          // rotation weight (higher = shown more often)
   final String? expireDate;
 
   const AdItem({
@@ -318,6 +320,8 @@ class AdItem {
     this.whatsappNumber,
     this.location,
     this.locationUrl,
+    this.link,
+    this.weight = 1,
     this.expireDate,
   });
 
@@ -343,6 +347,8 @@ class AdItem {
     whatsappNumber: json['whatsapp_number']?.toString(),
     location: json['location']?.toString(),
     locationUrl: json['location_url']?.toString(),
+    link: json['link']?.toString(),
+    weight: int.tryParse(json['weight']?.toString() ?? '') ?? 1,
     expireDate: json['expire_date']?.toString(),
   );
 }
