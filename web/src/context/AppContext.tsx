@@ -52,7 +52,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const pickAd = useCallback((cfg: ConfigData | null): AdItem | null => {
     if (!cfg?.ads?.length) return null;
     const now = new Date();
-    const valid = cfg.ads.filter(a => !a.expire_date || new Date(a.expire_date) > now);
+    // Interstitial pick only — feed-only ads render in the match feed instead.
+    const valid = cfg.ads.filter(a =>
+      (!a.expire_date || new Date(a.expire_date) > now) &&
+      (a.placement ?? 'interstitial') !== 'feed');
     if (!valid.length) return null;
 
     let pool = valid.filter(a => !shownAds.current.has(a.name));

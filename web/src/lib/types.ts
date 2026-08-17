@@ -34,6 +34,7 @@ export interface AdItem {
   location_url?: string;
   link?: string;
   weight?: number;
+  placement?: string;   // interstitial | feed | both
   expire_date?: string;
 }
 
