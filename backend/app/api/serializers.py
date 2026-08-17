@@ -9,7 +9,7 @@ own — they only have to be consistent within one response, which they are.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, time as day_time
+from datetime import date, datetime, time as day_time
 
 import sqlalchemy as sa
 from sqlalchemy.orm import joinedload, selectinload
@@ -68,7 +68,11 @@ def config_blob(base_url: str) -> dict:
         "seasons": [_season(s, base_url) for s in Season.query.order_by(Season.id.desc()).all()],
         "venues": [_venue(v) for v in Venue.query.order_by(Venue.id).all()],
         "news": [_news(n) for n in News.query.order_by(News.date.desc()).all()],
-        "Ads": [_ad(a) for a in Ad.query.order_by(Ad.id).all()],
+        # Live ads only — an ad past its expiry date drops off the feed.
+        "Ads": [_ad(a) for a in Ad.query
+                .filter(sa.or_(Ad.expire_date.is_(None),
+                               Ad.expire_date >= date.today()))
+                .order_by(Ad.id).all()],
         "app_version": {"version_code": "1", "version_name": "1.0.0"},
     }
 
@@ -156,6 +160,7 @@ def _news(n: News) -> dict:
 
 def _ad(a: Ad) -> dict:
     return {
+        "id": a.id,
         "name": a.name,
         "image": a.image,
         "youtube_video": a.youtube_video,

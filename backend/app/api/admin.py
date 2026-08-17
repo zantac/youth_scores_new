@@ -9,12 +9,13 @@ The ADMIN_API_KEY still works as a master key (see services/auth) for scripts.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
+import sqlalchemy as sa
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import Ad, AdminUser, Match, News, Venue
+from app.models import Ad, AdEvent, AdminUser, Match, News, Venue
 from app.models import codes
 from app.services import auth, images, notifications
 
@@ -376,6 +377,81 @@ def delete_ad(aid: int):
     db.session.delete(ad)
     db.session.commit()
     return jsonify({"deleted": aid})
+
+
+# ── First-party ad analytics ─────────────────────────────────────────────────
+# Public, fire-and-forget: the clients record an impression when an ad is shown
+# and a click when a CTA is tapped. One row per event (see AdEvent) so we can
+# report per-ad totals and daily trends without a third-party SDK.
+
+def _record_ad_event(ad_id: int, kind: str):
+    # Skip unknown ids quietly so a stale cached ad can't spam 404s meaningfully.
+    if db.session.get(Ad, ad_id) is None:
+        return jsonify({"ok": False}), 404
+    j = request.get_json(silent=True) or {}
+    platform = ((j.get("platform") or "").strip() or None)
+    if platform:
+        platform = platform[:16]
+    db.session.add(AdEvent(ad_id=ad_id, kind=kind, platform=platform))
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@admin_bp.post("/api/ads/<int:ad_id>/impression")
+@limiter.limit("300 per minute")
+def ad_impression(ad_id: int):
+    return _record_ad_event(ad_id, "impression")
+
+
+@admin_bp.post("/api/ads/<int:ad_id>/click")
+@limiter.limit("120 per minute")
+def ad_click(ad_id: int):
+    return _record_ad_event(ad_id, "click")
+
+
+@admin_bp.get("/api/admin/ads/stats")
+@auth.role_required("editor")
+def ad_stats():
+    """Per-ad impression/click totals + a 30-day daily series (impr & clicks)."""
+    since = datetime.utcnow() - timedelta(days=30)
+
+    totals: dict[int, dict[str, int]] = {}
+    for ad_id, kind, n in (
+        db.session.query(AdEvent.ad_id, AdEvent.kind, sa.func.count())
+        .group_by(AdEvent.ad_id, AdEvent.kind)
+    ):
+        row = totals.setdefault(ad_id, {"impressions": 0, "clicks": 0})
+        if kind == "impression":
+            row["impressions"] = n
+        elif kind == "click":
+            row["clicks"] = n
+
+    ads_out = []
+    for a in Ad.query.order_by(Ad.id.desc()).all():
+        t = totals.get(a.id, {"impressions": 0, "clicks": 0})
+        imp, clk = t["impressions"], t["clicks"]
+        ads_out.append({
+            "id": a.id,
+            "name": a.name,
+            "impressions": imp,
+            "clicks": clk,
+            "ctr": round(clk / imp * 100, 1) if imp else 0.0,
+        })
+
+    daily: dict[str, dict[str, int]] = {}
+    for d, kind, n in (
+        db.session.query(sa.func.date(AdEvent.created_at), AdEvent.kind, sa.func.count())
+        .filter(AdEvent.created_at >= since)
+        .group_by(sa.func.date(AdEvent.created_at), AdEvent.kind)
+    ):
+        row = daily.setdefault(str(d), {"impressions": 0, "clicks": 0})
+        if kind == "impression":
+            row["impressions"] = n
+        elif kind == "click":
+            row["clicks"] = n
+    daily_out = [{"date": k, **v} for k, v in sorted(daily.items())]
+
+    return jsonify({"ads": ads_out, "daily": daily_out})
 
 
 def _push_token(j: dict) -> str | None:
