@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import Ad, AdEvent, AdminUser, Match, News, Venue
+from app.models import Ad, AdEvent, AdminUser, AppVersion, Match, News, Venue
 from app.models import codes
 from app.services import auth, images, notifications
 
@@ -502,6 +502,49 @@ def ad_stats():
     placement_out = [{"placement": k, **v} for k, v in sorted(by_placement.items())]
 
     return jsonify({"ads": ads_out, "daily": daily_out, "by_placement": placement_out})
+
+
+# ── app version gate ─────────────────────────────────────────────────────────
+
+def _app_version_dto(av: AppVersion | None) -> dict:
+    return {
+        "version_code": av.version_code if av else "1",
+        "version_name": av.version_name if av else "1.0.0",
+        "force_update": av.force_update if av else False,
+    }
+
+
+@admin_bp.get("/api/admin/app-version")
+@auth.role_required("editor")
+def get_app_version():
+    av = AppVersion.query.filter_by(platform="android").first()
+    return jsonify({"app_version": _app_version_dto(av)})
+
+
+@admin_bp.put("/api/admin/app-version")
+@auth.role_required("superadmin")
+def set_app_version():
+    """Upsert the Android release gate. Set version_code to the build number of
+    the release you just published to Google Play; users on an older build then
+    see the update dialog on next launch."""
+    j = request.get_json(silent=True) or {}
+    code = str(j.get("version_code") or "").strip()
+    name = str(j.get("version_name") or "").strip()
+    if not code.isdigit():
+        return jsonify({"error": "رقم الإصدار (version_code) يجب أن يكون رقمًا"}), 400
+    if not name:
+        return jsonify({"error": "اسم الإصدار (version_name) مطلوب"}), 400
+
+    av = AppVersion.query.filter_by(platform="android").first()
+    if av is None:
+        av = AppVersion(platform="android", version_code=code, version_name=name)
+        db.session.add(av)
+    else:
+        av.version_code = code
+        av.version_name = name
+    av.force_update = bool(j.get("force_update"))
+    db.session.commit()
+    return jsonify({"app_version": _app_version_dto(av)})
 
 
 def _push_token(j: dict) -> str | None:

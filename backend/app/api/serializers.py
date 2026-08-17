@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.models import (
     Ad,
     AgeGroup,
+    AppVersion,
     Club,
     ClubStaff,
     Coach,
@@ -74,7 +75,21 @@ def config_blob(base_url: str) -> dict:
                         sa.or_(Ad.start_date.is_(None), Ad.start_date <= date.today()),
                         sa.or_(Ad.expire_date.is_(None), Ad.expire_date >= date.today()))
                 .order_by(Ad.id).all()],
-        "app_version": {"version_code": "1", "version_name": "1.0.0"},
+        "app_version": _app_version(),
+    }
+
+
+def _app_version() -> dict:
+    """The Android release gate the app polls on startup. Bumping the row's
+    version_code above the installed build makes the app show its update
+    dialog; force_update makes that dialog non-dismissible."""
+    av = AppVersion.query.filter_by(platform="android").first()
+    if av is None:
+        return {"version_code": "1", "version_name": "1.0.0", "force_update": False}
+    return {
+        "version_code": av.version_code,
+        "version_name": av.version_name,
+        "force_update": av.force_update,
     }
 
 
