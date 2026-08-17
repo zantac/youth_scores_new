@@ -242,6 +242,11 @@ export const apiCreateAd = (t: string, b: Record<string, unknown>) => send<{ ad:
 export const apiUpdateAd = (t: string, id: number, b: Record<string, unknown>) => send<{ ad: AdminAd }>(t, 'PATCH', `/api/admin/ads/${id}`, b).then(d => d.ad);
 export const apiDeleteAd = (t: string, id: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/ads/${id}`);
 
+// First-party ad analytics: per-ad totals + a 30-day daily series.
+export interface AdStatRow  { id: number; name: string; impressions: number; clicks: number; ctr: number; }
+export interface AdDailyRow { date: string; impressions: number; clicks: number; }
+export const apiAdStats = (t: string) => get<{ ads: AdStatRow[]; daily: AdDailyRow[] }>(t, '/api/admin/ads/stats');
+
 // ── structure management (seasons / age groups / clubs / competitions / teams) ─
 
 export interface MSeason { id: number; name_ar: string | null; name_en: string | null; start_date: string; end_date: string; is_active: boolean; }
