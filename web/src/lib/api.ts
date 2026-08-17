@@ -277,6 +277,8 @@ export async function fetchConfig(): Promise<ConfigData> {
         link:             a.link             ? String(a.link)             : undefined,
         weight:           Number(a.weight ?? 1),
         placement:        a.placement        ? String(a.placement)        : 'interstitial',
+        feed_position:    a.feed_position != null ? Number(a.feed_position) : undefined,
+        feed_repeat:      a.feed_repeat    != null ? Number(a.feed_repeat)  : undefined,
         expire_date:      a.expire_date      ? String(a.expire_date)      : undefined,
       })),
     app_version: data.app_version,
