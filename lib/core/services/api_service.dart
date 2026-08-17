@@ -103,6 +103,11 @@ class ApiService {
   Future<ClubPublic> fetchClub(int id) async =>
       ClubPublic.fromJson(await _getJson('/api/clubs/$id'));
 
+  /// A standalone team profile (`/api/teams/<id>`) — identity, club, age,
+  /// seasons/competitions, staff and roster, independent of any competition.
+  Future<TeamPublic> fetchTeam(int id) async =>
+      TeamPublic.fromJson(await _getJson('/api/teams/$id'));
+
   /// The clubs directory (`/api/clubs`) — id, name, city and logo per club.
   Future<List<ClubListItem>> fetchClubs() async {
     final j = await _getJson('/api/clubs');

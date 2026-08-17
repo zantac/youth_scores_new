@@ -271,6 +271,130 @@ class ClubTeamEntry {
       );
 }
 
+// ── Public team profile (GET /api/teams/<id>) ────────────────────────────────
+
+class TeamCompetitionRef {
+  final int competitionId;
+  final Map<String, String> title;
+  final Map<String, String> season;
+  const TeamCompetitionRef({
+    required this.competitionId,
+    this.title = const {},
+    this.season = const {},
+  });
+
+  String getTitle(String locale) => pickLocale(title, locale);
+  String getSeason(String locale) => pickLocale(season, locale);
+
+  factory TeamCompetitionRef.fromJson(Map<String, dynamic> j) => TeamCompetitionRef(
+        competitionId: _int(j['competition_id']),
+        title: localizedMap(j['title']),
+        season: localizedMap(j['season']),
+      );
+}
+
+class TeamRosterPlayer {
+  final int id;
+  final Map<String, String> name;
+  final String? photo;
+  final int? shirt;
+  final Map<String, String>? position;
+  final int? birthYear;
+  final bool guest;
+  const TeamRosterPlayer({
+    required this.id,
+    required this.name,
+    this.photo,
+    this.shirt,
+    this.position,
+    this.birthYear,
+    this.guest = false,
+  });
+
+  String getName(String locale) => pickLocale(name, locale);
+  String? getPosition(String locale) {
+    final p = pickLocale(position, locale);
+    return p.isEmpty ? null : p;
+  }
+
+  factory TeamRosterPlayer.fromJson(Map<String, dynamic> j) => TeamRosterPlayer(
+        id: _int(j['id']),
+        name: localizedMap(j['name']),
+        photo: j['photo']?.toString(),
+        shirt: _intN(j['shirt']),
+        position: localizedMapOrNull(j['position']),
+        birthYear: _intN(j['birth_year']),
+        guest: j['guest'] == true,
+      );
+}
+
+class TeamPublic {
+  final int id;
+  final Map<String, String> name;
+  final String? logo;
+  final int? clubId;
+  final Map<String, String>? clubName;
+  final Map<String, String>? age;
+  final List<TeamCompetitionRef> competitions;
+  final List<ClubManager> staff;
+  final List<TeamRosterPlayer> roster;
+  const TeamPublic({
+    required this.id,
+    required this.name,
+    this.logo,
+    this.clubId,
+    this.clubName,
+    this.age,
+    this.competitions = const [],
+    this.staff = const [],
+    this.roster = const [],
+  });
+
+  String getName(String locale) => pickLocale(name, locale);
+  String? getClubName(String locale) {
+    final c = pickLocale(clubName, locale);
+    return c.isEmpty ? null : c;
+  }
+
+  String? getAge(String locale) {
+    final a = pickLocale(age, locale);
+    return a.isEmpty ? null : a;
+  }
+
+  /// Club leads as the identity; the team's own name (academy/sponsor) is the
+  /// alias shown beneath, mirroring the standings/fixtures two-line form.
+  ({String primary, String? alias}) nameLines(String locale) {
+    final n = getName(locale);
+    final club = getClubName(locale);
+    if (club == null || club == n) return (primary: n, alias: null);
+    return (primary: club, alias: n);
+  }
+
+  factory TeamPublic.fromJson(Map<String, dynamic> j) {
+    final club = j['club'] as Map<String, dynamic>?;
+    return TeamPublic(
+      id: _int(j['id']),
+      name: localizedMap(j['name']),
+      logo: j['logo']?.toString(),
+      clubId: club != null ? _intN(club['id']) : null,
+      clubName: club != null ? localizedMapOrNull(club['name']) : null,
+      age: localizedMapOrNull(j['age']),
+      competitions: (j['competitions'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(TeamCompetitionRef.fromJson)
+          .toList(),
+      staff: (j['staff'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(ClubManager.fromJson)
+          .toList(),
+      roster: (j['roster'] as List? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(TeamRosterPlayer.fromJson)
+          .toList(),
+    );
+  }
+}
+
 /// A row in the clubs list (`GET /api/clubs`). Lightweight: identity + logo.
 class ClubListItem {
   final int id;

@@ -7,6 +7,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/models/competition_data_model.dart';
 import '../../core/models/follows.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/roster_position.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
 import '../../widgets/stats/player_matches_sheet.dart' show showPlayerMatchesSheet, PlayerStatType;
@@ -206,7 +207,6 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                   entries: scorers,
                   emptyMessage: l10n.noStats,
                   unit: l10n.goals,
-                  icon: Icons.sports_score,
                   matches: teamMatches,
                   teamId: widget.teamId,
                   allTeams: provider.competition?.teams ?? [],
@@ -216,7 +216,6 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                   entries: assists,
                   emptyMessage: l10n.noStats,
                   unit: l10n.assists,
-                  icon: Icons.assistant,
                   matches: teamMatches,
                   teamId: widget.teamId,
                   allTeams: provider.competition?.teams ?? [],
@@ -540,58 +539,6 @@ class _InfoCard extends StatelessWidget {
 // Page 2 – Squad
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Position groups, ordered keeper → attack, mirroring the website's
-// `groupRosterByPosition`. `matchAr`/`matchEn` are the position labels a player
-// carries in the feed; `ar`/`en` are the section headers shown to the user.
-const _positionGroups = [
-  (key: 'gk',  emoji: '🧤', ar: 'حراس المرمي', en: 'Goalkeepers', matchAr: 'حارس مرمي', matchEn: 'goalkeeper'),
-  (key: 'def', emoji: '🛡️', ar: 'المدافعون',   en: 'Defenders',   matchAr: 'مدافع',      matchEn: 'defender'),
-  (key: 'mid', emoji: '⚡', ar: 'لاعبو الوسط', en: 'Midfielders', matchAr: 'لاعب وسط',   matchEn: 'midfielder'),
-  (key: 'fwd', emoji: '⚽', ar: 'المهاجمون',   en: 'Forwards',    matchAr: 'مهاجم',       matchEn: 'forward'),
-];
-
-String _normArabic(String? s) => (s ?? '').trim().replaceAll('ى', 'ي');
-
-/// The position group a player belongs to, or 'other' when unrecognised/empty.
-String _positionGroupKey(Map<String, String>? position) {
-  final ar = _normArabic(position?['ar']);
-  final en = (position?['en'] ?? '').trim().toLowerCase();
-  for (final g in _positionGroups) {
-    if ((ar.isNotEmpty && ar == g.matchAr) || (en.isNotEmpty && en == g.matchEn)) {
-      return g.key;
-    }
-  }
-  return 'other';
-}
-
-class _RosterSection {
-  final String emoji;
-  final String label;
-  final List<RosterPlayer> players;
-  const _RosterSection(this.emoji, this.label, this.players);
-}
-
-/// Split a roster into position sections (keeper → attack), each sorted by name,
-/// dropping empty groups. Unknown/missing positions fall into a final "Other".
-List<_RosterSection> _groupRoster(List<RosterPlayer> roster, String locale) {
-  final isAr = locale == 'ar';
-  final buckets = <String, List<RosterPlayer>>{};
-  for (final p in roster) {
-    (buckets[_positionGroupKey(p.position)] ??= []).add(p);
-  }
-  int byName(RosterPlayer a, RosterPlayer b) =>
-      a.getName(locale).compareTo(b.getName(locale));
-  final ordered = <_RosterSection>[
-    for (final g in _positionGroups)
-      _RosterSection(g.emoji, isAr ? g.ar : g.en, buckets[g.key] ?? const []),
-    _RosterSection('👤', isAr ? 'أخرى' : 'Other', buckets['other'] ?? const []),
-  ];
-  return ordered
-      .where((s) => s.players.isNotEmpty)
-      .map((s) => _RosterSection(s.emoji, s.label, [...s.players]..sort(byName)))
-      .toList();
-}
-
 class _SquadPage extends StatelessWidget {
   final Team team;
   final L10n l10n;
@@ -604,7 +551,12 @@ class _SquadPage extends StatelessWidget {
     // grouped by position (keeper → attack) with a per-section count, matching
     // the website.
     if (team.roster.isNotEmpty) {
-      final sections = _groupRoster(team.roster, l10n.locale);
+      final sections = groupRosterByPosition<RosterPlayer>(
+        team.roster,
+        l10n.locale,
+        position: (r) => r.position,
+        name: (r) => r.getName(l10n.locale),
+      );
       return ListView(
         padding: const EdgeInsets.all(14),
         children: [
@@ -853,7 +805,6 @@ class _PlayerListPage extends StatelessWidget {
   final List<MapEntry<String, int>> entries;
   final String emptyMessage;
   final String unit;
-  final IconData icon;
   final List<Match> matches;
   final String teamId;
   final List<Team> allTeams;
@@ -863,7 +814,6 @@ class _PlayerListPage extends StatelessWidget {
     required this.entries,
     required this.emptyMessage,
     required this.unit,
-    required this.icon,
     required this.matches,
     required this.teamId,
     required this.allTeams,
@@ -919,8 +869,6 @@ class _PlayerListPage extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Icon(icon, color: AppColors.teal, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(e.key,

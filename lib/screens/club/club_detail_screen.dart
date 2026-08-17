@@ -7,6 +7,7 @@ import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../coach/coach_detail_screen.dart';
+import '../team/team_profile_screen.dart';
 
 class ClubDetailScreen extends StatefulWidget {
   final int clubId;
@@ -187,25 +188,34 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
   }
 
   Widget _teamTile(ClubTeamEntry t, String locale) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+    // On the club page the club is implicit, so show the age only (falling back
+    // to the team name). Tapping opens the standalone team page.
+    final label = t.ageName(locale) ?? t.getName(locale);
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => TeamProfileScreen(teamId: t.id)),
       ),
-      child: Row(
-        children: [
-          Icon(Icons.groups_outlined, color: AppColors.teal, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(t.getName(locale),
-                style: TextStyle(color: AppColors.white, fontSize: 14)),
-          ),
-          if (t.ageName(locale) != null)
-            Text(t.ageName(locale)!, style: TextStyle(color: AppColors.hint, fontSize: 12)),
-        ],
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.groups_outlined, color: AppColors.teal, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(color: AppColors.white, fontSize: 14)),
+            ),
+            Icon(Icons.chevron_right, color: AppColors.hint, size: 18),
+          ],
+        ),
       ),
     );
   }
