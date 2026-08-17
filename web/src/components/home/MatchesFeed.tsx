@@ -104,6 +104,33 @@ export default function MatchesFeed({ locale }: { locale: string }) {
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
 
+  // Native card slots: the ids of matches to render the sponsored card after.
+  // Counted from the anchor date (where the feed lands) downward, so cards sit
+  // in the natural forward-scroll path rather than up among older matches. The
+  // first card lands after match N (feed_position); if feed_repeat is set, it
+  // repeats every R matches after that. Falls back to the last match when there
+  // are fewer than N matches from the anchor.
+  const adAfterMatchIds = useMemo<Set<string>>(() => {
+    const ids = new Set<string>();
+    if (!feedAd || !anchorDate) return ids;
+    const n = Math.max(1, feedAd.feed_position ?? 3);
+    const r = feedAd.feed_repeat && feedAd.feed_repeat > 0 ? feedAd.feed_repeat : 0;
+    let count = 0;
+    let lastId: string | null = null;
+    for (const dg of dateGroups) {
+      if (dg.date < anchorDate) continue;   // skip older matches above the anchor
+      for (const cg of dg.competitions) {
+        for (const m of cg.matches) {
+          lastId = m.id;
+          count++;
+          if (count === n || (r && count > n && (count - n) % r === 0)) ids.add(m.id);
+        }
+      }
+    }
+    if (ids.size === 0 && lastId) ids.add(lastId);  // fewer than N: still show once
+    return ids;
+  }, [feedAd, anchorDate, dateGroups]);
+
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
   // Land on the date nearest to today once, after the first load. `scroll-mt`
@@ -195,12 +222,14 @@ export default function MatchesFeed({ locale }: { locale: string }) {
                   <span className="text-aqua text-sm">{isAr ? '‹' : '›'}</span>
                 </button>
                 {cg.matches.map(m => (
-                  <MatchCard key={m.id} match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} onClick={() => router.push(`/match?id=${m.id}`)} />
+                  <Fragment key={m.id}>
+                    <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} onClick={() => router.push(`/match?id=${m.id}`)} />
+                    {feedAd && adAfterMatchIds.has(m.id) && <FeedAdCard ad={feedAd} />}
+                  </Fragment>
                 ))}
               </div>
             ))}
           </div>
-          {isAnchor && feedAd && <FeedAdCard ad={feedAd} isAr={isAr} />}
           </Fragment>
         );
       })}

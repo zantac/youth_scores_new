@@ -309,6 +309,8 @@ class AdItem {
   final String? link;        // primary tap-through URL (whole-ad tap)
   final int weight;          // rotation weight (higher = shown more often)
   final String placement;    // interstitial | feed | both
+  final int feedPosition;    // feed card shows after the Nth match (from anchor)
+  final int? feedRepeat;     // repeat every N matches after that; null = once
   final String? expireDate;
 
   const AdItem({
@@ -324,6 +326,8 @@ class AdItem {
     this.link,
     this.weight = 1,
     this.placement = 'interstitial',
+    this.feedPosition = 3,
+    this.feedRepeat,
     this.expireDate,
   });
 
@@ -355,6 +359,8 @@ class AdItem {
     link: json['link']?.toString(),
     weight: int.tryParse(json['weight']?.toString() ?? '') ?? 1,
     placement: json['placement']?.toString() ?? 'interstitial',
+    feedPosition: int.tryParse(json['feed_position']?.toString() ?? '') ?? 3,
+    feedRepeat: int.tryParse(json['feed_repeat']?.toString() ?? ''),
     expireDate: json['expire_date']?.toString(),
   );
 }

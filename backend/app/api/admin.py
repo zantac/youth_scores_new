@@ -329,6 +329,22 @@ def _ad_placement(v) -> str:
     return v if v in _AD_PLACEMENTS else "interstitial"
 
 
+def _ad_position(v) -> int:
+    try:
+        return max(1, int(v))
+    except (TypeError, ValueError):
+        return 3
+
+
+def _ad_repeat(v) -> int | None:
+    if v is None or v == "":
+        return None
+    try:
+        return max(1, int(v))
+    except (TypeError, ValueError):
+        return None
+
+
 def _ad_dto(a: Ad) -> dict:
     return {
         "id": a.id, "name": a.name, "image": a.image,
@@ -336,6 +352,7 @@ def _ad_dto(a: Ad) -> dict:
         "mobile_number": a.mobile_number, "whatsapp_number": a.whatsapp_number,
         "location": a.location, "location_url": a.location_url, "link": a.link,
         "active": a.active, "weight": a.weight, "placement": a.placement,
+        "feed_position": a.feed_position, "feed_repeat": a.feed_repeat,
         "start_date": a.start_date.isoformat() if a.start_date else None,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
@@ -362,6 +379,8 @@ def create_ad():
         active=bool(j.get("active", True)),
         weight=_ad_weight(j.get("weight", 1)),
         placement=_ad_placement(j.get("placement")),
+        feed_position=_ad_position(j.get("feed_position", 3)),
+        feed_repeat=_ad_repeat(j.get("feed_repeat")),
     )
     for k in _AD_STR_FIELDS:
         setattr(ad, k, (j.get(k) or None))
@@ -395,6 +414,10 @@ def update_ad(aid: int):
         ad.weight = _ad_weight(j.get("weight"))
     if "placement" in j:
         ad.placement = _ad_placement(j.get("placement"))
+    if "feed_position" in j:
+        ad.feed_position = _ad_position(j.get("feed_position"))
+    if "feed_repeat" in j:
+        ad.feed_repeat = _ad_repeat(j.get("feed_repeat"))
     db.session.commit()
     return jsonify({"ad": _ad_dto(ad)})
 

@@ -5,12 +5,12 @@ import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/services/api_service.dart';
 
-/// A native "sponsored" card shown inline in the home feed. Logs a feed
-/// impression when it first appears and a feed click when tapped.
+/// A native sponsored card shown inline in the home feed as a flush 2:1 image,
+/// styled to blend in with the match cards around it. Logs a feed impression
+/// when it first appears and a feed click when tapped.
 class FeedAdCard extends StatefulWidget {
   final AdItem ad;
-  final bool isAr;
-  const FeedAdCard({super.key, required this.ad, required this.isAr});
+  const FeedAdCard({super.key, required this.ad});
 
   @override
   State<FeedAdCard> createState() => _FeedAdCardState();
@@ -48,60 +48,28 @@ class _FeedAdCardState extends State<FeedAdCard> {
   @override
   Widget build(BuildContext context) {
     final ad = widget.ad;
-    final isAr = widget.isAr;
     final hasImage = ad.image != null && ad.image!.startsWith('http');
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Material(
         color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _open,
-          borderRadius: BorderRadius.circular(14),
-          child: Ink(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.aqua.withValues(alpha: 0.35)),
-              gradient: LinearGradient(
-                colors: [AppColors.cardBg, AppColors.cardGradientEnd],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Sponsored disclosure
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-                  child: Row(children: [
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.aqua.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(isAr ? 'إعلان' : 'Sponsored',
-                          style: TextStyle(
-                              color: AppColors.aqua,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold)),
-                    ),
-                    const Spacer(),
-                    Icon(Icons.chevron_left, color: AppColors.hint, size: 16),
-                  ]),
-                ),
-                if (hasImage)
-                  CachedNetworkImage(
+          child: hasImage
+              // Purpose-built 2:1 creative, rendered flush like a match card.
+              ? AspectRatio(
+                  aspectRatio: 2,
+                  child: CachedNetworkImage(
                     imageUrl: ad.image!,
-                    height: 150,
-                    fit: BoxFit.contain,
+                    fit: BoxFit.cover,
                     errorWidget: (_, _, _) => const SizedBox.shrink(),
                   ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(12, hasImage ? 8 : 0, 12, 12),
+                )
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
                   child: Text(ad.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -110,9 +78,6 @@ class _FeedAdCardState extends State<FeedAdCard> {
                           fontSize: 14,
                           fontWeight: FontWeight.bold)),
                 ),
-              ],
-            ),
-          ),
         ),
       ),
     );

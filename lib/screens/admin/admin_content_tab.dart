@@ -947,6 +947,9 @@ class _AdEditorState extends State<_AdEditor> {
       'location': TextEditingController(text: a?.location ?? ''),
       'location_url': TextEditingController(text: a?.locationUrl ?? ''),
       'weight': TextEditingController(text: '${a?.weight ?? 1}'),
+      'feed_position': TextEditingController(text: '${a?.feedPosition ?? 3}'),
+      'feed_repeat':
+          TextEditingController(text: a?.feedRepeat?.toString() ?? ''),
       'start_date': TextEditingController(text: a?.startDate ?? ''),
       'expire_date': TextEditingController(text: a?.expireDate ?? ''),
     };
@@ -1100,6 +1103,27 @@ class _AdEditorState extends State<_AdEditor> {
                 ]),
               ]),
             ),
+            if (_placement == 'feed' || _placement == 'both') ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                    child: f('feed_position',
+                        isAr ? 'الموضع (بعد مباراة رقم N)' : 'Slot (after match N)',
+                        hint: '3')),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: f('feed_repeat',
+                        isAr ? 'تكرار كل (فارغ = بدون)' : 'Repeat every (empty = none)',
+                        hint: isAr ? 'بدون' : 'none')),
+              ]),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                    isAr
+                        ? 'تظهر البطاقة بعد هذا العدد من المباريات بدءًا من مباريات اليوم. استخدم صورة بنسبة 2:1 (مثال 1200×600) لأنها تُعرض كاملة بدون عنوان.'
+                        : 'Card shows after this many matches starting from today\'s matches. Use a 2:1 image (e.g. 1200×600) — it renders full-bleed with no title.',
+                    style: TextStyle(color: AppColors.hint, fontSize: 11)),
+              ),
+            ],
             const SizedBox(height: 4),
             SizedBox(
               width: double.infinity,

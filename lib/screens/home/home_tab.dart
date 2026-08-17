@@ -137,6 +137,32 @@ class _HomeTabState extends State<HomeTab> {
     return null;
   }
 
+  /// Match ids to render the sponsored card after. Counted from the anchor date
+  /// (where the feed lands) downward, so cards sit in the natural forward-scroll
+  /// path rather than up among older matches. First card after match N
+  /// (feedPosition); if feedRepeat is set, repeats every R after that. Falls
+  /// back to the last match when there are fewer than N from the anchor.
+  Set<String> _adAfterMatchIds() {
+    final ids = <String>{};
+    final ad = _feedAd;
+    final anchor = _anchorDate;
+    if (ad == null || anchor == null) return ids;
+    final n = ad.feedPosition < 1 ? 1 : ad.feedPosition;
+    final r = (ad.feedRepeat != null && ad.feedRepeat! > 0) ? ad.feedRepeat! : 0;
+    var count = 0;
+    String? lastId;
+    for (final m in _ascending) {
+      if (m.date.compareTo(anchor) < 0) continue; // skip older matches above
+      lastId = m.id;
+      count++;
+      if (count == n || (r != 0 && count > n && (count - n) % r == 0)) {
+        ids.add(m.id);
+      }
+    }
+    if (ids.isEmpty && lastId != null) ids.add(lastId); // fewer than N: show once
+    return ids;
+  }
+
   List<_Row> _buildRows(List<NewsItem> news) {
     // The banner now lives in HomeTopBar above every tab, so the feed no longer
     // carries its own banner row.
@@ -150,17 +176,11 @@ class _HomeTabState extends State<HomeTab> {
       rows.add(const _MsgRow());
     } else {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
+      final adAfterIds = _adAfterMatchIds();
       String? date;
       String? comp;
-      bool adDone = false;
       for (final m in _ascending) {
         if (m.date != date) {
-          // Right after the anchor date's block (where the user lands), drop in
-          // the native sponsored card.
-          if (!adDone && _feedAd != null && date == _anchorDate) {
-            rows.add(_AdRow(_feedAd!));
-            adDone = true;
-          }
           date = m.date;
           comp = null;
           rows.add(_DateRow(m.date, m.date == _today));
@@ -170,9 +190,11 @@ class _HomeTabState extends State<HomeTab> {
           rows.add(_CompRow(m.competition));
         }
         rows.add(_MatchRow(m));
-      }
-      if (!adDone && _feedAd != null && date == _anchorDate) {
-        rows.add(_AdRow(_feedAd!));
+        // Native sponsored card after the Nth match (and every R after) counted
+        // from the anchor date, so it sits in the natural downward-scroll path.
+        if (_feedAd != null && adAfterIds.contains(m.id)) {
+          rows.add(_AdRow(_feedAd!));
+        }
       }
       if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
     }
@@ -328,7 +350,7 @@ class _HomeTabState extends State<HomeTab> {
       );
     }
     if (r is _AdRow) {
-      return FeedAdCard(ad: r.ad, isAr: isAr);
+      return FeedAdCard(ad: r.ad);
     }
     if (r is _NewsHeaderRow) {
       return _SectionHeader(

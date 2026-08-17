@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
 import type { AdItem } from '@/lib/types';
 
@@ -12,10 +12,25 @@ function adDest(ad: AdItem): string | undefined {
     ?? (ad.whatsapp_number ? `https://wa.me/${ad.whatsapp_number}` : undefined);
 }
 
-/** A native "sponsored" card rendered inline in the home match feed. Logs a
- *  feed impression when mounted and a feed click when tapped. */
-export default function FeedAdCard({ ad, isAr }: { ad: AdItem; isAr: boolean }) {
-  useEffect(() => { apiAdImpression(ad.id, 'feed'); }, [ad.id]);
+/** A native "sponsored" card rendered inline in the home match feed. Logs one
+ *  feed impression the first time the card scrolls into view (so repeated slots
+ *  only count cards the user actually sees) and a feed click when tapped. */
+export default function FeedAdCard({ ad }: { ad: AdItem }) {
+  const ref = useRef<HTMLAnchorElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let logged = false;
+    const io = new IntersectionObserver((entries) => {
+      if (!logged && entries.some(e => e.isIntersecting)) {
+        logged = true;
+        apiAdImpression(ad.id, 'feed');
+        io.disconnect();
+      }
+    }, { threshold: 0.5 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ad.id]);
 
   const dest = adDest(ad);
   const hasImage = !!ad.image?.startsWith('http');
@@ -23,25 +38,22 @@ export default function FeedAdCard({ ad, isAr }: { ad: AdItem; isAr: boolean }) 
 
   return (
     <a
+      ref={ref}
       href={dest ?? '#'}
       target={dest ? '_blank' : undefined}
       rel={dest ? 'noopener noreferrer' : undefined}
       onClick={dest ? click : (e) => e.preventDefault()}
-      className="block overflow-hidden rounded-2xl border border-aqua/30 bg-gradient-to-br from-cardBg to-cardBg/60 active:bg-aqua/5 transition-colors"
+      aria-label={ad.name}
+      className="block overflow-hidden rounded-xl border border-bdr mb-2 bg-cardBg active:opacity-80 transition-opacity"
     >
-      <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-        <span className="px-1.5 py-0.5 rounded bg-aqua/15 text-aqua text-[9px] font-bold">
-          {isAr ? 'إعلان' : 'Sponsored'}
-        </span>
-        <span className="flex-1" />
-        <span className="text-aqua text-sm">{isAr ? '‹' : '›'}</span>
-      </div>
-      {hasImage && (
-        <img src={ad.image} alt={ad.name} className="w-full max-h-56 object-contain bg-darkBg" />
+      {hasImage ? (
+        // Purpose-built 2:1 creative, rendered flush like a match card.
+        <img src={ad.image} alt={ad.name} className="w-full aspect-[2/1] object-cover" />
+      ) : (
+        <p className="px-3 py-4 text-text font-bold text-sm leading-tight line-clamp-2">
+          {ad.name}
+        </p>
       )}
-      <p className="px-3 py-3 text-text font-bold text-sm leading-tight line-clamp-2">
-        {ad.name}
-      </p>
     </a>
   );
 }
