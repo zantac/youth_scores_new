@@ -573,11 +573,14 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
       <TransferForm key={r.id} token={token} reg={r} onDone={() => { setTransferring(null); reload(); }} onCancel={() => setTransferring(null)} />
     ) : (
       <div key={r.id} className={card + ' flex items-center gap-3' + (variant === 'former' ? ' opacity-60' : '')}>
-        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt_number ?? '—'}</div>
+        {r.photo
+          ? <img src={r.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+          : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
         <div className="flex-1 min-w-0">
           <p className="text-text font-bold text-sm truncate">{r.name_ar || r.name_en}</p>
           <p className="text-hint text-[11px] truncate">
-            {r.position_ar || r.position_en || ''}
+            {r.shirt_number != null ? `#${r.shirt_number}` : ''}
+            {(r.position_ar || r.position_en) ? `${r.shirt_number != null ? ' · ' : ''}${r.position_ar || r.position_en}` : ''}
             {r.birth_year ? ` · ${r.birth_year}${r.birth_year_verified ? '' : '؟'}` : ''}
             {r.status !== 'active' && variant === 'active' ? ` · ${statusLabel(r.status)}` : ''}
           </p>
@@ -671,10 +674,9 @@ function TeamPageInner() {
               {(team.name_ar || team.name_en) && (
                 <p className="text-hint text-xs truncate">{team.name_ar || team.name_en}</p>
               )}
-              <p className="text-hint text-xs truncate">
-                {team.age ?? ''}
-                {team.seasons.length > 0 && ` · ${team.seasons.join('، ')}`}
-              </p>
+              {team.age && (
+                <p className="text-hint text-xs truncate">{team.age}</p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1 bg-darkBg border border-bdr rounded-xl p-1">
