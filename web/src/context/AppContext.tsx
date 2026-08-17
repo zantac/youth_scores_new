@@ -61,7 +61,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       pool = valid;
     }
 
-    const ad = pool[Math.floor(Math.random() * pool.length)];
+    // Weighted random: a higher `weight` is shown proportionally more often.
+    const w = (a: AdItem) => Math.max(1, a.weight ?? 1);
+    let r = Math.random() * pool.reduce((s, a) => s + w(a), 0);
+    const ad = pool.find(a => (r -= w(a)) < 0) ?? pool[pool.length - 1];
     shownAds.current.add(ad.name);
     return ad;
   }, []);
