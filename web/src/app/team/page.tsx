@@ -153,11 +153,13 @@ function TeamProfile() {
                         {sec.players.map(p => (
                           <button key={p.id} onClick={() => router.push(`/player?id=${p.id}`)}
                             className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                            <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{p.shirt ?? '—'}</div>
+                            {p.photo
+                              ? <img src={p.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+                              : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                             <div className="flex-1 min-w-0">
                               <p className="text-text text-sm font-bold truncate">{localize(p.name, locale)}</p>
                               <p className="text-hint text-[11px] truncate">
-                                {[localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
+                                {[p.shirt != null ? `#${p.shirt}` : '', localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
                               </p>
                             </div>
                             {p.guest && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">{isAr ? 'صاعد' : 'up'}</span>}
