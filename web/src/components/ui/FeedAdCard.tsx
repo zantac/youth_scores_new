@@ -37,7 +37,7 @@ export default function FeedAdCard({ ad, isAr }: { ad: AdItem; isAr: boolean }) 
         <span className="text-aqua text-sm">{isAr ? '‹' : '›'}</span>
       </div>
       {hasImage && (
-        <img src={ad.image} alt={ad.name} className="w-full max-h-40 object-cover" />
+        <img src={ad.image} alt={ad.name} className="w-full max-h-56 object-contain bg-darkBg" />
       )}
       <p className="px-3 py-3 text-text font-bold text-sm leading-tight line-clamp-2">
         {ad.name}
