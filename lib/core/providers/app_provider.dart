@@ -25,6 +25,7 @@ class AppProvider extends ChangeNotifier {
   int    _appBuildNumber = 0;
   bool   _needsUpdate    = false;
   bool   get needsUpdate => _needsUpdate;
+  bool   get forceUpdate => _needsUpdate && (_config?.appVersion?.forceUpdate ?? false);
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();

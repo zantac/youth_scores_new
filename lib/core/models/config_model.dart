@@ -362,11 +362,17 @@ class AdItem {
 class AppVersion {
   final String versionCode;
   final String versionName;
+  final bool forceUpdate;
 
-  const AppVersion({required this.versionCode, required this.versionName});
+  const AppVersion({
+    required this.versionCode,
+    required this.versionName,
+    this.forceUpdate = false,
+  });
 
   factory AppVersion.fromJson(Map<String, dynamic> json) => AppVersion(
     versionCode: json['version_code']?.toString() ?? '',
     versionName: json['version_name']?.toString() ?? '',
+    forceUpdate: json['force_update'] == true,
   );
 }

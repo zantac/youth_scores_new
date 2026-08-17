@@ -5,8 +5,9 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiCreateNews, apiUpdateNews, apiCreateVenue, apiListVenues, apiUpdateVenue, apiDeleteVenue, apiListNews, apiDeleteNews, apiUploadImage,
   apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd, apiAdStats,
+  apiGetAppVersion, apiSetAppVersion,
   type NotifyResult, type AdminNews, type AdminAd, type AdminVenue,
-  type AdStatRow, type AdDailyRow,
+  type AdStatRow, type AdDailyRow, type AppVersionInfo,
 } from '@/lib/adminApi';
 
 export default function AdminContentPage() {
@@ -24,8 +25,8 @@ function NotifyBadge({ n }: { n: NotifyResult }) {
 }
 
 function Content() {
-  const { canEdit } = useAdminAuth();
-  const [tab, setTab] = useState<'news' | 'venue' | 'ads'>('news');
+  const { canEdit, isSuperadmin } = useAdminAuth();
+  const [tab, setTab] = useState<'news' | 'venue' | 'ads' | 'app'>('news');
 
   if (!canEdit) {
     return (
@@ -40,7 +41,8 @@ function Content() {
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
-        {([['news', '📰 الأخبار'], ['venue', '🏟️ ملعب'], ['ads', '📢 الإعلانات']] as const).map(([v, l]) => (
+        {([['news', '📰 الأخبار'], ['venue', '🏟️ ملعب'], ['ads', '📢 الإعلانات'],
+           ...(isSuperadmin ? [['app', '📱 التطبيق'] as const] : [])] as const).map(([v, l]) => (
           <button key={v} onClick={() => setTab(v)}
             className={`flex-1 text-sm font-bold py-2.5 rounded-xl border transition-colors ${tab === v ? 'bg-aqua text-on-accent border-transparent' : 'bg-cardBg border-bdr text-teal'}`}>
             {l}
@@ -50,6 +52,7 @@ function Content() {
       {tab === 'news' && <NewsTab />}
       {tab === 'venue' && <VenuesTab />}
       {tab === 'ads' && <AdsTab />}
+      {tab === 'app' && isSuperadmin && <AppVersionTab />}
     </div>
   );
 }
@@ -587,6 +590,74 @@ function AdForm({ token, ad, onSaved, onCancel }: {
           {busy ? 'جارٍ الحفظ…' : ad ? 'حفظ التعديل' : 'إضافة الإعلان'}
         </button>
         {onCancel && <button onClick={onCancel} disabled={busy} className="flex-1 text-hint border border-bdr rounded-xl text-xs font-bold py-2.5">إلغاء</button>}
+      </div>
+    </div>
+  );
+}
+
+// ── app version gate: bump this when you publish a new Google Play build ───────
+
+function AppVersionTab() {
+  const { token } = useAdminAuth();
+  const [info, setInfo] = useState<AppVersionInfo | null>(null);
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [force, setForce] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    apiGetAppVersion(token)
+      .then(v => { setInfo(v); setCode(v.version_code); setName(v.version_name); setForce(v.force_update); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const save = async () => {
+    setError(null); setMsg(null); setBusy(true);
+    try {
+      const v = await apiSetAppVersion(token!, { version_code: code.trim(), version_name: name.trim(), force_update: force });
+      setInfo(v); setMsg('تم الحفظ. سيظهر التنبيه لمن لديهم إصدار أقدم عند فتح التطبيق.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
+  };
+
+  if (loading) return <p className="text-hint text-sm text-center py-6">جارٍ التحميل…</p>;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-aqua/5 border border-aqua/30 rounded-2xl p-4 space-y-2">
+        <p className="text-aqua font-bold text-sm">📱 إصدار تطبيق أندرويد</p>
+        <p className="text-hint text-[12px] leading-relaxed">
+          عند نشر تحديث جديد على Google Play، اكتب هنا <b>رقم البناء</b> (versionCode) للإصدار الجديد.
+          أي مستخدم لديه رقم بناء أقل سيرى رسالة «تحديث متاح» عند فتح التطبيق.
+          يجب أن يطابق <code>versionCode</code> في ملف <code>build.gradle</code>.
+        </p>
+      </div>
+
+      <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="رقم البناء (versionCode) *">
+            <input type="number" min="1" value={code} onChange={e => setCode(e.target.value)} dir="ltr" className={inputCls} placeholder="20" />
+          </Field>
+          <Field label="اسم الإصدار (versionName) *">
+            <input value={name} onChange={e => setName(e.target.value)} dir="ltr" className={inputCls} placeholder="12.1.0" />
+          </Field>
+        </div>
+        <button type="button" onClick={() => setForce(!force)}
+          className={`w-full py-2 rounded-lg border text-sm font-bold ${force ? 'border-loss/50 bg-loss/10 text-loss' : 'border-bdr text-hint'}`}>
+          {force ? '🔒 تحديث إجباري (لا يمكن تأجيله)' : '🔓 تحديث اختياري (يمكن تأجيله)'}
+        </button>
+        {info && <p className="text-hint text-[11px]">الحالي على الخادم: {info.version_name} (بناء {info.version_code}){info.force_update ? ' · إجباري' : ''}</p>}
+        {msg && <p className="text-win text-xs bg-win/10 border border-win/30 rounded-lg px-3 py-2">✅ {msg}</p>}
+        {error && <p className="text-loss text-xs">{error}</p>}
+        <button onClick={save} disabled={busy || !code.trim() || !name.trim()}
+          className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+          {busy ? 'جارٍ الحفظ…' : 'حفظ'}
+        </button>
       </div>
     </div>
   );

@@ -77,7 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _UpdateDialog(locale: provider.locale),
+      builder: (_) => _UpdateDialog(
+        locale: provider.locale,
+        force: provider.forceUpdate,
+      ),
     );
   }
 
@@ -174,7 +177,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _UpdateDialog extends StatelessWidget {
   final String locale;
-  const _UpdateDialog({required this.locale});
+  final bool force;
+  const _UpdateDialog({required this.locale, this.force = false});
 
   static const _storeUrl =
       'https://play.google.com/store/apps/details?id=com.waellotfy.youthscores&pcampaignid=web_share';
@@ -182,7 +186,9 @@ class _UpdateDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAr = locale == 'ar';
-    return AlertDialog(
+    return PopScope(
+      canPop: !force,
+      child: AlertDialog(
       backgroundColor: AppColors.cardBg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
@@ -206,13 +212,14 @@ class _UpdateDialog extends StatelessWidget {
         style: TextStyle(color: AppColors.white, fontSize: 14, height: 1.6),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            isAr ? 'لاحقاً' : 'Later',
-            style: TextStyle(color: AppColors.hint),
+        if (!force)
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              isAr ? 'لاحقاً' : 'Later',
+              style: TextStyle(color: AppColors.hint),
+            ),
           ),
-        ),
         ElevatedButton.icon(
           icon: const Icon(Icons.download_rounded, size: 18),
           label: Text(isAr ? 'تحديث الآن' : 'Update Now'),
@@ -231,6 +238,7 @@ class _UpdateDialog extends StatelessWidget {
           },
         ),
       ],
+      ),
     );
   }
 }
