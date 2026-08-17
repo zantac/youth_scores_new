@@ -170,11 +170,11 @@ export default function ImportFromPhoto({
           onChange={e => setRoundCount(Math.max(1, Number(e.target.value) || 1))}
           className={cellCls + ' w-14'} />
       </div>
-      <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_1.2rem] gap-1 text-hint text-[9px] px-0.5">
+      <div className="grid grid-cols-[3.5rem_9.5rem_8rem_3.5rem_1.4rem] gap-1 text-hint text-[9px] px-0.5">
         <span>جولة</span><span>التاريخ</span><span>الوقت</span><span>عدد</span><span />
       </div>
       {plan.map((p, i) => (
-        <div key={i} className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_1.2rem] gap-1 items-center">
+        <div key={i} className="grid grid-cols-[3.5rem_9.5rem_8rem_3.5rem_1.4rem] gap-1 items-center">
           <input type="number" min="1" value={p.num} onChange={e => setPlanRow(i, { num: e.target.value })} className={cellCls} />
           <input type="date" value={p.date} onChange={e => setPlanRow(i, { date: e.target.value })} className={cellCls} />
           <input type="time" value={p.time} onChange={e => setPlanRow(i, { time: e.target.value })} className={cellCls} />
@@ -279,7 +279,7 @@ export default function ImportFromPhoto({
           </div>
 
           <datalist id={VENUES_ID}>{venues.map(v => <option key={v} value={v} />)}</datalist>
-          <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+          <div className="space-y-2">
             {rows.map((r, i) => {
               const header = roundHeaders.map.get(i);
               const homeWarn = !r.homeId || r.homeReview;

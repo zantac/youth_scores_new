@@ -397,10 +397,6 @@ function TeamsSection({ token, cid }: { token: string; cid: number }) {
                   {(t.name_ar || t.name_en) && (
                     <p className="text-hint text-[11px] truncate">{t.name_ar || t.name_en}</p>
                   )}
-                  <p className="text-hint text-[11px] truncate">
-                    {t.age ?? ''}
-                    {t.seasons.length > 0 && ` · ${t.seasons.join('، ')}`}
-                  </p>
                 </div>
                 <span className="text-aqua text-xs flex-shrink-0">إدارة ›</span>
               </button>
