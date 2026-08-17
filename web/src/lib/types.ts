@@ -23,6 +23,7 @@ export interface NewsItem {
 }
 
 export interface AdItem {
+  id: number;
   name: string;
   image?: string;
   youtube_video?: string;

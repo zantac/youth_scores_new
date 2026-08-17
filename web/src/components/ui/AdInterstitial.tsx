@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { apiAdImpression, apiAdClick } from '@/lib/api';
 import type { AdItem } from '@/lib/types';
 
 interface Props {
@@ -21,6 +22,10 @@ export default function AdInterstitial({ ad, onClose }: Props) {
     return () => clearInterval(id);
   }, []);
 
+  // One impression per shown ad.
+  useEffect(() => { apiAdImpression(ad.id); }, [ad.id]);
+  const click = () => apiAdClick(ad.id);
+
   const hasImage = !!ad.image?.startsWith('http');
 
   return (
@@ -41,31 +46,31 @@ export default function AdInterstitial({ ad, onClose }: Props) {
         <p className="text-white font-bold text-lg mb-3 drop-shadow">{ad.name}</p>
         <div className="flex flex-wrap gap-2">
           {ad.whatsapp_number && (
-            <a href={`https://wa.me/${ad.whatsapp_number}`} target="_blank" rel="noopener noreferrer"
+            <a href={`https://wa.me/${ad.whatsapp_number}`} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#25D366]/60 bg-[#25D366]/20 text-[#25D366] text-xs font-semibold">
               💬 WhatsApp
             </a>
           )}
           {ad.mobile_number && (
-            <a href={`tel:${ad.mobile_number}`}
+            <a href={`tel:${ad.mobile_number}`} onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal/60 bg-teal/20 text-teal text-xs font-semibold">
               📞 اتصال
             </a>
           )}
           {ad.facebook_link && (
-            <a href={ad.facebook_link} target="_blank" rel="noopener noreferrer"
+            <a href={ad.facebook_link} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#1877F2]/60 bg-[#1877F2]/20 text-[#1877F2] text-xs font-semibold">
               📘 Facebook
             </a>
           )}
           {ad.youtube_video && (
-            <a href={ad.youtube_video} target="_blank" rel="noopener noreferrer"
+            <a href={ad.youtube_video} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-500/60 bg-red-500/20 text-red-400 text-xs font-semibold">
               ▶ YouTube
             </a>
           )}
           {ad.location_url && (
-            <a href={ad.location_url} target="_blank" rel="noopener noreferrer"
+            <a href={ad.location_url} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white/70 text-xs font-semibold">
               📍 الموقع
             </a>

@@ -4,8 +4,9 @@ import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiCreateNews, apiUpdateNews, apiCreateVenue, apiListVenues, apiUpdateVenue, apiDeleteVenue, apiListNews, apiDeleteNews, apiUploadImage,
-  apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd,
+  apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd, apiAdStats,
   type NotifyResult, type AdminNews, type AdminAd, type AdminVenue,
+  type AdStatRow, type AdDailyRow,
 } from '@/lib/adminApi';
 
 export default function AdminContentPage() {
@@ -375,6 +376,81 @@ function SingleImage({ token, value, onChange }: { token: string; value: string;
   );
 }
 
+// First-party ad analytics: per-ad totals + a 30-day trend, in a collapsible panel.
+function AdStats({ token }: { token: string }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<{ ads: AdStatRow[]; daily: AdDailyRow[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true); setErr(null);
+    apiAdStats(token).then(setData).catch(e => setErr(e instanceof Error ? e.message : 'خطأ')).finally(() => setLoading(false));
+  }, [token]);
+
+  const toggle = () => { const n = !open; setOpen(n); if (n && !data) load(); };
+
+  const totalImpr = data?.ads.reduce((s, a) => s + a.impressions, 0) ?? 0;
+  const totalClk  = data?.ads.reduce((s, a) => s + a.clicks, 0) ?? 0;
+  const ctr = totalImpr ? (totalClk / totalImpr * 100) : 0;
+  const maxDaily = Math.max(1, ...(data?.daily.map(d => d.impressions) ?? [1]));
+
+  return (
+    <div className="bg-cardBg border border-bdr rounded-xl overflow-hidden">
+      <button onClick={toggle} className="w-full flex items-center justify-between px-4 py-3 text-start">
+        <span className="text-text font-bold text-sm">📊 إحصائيات الإعلانات</span>
+        <span className={`text-hint transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-bdr pt-3">
+          {loading && <p className="text-hint text-sm text-center py-3">جارٍ التحميل…</p>}
+          {err && <p className="text-loss text-sm text-center py-2">{err}</p>}
+          {data && !loading && (<>
+            <div className="grid grid-cols-3 gap-2">
+              <StatBox label="مشاهدات" value={totalImpr} color="text-aqua" />
+              <StatBox label="نقرات" value={totalClk} color="text-win" />
+              <StatBox label="نسبة النقر" value={`${ctr.toFixed(1)}%`} color="text-gold" />
+            </div>
+            {data.daily.length > 0 && (
+              <div>
+                <p className="text-hint text-[11px] mb-1">آخر 30 يوم — مشاهدات</p>
+                <div className="flex items-end gap-0.5 h-16 bg-darkBg border border-bdr rounded-lg p-2">
+                  {data.daily.map(d => (
+                    <div key={d.date} title={`${d.date}: ${d.impressions} مشاهدة`}
+                      className="flex-1 bg-aqua/80 rounded-sm min-h-[3px]"
+                      style={{ height: `${(d.impressions / maxDaily) * 100}%` }} />
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {data.ads.map(a => (
+                <div key={a.id} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-lg px-3 py-2">
+                  <span className="flex-1 text-text text-sm truncate">{a.name}</span>
+                  <span className="text-aqua text-xs tnum">{a.impressions} 👁</span>
+                  <span className="text-win text-xs tnum">{a.clicks} 👆</span>
+                  <span className="text-gold text-xs tnum w-12 text-end">{a.ctr}%</span>
+                </div>
+              ))}
+              {data.ads.length === 0 && <p className="text-hint text-sm text-center py-2">لا بيانات بعد</p>}
+            </div>
+            <button onClick={load} className="text-aqua text-xs font-bold">↻ تحديث</button>
+          </>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatBox({ label, value, color }: { label: string; value: number | string; color: string }) {
+  return (
+    <div className="bg-darkBg border border-bdr rounded-lg py-3 text-center">
+      <p className={`font-extrabold text-xl tnum ${color}`}>{value}</p>
+      <p className="text-hint text-[10px] mt-0.5">{label}</p>
+    </div>
+  );
+}
+
 function AdsTab() {
   const { token } = useAdminAuth();
   const [items, setItems] = useState<AdminAd[]>([]);
@@ -391,6 +467,7 @@ function AdsTab() {
 
   return (
     <div className="space-y-5">
+      {token && <AdStats token={token} />}
       {editing
         ? <AdForm key={editing.id} token={token!} ad={editing} onCancel={() => setEditing(null)}
             onSaved={() => { setEditing(null); load(); }} />
