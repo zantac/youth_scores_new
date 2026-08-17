@@ -23,8 +23,8 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   }, []);
 
   // One impression per shown ad.
-  useEffect(() => { apiAdImpression(ad.id); }, [ad.id]);
-  const click = () => apiAdClick(ad.id);
+  useEffect(() => { apiAdImpression(ad.id, 'interstitial'); }, [ad.id]);
+  const click = () => apiAdClick(ad.id, 'interstitial');
 
   const hasImage = !!ad.image?.startsWith('http');
 

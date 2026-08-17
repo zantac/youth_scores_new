@@ -1,10 +1,12 @@
 'use client';
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAllMatches } from '@/lib/api';
 import { formatMatchDate, todayStr, localize } from '@/lib/utils';
 import MatchCard from '@/components/competition/MatchCard';
-import type { HomeMatch, Match, Team } from '@/lib/types';
+import FeedAdCard from '@/components/ui/FeedAdCard';
+import { useApp } from '@/context/AppContext';
+import type { HomeMatch, Match, Team, AdItem } from '@/lib/types';
 
 // Adapt the compact home match into the shapes MatchCard already renders.
 function toMatch(m: HomeMatch): Match {
@@ -53,6 +55,22 @@ const STEP = 300; // matches pulled per direction per "load more"
 export default function MatchesFeed({ locale }: { locale: string }) {
   const router = useRouter();
   const isAr = locale === 'ar';
+  const { config } = useApp();
+
+  // One native sponsored card, picked once per config load by weighted random
+  // from the feed-eligible ads. Shown right below the anchor date's block.
+  const feedAd = useMemo<AdItem | null>(() => {
+    const ads = config?.ads ?? [];
+    const now = new Date();
+    const pool = ads.filter(a => {
+      const p = a.placement ?? 'interstitial';
+      return (!a.expire_date || new Date(a.expire_date) > now) && (p === 'feed' || p === 'both');
+    });
+    if (!pool.length) return null;
+    const w = (a: AdItem) => Math.max(1, a.weight ?? 1);
+    let r = Math.random() * pool.reduce((s, a) => s + w(a), 0);
+    return pool.find(a => (r -= w(a)) < 0) ?? pool[pool.length - 1];
+  }, [config]);
 
   const [today, setToday] = useState<string | null>(null);
   useEffect(() => { setToday(todayStr()); }, []);
@@ -157,7 +175,8 @@ export default function MatchesFeed({ locale }: { locale: string }) {
         const isAnchor = dg.date === anchorDate;
         const isToday = today != null && dg.date === today;
         return (
-          <div key={dg.date} ref={isAnchor ? anchorRef : undefined}
+          <Fragment key={dg.date}>
+          <div ref={isAnchor ? anchorRef : undefined}
             className="space-y-3 scroll-mt-[calc(var(--header-h,9rem)_+_0.5rem)]">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
@@ -181,6 +200,8 @@ export default function MatchesFeed({ locale }: { locale: string }) {
               </div>
             ))}
           </div>
+          {isAnchor && feedAd && <FeedAdCard ad={feedAd} isAr={isAr} />}
+          </Fragment>
         );
       })}
 
