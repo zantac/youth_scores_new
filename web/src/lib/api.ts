@@ -274,6 +274,8 @@ export async function fetchConfig(): Promise<ConfigData> {
         whatsapp_number:  a.whatsapp_number  ? String(a.whatsapp_number)  : undefined,
         location:         a.location         ? String(a.location)         : undefined,
         location_url:     a.location_url     ? String(a.location_url)     : undefined,
+        link:             a.link             ? String(a.link)             : undefined,
+        weight:           Number(a.weight ?? 1),
         expire_date:      a.expire_date      ? String(a.expire_date)      : undefined,
       })),
     app_version: data.app_version,

@@ -509,17 +509,21 @@ function AdForm({ token, ad, onSaved, onCancel }: {
   token: string; ad?: AdminAd; onSaved: () => void; onCancel?: () => void;
 }) {
   const blank = {
-    name: '', image: '', expire_date: '', mobile_number: '', whatsapp_number: '',
+    name: '', image: '', link: '', start_date: '', expire_date: '', weight: '1',
+    mobile_number: '', whatsapp_number: '',
     facebook_link: '', youtube_video: '', location: '', location_url: '',
   };
   const [f, setF] = useState(ad
     ? {
-        name: ad.name ?? '', image: ad.image ?? '', expire_date: ad.expire_date ?? '',
+        name: ad.name ?? '', image: ad.image ?? '', link: ad.link ?? '',
+        start_date: ad.start_date ?? '', expire_date: ad.expire_date ?? '',
+        weight: String(ad.weight ?? 1),
         mobile_number: ad.mobile_number ?? '', whatsapp_number: ad.whatsapp_number ?? '',
         facebook_link: ad.facebook_link ?? '', youtube_video: ad.youtube_video ?? '',
         location: ad.location ?? '', location_url: ad.location_url ?? '',
       }
     : blank);
+  const [active, setActive] = useState<boolean>(ad?.active ?? true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
@@ -527,8 +531,8 @@ function AdForm({ token, ad, onSaved, onCancel }: {
   const submit = async () => {
     setError(null); setBusy(true);
     try {
-      if (ad) await apiUpdateAd(token, ad.id, f);
-      else { await apiCreateAd(token, f); setF(blank); }
+      if (ad) await apiUpdateAd(token, ad.id, { ...f, active });
+      else { await apiCreateAd(token, { ...f, active }); setF(blank); setActive(true); }
       onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'خطأ'); }
     finally { setBusy(false); }
@@ -539,6 +543,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
       <p className="text-aqua font-bold text-sm">{ad ? '✏️ تعديل الإعلان' : '➕ إعلان جديد'}</p>
       <Field label="اسم الإعلان *"><input value={f.name} onChange={e => set('name', e.target.value)} className={inputCls} /></Field>
       <Field label="الصورة (تظهر بملء الشاشة)"><SingleImage token={token} value={f.image} onChange={v => set('image', v)} /></Field>
+      <Field label="🔗 رابط الإعلان (بالضغط على الصورة)"><input value={f.link} onChange={e => set('link', e.target.value)} dir="ltr" placeholder="https://…" className={inputCls} /></Field>
       <p className="text-hint text-[11px]">أزرار التواصل تظهر فقط عند تعبئة حقلها.</p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="📞 رقم الموبايل"><input value={f.mobile_number} onChange={e => set('mobile_number', e.target.value)} dir="ltr" className={inputCls} /></Field>
@@ -548,7 +553,17 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         <Field label="📍 اسم الموقع"><input value={f.location} onChange={e => set('location', e.target.value)} className={inputCls} /></Field>
         <Field label="🗺️ رابط الموقع (خريطة)"><input value={f.location_url} onChange={e => set('location_url', e.target.value)} dir="ltr" className={inputCls} /></Field>
       </div>
-      <Field label="تاريخ الانتهاء (اختياري — اتركه فارغًا ليبقى دائمًا)"><input type="date" value={f.expire_date} onChange={e => set('expire_date', e.target.value)} className={inputCls} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="تاريخ البدء (فارغ = الآن)"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
+        <Field label="تاريخ الانتهاء (فارغ = دائم)"><input type="date" value={f.expire_date} onChange={e => set('expire_date', e.target.value)} className={inputCls} /></Field>
+        <Field label="الوزن (الأعلى يظهر أكثر)"><input type="number" min="1" value={f.weight} onChange={e => set('weight', e.target.value)} className={inputCls} /></Field>
+        <Field label="الحالة">
+          <button type="button" onClick={() => setActive(!active)}
+            className={`w-full py-2 rounded-lg border text-sm font-bold ${active ? 'border-win/50 bg-win/10 text-win' : 'border-bdr text-hint'}`}>
+            {active ? '✅ مُفعّل' : '⛔ معطّل'}
+          </button>
+        </Field>
+      </div>
       {error && <p className="text-loss text-xs">{error}</p>}
       <div className="flex gap-2">
         <button onClick={submit} disabled={busy || !f.name.trim()}

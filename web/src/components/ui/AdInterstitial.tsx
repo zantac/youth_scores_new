@@ -31,8 +31,18 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
 
-      {/* Fullscreen image or placeholder */}
-      {hasImage ? (
+      {/* Fullscreen image or placeholder — the whole ad taps through to `link`. */}
+      {ad.link ? (
+        <a href={ad.link} target="_blank" rel="noopener noreferrer" onClick={click}
+          className="absolute inset-0 block">
+          {hasImage
+            ? <img src={ad.image} alt={ad.name} className="w-full h-full object-contain" />
+            : <div className="w-full h-full bg-darkBg flex flex-col items-center justify-center gap-4 select-none">
+                <span className="text-8xl">📢</span>
+                <p className="text-teal text-base">إعلان · Advertisement</p>
+              </div>}
+        </a>
+      ) : hasImage ? (
         <img src={ad.image} alt={ad.name} className="absolute inset-0 w-full h-full object-contain" />
       ) : (
         <div className="absolute inset-0 bg-darkBg flex flex-col items-center justify-center gap-4 select-none">
