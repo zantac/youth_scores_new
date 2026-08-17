@@ -297,6 +297,7 @@ class NewsItem {
 }
 
 class AdItem {
+  final int id;
   final String name;
   final String? image;
   final String? youtubeVideo;
@@ -308,6 +309,7 @@ class AdItem {
   final String? expireDate;
 
   const AdItem({
+    this.id = 0,
     required this.name,
     this.image,
     this.youtubeVideo,
@@ -319,7 +321,20 @@ class AdItem {
     this.expireDate,
   });
 
+  /// False once past the expiry date — a client-side guard for a cached config
+  /// that still carries an ad the server has since dropped.
+  bool get isLive {
+    final raw = expireDate;
+    if (raw == null || raw.isEmpty) return true;
+    final d = DateTime.tryParse(raw);
+    if (d == null) return true;
+    final now = DateTime.now();
+    return !DateTime(d.year, d.month, d.day)
+        .isBefore(DateTime(now.year, now.month, now.day));
+  }
+
   factory AdItem.fromJson(Map<String, dynamic> json) => AdItem(
+    id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
     name: json['name']?.toString() ?? '',
     image: json['image']?.toString(),
     youtubeVideo: json['youtube_video']?.toString(),

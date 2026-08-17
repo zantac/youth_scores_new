@@ -238,7 +238,10 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
                 fontWeight: FontWeight.bold)),
       ));
       for (final p in s.players) {
+        // Keep the shirt number in the subtitle now that the photo takes the
+        // leading spot.
         final subtitle = [
+          if (p.shirt != null) '#${p.shirt}',
           p.getPosition(locale),
           p.birthYear?.toString(),
         ].whereType<String>().where((x) => x.isNotEmpty).join(' · ');
@@ -250,19 +253,13 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
           ),
           child: Row(
             children: [
-              Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.darkBg,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Text(p.shirt?.toString() ?? '—',
-                    style: TextStyle(
-                        color: AppColors.aqua,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold)),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: CachedLogo(
+                    url: p.photo,
+                    size: 36,
+                    borderRadius: 18,
+                    placeholderIcon: Icons.person),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -317,7 +314,11 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(rounded ? 20 : 8),
-            child: CachedLogo(url: photo, size: 40, borderRadius: rounded ? 20 : 8),
+            child: CachedLogo(
+                url: photo,
+                size: 40,
+                borderRadius: rounded ? 20 : 8,
+                placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 12),
           Expanded(

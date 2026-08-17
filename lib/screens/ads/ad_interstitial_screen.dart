@@ -3,10 +3,12 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/services/api_service.dart';
 
 class AdInterstitialScreen extends StatefulWidget {
   final WidgetBuilder destinationBuilder;
@@ -18,8 +20,60 @@ class AdInterstitialScreen extends StatefulWidget {
     required this.dataUrl,
   });
 
+  /// Open [destinationBuilder], showing the interstitial ad first — but only
+  /// when there are live ads AND the frequency cap allows it. Otherwise it
+  /// navigates straight through, so the user isn't shown an ad on every tap.
+  static Future<void> open(
+    BuildContext context, {
+    required String dataUrl,
+    required WidgetBuilder destinationBuilder,
+  }) async {
+    final ads =
+        context.read<AppProvider>().config?.ads.where((a) => a.isLive).toList() ??
+            const [];
+    final show = ads.isNotEmpty && await _AdFrequency.shouldShow();
+    if (!context.mounted) return;
+    if (show) {
+      await _AdFrequency.markShown();
+      if (!context.mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AdInterstitialScreen(
+              dataUrl: dataUrl, destinationBuilder: destinationBuilder),
+        ),
+      );
+    } else {
+      Navigator.push(context, MaterialPageRoute(builder: destinationBuilder));
+    }
+  }
+
   @override
   State<AdInterstitialScreen> createState() => _AdInterstitialScreenState();
+}
+
+/// Show an interstitial at most once per [_minGap], persisted across launches.
+class _AdFrequency {
+  static const _key = 'ad_last_shown_ms';
+  static const _minGap = Duration(minutes: 2);
+
+  static Future<bool> shouldShow() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final last = prefs.getInt(_key) ?? 0;
+      return DateTime.now().millisecondsSinceEpoch - last >=
+          _minGap.inMilliseconds;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> markShown() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_key, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
 }
 
 class _AdInterstitialScreenState extends State<AdInterstitialScreen>
@@ -29,11 +83,20 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
   Timer? _timer;
   late AnimationController _pulseController;
   AdItem? _ad;
-  bool _adPicked = false;
 
   @override
   void initState() {
     super.initState();
+
+    // Pick a live ad up front so we can log its impression exactly once.
+    final ads = context
+            .read<AppProvider>()
+            .config
+            ?.ads
+            .where((a) => a.isLive)
+            .toList() ??
+        const [];
+    if (ads.isNotEmpty) _ad = ads[Random().nextInt(ads.length)];
 
     _pulseController = AnimationController(
       vsync: this,
@@ -55,7 +118,10 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<AppProvider>().loadCompetition(widget.dataUrl);
+      if (!mounted) return;
+      context.read<AppProvider>().loadCompetition(widget.dataUrl);
+      final ad = _ad;
+      if (ad != null && ad.id > 0) ApiService().adImpression(ad.id);
     });
   }
 
@@ -73,13 +139,15 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
     );
   }
 
+  // A CTA tap counts as a click, then opens the link.
+  void _click(Uri uri, {LaunchMode mode = LaunchMode.platformDefault}) {
+    final ad = _ad;
+    if (ad != null && ad.id > 0) ApiService().adClick(ad.id);
+    launchUrl(uri, mode: mode);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final ads = context.watch<AppProvider>().config?.ads ?? [];
-    if (!_adPicked) {
-      _adPicked = true;
-      _ad = ads.isNotEmpty ? ads[Random().nextInt(ads.length)] : null;
-    }
     final ad = _ad;
     final topPad  = MediaQuery.of(context).padding.top;
     final botPad  = MediaQuery.of(context).padding.bottom;
@@ -152,7 +220,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                             icon: Icons.chat,
                             label: 'WhatsApp',
                             color: const Color(0xFF25D366),
-                            onTap: () => launchUrl(
+                            onTap: () => _click(
                               Uri.parse('https://wa.me/${ad.whatsappNumber}'),
                               mode: LaunchMode.externalApplication,
                             ),
@@ -162,16 +230,15 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                             icon: Icons.phone,
                             label: 'Call',
                             color: AppColors.teal,
-                            onTap: () => launchUrl(
-                              Uri.parse('tel:${ad.mobileNumber}'),
-                            ),
+                            onTap: () =>
+                                _click(Uri.parse('tel:${ad.mobileNumber}')),
                           ),
                         if (ad.facebookLink != null)
                           _ActionBtn(
                             icon: Icons.facebook,
                             label: 'Facebook',
                             color: const Color(0xFF1877F2),
-                            onTap: () => launchUrl(
+                            onTap: () => _click(
                               Uri.parse(ad.facebookLink!),
                               mode: LaunchMode.externalApplication,
                             ),
@@ -181,7 +248,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                             icon: Icons.play_circle,
                             label: 'YouTube',
                             color: const Color(0xFFFF0000),
-                            onTap: () => launchUrl(
+                            onTap: () => _click(
                               Uri.parse(ad.youtubeVideo!),
                               mode: LaunchMode.externalApplication,
                             ),
@@ -191,7 +258,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                             icon: Icons.map,
                             label: 'Map',
                             color: AppColors.hint,
-                            onTap: () => launchUrl(
+                            onTap: () => _click(
                               Uri.parse(ad.locationUrl!),
                               mode: LaunchMode.externalApplication,
                             ),

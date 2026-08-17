@@ -78,20 +78,16 @@ class _AgeButton extends StatelessWidget {
       return;
     }
 
-    // Age has a direct URL → show ad (preloading data), then competition data.
+    // Age has a direct URL → show ad (subject to cap), then competition data.
     if (age.directMatchesUrl != null) {
       final url = age.directMatchesUrl!;
-      Navigator.push(
+      AdInterstitialScreen.open(
         context,
-        MaterialPageRoute(
-          builder: (_) => AdInterstitialScreen(
-            dataUrl: url,
-            destinationBuilder: (_) => CompetitionDataScreen(
-              dataUrl: url,
-              title: '$compName · ${age.getName(l10n.locale)}',
-              seasonName: seasonName,
-            ),
-          ),
+        dataUrl: url,
+        destinationBuilder: (_) => CompetitionDataScreen(
+          dataUrl: url,
+          title: '$compName · ${age.getName(l10n.locale)}',
+          seasonName: seasonName,
         ),
       );
       return;

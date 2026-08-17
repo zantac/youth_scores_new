@@ -11,6 +11,7 @@ import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/date_utils.dart';
 import '../../widgets/match/match_card.dart';
+import '../ads/ad_interstitial_screen.dart';
 import '../competition/competition_data_screen.dart';
 import '../match/match_detail_screen.dart';
 import '../news/news_detail_screen.dart';
@@ -335,14 +336,16 @@ class _HomeTabState extends State<HomeTab> {
 
   void _openCompetition(BuildContext ctx, HomeMatchCompetition comp, String locale) {
     if (comp.dataUrl.isEmpty) return;
-    Navigator.push(
+    final url = comp.dataUrl;
+    // Show an interstitial ad (subject to the frequency cap) before the
+    // competition page, mirroring the website and the other open paths.
+    AdInterstitialScreen.open(
       ctx,
-      MaterialPageRoute(
-        builder: (_) => CompetitionDataScreen(
-          dataUrl: comp.dataUrl,
-          title: comp.getTitle(locale),
-          seasonName: '',
-        ),
+      dataUrl: url,
+      destinationBuilder: (_) => CompetitionDataScreen(
+        dataUrl: url,
+        title: comp.getTitle(locale),
+        seasonName: '',
       ),
     );
   }

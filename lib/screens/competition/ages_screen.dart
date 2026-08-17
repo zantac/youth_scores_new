@@ -48,17 +48,13 @@ class AgesScreen extends StatelessWidget {
                 style: TextStyle(color: AppColors.white),
               ),
               trailing: Icon(Icons.chevron_right, color: AppColors.teal),
-              onTap: () => Navigator.push(
+              onTap: () => AdInterstitialScreen.open(
                 ctx,
-                MaterialPageRoute(
-                  builder: (_) => AdInterstitialScreen(
-                    dataUrl: sector.url,
-                    destinationBuilder: (_) => CompetitionDataScreen(
-                      dataUrl: sector.url,
-                      title: '${sector.getName(locale)} · ${age.getName(locale)}',
-                      seasonName: seasonName,
-                    ),
-                  ),
+                dataUrl: sector.url,
+                destinationBuilder: (_) => CompetitionDataScreen(
+                  dataUrl: sector.url,
+                  title: '${sector.getName(locale)} · ${age.getName(locale)}',
+                  seasonName: seasonName,
                 ),
               ),
             ),

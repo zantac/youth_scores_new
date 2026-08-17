@@ -6,7 +6,7 @@ from app.models.competition import (
     GroupTeam,
     Stage,
 )
-from app.models.content import Ad, AppVersion, News, Venue
+from app.models.content import Ad, AdEvent, AppVersion, News, Venue
 from app.models.core import AgeGroup, Club, Coach, Player, Season
 from app.models.match import (
     Match,
@@ -79,6 +79,7 @@ __all__ = [
     "Venue",
     "News",
     "Ad",
+    "AdEvent",
     "AppVersion",
     # auth
     "AdminUser",

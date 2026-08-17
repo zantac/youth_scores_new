@@ -4,7 +4,7 @@ The current JSON feed carries news, ads and a venue directory, and each has its
 own screen in both clients, so they need tables to move off the feed.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
@@ -63,6 +63,30 @@ class Ad(TimestampMixin, db.Model):
         if self.expire_date is None:
             return True
         return self.expire_date >= (on or date.today())
+
+
+class AdEvent(db.Model):
+    """First-party ad analytics: one row per impression or click.
+
+    Written fire-and-forget from the public clients (no auth). An events table
+    (rather than counters) keeps the full history so we can report per-ad totals
+    and per-day time-series. Deleting an ad removes its events (CASCADE)."""
+
+    __tablename__ = "ad_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ad_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("ads.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)  # impression | click
+    platform: Mapped[str | None] = mapped_column(sa.String(16))       # android | web | ios
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        sa.Index("ix_ad_events_ad_kind_ts", "ad_id", "kind", "created_at"),
+    )
 
 
 class AppVersion(TimestampMixin, db.Model):

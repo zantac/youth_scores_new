@@ -84,7 +84,11 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(30),
-            child: CachedLogo(url: p.photo, size: 60, borderRadius: 30),
+            child: CachedLogo(
+                url: p.photo,
+                size: 60,
+                borderRadius: 30,
+                placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 14),
           Expanded(

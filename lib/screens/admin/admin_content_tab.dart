@@ -5,6 +5,7 @@ import '../../core/models/admin/admin_data.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import 'admin_ad_stats_screen.dart';
 import 'admin_error.dart';
 import 'admin_upload_button.dart';
 
@@ -811,16 +812,34 @@ class _AdsSectionState extends State<_AdsSection> {
         icon: const Icon(Icons.add),
         label: Text(isAr ? 'إعلان' : 'Ad'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _ads.isEmpty
-            ? ListView(children: [
-                const SizedBox(height: 120),
-                Center(
-                    child: Text(isAr ? 'لا إعلانات' : 'No ads',
-                        style: TextStyle(color: AppColors.hint))),
-              ])
-            : ListView.builder(
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) =>
+                        AdminAdStatsScreen(api: _api, token: _token)),
+              ),
+              icon: const Icon(Icons.bar_chart, size: 18),
+              label: Text(isAr ? 'إحصائيات الإعلانات' : 'Ad stats'),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _ads.isEmpty
+                ? ListView(children: [
+                    const SizedBox(height: 120),
+                    Center(
+                        child: Text(isAr ? 'لا إعلانات' : 'No ads',
+                            style: TextStyle(color: AppColors.hint))),
+                  ])
+                : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
                 itemCount: _ads.length,
                 itemBuilder: (_, i) {
@@ -888,7 +907,9 @@ class _AdsSectionState extends State<_AdsSection> {
                   );
                 },
               ),
-      ),
+          ),
+        ),
+      ]),
     );
   }
 }

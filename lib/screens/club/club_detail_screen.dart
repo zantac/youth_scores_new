@@ -166,7 +166,11 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(20),
-              child: CachedLogo(url: m.photo, size: 40, borderRadius: 20),
+              child: CachedLogo(
+                  url: m.photo,
+                  size: 40,
+                  borderRadius: 20,
+                  placeholderIcon: Icons.person),
             ),
             const SizedBox(width: 12),
             Expanded(

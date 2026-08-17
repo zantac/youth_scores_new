@@ -346,6 +346,10 @@ class AdminApi {
   Future<void> deleteAd(String token, int id) =>
       _send(token, 'DELETE', '/api/admin/ads/$id');
 
+  /// Ad analytics: per-ad impression/click totals + a 30-day daily series.
+  Future<Map<String, dynamic>> adStats(String token) =>
+      _get(token, '/api/admin/ads/stats');
+
   // ── Structure: seasons ──────────────────────────────────────────────────────
   Future<List<MSeason>> seasons(String token) async =>
       ((await _get(token, '/api/admin/seasons'))['seasons'] as List? ?? [])

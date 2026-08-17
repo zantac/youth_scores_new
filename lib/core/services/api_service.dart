@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:http/http.dart' as http;
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
@@ -107,6 +108,28 @@ class ApiService {
   /// seasons/competitions, staff and roster, independent of any competition.
   Future<TeamPublic> fetchTeam(int id) async =>
       TeamPublic.fromJson(await _getJson('/api/teams/$id'));
+
+  // ── First-party ad analytics (fire-and-forget) ─────────────────────────────
+  static String get _platform =>
+      kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase();
+
+  Future<void> adImpression(int adId) => _adEvent(adId, 'impression');
+  Future<void> adClick(int adId) => _adEvent(adId, 'click');
+
+  Future<void> _adEvent(int adId, String kind) async {
+    if (adId <= 0) return;
+    try {
+      await http
+          .post(
+            Uri.parse('$_origin/api/ads/$adId/$kind'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({'platform': _platform}),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Analytics must never disrupt the user — swallow all failures.
+    }
+  }
 
   /// The clubs directory (`/api/clubs`) — id, name, city and logo per club.
   Future<List<ClubListItem>> fetchClubs() async {
