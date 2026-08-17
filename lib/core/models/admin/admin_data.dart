@@ -346,6 +346,7 @@ class AdminAd {
   final String? startDate;
   final bool active;
   final int weight;
+  final String placement;
   final String? expireDate;
   const AdminAd({
     required this.id,
@@ -361,6 +362,7 @@ class AdminAd {
     this.startDate,
     this.active = true,
     this.weight = 1,
+    this.placement = 'interstitial',
     this.expireDate,
   });
 
@@ -378,6 +380,7 @@ class AdminAd {
         startDate: _s(j['start_date']),
         active: j['active'] != false,
         weight: _i(j['weight']) < 1 ? 1 : _i(j['weight']),
+        placement: j['placement']?.toString() ?? 'interstitial',
         expireDate: _s(j['expire_date']),
       );
 }

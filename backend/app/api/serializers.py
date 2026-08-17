@@ -172,6 +172,7 @@ def _ad(a: Ad) -> dict:
         "location_url": a.location_url,
         "link": a.link,
         "weight": a.weight,
+        "placement": a.placement,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
 

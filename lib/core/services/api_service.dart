@@ -113,17 +113,22 @@ class ApiService {
   static String get _platform =>
       kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase();
 
-  Future<void> adImpression(int adId) => _adEvent(adId, 'impression');
-  Future<void> adClick(int adId) => _adEvent(adId, 'click');
+  Future<void> adImpression(int adId, {String? placement}) =>
+      _adEvent(adId, 'impression', placement);
+  Future<void> adClick(int adId, {String? placement}) =>
+      _adEvent(adId, 'click', placement);
 
-  Future<void> _adEvent(int adId, String kind) async {
+  Future<void> _adEvent(int adId, String kind, String? placement) async {
     if (adId <= 0) return;
     try {
       await http
           .post(
             Uri.parse('$_origin/api/ads/$adId/$kind'),
             headers: {'Content-Type': 'application/json'},
-            body: json.encode({'platform': _platform}),
+            body: json.encode({
+              'platform': _platform,
+              if (placement != null) 'placement': placement,
+            }),
           )
           .timeout(const Duration(seconds: 8));
     } catch (_) {

@@ -322,13 +322,20 @@ def _ad_weight(v) -> int:
         return 1
 
 
+_AD_PLACEMENTS = ("interstitial", "feed", "both")
+
+
+def _ad_placement(v) -> str:
+    return v if v in _AD_PLACEMENTS else "interstitial"
+
+
 def _ad_dto(a: Ad) -> dict:
     return {
         "id": a.id, "name": a.name, "image": a.image,
         "youtube_video": a.youtube_video, "facebook_link": a.facebook_link,
         "mobile_number": a.mobile_number, "whatsapp_number": a.whatsapp_number,
         "location": a.location, "location_url": a.location_url, "link": a.link,
-        "active": a.active, "weight": a.weight,
+        "active": a.active, "weight": a.weight, "placement": a.placement,
         "start_date": a.start_date.isoformat() if a.start_date else None,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
@@ -354,6 +361,7 @@ def create_ad():
         expire_date=_parse_date(j.get("expire_date"), default_today=False),
         active=bool(j.get("active", True)),
         weight=_ad_weight(j.get("weight", 1)),
+        placement=_ad_placement(j.get("placement")),
     )
     for k in _AD_STR_FIELDS:
         setattr(ad, k, (j.get(k) or None))
@@ -385,6 +393,8 @@ def update_ad(aid: int):
         ad.active = bool(j.get("active"))
     if "weight" in j:
         ad.weight = _ad_weight(j.get("weight"))
+    if "placement" in j:
+        ad.placement = _ad_placement(j.get("placement"))
     db.session.commit()
     return jsonify({"ad": _ad_dto(ad)})
 
@@ -413,7 +423,11 @@ def _record_ad_event(ad_id: int, kind: str):
     platform = ((j.get("platform") or "").strip() or None)
     if platform:
         platform = platform[:16]
-    db.session.add(AdEvent(ad_id=ad_id, kind=kind, platform=platform))
+    placement = ((j.get("placement") or "").strip() or None)
+    if placement:
+        placement = placement[:16]
+    db.session.add(AdEvent(ad_id=ad_id, kind=kind,
+                           platform=platform, placement=placement))
     db.session.commit()
     return jsonify({"ok": True})
 
@@ -472,7 +486,22 @@ def ad_stats():
             row["clicks"] = n
     daily_out = [{"date": k, **v} for k, v in sorted(daily.items())]
 
-    return jsonify({"ads": ads_out, "daily": daily_out})
+    # Split by surface (feed vs interstitial) so the two placements can be
+    # compared. Older events have a null placement -> grouped as "unknown".
+    by_placement: dict[str, dict[str, int]] = {}
+    for placement, kind, n in (
+        db.session.query(AdEvent.placement, AdEvent.kind, sa.func.count())
+        .group_by(AdEvent.placement, AdEvent.kind)
+    ):
+        row = by_placement.setdefault(placement or "unknown",
+                                      {"impressions": 0, "clicks": 0})
+        if kind == "impression":
+            row["impressions"] = n
+        elif kind == "click":
+            row["clicks"] = n
+    placement_out = [{"placement": k, **v} for k, v in sorted(by_placement.items())]
+
+    return jsonify({"ads": ads_out, "daily": daily_out, "by_placement": placement_out})
 
 
 def _push_token(j: dict) -> str | None:

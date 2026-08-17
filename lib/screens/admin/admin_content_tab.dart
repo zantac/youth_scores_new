@@ -928,12 +928,14 @@ class _AdEditorState extends State<_AdEditor> {
   late final Map<String, TextEditingController> _c;
   bool _busy = false;
   bool _active = true;
+  String _placement = 'interstitial';
 
   @override
   void initState() {
     super.initState();
     final a = widget.ad;
     _active = a?.active ?? true;
+    _placement = a?.placement ?? 'interstitial';
     _c = {
       'name': TextEditingController(text: a?.name ?? ''),
       'image': TextEditingController(text: a?.image ?? ''),
@@ -968,6 +970,7 @@ class _AdEditorState extends State<_AdEditor> {
     final body = <String, dynamic>{
       for (final e in _c.entries) e.key: e.value.text.trim(),
       'active': _active,
+      'placement': _placement,
     };
     try {
       if (widget.ad == null) {
@@ -983,6 +986,29 @@ class _AdEditorState extends State<_AdEditor> {
       if (handleAdminError(context, e)) return;
       showAdminError(context, e);
     }
+  }
+
+  Widget _placeOpt(String value, String label) {
+    final on = _placement == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _placement = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? AppColors.aqua.withValues(alpha: 0.15) : AppColors.cardBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: on ? AppColors.aqua : AppColors.border),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: on ? AppColors.aqua : AppColors.hint,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1058,6 +1084,20 @@ class _AdEditorState extends State<_AdEditor> {
                   activeColor: AppColors.aqua,
                   onChanged: (v) => setState(() => _active = v),
                 ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _label(isAr ? 'مكان الظهور' : 'Placement'),
+                const SizedBox(height: 6),
+                Row(children: [
+                  _placeOpt('interstitial', isAr ? 'ملء الشاشة' : 'Fullscreen'),
+                  const SizedBox(width: 6),
+                  _placeOpt('feed', isAr ? 'في القائمة' : 'Feed'),
+                  const SizedBox(width: 6),
+                  _placeOpt('both', isAr ? 'كلاهما' : 'Both'),
+                ]),
               ]),
             ),
             const SizedBox(height: 4),

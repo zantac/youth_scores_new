@@ -510,6 +510,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
 }) {
   const blank = {
     name: '', image: '', link: '', start_date: '', expire_date: '', weight: '1',
+    placement: 'interstitial',
     mobile_number: '', whatsapp_number: '',
     facebook_link: '', youtube_video: '', location: '', location_url: '',
   };
@@ -518,6 +519,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         name: ad.name ?? '', image: ad.image ?? '', link: ad.link ?? '',
         start_date: ad.start_date ?? '', expire_date: ad.expire_date ?? '',
         weight: String(ad.weight ?? 1),
+        placement: ad.placement ?? 'interstitial',
         mobile_number: ad.mobile_number ?? '', whatsapp_number: ad.whatsapp_number ?? '',
         facebook_link: ad.facebook_link ?? '', youtube_video: ad.youtube_video ?? '',
         location: ad.location ?? '', location_url: ad.location_url ?? '',
@@ -553,6 +555,20 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         <Field label="📍 اسم الموقع"><input value={f.location} onChange={e => set('location', e.target.value)} className={inputCls} /></Field>
         <Field label="🗺️ رابط الموقع (خريطة)"><input value={f.location_url} onChange={e => set('location_url', e.target.value)} dir="ltr" className={inputCls} /></Field>
       </div>
+      <Field label="مكان الظهور">
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            ['interstitial', 'ملء الشاشة'],
+            ['feed', 'في القائمة'],
+            ['both', 'كلاهما'],
+          ] as const).map(([val, label]) => (
+            <button key={val} type="button" onClick={() => set('placement', val)}
+              className={`py-2 rounded-lg border text-xs font-bold ${f.placement === val ? 'border-aqua/60 bg-aqua/10 text-aqua' : 'border-bdr text-hint'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="تاريخ البدء (فارغ = الآن)"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ الانتهاء (فارغ = دائم)"><input type="date" value={f.expire_date} onChange={e => set('expire_date', e.target.value)} className={inputCls} /></Field>

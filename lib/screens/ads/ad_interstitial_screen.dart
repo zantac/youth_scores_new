@@ -28,9 +28,13 @@ class AdInterstitialScreen extends StatefulWidget {
     required String dataUrl,
     required WidgetBuilder destinationBuilder,
   }) async {
-    final ads =
-        context.read<AppProvider>().config?.ads.where((a) => a.isLive).toList() ??
-            const [];
+    final ads = context
+            .read<AppProvider>()
+            .config
+            ?.ads
+            .where((a) => a.isLive && a.showsOn('interstitial'))
+            .toList() ??
+        const [];
     final show = ads.isNotEmpty && await _AdFrequency.shouldShow();
     if (!context.mounted) return;
     if (show) {
@@ -100,12 +104,12 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
   void initState() {
     super.initState();
 
-    // Pick a live ad up front so we can log its impression exactly once.
+    // Pick a live interstitial ad up front so we can log its impression once.
     final ads = context
             .read<AppProvider>()
             .config
             ?.ads
-            .where((a) => a.isLive)
+            .where((a) => a.isLive && a.showsOn('interstitial'))
             .toList() ??
         const [];
     if (ads.isNotEmpty) _ad = _weightedPick(ads);
@@ -133,7 +137,9 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
       if (!mounted) return;
       context.read<AppProvider>().loadCompetition(widget.dataUrl);
       final ad = _ad;
-      if (ad != null && ad.id > 0) ApiService().adImpression(ad.id);
+      if (ad != null && ad.id > 0) {
+        ApiService().adImpression(ad.id, placement: 'interstitial');
+      }
     });
   }
 
@@ -154,7 +160,9 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
   // A CTA tap counts as a click, then opens the link.
   void _click(Uri uri, {LaunchMode mode = LaunchMode.platformDefault}) {
     final ad = _ad;
-    if (ad != null && ad.id > 0) ApiService().adClick(ad.id);
+    if (ad != null && ad.id > 0) {
+      ApiService().adClick(ad.id, placement: 'interstitial');
+    }
     launchUrl(uri, mode: mode);
   }
 

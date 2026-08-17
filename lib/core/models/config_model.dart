@@ -308,6 +308,7 @@ class AdItem {
   final String? locationUrl;
   final String? link;        // primary tap-through URL (whole-ad tap)
   final int weight;          // rotation weight (higher = shown more often)
+  final String placement;    // interstitial | feed | both
   final String? expireDate;
 
   const AdItem({
@@ -322,8 +323,12 @@ class AdItem {
     this.locationUrl,
     this.link,
     this.weight = 1,
+    this.placement = 'interstitial',
     this.expireDate,
   });
+
+  /// Whether this ad runs on the given surface ('interstitial' or 'feed').
+  bool showsOn(String surface) => placement == surface || placement == 'both';
 
   /// False once past the expiry date — a client-side guard for a cached config
   /// that still carries an ad the server has since dropped.
@@ -349,6 +354,7 @@ class AdItem {
     locationUrl: json['location_url']?.toString(),
     link: json['link']?.toString(),
     weight: int.tryParse(json['weight']?.toString() ?? '') ?? 1,
+    placement: json['placement']?.toString() ?? 'interstitial',
     expireDate: json['expire_date']?.toString(),
   );
 }

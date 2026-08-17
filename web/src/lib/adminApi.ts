@@ -237,7 +237,7 @@ export interface AdminAd {
   mobile_number: string | null; whatsapp_number: string | null;
   location: string | null; location_url: string | null; link: string | null;
   start_date: string | null; expire_date: string | null;
-  active: boolean; weight: number;
+  active: boolean; weight: number; placement: string;
 }
 export const apiListAds = (t: string) => get<{ ads: AdminAd[] }>(t, '/api/admin/ads').then(d => d.ads);
 export const apiCreateAd = (t: string, b: Record<string, unknown>) => send<{ ad: AdminAd }>(t, 'POST', '/api/admin/ads', b).then(d => d.ad);

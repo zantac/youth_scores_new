@@ -17,16 +17,16 @@ export const competitionDataUrl = (id: number | string) =>
   `${API_ORIGIN}/api/competitions/${id}/data`;
 
 // ── First-party ad analytics (fire-and-forget) ───────────────────────────────
-export const apiAdImpression = (id: number) => adEvent(id, 'impression');
-export const apiAdClick      = (id: number) => adEvent(id, 'click');
+export const apiAdImpression = (id: number, placement?: string) => adEvent(id, 'impression', placement);
+export const apiAdClick      = (id: number, placement?: string) => adEvent(id, 'click', placement);
 
-async function adEvent(id: number, kind: 'impression' | 'click') {
+async function adEvent(id: number, kind: 'impression' | 'click', placement?: string) {
   if (!id) return;
   try {
     await fetch(`${API_ORIGIN}/api/ads/${id}/${kind}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform: 'web' }),
+      body: JSON.stringify({ platform: 'web', ...(placement ? { placement } : {}) }),
       keepalive: true, // survive the navigation a click triggers
     });
   } catch { /* analytics must never disrupt the user */ }
@@ -276,6 +276,7 @@ export async function fetchConfig(): Promise<ConfigData> {
         location_url:     a.location_url     ? String(a.location_url)     : undefined,
         link:             a.link             ? String(a.link)             : undefined,
         weight:           Number(a.weight ?? 1),
+        placement:        a.placement        ? String(a.placement)        : 'interstitial',
         expire_date:      a.expire_date      ? String(a.expire_date)      : undefined,
       })),
     app_version: data.app_version,

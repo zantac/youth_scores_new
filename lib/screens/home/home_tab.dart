@@ -9,7 +9,9 @@ import '../../core/models/follows.dart';
 import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
+import '../../widgets/ads/feed_ad_card.dart';
 import '../../widgets/match/match_card.dart';
 import '../ads/ad_interstitial_screen.dart';
 import '../competition/competition_data_screen.dart';
@@ -46,6 +48,7 @@ class _HomeTabState extends State<HomeTab> {
   bool _didScroll = false;
   String? _restoreDate;
   List<_Row> _rows = const [];
+  AdItem? _feedAd; // native sponsored card, picked once per session
 
   @override
   void initState() {
@@ -149,8 +152,15 @@ class _HomeTabState extends State<HomeTab> {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
       String? date;
       String? comp;
+      bool adDone = false;
       for (final m in _ascending) {
         if (m.date != date) {
+          // Right after the anchor date's block (where the user lands), drop in
+          // the native sponsored card.
+          if (!adDone && _feedAd != null && date == _anchorDate) {
+            rows.add(_AdRow(_feedAd!));
+            adDone = true;
+          }
           date = m.date;
           comp = null;
           rows.add(_DateRow(m.date, m.date == _today));
@@ -160,6 +170,9 @@ class _HomeTabState extends State<HomeTab> {
           rows.add(_CompRow(m.competition));
         }
         rows.add(_MatchRow(m));
+      }
+      if (!adDone && _feedAd != null && date == _anchorDate) {
+        rows.add(_AdRow(_feedAd!));
       }
       if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
     }
@@ -181,6 +194,12 @@ class _HomeTabState extends State<HomeTab> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
+    // Pick a feed-placement ad once (stable across rebuilds within a session).
+    final feedAds = provider.config?.ads
+            .where((a) => a.isLive && a.showsOn('feed'))
+            .toList() ??
+        const <AdItem>[];
+    _feedAd ??= weightedPickAd(feedAds);
     _rows = _buildRows(provider.config?.news ?? const []);
 
     return RefreshIndicator(
@@ -308,6 +327,9 @@ class _HomeTabState extends State<HomeTab> {
         ),
       );
     }
+    if (r is _AdRow) {
+      return FeedAdCard(ad: r.ad, isAr: isAr);
+    }
     if (r is _NewsHeaderRow) {
       return _SectionHeader(
         title: l10n.news,
@@ -384,6 +406,11 @@ class _CompRow extends _Row {
 class _MatchRow extends _Row {
   final HomeMatch m;
   const _MatchRow(this.m);
+}
+
+class _AdRow extends _Row {
+  final AdItem ad;
+  const _AdRow(this.ad);
 }
 
 class _NewsHeaderRow extends _Row {
