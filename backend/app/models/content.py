@@ -55,14 +55,23 @@ class Ad(TimestampMixin, db.Model):
     whatsapp_number: Mapped[str | None] = mapped_column(sa.String(40))
     location: Mapped[str | None] = mapped_column(sa.String(255))
     location_url: Mapped[str | None] = mapped_column(sa.String(1024))  # map link (can be long)
+    link: Mapped[str | None] = mapped_column(sa.String(1024))          # primary tap-through URL
+    start_date: Mapped[date | None] = mapped_column(sa.Date)           # campaign start (null = now)
     expire_date: Mapped[date | None] = mapped_column(sa.Date)
+    active: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+    weight: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)  # rotation weight
 
     __table_args__ = (sa.Index("ix_ads_expire", "expire_date"),)
 
     def is_live(self, on: date | None = None) -> bool:
-        if self.expire_date is None:
-            return True
-        return self.expire_date >= (on or date.today())
+        d = on or date.today()
+        if not self.active:
+            return False
+        if self.start_date is not None and self.start_date > d:
+            return False
+        if self.expire_date is not None and self.expire_date < d:
+            return False
+        return True
 
 
 class AdEvent(db.Model):

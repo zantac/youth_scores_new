@@ -68,10 +68,11 @@ def config_blob(base_url: str) -> dict:
         "seasons": [_season(s, base_url) for s in Season.query.order_by(Season.id.desc()).all()],
         "venues": [_venue(v) for v in Venue.query.order_by(Venue.id).all()],
         "news": [_news(n) for n in News.query.order_by(News.date.desc()).all()],
-        # Live ads only — an ad past its expiry date drops off the feed.
+        # Serve only ads that are active and within their start/expiry window.
         "Ads": [_ad(a) for a in Ad.query
-                .filter(sa.or_(Ad.expire_date.is_(None),
-                               Ad.expire_date >= date.today()))
+                .filter(Ad.active.is_(True),
+                        sa.or_(Ad.start_date.is_(None), Ad.start_date <= date.today()),
+                        sa.or_(Ad.expire_date.is_(None), Ad.expire_date >= date.today()))
                 .order_by(Ad.id).all()],
         "app_version": {"version_code": "1", "version_name": "1.0.0"},
     }
@@ -169,6 +170,8 @@ def _ad(a: Ad) -> dict:
         "whatsapp_number": a.whatsapp_number,
         "location": a.location,
         "location_url": a.location_url,
+        "link": a.link,
+        "weight": a.weight,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
 
