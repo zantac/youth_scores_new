@@ -16,6 +16,22 @@ const API_ORIGIN = CONFIG_URL.replace(/\/api\/config\/?$/, '');
 export const competitionDataUrl = (id: number | string) =>
   `${API_ORIGIN}/api/competitions/${id}/data`;
 
+// ── First-party ad analytics (fire-and-forget) ───────────────────────────────
+export const apiAdImpression = (id: number) => adEvent(id, 'impression');
+export const apiAdClick      = (id: number) => adEvent(id, 'click');
+
+async function adEvent(id: number, kind: 'impression' | 'click') {
+  if (!id) return;
+  try {
+    await fetch(`${API_ORIGIN}/api/ads/${id}/${kind}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform: 'web' }),
+      keepalive: true, // survive the navigation a click triggers
+    });
+  } catch { /* analytics must never disrupt the user */ }
+}
+
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 function parseLocalized(raw: unknown): string | Localized | undefined {
@@ -249,6 +265,7 @@ export async function fetchConfig(): Promise<ConfigData> {
     ads: (Array.isArray(data.Ads) ? data.Ads : [])
       .filter((a: unknown): a is Record<string, unknown> => typeof a === 'object' && a !== null)
       .map((a: Record<string, unknown>) => ({
+        id:               Number(a.id ?? 0),
         name:             String(a.name ?? ''),
         image:            a.image            ? String(a.image)            : undefined,
         youtube_video:    a.youtube_video    ? String(a.youtube_video)    : undefined,
