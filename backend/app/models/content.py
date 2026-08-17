@@ -60,8 +60,14 @@ class Ad(TimestampMixin, db.Model):
     expire_date: Mapped[date | None] = mapped_column(sa.Date)
     active: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
     weight: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)  # rotation weight
+    # Where the ad runs: interstitial (fullscreen), feed (native card), or both.
+    placement: Mapped[str] = mapped_column(
+        sa.String(16), nullable=False, default="interstitial")
 
     __table_args__ = (sa.Index("ix_ads_expire", "expire_date"),)
+
+    def shows_on(self, surface: str) -> bool:
+        return self.placement == surface or self.placement == "both"
 
     def is_live(self, on: date | None = None) -> bool:
         d = on or date.today()
@@ -89,6 +95,7 @@ class AdEvent(db.Model):
     )
     kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)  # impression | click
     platform: Mapped[str | None] = mapped_column(sa.String(16))       # android | web | ios
+    placement: Mapped[str | None] = mapped_column(sa.String(16))      # interstitial | feed
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime, nullable=False, default=datetime.utcnow
     )
