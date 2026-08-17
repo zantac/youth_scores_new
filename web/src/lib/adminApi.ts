@@ -249,6 +249,13 @@ export interface AdStatRow  { id: number; name: string; impressions: number; cli
 export interface AdDailyRow { date: string; impressions: number; clicks: number; }
 export const apiAdStats = (t: string) => get<{ ads: AdStatRow[]; daily: AdDailyRow[] }>(t, '/api/admin/ads/stats');
 
+// ── app version gate (Android update prompt) ───────────────────────────────────
+export interface AppVersionInfo { version_code: string; version_name: string; force_update: boolean; }
+export const apiGetAppVersion = (t: string) =>
+  get<{ app_version: AppVersionInfo }>(t, '/api/admin/app-version').then(d => d.app_version);
+export const apiSetAppVersion = (t: string, b: { version_code: string; version_name: string; force_update: boolean }) =>
+  send<{ app_version: AppVersionInfo }>(t, 'PUT', '/api/admin/app-version', b).then(d => d.app_version);
+
 // ── structure management (seasons / age groups / clubs / competitions / teams) ─
 
 export interface MSeason { id: number; name_ar: string | null; name_en: string | null; start_date: string; end_date: string; is_active: boolean; }
