@@ -513,7 +513,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
 }) {
   const blank = {
     name: '', image: '', link: '', start_date: '', expire_date: '', weight: '1',
-    placement: 'interstitial',
+    placement: 'interstitial', feed_position: '3', feed_repeat: '',
     mobile_number: '', whatsapp_number: '',
     facebook_link: '', youtube_video: '', location: '', location_url: '',
   };
@@ -523,6 +523,8 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         start_date: ad.start_date ?? '', expire_date: ad.expire_date ?? '',
         weight: String(ad.weight ?? 1),
         placement: ad.placement ?? 'interstitial',
+        feed_position: String(ad.feed_position ?? 3),
+        feed_repeat: ad.feed_repeat != null ? String(ad.feed_repeat) : '',
         mobile_number: ad.mobile_number ?? '', whatsapp_number: ad.whatsapp_number ?? '',
         facebook_link: ad.facebook_link ?? '', youtube_video: ad.youtube_video ?? '',
         location: ad.location ?? '', location_url: ad.location_url ?? '',
@@ -572,6 +574,22 @@ function AdForm({ token, ad, onSaved, onCancel }: {
           ))}
         </div>
       </Field>
+      {(f.placement === 'feed' || f.placement === 'both') && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="موضع الإعلان (بعد المباراة رقم N)">
+            <input type="number" min="1" value={f.feed_position}
+              onChange={e => set('feed_position', e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="تكرار كل (فارغ = بدون تكرار)">
+            <input type="number" min="1" value={f.feed_repeat} placeholder="بدون تكرار"
+              onChange={e => set('feed_repeat', e.target.value)} className={inputCls} />
+          </Field>
+          <p className="col-span-2 text-hint text-[11px]">
+            البطاقة تظهر بعد هذا العدد من المباريات بدءًا من مباريات اليوم (حيث تفتح الصفحة). مثال: موضع 3 وتكرار 6 = بعد المباراة 3 ثم 9 ثم 15…
+            <br />استخدم صورة بنسبة 2:1 (مثال 1200×600) لأن بطاقة القائمة تعرض الصورة كاملة بدون عنوان.
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="تاريخ البدء (فارغ = الآن)"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ الانتهاء (فارغ = دائم)"><input type="date" value={f.expire_date} onChange={e => set('expire_date', e.target.value)} className={inputCls} /></Field>

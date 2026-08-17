@@ -63,6 +63,12 @@ class Ad(TimestampMixin, db.Model):
     # Where the ad runs: interstitial (fullscreen), feed (native card), or both.
     placement: Mapped[str] = mapped_column(
         sa.String(16), nullable=False, default="interstitial")
+    # Feed card slot: show the native card after the Nth match, counted from the
+    # date the home feed lands on (today/nearest). 1 = right after the first match.
+    feed_position: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=3)
+    # Repeat the feed card every N matches after the first slot. Null = show once.
+    feed_repeat: Mapped[int | None] = mapped_column(sa.Integer)
 
     __table_args__ = (sa.Index("ix_ads_expire", "expire_date"),)
 

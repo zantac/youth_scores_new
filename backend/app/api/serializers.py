@@ -188,6 +188,8 @@ def _ad(a: Ad) -> dict:
         "link": a.link,
         "weight": a.weight,
         "placement": a.placement,
+        "feed_position": a.feed_position,
+        "feed_repeat": a.feed_repeat,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
 
