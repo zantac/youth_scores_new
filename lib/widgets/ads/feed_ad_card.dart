@@ -97,7 +97,7 @@ class _FeedAdCardState extends State<FeedAdCard> {
                   CachedNetworkImage(
                     imageUrl: ad.image!,
                     height: 150,
-                    fit: BoxFit.cover,
+                    fit: BoxFit.contain,
                     errorWidget: (_, _, _) => const SizedBox.shrink(),
                   ),
                 Padding(
