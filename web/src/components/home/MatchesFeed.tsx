@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAllMatches } from '@/lib/api';
-import { formatMatchDate, todayStr, localize } from '@/lib/utils';
+import { formatMatchDate, todayStr, localize, adNotExpired } from '@/lib/utils';
 import MatchCard from '@/components/competition/MatchCard';
 import FeedAdCard from '@/components/ui/FeedAdCard';
 import { useApp } from '@/context/AppContext';
@@ -64,7 +64,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
     const now = new Date();
     const pool = ads.filter(a => {
       const p = a.placement ?? 'interstitial';
-      return (!a.expire_date || new Date(a.expire_date) > now) && (p === 'feed' || p === 'both');
+      return adNotExpired(a.expire_date, now) && (p === 'feed' || p === 'both');
     });
     if (!pool.length) return null;
     const w = (a: AdItem) => Math.max(1, a.weight ?? 1);

@@ -426,3 +426,14 @@ export function safeUrl(u: string | null | undefined): string | undefined {
   if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$/i.test(s)) return `https://${s}`;
   return undefined;
 }
+
+/**
+ * Whether an ad is still live: no expiry, or a parseable expiry still in the
+ * future. An unparseable date is treated as non-expiring (fail open) rather than
+ * silently dropping the ad.
+ */
+export function adNotExpired(expireDate: string | undefined, now: Date = new Date()): boolean {
+  if (!expireDate) return true;
+  const d = new Date(expireDate);
+  return Number.isNaN(d.getTime()) ? true : d > now;
+}
