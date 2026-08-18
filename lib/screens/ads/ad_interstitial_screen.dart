@@ -204,8 +204,10 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                 : const _Placeholder(),
           ),
 
-          // ── Bottom gradient + ad info + actions ────────────────────────────
-          Positioned(
+          // ── Bottom gradient + action buttons (ad name is an internal admin
+          //    label and is not shown to users) ────────────────────────────────
+          if (hasActions)
+            Positioned(
             left: 0,
             right: 0,
             bottom: 0,
@@ -225,19 +227,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (ad != null)
-                    Text(
-                      ad.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        shadows: [Shadow(color: Colors.black, blurRadius: 8)],
-                      ),
-                    ),
-                  if (hasActions) ...[
-                    const SizedBox(height: 12),
-                    Wrap(
+                  Wrap(
                       spacing: 10,
                       runSpacing: 10,
                       children: [
@@ -292,7 +282,6 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                       ],
                     ),
                   ],
-                ],
               ),
             ),
           ),
