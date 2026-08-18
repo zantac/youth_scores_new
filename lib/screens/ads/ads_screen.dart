@@ -63,15 +63,7 @@ class AdsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  ad.name,
-                  style: TextStyle(
-                    color: AppColors.aqua,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 8),
+                // Ad name is an internal admin label — not shown to users.
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
