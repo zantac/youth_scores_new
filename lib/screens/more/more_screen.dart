@@ -8,8 +8,9 @@ import '../connect/connect_screen.dart';
 import '../favourites/favourites_screen.dart';
 import '../info/about_screen.dart';
 
-/// The "More" hub reached from the bottom bar: two entries, Connect and
-/// Favourites, each opening its own page.
+/// The "More" hub reached from the bottom bar: Favourites, Connect, About,
+/// Privacy Policy and Terms, each opening its own page. Order mirrors the
+/// website's /more.
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
 
@@ -48,15 +49,6 @@ class MoreScreen extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         children: [
           _MoreTile(
-            icon: Icons.chat_bubble_outline,
-            iconColor: const Color(0xFF25D366),
-            title: l10n.connect,
-            subtitle: isAr ? 'أرسل النتائج وتواصل معنا' : 'Submit results and reach us',
-            onTap: () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => const ConnectScreen())),
-          ),
-          const SizedBox(height: 10),
-          _MoreTile(
             icon: Icons.star_outline,
             iconColor: AppColors.orange,
             title: l10n.favorites,
@@ -65,6 +57,15 @@ class MoreScreen extends StatelessWidget {
                 : 'Competitions and teams you follow',
             onTap: () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const FavouritesScreen())),
+          ),
+          const SizedBox(height: 10),
+          _MoreTile(
+            icon: Icons.chat_bubble_outline,
+            iconColor: const Color(0xFF25D366),
+            title: l10n.connect,
+            subtitle: isAr ? 'أرسل النتائج وتواصل معنا' : 'Submit results and reach us',
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const ConnectScreen())),
           ),
           const SizedBox(height: 10),
           _MoreTile(
