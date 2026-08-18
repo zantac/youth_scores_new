@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tAcademy, mediaUrl, whatsappLink, type TAcademy } from '@/lib/tla3bnyApi';
+import { safeUrl } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 import TeamHero from '@/components/tla3bny/TeamHero';
@@ -57,7 +58,7 @@ function AcademyContent() {
               </a>
             )}
             {a.phone && <a href={`tel:${a.phone}`} className="inline-flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-xl bg-cardBg2 border border-bdr text-text">📞 {a.phone}</a>}
-            {a.facebook_url && <a href={a.facebook_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-xl bg-cardBg2 border border-bdr text-aqua">f {tt('فيسبوك', 'Facebook')}</a>}
+            {safeUrl(a.facebook_url) && <a href={safeUrl(a.facebook_url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-xl bg-cardBg2 border border-bdr text-aqua">f {tt('فيسبوك', 'Facebook')}</a>}
           </div>
         )}
       </Card>
@@ -79,7 +80,7 @@ function AcademyContent() {
                 <div className="font-bold text-text text-sm">📍 {b.name}{b.governorate && <span className="text-teal font-normal"> · {b.governorate}</span>}</div>
                 {b.address && <div className="text-[11px] text-hint mt-0.5">{b.address}</div>}
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {b.location_url && <a href={b.location_url} target="_blank" rel="noreferrer" className="text-[11px] font-bold px-2 py-1 rounded-lg bg-cardBg2 border border-bdr text-teal">🗺️ {tt('الخريطة', 'Map')}</a>}
+                  {safeUrl(b.location_url) && <a href={safeUrl(b.location_url)} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold px-2 py-1 rounded-lg bg-cardBg2 border border-bdr text-teal">🗺️ {tt('الخريطة', 'Map')}</a>}
                   {b.phone && <a href={`tel:${b.phone}`} className="text-[11px] font-bold px-2 py-1 rounded-lg bg-cardBg2 border border-bdr text-text">📞 {b.phone}</a>}
                 </div>
               </Card>

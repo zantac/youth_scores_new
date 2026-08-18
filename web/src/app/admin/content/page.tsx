@@ -9,6 +9,7 @@ import {
   type NotifyResult, type AdminNews, type AdminAd, type AdminVenue,
   type AdStatRow, type AdDailyRow, type AppVersionInfo,
 } from '@/lib/adminApi';
+import { safeUrl } from '@/lib/utils';
 
 export default function AdminContentPage() {
   return <AdminShell title="الأخبار والملاعب والإعلانات"><Content /></AdminShell>;
@@ -319,8 +320,8 @@ function VenueRow({ token, venue, onSaved }: { token: string; venue: AdminVenue;
         <span className="w-9 h-9 rounded-lg bg-aqua/10 grid place-items-center flex-shrink-0">🏟️</span>
         <div className="flex-1 min-w-0">
           <p className="text-text font-bold text-sm truncate">{venue.name_ar || venue.name_en}</p>
-          {venue.url
-            ? <a href={venue.url} target="_blank" rel="noreferrer" className="text-aqua text-[11px] hover:underline">📍 رابط الخريطة</a>
+          {safeUrl(venue.url)
+            ? <a href={safeUrl(venue.url)} target="_blank" rel="noopener noreferrer" className="text-aqua text-[11px] hover:underline">📍 رابط الخريطة</a>
             : <p className="text-hint text-[11px]">لا يوجد رابط خريطة</p>}
         </div>
         <button onClick={open}

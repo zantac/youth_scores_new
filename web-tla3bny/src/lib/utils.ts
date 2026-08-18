@@ -48,6 +48,20 @@ export function subCompLabel(a: { name?: string | null; age_category?: string | 
   return a.name ? `${a.name} · ${a.age_category}` : (a.age_category ?? '—');
 }
 
+/**
+ * Allow only web-safe schemes for admin/academy-supplied link fields before they
+ * go into an <a href>. Blocks `javascript:`/`data:` (stored-XSS vectors). Bare
+ * domains are upgraded to https; anything else → undefined so callers drop the href.
+ */
+export function safeUrl(u: string | null | undefined): string | undefined {
+  if (!u) return undefined;
+  const s = u.trim();
+  if (!s) return undefined;
+  if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$/i.test(s)) return `https://${s}`;
+  return undefined;
+}
+
 export function formatMatchDate(dateStr: string, locale: string): string {
   if (!dateStr) return locale === 'ar' ? 'غير محدد' : 'TBD';
   try {
