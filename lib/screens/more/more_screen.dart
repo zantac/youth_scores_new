@@ -6,6 +6,7 @@ import '../../core/providers/app_provider.dart';
 import '../admin/admin_login_screen.dart';
 import '../connect/connect_screen.dart';
 import '../favourites/favourites_screen.dart';
+import '../info/about_screen.dart';
 
 /// The "More" hub reached from the bottom bar: two entries, Connect and
 /// Favourites, each opening its own page.
@@ -64,6 +65,33 @@ class MoreScreen extends StatelessWidget {
                 : 'Competitions and teams you follow',
             onTap: () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const FavouritesScreen())),
+          ),
+          const SizedBox(height: 10),
+          _MoreTile(
+            icon: Icons.info_outline,
+            iconColor: AppColors.aqua,
+            title: l10n.about,
+            subtitle: isAr ? 'عن يوث سكورز' : 'About Youth Scores',
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const AboutScreen())),
+          ),
+          const SizedBox(height: 10),
+          _MoreTile(
+            icon: Icons.privacy_tip_outlined,
+            iconColor: AppColors.teal,
+            title: l10n.privacyPolicy,
+            subtitle: isAr ? 'كيف نتعامل مع بياناتك' : 'How we handle your data',
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen())),
+          ),
+          const SizedBox(height: 10),
+          _MoreTile(
+            icon: Icons.article_outlined,
+            iconColor: AppColors.orange,
+            title: l10n.terms,
+            subtitle: isAr ? 'شروط الاستخدام' : 'Terms of use',
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => const TermsScreen())),
           ),
         ],
       ),
