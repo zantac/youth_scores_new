@@ -7,6 +7,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/models/competition_data_model.dart';
 import '../../core/models/follows.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/roster_position.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
 import '../../widgets/stats/player_matches_sheet.dart' show showPlayerMatchesSheet, PlayerStatType;
@@ -145,13 +146,16 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
     final homeStats = _calcStats(teamMatches, widget.teamId, homeOnly: true);
     final awayStats = _calcStats(teamMatches, widget.teamId, homeOnly: false);
 
+    // Colored emoji icons mirror the website's team tabs. The old "Info" tab is
+    // replaced by "Coaching Staff" (its group/city moved to the header card);
+    // Squad now lists players only.
     final tabs = [
-      _Tab(label: l10n.tabInfo,    icon: Icons.info_outline),
-      _Tab(label: l10n.tabSquad,   icon: Icons.groups_outlined),
-      _Tab(label: l10n.matches,    icon: Icons.sports_soccer),
-      _Tab(label: l10n.tabScorers, icon: Icons.sports_score),
-      _Tab(label: l10n.tabAssists, icon: Icons.assistant),
-      _Tab(label: l10n.tabStats,   icon: Icons.bar_chart),
+      _Tab(label: l10n.coachingStaff, emoji: '👔'),
+      _Tab(label: l10n.tabSquad,      emoji: '👥'),
+      _Tab(label: l10n.matches,       emoji: '⚽'),
+      _Tab(label: l10n.tabScorers,    emoji: '🥅'),
+      _Tab(label: l10n.tabAssists,    emoji: '🎯'),
+      _Tab(label: l10n.tabStats,      emoji: '📊'),
     ];
 
     return Scaffold(
@@ -191,7 +195,7 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
               controller: _pageCtrl,
               onPageChanged: (i) => setState(() => _page = i),
               children: [
-                _InfoPage(team: team, l10n: l10n),
+                _CoachingStaffPage(team: team, l10n: l10n),
                 _SquadPage(team: team, l10n: l10n),
                 _MatchesPage(
                   matches: teamMatches,
@@ -203,7 +207,6 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                   entries: scorers,
                   emptyMessage: l10n.noStats,
                   unit: l10n.goals,
-                  icon: Icons.sports_score,
                   matches: teamMatches,
                   teamId: widget.teamId,
                   allTeams: provider.competition?.teams ?? [],
@@ -213,7 +216,6 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
                   entries: assists,
                   emptyMessage: l10n.noStats,
                   unit: l10n.assists,
-                  icon: Icons.assistant,
                   matches: teamMatches,
                   teamId: widget.teamId,
                   allTeams: provider.competition?.teams ?? [],
@@ -240,8 +242,8 @@ class _TeamDetailScreenState extends State<TeamDetailScreen> {
 
 class _Tab {
   final String label;
-  final IconData icon;
-  const _Tab({required this.label, required this.icon});
+  final String emoji;
+  const _Tab({required this.label, required this.emoji});
 }
 
 class _TabStrip extends StatelessWidget {
@@ -276,8 +278,10 @@ class _TabStrip extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(tabs[i].icon, size: 16,
-                        color: active ? AppColors.aqua : AppColors.hint),
+                    Opacity(
+                      opacity: active ? 1.0 : 0.6,
+                      child: Text(tabs[i].emoji, style: const TextStyle(fontSize: 15)),
+                    ),
                     const SizedBox(width: 5),
                     Text(
                       tabs[i].label,
@@ -356,6 +360,11 @@ class _TeamHeaderCard extends StatelessWidget {
                           : team.getGroup(l10n.locale)!,
                       style: TextStyle(color: AppColors.teal, fontSize: 13),
                     ),
+                  if (team.getCity(l10n.locale) != null)
+                    Text(
+                      '📍 ${team.getCity(l10n.locale)}',
+                      style: TextStyle(color: AppColors.hint, fontSize: 12),
+                    ),
                 ],
               ),
             ),
@@ -369,48 +378,60 @@ class _TeamHeaderCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Page 1 – Info
+// Page 1 – Coaching staff (+ information / point deduction / field)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _InfoPage extends StatelessWidget {
+class _CoachingStaffPage extends StatelessWidget {
   final Team team;
   final L10n l10n;
-  const _InfoPage({required this.team, required this.l10n});
+  const _CoachingStaffPage({required this.team, required this.l10n});
 
   @override
   Widget build(BuildContext context) {
-    // Group badge
-    final rows = <Widget>[
-      if (team.getGroup(l10n.locale) != null)
-        _infoTile(
-          icon: Icons.group_work_outlined,
-          label: l10n.group,
-          value: team.getGroup(l10n.locale)!.length <= 2
-              ? '${l10n.group} ${team.getGroup(l10n.locale)}'
-              : team.getGroup(l10n.locale)!,
-        ),
-      if (team.getCity(l10n.locale) != null)
-        _infoTile(
-          icon: Icons.location_city,
-          label: l10n.city,
-          value: team.getCity(l10n.locale)!,
-        ),
-      if (team.information != null && team.information!.isNotEmpty)
-        _infoTile(
-          icon: Icons.info_outline,
-          label: l10n.information,
-          value: team.information!,
-        ),
-      if (team.pointDeduction > 0)
-        _infoTile(
-          icon: Icons.remove_circle_outline,
-          label: 'Point deduction',
-          value: '-${team.pointDeduction}',
-          valueColor: AppColors.red,
-        ),
-      if (team.field != null && team.field!.isNotEmpty)
-        _fieldTile(team.field!, team.fieldUrl, l10n),
-    ];
+    final rows = <Widget>[];
+
+    // Coaching staff — clickable profiles when the feed carries ids, otherwise
+    // the legacy plain-name list.
+    if (team.staff.isNotEmpty) {
+      rows.add(_LinkedSection(
+        emoji: '👔',
+        label: l10n.coachingStaff,
+        children: team.staff
+            .map((s) => _PersonRow(
+                  name: s.getName(l10n.locale),
+                  subtitle: s.getRole(l10n.locale),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => CoachDetailScreen(coachId: s.id)),
+                  ),
+                ))
+            .toList(),
+      ));
+    } else if (team.players != null && team.players!.coach.isNotEmpty) {
+      rows.add(_PositionSection(
+          emoji: '👔', label: l10n.coachingStaff, names: team.players!.coach));
+    }
+
+    // Remaining team info — group and city now live in the header card.
+    if (team.information != null && team.information!.isNotEmpty) {
+      rows.add(_infoTile(
+        icon: Icons.info_outline,
+        label: l10n.information,
+        value: team.information!,
+      ));
+    }
+    if (team.pointDeduction > 0) {
+      rows.add(_infoTile(
+        icon: Icons.remove_circle_outline,
+        label: l10n.pointDeduction,
+        value: '-${team.pointDeduction}',
+        valueColor: AppColors.red,
+      ));
+    }
+    if (team.field != null && team.field!.isNotEmpty) {
+      rows.add(_fieldTile(team.field!, team.fieldUrl, l10n));
+    }
 
     if (rows.isEmpty) {
       return Center(child: Text(l10n.noData, style: TextStyle(color: AppColors.teal)));
@@ -525,34 +546,31 @@ class _SquadPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Newer feed carries staff/roster with ids → clickable profiles.
-    if (team.staff.isNotEmpty || team.roster.isNotEmpty) {
+    // Newer feed carries the roster with ids → clickable player profiles.
+    // Coaching staff lives on its own tab now, so the squad is players only,
+    // grouped by position (keeper → attack) with a per-section count, matching
+    // the website.
+    if (team.roster.isNotEmpty) {
+      final sections = groupRosterByPosition<RosterPlayer>(
+        team.roster,
+        l10n.locale,
+        position: (r) => r.position,
+        name: (r) => r.getName(l10n.locale),
+      );
       return ListView(
         padding: const EdgeInsets.all(14),
         children: [
-          if (team.staff.isNotEmpty)
+          for (final s in sections)
             _LinkedSection(
-              emoji: '🧑‍💼',
-              label: l10n.coach,
-              children: team.staff
-                  .map((s) => _PersonRow(
-                        name: s.getName(l10n.locale),
-                        subtitle: s.getRole(l10n.locale),
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => CoachDetailScreen(coachId: s.id)),
-                        ),
-                      ))
-                  .toList(),
-            ),
-          if (team.roster.isNotEmpty)
-            _LinkedSection(
-              emoji: '👕',
-              label: l10n.squad,
-              children: team.roster
+              emoji: s.emoji,
+              label: '${s.label} (${s.players.length})',
+              children: s.players
                   .map((r) => _PersonRow(
                         name: r.getName(l10n.locale),
-                        subtitle: r.getPosition(l10n.locale),
+                        subtitle: [
+                          r.getPosition(l10n.locale),
+                          r.birthYear?.toString(),
+                        ].whereType<String>().where((x) => x.isNotEmpty).join(' · '),
                         leadingNumber: r.shirt,
                         onTap: () => Navigator.push(
                           context,
@@ -565,16 +583,18 @@ class _SquadPage extends StatelessWidget {
       );
     }
 
-    // Legacy fallback (older feed: plain name lists, no ids).
+    // Legacy fallback (older feed: plain name lists, no ids) — players only.
     final p = team.players;
-    if (p == null || p.isEmpty) {
+    if (p == null ||
+        (p.goalkeepers.isEmpty &&
+            p.defenders.isEmpty &&
+            p.midfielders.isEmpty &&
+            p.attackers.isEmpty)) {
       return Center(child: Text(l10n.noData, style: TextStyle(color: AppColors.teal)));
     }
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        if (p.coach.isNotEmpty)
-          _PositionSection(emoji: '🧑‍💼', label: l10n.coach, names: p.coach),
         if (p.goalkeepers.isNotEmpty)
           _PositionSection(emoji: '🧤', label: l10n.goalkeepers, names: p.goalkeepers),
         if (p.defenders.isNotEmpty)
@@ -785,7 +805,6 @@ class _PlayerListPage extends StatelessWidget {
   final List<MapEntry<String, int>> entries;
   final String emptyMessage;
   final String unit;
-  final IconData icon;
   final List<Match> matches;
   final String teamId;
   final List<Team> allTeams;
@@ -795,7 +814,6 @@ class _PlayerListPage extends StatelessWidget {
     required this.entries,
     required this.emptyMessage,
     required this.unit,
-    required this.icon,
     required this.matches,
     required this.teamId,
     required this.allTeams,
@@ -851,8 +869,6 @@ class _PlayerListPage extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
-                Icon(icon, color: AppColors.teal, size: 18),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(e.key,

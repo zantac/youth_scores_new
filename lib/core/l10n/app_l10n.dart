@@ -14,6 +14,7 @@ class L10n {
   String get teams         => isAr ? 'الفرق'               : 'Teams';
   String get statistics    => isAr ? 'الإحصائيات'          : 'Statistics';
   String get news          => isAr ? 'الأخبار'             : 'News';
+  String get clubs         => isAr ? 'الأندية'             : 'Clubs';
   String get venues        => isAr ? 'الملاعب'             : 'Venues';
   String get ads           => isAr ? 'الإعلانات'           : 'Ads';
   String get about         => isAr ? 'من نحن'              : 'About';
@@ -49,6 +50,8 @@ class L10n {
 
   // Team detail
   String get coach         => isAr ? 'المدرب'              : 'Coach';
+  String get coachingStaff => isAr ? 'الجهاز الفني'        : 'Coaching Staff';
+  String get pointDeduction => isAr ? 'خصم النقاط'         : 'Point Deduction';
   String get goalkeepers   => isAr ? 'حراس المرمى'         : 'Goalkeepers';
   String get defenders     => isAr ? 'المدافعون'           : 'Defenders';
   String get midfielders   => isAr ? 'لاعبو الوسط'         : 'Midfielders';

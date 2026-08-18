@@ -20,6 +20,9 @@ class NewsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Mirror the website: title + details + date first, cover photo at the
+    // bottom of the card. Use the first gallery image, falling back to `image`.
+    final thumb = item.allImages.isNotEmpty ? item.allImages.first : null;
     return Card(
       child: InkWell(
         onTap: onTap,
@@ -27,17 +30,6 @@ class NewsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (item.image != null && item.image!.startsWith('http'))
-              ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
-                child: CachedNetworkImage(
-                  imageUrl: item.image!,
-                  height: 160,
-                  fit: BoxFit.cover,
-                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                ),
-              ),
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -101,6 +93,17 @@ class NewsCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (thumb != null)
+              ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(12)),
+                child: CachedNetworkImage(
+                  imageUrl: thumb,
+                  height: 160,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
           ],
         ),
       ),

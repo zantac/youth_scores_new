@@ -7,12 +7,16 @@ class CachedLogo extends StatelessWidget {
   final String? url;
   final double size;
   final double borderRadius;
+  // Fallback glyph when there's no image — a shield for clubs/teams, a person
+  // silhouette for people (players, coaches).
+  final IconData placeholderIcon;
 
   const CachedLogo({
     super.key,
     this.url,
     this.size = 40,
     this.borderRadius = 8,
+    this.placeholderIcon = Icons.shield,
   });
 
   @override
@@ -44,6 +48,6 @@ class CachedLogo extends StatelessWidget {
   Widget _placeholder() => SizedBox(
     width: size,
     height: size,
-    child: Icon(Icons.shield, color: AppColors.teal),
+    child: Icon(placeholderIcon, color: AppColors.teal, size: size * 0.6),
   );
 }

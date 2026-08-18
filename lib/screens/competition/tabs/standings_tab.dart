@@ -10,6 +10,7 @@ import '../../../core/l10n/app_l10n.dart';
 import '../../../core/models/competition_data_model.dart';
 import '../../../core/models/standing.dart';
 import '../../../core/providers/app_provider.dart';
+import '../../../core/utils/share_image.dart';
 import '../../../core/utils/standings_calculator.dart';
 import '../../../widgets/common/empty_widget.dart';
 import '../../../widgets/standings/standings_table.dart';
@@ -136,16 +137,49 @@ class _StandingsTabState extends State<StandingsTab>
               gName.length <= 2 ? '${l10n.group} $gName' : gName;
 
           if (gName.isEmpty) {
+            // No groups: a single table with a standalone share button above it.
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: StandingsTable(
-                standings: rows,
-                teams: comp.teams,
-                matches: comp.matches,
-                l10n: l10n,
-                onTeamTap: (id) => Navigator.push(context,
-                    MaterialPageRoute(
-                        builder: (_) => TeamDetailScreen(teamId: id))),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: sharing
+                        ? const Padding(
+                            padding: EdgeInsets.all(8),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : TextButton.icon(
+                            icon: Icon(Icons.share,
+                                size: 16, color: AppColors.aqua),
+                            label: Text(l10n.shareStandings,
+                                style: TextStyle(
+                                    color: AppColors.aqua, fontSize: 13)),
+                            onPressed: () => _shareGroup(
+                              gName,
+                              l10n.standings,
+                              rows,
+                              comp.teams,
+                              l10n,
+                            ),
+                          ),
+                  ),
+                  StandingsTable(
+                    standings: rows,
+                    teams: comp.teams,
+                    matches: comp.matches,
+                    l10n: l10n,
+                    onTeamTap: (id) => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => TeamDetailScreen(teamId: id))),
+                  ),
+                ],
               ),
             );
           }
@@ -248,15 +282,15 @@ class _ShareCard extends StatelessWidget {
   final String         competitionTitle;
   final L10n           l10n;
 
-  static const _bg      = Color(0xFF0D1117);
-  static const _surface = Color(0xFF161B22);
-  static const _border  = Color(0xFF30363D);
-  static const _aqua    = Color(0xFF00C9A7);
-  static const _white   = Color(0xFFE6EDF3);
-  static const _hint    = Color(0xFF8B949E);
-  static const _gold    = Color(0xFFFFD700);
-  static const _green   = Color(0xFF3FB950);
-  static const _red     = Color(0xFFF85149);
+  static const _bg      = ShareColors.bg;
+  static const _surface = ShareColors.surface;
+  static const _border  = ShareColors.border;
+  static const _aqua    = ShareColors.aqua;
+  static const _white   = ShareColors.white;
+  static const _hint    = ShareColors.hint;
+  static const _gold    = ShareColors.gold;
+  static const _green   = ShareColors.green;
+  static const _red     = ShareColors.red;
 
   const _ShareCard({
     required this.groupName,

@@ -5,6 +5,7 @@ import '../../core/models/admin/admin_data.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import 'admin_ad_stats_screen.dart';
 import 'admin_error.dart';
 import 'admin_upload_button.dart';
 
@@ -811,16 +812,34 @@ class _AdsSectionState extends State<_AdsSection> {
         icon: const Icon(Icons.add),
         label: Text(isAr ? 'إعلان' : 'Ad'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _ads.isEmpty
-            ? ListView(children: [
-                const SizedBox(height: 120),
-                Center(
-                    child: Text(isAr ? 'لا إعلانات' : 'No ads',
-                        style: TextStyle(color: AppColors.hint))),
-              ])
-            : ListView.builder(
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) =>
+                        AdminAdStatsScreen(api: _api, token: _token)),
+              ),
+              icon: const Icon(Icons.bar_chart, size: 18),
+              label: Text(isAr ? 'إحصائيات الإعلانات' : 'Ad stats'),
+            ),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _ads.isEmpty
+                ? ListView(children: [
+                    const SizedBox(height: 120),
+                    Center(
+                        child: Text(isAr ? 'لا إعلانات' : 'No ads',
+                            style: TextStyle(color: AppColors.hint))),
+                  ])
+                : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
                 itemCount: _ads.length,
                 itemBuilder: (_, i) {
@@ -888,7 +907,9 @@ class _AdsSectionState extends State<_AdsSection> {
                   );
                 },
               ),
-      ),
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -906,20 +927,30 @@ class _AdEditor extends StatefulWidget {
 class _AdEditorState extends State<_AdEditor> {
   late final Map<String, TextEditingController> _c;
   bool _busy = false;
+  bool _active = true;
+  String _placement = 'interstitial';
 
   @override
   void initState() {
     super.initState();
     final a = widget.ad;
+    _active = a?.active ?? true;
+    _placement = a?.placement ?? 'interstitial';
     _c = {
       'name': TextEditingController(text: a?.name ?? ''),
       'image': TextEditingController(text: a?.image ?? ''),
+      'link': TextEditingController(text: a?.link ?? ''),
       'mobile_number': TextEditingController(text: a?.mobileNumber ?? ''),
       'whatsapp_number': TextEditingController(text: a?.whatsappNumber ?? ''),
       'facebook_link': TextEditingController(text: a?.facebookLink ?? ''),
       'youtube_video': TextEditingController(text: a?.youtubeVideo ?? ''),
       'location': TextEditingController(text: a?.location ?? ''),
       'location_url': TextEditingController(text: a?.locationUrl ?? ''),
+      'weight': TextEditingController(text: '${a?.weight ?? 1}'),
+      'feed_position': TextEditingController(text: '${a?.feedPosition ?? 3}'),
+      'feed_repeat':
+          TextEditingController(text: a?.feedRepeat?.toString() ?? ''),
+      'start_date': TextEditingController(text: a?.startDate ?? ''),
       'expire_date': TextEditingController(text: a?.expireDate ?? ''),
     };
   }
@@ -939,7 +970,11 @@ class _AdEditorState extends State<_AdEditor> {
       return;
     }
     setState(() => _busy = true);
-    final body = _c.map((k, v) => MapEntry(k, v.text.trim()));
+    final body = <String, dynamic>{
+      for (final e in _c.entries) e.key: e.value.text.trim(),
+      'active': _active,
+      'placement': _placement,
+    };
     try {
       if (widget.ad == null) {
         await widget.api.createAd(widget.token, body);
@@ -954,6 +989,29 @@ class _AdEditorState extends State<_AdEditor> {
       if (handleAdminError(context, e)) return;
       showAdminError(context, e);
     }
+  }
+
+  Widget _placeOpt(String value, String label) {
+    final on = _placement == value;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _placement = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? AppColors.aqua.withValues(alpha: 0.15) : AppColors.cardBg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: on ? AppColors.aqua : AppColors.border),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  color: on ? AppColors.aqua : AppColors.hint,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
   }
 
   @override
@@ -1004,6 +1062,7 @@ class _AdEditorState extends State<_AdEditor> {
               ),
             ),
             const SizedBox(height: 10),
+            f('link', isAr ? '🔗 رابط الإعلان (بالضغط على الصورة)' : '🔗 Ad link (whole-ad tap)', hint: 'https://…'),
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
@@ -1016,7 +1075,55 @@ class _AdEditorState extends State<_AdEditor> {
             f('youtube_video', isAr ? '▶ فيديو يوتيوب' : '▶ YouTube video', hint: 'https://…'),
             f('location', isAr ? '📍 اسم الموقع' : '📍 Location name'),
             f('location_url', isAr ? '🗺️ رابط الخريطة' : '🗺️ Map URL', hint: 'https://…'),
+            f('start_date', isAr ? 'تاريخ البدء (فارغ = الآن)' : 'Start date (empty = now)', hint: 'YYYY-MM-DD'),
             f('expire_date', isAr ? 'تاريخ الانتهاء (فارغ = دائم)' : 'Expiry date (empty = permanent)', hint: 'YYYY-MM-DD'),
+            f('weight', isAr ? 'الوزن (الأعلى يظهر أكثر)' : 'Weight (higher shows more)', hint: '1'),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(children: [
+                Expanded(child: _label(isAr ? 'مُفعّل' : 'Active')),
+                Switch(
+                  value: _active,
+                  activeColor: AppColors.aqua,
+                  onChanged: (v) => setState(() => _active = v),
+                ),
+              ]),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                _label(isAr ? 'مكان الظهور' : 'Placement'),
+                const SizedBox(height: 6),
+                Row(children: [
+                  _placeOpt('interstitial', isAr ? 'ملء الشاشة' : 'Fullscreen'),
+                  const SizedBox(width: 6),
+                  _placeOpt('feed', isAr ? 'في القائمة' : 'Feed'),
+                  const SizedBox(width: 6),
+                  _placeOpt('both', isAr ? 'كلاهما' : 'Both'),
+                ]),
+              ]),
+            ),
+            if (_placement == 'feed' || _placement == 'both') ...[
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                    child: f('feed_position',
+                        isAr ? 'الموضع (بعد مباراة رقم N)' : 'Slot (after match N)',
+                        hint: '3')),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: f('feed_repeat',
+                        isAr ? 'تكرار كل (فارغ = بدون)' : 'Repeat every (empty = none)',
+                        hint: isAr ? 'بدون' : 'none')),
+              ]),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text(
+                    isAr
+                        ? 'تظهر البطاقة بعد هذا العدد من المباريات بدءًا من مباريات اليوم. استخدم صورة بنسبة 2:1 (مثال 1200×600) لأنها تُعرض كاملة بدون عنوان.'
+                        : 'Card shows after this many matches starting from today\'s matches. Use a 2:1 image (e.g. 1200×600) — it renders full-bleed with no title.',
+                    style: TextStyle(color: AppColors.hint, fontSize: 11)),
+              ),
+            ],
             const SizedBox(height: 4),
             SizedBox(
               width: double.infinity,

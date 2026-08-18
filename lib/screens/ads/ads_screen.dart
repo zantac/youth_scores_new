@@ -6,6 +6,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/services/api_service.dart';
 import '../../widgets/common/loading_widget.dart';
 
 class AdsScreen extends StatelessWidget {
@@ -18,7 +19,7 @@ class AdsScreen extends StatelessWidget {
 
     if (provider.loadingConfig) return LoadingWidget(message: l10n.loading);
 
-    final ads     = provider.config?.ads ?? [];
+    final ads     = (provider.config?.ads ?? []).where((a) => a.isLive).toList();
     final version = provider.config?.appVersion;
 
     return ListView(
@@ -30,6 +31,13 @@ class AdsScreen extends StatelessWidget {
         const SizedBox(height: 24),
       ],
     );
+  }
+
+  // Log a click, then open the link.
+  void _openAd(AdItem ad, Uri uri,
+      {LaunchMode mode = LaunchMode.platformDefault}) {
+    if (ad.id > 0) ApiService().adClick(ad.id);
+    launchUrl(uri, mode: mode);
   }
 
   Widget _adCard(AdItem ad, L10n l10n, BuildContext context) {
@@ -72,9 +80,9 @@ class AdsScreen extends StatelessWidget {
                         icon: Icons.chat,
                         label: l10n.whatsapp,
                         color: const Color(0xFF25D366),
-                        onTap: () => launchUrl(
-                          Uri.parse(
-                              'https://wa.me/${ad.whatsappNumber}'),
+                        onTap: () => _openAd(
+                          ad,
+                          Uri.parse('https://wa.me/${ad.whatsappNumber}'),
                           mode: LaunchMode.externalApplication,
                         ),
                       ),
@@ -83,16 +91,16 @@ class AdsScreen extends StatelessWidget {
                         icon: Icons.phone,
                         label: l10n.call,
                         color: AppColors.teal,
-                        onTap: () => launchUrl(
-                          Uri.parse('tel:${ad.mobileNumber}'),
-                        ),
+                        onTap: () =>
+                            _openAd(ad, Uri.parse('tel:${ad.mobileNumber}')),
                       ),
                     if (ad.facebookLink != null)
                       _actionBtn(
                         icon: Icons.facebook,
                         label: l10n.facebook,
                         color: const Color(0xFF1877F2),
-                        onTap: () => launchUrl(
+                        onTap: () => _openAd(
+                          ad,
                           Uri.parse(ad.facebookLink!),
                           mode: LaunchMode.externalApplication,
                         ),
@@ -102,7 +110,8 @@ class AdsScreen extends StatelessWidget {
                         icon: Icons.play_circle,
                         label: l10n.youtube,
                         color: const Color(0xFFFF0000),
-                        onTap: () => launchUrl(
+                        onTap: () => _openAd(
+                          ad,
                           Uri.parse(ad.youtubeVideo!),
                           mode: LaunchMode.externalApplication,
                         ),
@@ -112,7 +121,8 @@ class AdsScreen extends StatelessWidget {
                         icon: Icons.map,
                         label: l10n.openMap,
                         color: AppColors.hint,
-                        onTap: () => launchUrl(
+                        onTap: () => _openAd(
+                          ad,
                           Uri.parse(ad.locationUrl!),
                           mode: LaunchMode.externalApplication,
                         ),

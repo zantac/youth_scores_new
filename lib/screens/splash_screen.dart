@@ -56,12 +56,10 @@ class _SplashScreenState extends State<SplashScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 100,
-                height: 100,
+                width: 110,
+                height: 110,
                 decoration: BoxDecoration(
-                  color: AppColors.cardBg,
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppColors.border, width: 2),
                   boxShadow: [
                     BoxShadow(
                       color: AppColors.aqua.withOpacity(0.15),
@@ -70,28 +68,14 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.sports_soccer,
-                  size: 56,
-                  color: AppColors.aqua,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Youth Scores',
-                style: TextStyle(
-                  color: AppColors.aqua,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'بطولات الناشئين',
-                style: TextStyle(
-                  color: AppColors.teal,
-                  fontSize: 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Image.asset(
+                    'assets/icon.png',
+                    width: 110,
+                    height: 110,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               const SizedBox(height: 40),

@@ -80,7 +80,11 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(30),
-            child: CachedLogo(url: c.photo, size: 60, borderRadius: 30),
+            child: CachedLogo(
+                url: c.photo,
+                size: 60,
+                borderRadius: 30,
+                placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -105,10 +109,9 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
   Widget _careerTile(CoachCareerEntry e, String locale, bool isAr) {
     final isManager = e.type == 'manager';
     final typeLabel = isManager ? (isAr ? 'إداري' : 'Manager') : (isAr ? 'مدرّب' : 'Coach');
-    final meta = [
-      e.ageName(locale),
-      e.seasonName(locale),
-    ].whereType<String>().join(' · ');
+    // Age and season sit on separate lines, mirroring the website.
+    final age    = e.ageName(locale);
+    final season = e.seasonName(locale);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -149,8 +152,10 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
                   [e.roleName(locale), typeLabel].where((s) => s.isNotEmpty).join(' · '),
                   style: TextStyle(color: AppColors.teal, fontSize: 12),
                 ),
-                if (meta.isNotEmpty)
-                  Text(meta, style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                if (age != null && age.isNotEmpty)
+                  Text(age, style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                if (season != null && season.isNotEmpty)
+                  Text(season, style: TextStyle(color: AppColors.hint, fontSize: 11)),
               ],
             ),
           ),

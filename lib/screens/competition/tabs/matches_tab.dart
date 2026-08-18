@@ -5,6 +5,7 @@ import '../../../core/l10n/app_l10n.dart';
 import '../../../core/models/competition_data_model.dart';
 import '../../../core/providers/app_provider.dart';
 import '../../../core/utils/date_utils.dart';
+import '../../../core/utils/share_image.dart';
 import '../../../widgets/common/empty_widget.dart';
 import '../../../widgets/match/match_card.dart';
 import '../../match/match_detail_screen.dart';
@@ -22,9 +23,55 @@ class _MatchesTabState extends State<MatchesTab>
   bool get wantKeepAlive => true;
 
   final Map<String, bool> _expanded = {};
+  final Map<String, bool> _sharing  = {};
   String? _selectedGroup; // null = show all groups
   final ScrollController _scrollController = ScrollController();
   bool _initialScrollDone = false;
+
+  // ── Share a round's matches as a PNG image ──────────────────────────────────
+  Future<void> _shareRound(
+    String key,
+    String week,
+    String date,
+    List<Match> matches,
+    L10n l10n,
+  ) async {
+    if (_sharing[key] == true) return;
+    setState(() => _sharing[key] = true);
+
+    final provider = context.read<AppProvider>();
+    final locale   = l10n.locale;
+    final rows = matches
+        .map((m) => (
+              home: provider.teamById(m.homeTeamId)?.getName(locale) ?? m.homeTeamId,
+              away: provider.teamById(m.awayTeamId)?.getName(locale) ?? m.awayTeamId,
+              homeScore: m.homeScore,
+              awayScore: m.awayScore,
+              completed: m.isCompleted,
+              time: m.time,
+            ))
+        .toList();
+    final roundLabel = week.isNotEmpty
+        ? '${l10n.week} $week'
+        : (l10n.isAr ? 'مباريات' : 'Matches');
+    final dateLabel =
+        date.isNotEmpty ? AppDateUtils.formatMatchDate(date, locale) : '';
+
+    await shareWidgetImage(
+      context,
+      filePrefix: 'round_${key.hashCode}',
+      errorText: l10n.isAr ? 'تعذّر مشاركة المباريات' : 'Could not share matches',
+      card: _RoundShareCard(
+        competitionTitle: provider.competitionTitle,
+        roundLabel: roundLabel,
+        dateLabel: dateLabel,
+        rows: rows,
+        isAr: l10n.isAr,
+      ),
+    );
+
+    if (mounted) setState(() => _sharing[key] = false);
+  }
 
   // Approximate height of a collapsed section header (px), used for auto-scroll.
   static const double _kHeaderHeight = 45.0;
@@ -174,10 +221,13 @@ class _MatchesTabState extends State<MatchesTab>
                           date: date,
                           count: matches.length,
                           expanded: isOpen,
+                          sharing: _sharing[key] == true,
                           l10n: l10n,
                           onTap: () => setState(
                             () => _expanded[key] = !isOpen,
                           ),
+                          onShare: () =>
+                              _shareRound(key, week, date, matches, l10n),
                         ),
                         if (isOpen)
                           _MatchGrouped(
@@ -246,16 +296,20 @@ class _RoundHeader extends StatelessWidget {
   final String date;
   final int count;
   final bool expanded;
+  final bool sharing;
   final L10n l10n;
   final VoidCallback onTap;
+  final VoidCallback onShare;
 
   const _RoundHeader({
     required this.week,
     required this.date,
     required this.count,
     required this.expanded,
+    required this.sharing,
     required this.l10n,
     required this.onTap,
+    required this.onShare,
   });
 
   @override
@@ -318,6 +372,24 @@ class _RoundHeader extends StatelessWidget {
                 style: TextStyle(color: AppColors.aqua, fontSize: 12),
               ),
             ),
+            const SizedBox(width: 4),
+            // Share the round as an image
+            if (sharing)
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else
+              IconButton(
+                icon: Icon(Icons.share, color: AppColors.aqua, size: 18),
+                tooltip: l10n.share,
+                visualDensity: VisualDensity.compact,
+                onPressed: onShare,
+              ),
           ],
         ),
       ),
@@ -389,5 +461,156 @@ class _MatchGrouped extends StatelessWidget {
       }).toList(),
     );
   }
+}
+
+// ── Round share card — rendered off-screen and captured as PNG ────────────────
+
+typedef _RoundRow = ({
+  String home,
+  String away,
+  int? homeScore,
+  int? awayScore,
+  bool completed,
+  String time,
+});
+
+class _RoundShareCard extends StatelessWidget {
+  final String competitionTitle;
+  final String roundLabel;
+  final String dateLabel;
+  final List<_RoundRow> rows;
+  final bool isAr;
+
+  const _RoundShareCard({
+    required this.competitionTitle,
+    required this.roundLabel,
+    required this.dateLabel,
+    required this.rows,
+    required this.isAr,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle =
+        [roundLabel, if (dateLabel.isNotEmpty) dateLabel].join('  ·  ');
+
+    return Container(
+      width: 420,
+      decoration: const BoxDecoration(color: ShareColors.bg),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Row(
+            children: [
+              const Text('⚽', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (competitionTitle.isNotEmpty)
+                      Text(competitionTitle,
+                          style: const TextStyle(
+                              color: ShareColors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14)),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            color: ShareColors.aqua,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Match rows
+          ...rows.asMap().entries.map((e) {
+            final i = e.key;
+            final r = e.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: i.isEven
+                    ? ShareColors.surface.withValues(alpha: 0.7)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: ShareColors.border.withValues(alpha: 0.6)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(r.home,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(
+                            color: ShareColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 8),
+                  ..._middle(r),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(r.away,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.start,
+                        style: const TextStyle(
+                            color: ShareColors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            );
+          }),
+
+          const SizedBox(height: 14),
+          const ShareBrandFooter(),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _middle(_RoundRow r) {
+    if (r.completed && r.homeScore != null && r.awayScore != null) {
+      return [
+        _score('${r.homeScore}'),
+        const Text(' - ',
+            style: TextStyle(color: ShareColors.hint, fontSize: 14)),
+        _score('${r.awayScore}'),
+      ];
+    }
+    final label = r.time.isNotEmpty ? r.time : (isAr ? 'ضد' : 'vs');
+    return [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: ShareColors.surface,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(label,
+            style: const TextStyle(color: ShareColors.hint, fontSize: 12)),
+      ),
+    ];
+  }
+
+  Widget _score(String s) => SizedBox(
+        width: 24,
+        child: Text(s,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: ShareColors.aqua,
+                fontSize: 16,
+                fontWeight: FontWeight.bold)),
+      );
 }
 

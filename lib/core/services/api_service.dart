@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:http/http.dart' as http;
 import '../models/config_model.dart';
 import '../models/competition_data_model.dart';
@@ -102,6 +103,47 @@ class ApiService {
 
   Future<ClubPublic> fetchClub(int id) async =>
       ClubPublic.fromJson(await _getJson('/api/clubs/$id'));
+
+  /// A standalone team profile (`/api/teams/<id>`) — identity, club, age,
+  /// seasons/competitions, staff and roster, independent of any competition.
+  Future<TeamPublic> fetchTeam(int id) async =>
+      TeamPublic.fromJson(await _getJson('/api/teams/$id'));
+
+  // ── First-party ad analytics (fire-and-forget) ─────────────────────────────
+  static String get _platform =>
+      kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase();
+
+  Future<void> adImpression(int adId, {String? placement}) =>
+      _adEvent(adId, 'impression', placement);
+  Future<void> adClick(int adId, {String? placement}) =>
+      _adEvent(adId, 'click', placement);
+
+  Future<void> _adEvent(int adId, String kind, String? placement) async {
+    if (adId <= 0) return;
+    try {
+      await http
+          .post(
+            Uri.parse('$_origin/api/ads/$adId/$kind'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'platform': _platform,
+              if (placement != null) 'placement': placement,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      // Analytics must never disrupt the user — swallow all failures.
+    }
+  }
+
+  /// The clubs directory (`/api/clubs`) — id, name, city and logo per club.
+  Future<List<ClubListItem>> fetchClubs() async {
+    final j = await _getJson('/api/clubs');
+    return (j['clubs'] as List? ?? [])
+        .whereType<Map<String, dynamic>>()
+        .map(ClubListItem.fromJson)
+        .toList();
+  }
 
   /// Global search over teams, players and coaches (`/api/search?q=`). Mirrors
   /// the website's search; returns empty for terms shorter than two chars.

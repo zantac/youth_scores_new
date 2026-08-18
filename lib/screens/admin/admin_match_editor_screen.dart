@@ -119,6 +119,13 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   String _hm(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+  // 12-hour display (the value is still stored as 24h "HH:mm").
+  String _fmt12(TimeOfDay t) {
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m ${t.period == DayPeriod.am ? 'AM' : 'PM'}';
+  }
+
   int? _num(TextEditingController c) =>
       c.text.trim().isEmpty ? null : int.tryParse(c.text.trim());
 
@@ -329,12 +336,17 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               child: AdminField(
                 label: isAr ? 'الوقت' : 'Time',
                 child: _picker(
-                  _time == null ? '—' : _hm(_time!),
+                  _time == null ? '—' : _fmt12(_time!),
                   Icons.access_time,
                   () async {
                     final t = await showTimePicker(
                         context: context,
-                        initialTime: _time ?? const TimeOfDay(hour: 18, minute: 0));
+                        initialTime: _time ?? const TimeOfDay(hour: 18, minute: 0),
+                        builder: (context, child) => MediaQuery(
+                              data: MediaQuery.of(context)
+                                  .copyWith(alwaysUse24HourFormat: false),
+                              child: child!,
+                            ));
                     if (t != null) setState(() => _time = t);
                   },
                 ),

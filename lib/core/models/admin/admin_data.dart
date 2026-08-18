@@ -342,6 +342,13 @@ class AdminAd {
   final String? whatsappNumber;
   final String? location;
   final String? locationUrl;
+  final String? link;
+  final String? startDate;
+  final bool active;
+  final int weight;
+  final String placement;
+  final int feedPosition;
+  final int? feedRepeat;
   final String? expireDate;
   const AdminAd({
     required this.id,
@@ -353,6 +360,13 @@ class AdminAd {
     this.whatsappNumber,
     this.location,
     this.locationUrl,
+    this.link,
+    this.startDate,
+    this.active = true,
+    this.weight = 1,
+    this.placement = 'interstitial',
+    this.feedPosition = 3,
+    this.feedRepeat,
     this.expireDate,
   });
 
@@ -366,6 +380,13 @@ class AdminAd {
         whatsappNumber: _s(j['whatsapp_number']),
         location: _s(j['location']),
         locationUrl: _s(j['location_url']),
+        link: _s(j['link']),
+        startDate: _s(j['start_date']),
+        active: j['active'] != false,
+        weight: _i(j['weight']) < 1 ? 1 : _i(j['weight']),
+        placement: j['placement']?.toString() ?? 'interstitial',
+        feedPosition: int.tryParse(j['feed_position']?.toString() ?? '') ?? 3,
+        feedRepeat: int.tryParse(j['feed_repeat']?.toString() ?? ''),
         expireDate: _s(j['expire_date']),
       );
 }
