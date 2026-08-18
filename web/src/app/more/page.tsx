@@ -4,7 +4,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 
 // The "More" hub reached from the bottom bar — mirrors the Android app's More
-// screen: Favourites and Contact us, each opening its own page.
+// screen: Favourites, Contact us, About, Privacy Policy and Terms.
 export default function MorePage() {
   const { locale } = useApp();
   const isAr = locale === 'ar';
@@ -26,6 +26,27 @@ export default function MorePage() {
           emoji="💬"
           title={isAr ? 'تواصل معنا' : 'Contact Us'}
           sub={isAr ? 'أرسل النتائج وتواصل معنا' : 'Submit results and reach us'}
+          isAr={isAr}
+        />
+        <MoreTile
+          href="/about"
+          emoji="ℹ️"
+          title={isAr ? 'من نحن' : 'About'}
+          sub={isAr ? 'عن يوث سكورز' : 'About Youth Scores'}
+          isAr={isAr}
+        />
+        <MoreTile
+          href="/privacy-policy"
+          emoji="🔒"
+          title={isAr ? 'سياسة الخصوصية' : 'Privacy Policy'}
+          sub={isAr ? 'كيف نتعامل مع بياناتك' : 'How we handle your data'}
+          isAr={isAr}
+        />
+        <MoreTile
+          href="/terms"
+          emoji="📄"
+          title={isAr ? 'الشروط والأحكام' : 'Terms'}
+          sub={isAr ? 'شروط الاستخدام' : 'Terms of use'}
           isAr={isAr}
         />
       </div>

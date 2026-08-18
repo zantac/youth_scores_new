@@ -235,15 +235,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-hint">
-            <Link href="/about"          className="hover:text-aqua">{isAr ? 'من نحن'           : 'About'}</Link>
-            <span className="text-bdr">·</span>
-            <Link href="/privacy-policy" className="hover:text-aqua">{isAr ? 'سياسة الخصوصية' : 'Privacy Policy'}</Link>
-            <span className="text-bdr">·</span>
-            <Link href="/terms"          className="hover:text-aqua">{isAr ? 'الشروط والأحكام' : 'Terms'}</Link>
-            <span className="text-bdr">·</span>
-            <Link href="/contact"        className="hover:text-aqua">{isAr ? 'اتصل بنا'        : 'Contact'}</Link>
-          </div>
+          {/* About / Privacy / Terms / Contact now live in the More tab. */}
           <p className="text-center text-bdr text-[10px]">© 2025 Youth Scores · youthscores.org</p>
         </footer>
       </div>
