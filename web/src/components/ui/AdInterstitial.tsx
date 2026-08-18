@@ -33,6 +33,7 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   const fbLink = safeUrl(ad.facebook_link);
   const ytLink = safeUrl(ad.youtube_video);
   const locLink = safeUrl(ad.location_url);
+  const hasActions = !!(ad.whatsapp_number || ad.mobile_number || fbLink || ytLink || locLink);
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
@@ -57,9 +58,10 @@ export default function AdInterstitial({ ad, onClose }: Props) {
         </div>
       )}
 
-      {/* Bottom gradient — ad name + action buttons */}
+      {/* Bottom gradient — action buttons only. The ad name is an internal
+          admin label and is not shown to users. */}
+      {hasActions && (
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-10 pt-16">
-        <p className="text-white font-bold text-lg mb-3 drop-shadow">{ad.name}</p>
         <div className="flex flex-wrap gap-2">
           {ad.whatsapp_number && (
             <a href={`https://wa.me/${ad.whatsapp_number}`} target="_blank" rel="noopener noreferrer" onClick={click}
@@ -93,6 +95,7 @@ export default function AdInterstitial({ ad, onClose }: Props) {
           )}
         </div>
       </div>
+      )}
 
       {/* Top-right: pulsing countdown → close button */}
       <div className="absolute top-4 right-4">
