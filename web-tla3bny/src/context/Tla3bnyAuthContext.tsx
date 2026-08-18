@@ -116,6 +116,14 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     if (token && user) subscribeAccount(token).catch(() => {});
   }, [token, user]);
 
+  // The API client fires this when any request gets a 401 (token expired or
+  // revoked). Reset to logged-out so the UI stops using a dead token.
+  useEffect(() => {
+    const onExpired = () => logout();
+    window.addEventListener('tla3bny-session-expired', onExpired);
+    return () => window.removeEventListener('tla3bny-session-expired', onExpired);
+  }, [logout]);
+
   const canAdminCompetition = useCallback(
     (compId: number) =>
       user?.role === 'super_admin' || competitions.some(c => c.id === compId),

@@ -7,6 +7,7 @@ empty), so the academy is the searchable identity (mirrors youthscores' clubs).
 import sqlalchemy as sa
 from flask import jsonify, request
 
+from app.extensions import limiter
 from app.models import Tla3bnyAcademy, Tla3bnyCoach, Tla3bnyPlayer
 
 from . import tla3bny_bp
@@ -15,6 +16,7 @@ _LIMIT = 12
 
 
 @tla3bny_bp.get("/search")
+@limiter.limit("60 per minute")
 def search():
     q = (request.args.get("q") or "").strip()
     # At least two characters, so a single keystroke doesn't scan the name tables.
