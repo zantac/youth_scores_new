@@ -3,6 +3,7 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from app.api import serializers
+from app.extensions import limiter
 
 api_bp = Blueprint("api", __name__)
 
@@ -108,9 +109,12 @@ def clubs_index():
 
 
 @api_bp.get("/api/search")
+@limiter.limit("60 per minute")
 def search():
     # Free-text search across clubs, players and coaches. Needs at least two
     # characters so a single keystroke doesn't scan the whole name tables.
+    # Rate-limited: the ILIKE '%q%' scan can't use an index, so it's a cheap
+    # DoS lever without a per-IP cap.
     q = (request.args.get("q") or "").strip()
     if len(q) < 2:
         return jsonify({"clubs": [], "players": [], "coaches": []})

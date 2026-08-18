@@ -41,6 +41,29 @@ def create_app(config_name: str | None = None) -> Flask:
                 "ADMIN_API_KEY is not set or is still the development default. "
                 "Set the ADMIN_API_KEY environment variable to a secure random value."
             )
+        # In production the CORS wildcard is disabled (see _cors below): with no
+        # ALLOWED_ORIGINS, same-origin requests (the site + API share an origin on
+        # Railway) still work, and cross-origin ones get no ACAO header. Only warn
+        # so a genuinely cross-origin setup knows it must list its origins.
+        if not (app.config.get("ALLOWED_ORIGINS") or "").strip():
+            app.logger.warning(
+                "ALLOWED_ORIGINS is not set — cross-origin browser clients will be "
+                "blocked (same-origin is unaffected). Set it to a comma-separated "
+                "list of exact origins if you serve the API cross-origin."
+            )
+        # Never run production against the throwaway local SQLite fallback.
+        if str(app.config.get("SQLALCHEMY_DATABASE_URI", "")).startswith("sqlite"):
+            raise RuntimeError(
+                "DATABASE_URL is not set — refusing to start production against the "
+                "local SQLite fallback. Point DATABASE_URL at the real database."
+            )
+        # Rate limits stored in per-worker memory don't hold across gunicorn
+        # workers or restarts. Warn (don't fail) so limits can be made global.
+        if os.environ.get("RATELIMIT_STORAGE_URI", "memory://").startswith("memory"):
+            app.logger.warning(
+                "RATELIMIT_STORAGE_URI is unset — rate limits are per-worker and "
+                "reset on restart. Set it to redis://… so limits are shared."
+            )
 
     # Behind a reverse proxy (Railway), trust X-Forwarded-Proto/Host so
     # request.host_url reflects the real https://<domain> — the config feed
@@ -117,8 +140,8 @@ def create_app(config_name: str | None = None) -> Flask:
             if origin in _origin_set:
                 response.headers["Access-Control-Allow-Origin"] = origin
                 response.headers["Vary"] = "Origin"
-        else:
-            # Development fallback — wildcard is fine when DEBUG=True.
+        elif app.config.get("DEBUG"):
+            # Development-only fallback (production requires ALLOWED_ORIGINS).
             response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Key"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"

@@ -566,7 +566,16 @@ function authHeaders(token?: string | null, json = false): HeadersInit {
 
 async function parse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      // Token rejected (expired/revoked, e.g. after a password change) — drop it
+      // and signal the auth provider to reset to logged-out instead of retrying
+      // with a dead token.
+      localStorage.removeItem('tla3bny_token');
+      window.dispatchEvent(new Event('tla3bny-session-expired'));
+    }
+    throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  }
   return data as T;
 }
 
