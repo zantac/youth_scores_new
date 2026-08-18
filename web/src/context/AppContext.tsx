@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type { ConfigData, CompetitionData, AdItem } from '@/lib/types';
 import { fetchConfig, fetchCompetition } from '@/lib/api';
 import { initNotifications } from '@/lib/notifications';
+import { adNotExpired } from '@/lib/utils';
 
 interface AppContextValue {
   locale: 'ar' | 'en';
@@ -54,7 +55,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date();
     // Interstitial pick only — feed-only ads render in the match feed instead.
     const valid = cfg.ads.filter(a =>
-      (!a.expire_date || new Date(a.expire_date) > now) &&
+      adNotExpired(a.expire_date, now) &&
       (a.placement ?? 'interstitial') !== 'feed');
     if (!valid.length) return null;
 
