@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
+import { safeUrl } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
 interface Props {
@@ -27,13 +28,18 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   const click = () => apiAdClick(ad.id, 'interstitial');
 
   const hasImage = !!ad.image?.startsWith('http');
+  // Scheme-check every admin-supplied URL before it reaches an href.
+  const link = safeUrl(ad.link);
+  const fbLink = safeUrl(ad.facebook_link);
+  const ytLink = safeUrl(ad.youtube_video);
+  const locLink = safeUrl(ad.location_url);
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
 
       {/* Fullscreen image or placeholder — the whole ad taps through to `link`. */}
-      {ad.link ? (
-        <a href={ad.link} target="_blank" rel="noopener noreferrer" onClick={click}
+      {link ? (
+        <a href={link} target="_blank" rel="noopener noreferrer" onClick={click}
           className="absolute inset-0 block">
           {hasImage
             ? <img src={ad.image} alt={ad.name} className="w-full h-full object-contain" />
@@ -67,20 +73,20 @@ export default function AdInterstitial({ ad, onClose }: Props) {
               📞 اتصال
             </a>
           )}
-          {ad.facebook_link && (
-            <a href={ad.facebook_link} target="_blank" rel="noopener noreferrer" onClick={click}
+          {fbLink && (
+            <a href={fbLink} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#1877F2]/60 bg-[#1877F2]/20 text-[#1877F2] text-xs font-semibold">
               📘 Facebook
             </a>
           )}
-          {ad.youtube_video && (
-            <a href={ad.youtube_video} target="_blank" rel="noopener noreferrer" onClick={click}
+          {ytLink && (
+            <a href={ytLink} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-500/60 bg-red-500/20 text-red-400 text-xs font-semibold">
               ▶ YouTube
             </a>
           )}
-          {ad.location_url && (
-            <a href={ad.location_url} target="_blank" rel="noopener noreferrer" onClick={click}
+          {locLink && (
+            <a href={locLink} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white/70 text-xs font-semibold">
               📍 الموقع
             </a>

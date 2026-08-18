@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import { fetchClub } from '@/lib/api';
-import { localize } from '@/lib/utils';
+import { localize, safeUrl } from '@/lib/utils';
 import type { ClubPublic } from '@/lib/types';
 
 export default function ClubPage() {
@@ -35,7 +35,9 @@ function ClubProfile() {
   const socials = c ? ([
     ['website', c.website, '🌐'], ['facebook', c.facebook, 'f'],
     ['instagram', c.instagram, '📷'], ['youtube', c.youtube, '▶'], ['twitter', c.twitter, '𝕏'],
-  ] as const).filter(([, url]) => url) : [];
+  ] as const)
+    .map(([k, url, icon]) => [k, safeUrl(url), icon] as const)
+    .filter(([, url]) => url) : [];
 
   return (
     <>

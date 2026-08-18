@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { mediaUrl, whatsappLink, tAdSettings, type TAd, type TAdSettings } from '@/lib/tla3bnyApi';
+import { safeUrl } from '@/lib/utils';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { useTT } from './kit';
 
@@ -44,10 +45,14 @@ export default function AdCard({ ad, variant = 'poster' }: { ad: TAd; variant?: 
   const buttons: { href: string; label: string; icon: ReactNode; cls: string }[] = [];
   if (wa) buttons.push({ href: wa, label: tt('واتساب', 'WhatsApp'), icon: <WhatsAppIcon />, cls: 'text-win' });
   if (ad.phone) buttons.push({ href: `tel:${ad.phone}`, label: tt('اتصال', 'Call'), icon: '📞', cls: '' });
-  if (ad.facebook_url) buttons.push({ href: ad.facebook_url, label: 'Facebook', icon: 'f', cls: 'text-[#1877F2]' });
-  if (ad.instagram_url) buttons.push({ href: ad.instagram_url, label: 'Instagram', icon: '◎', cls: 'text-[#E4405F]' });
-  if (ad.website_url) buttons.push({ href: ad.website_url, label: tt('الموقع الالكتروني', 'Website'), icon: '🌐', cls: 'text-teal' });
-  if (ad.location_url) buttons.push({ href: ad.location_url, label: tt('الخريطة', 'Map'), icon: '📍', cls: '' });
+  const fbUrl = safeUrl(ad.facebook_url);
+  const igUrl = safeUrl(ad.instagram_url);
+  const webUrl = safeUrl(ad.website_url);
+  const locUrl = safeUrl(ad.location_url);
+  if (fbUrl) buttons.push({ href: fbUrl, label: 'Facebook', icon: 'f', cls: 'text-[#1877F2]' });
+  if (igUrl) buttons.push({ href: igUrl, label: 'Instagram', icon: '◎', cls: 'text-[#E4405F]' });
+  if (webUrl) buttons.push({ href: webUrl, label: tt('الموقع الالكتروني', 'Website'), icon: '🌐', cls: 'text-teal' });
+  if (locUrl) buttons.push({ href: locUrl, label: tt('الخريطة', 'Map'), icon: '📍', cls: '' });
 
   const isStrip = variant === 'strip';
   const external = (href: string) => href.startsWith('http');
@@ -56,7 +61,7 @@ export default function AdCard({ ad, variant = 'poster' }: { ad: TAd; variant?: 
     <a
       key={b.label} href={b.href}
       target={external(b.href) ? '_blank' : undefined}
-      rel={external(b.href) ? 'noreferrer' : undefined}
+      rel={external(b.href) ? 'noopener noreferrer' : undefined}
       aria-label={b.label} title={b.label}
       onClick={e => e.stopPropagation()}
       className={`inline-flex items-center justify-center text-[18px] font-bold w-9 h-9 ${b.cls}`}

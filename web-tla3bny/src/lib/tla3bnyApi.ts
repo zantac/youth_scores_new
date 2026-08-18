@@ -608,11 +608,12 @@ export function tRegister(fd: {
 
 export const tMe = (token: string) => get<TMeResponse>('/auth/me', token).catch(() => null);
 
-/** Change your own username / email / password. */
+/** Change your own username / email / password. Returns the updated user plus,
+ *  when the password changed, a fresh token (the old one is now invalidated). */
 export const tUpdateCredentials = (
   token: string,
   b: { username?: string; email?: string; password?: string },
-) => send<TUser>('PUT', '/auth/credentials', b, token);
+) => send<{ user: TUser; token?: string }>('PUT', '/auth/credentials', b, token);
 
 /** Upload one image and get back the path to put in a gallery. */
 export function tUploadImage(token: string, file: File) {

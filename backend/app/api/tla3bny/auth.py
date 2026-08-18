@@ -133,13 +133,21 @@ def update_own_credentials():
     if "email" in data:
         user.email = new_email
     password = data.get("password") or ""
+    changed_password = False
     if password:
         pw_err = _validate_password(password)
         if pw_err:
             return _err(pw_err)
         user.set_password(password)
+        changed_password = True
     db.session.commit()
-    return jsonify(user.to_dict())
+    result: dict = {"user": user.to_dict()}
+    if changed_password:
+        # set_password bumped token_version, invalidating every existing session
+        # (including this request's). Hand back a fresh token so the caller stays
+        # signed in while any other/stolen sessions are logged out.
+        result["token"] = auth.generate_token(user)
+    return jsonify(result)
 
 
 @tla3bny_bp.get("/auth/me")

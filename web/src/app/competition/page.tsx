@@ -12,7 +12,7 @@ import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
 import {
   standingsByGroup, topScorers, topAssisters, cleanSheets,
   yellowCards, redCards, teamGoalStats, splitScorers,
-  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition,
+  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition, safeUrl,
 } from '@/lib/utils';
 import { competitionDataUrl } from '@/lib/api';
 
@@ -977,8 +977,8 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
                 <span className="text-2xl">🏟️</span>
                 <div className="flex-1">
                   <p className="text-hint text-xs mb-0.5">{isAr ? 'الملعب' : 'Field'}</p>
-                  {team.fieldurl ? (
-                    <a href={team.fieldurl} target="_blank" rel="noopener noreferrer" className="text-aqua text-sm underline">{team.field}</a>
+                  {safeUrl(team.fieldurl) ? (
+                    <a href={safeUrl(team.fieldurl)} target="_blank" rel="noopener noreferrer" className="text-aqua text-sm underline">{team.field}</a>
                   ) : (
                     <p className="text-text text-sm">{team.field}</p>
                   )}
