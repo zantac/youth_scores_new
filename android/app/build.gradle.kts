@@ -17,7 +17,9 @@ plugins {
 
 android {
     namespace = "com.waellotfy.youthscores"
-    compileSdk = flutter.compileSdkVersion
+    // Pinned to 36 (Android 16): Google Play requires new/updated apps to target
+    // API 36+. Explicit so a build on an older Flutter can't silently regress it.
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -31,7 +33,8 @@ android {
         applicationId = "com.waellotfy.youthscores"
         // Firebase needs a modern minimum; 23 (Android 6) is a safe floor.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        // Android 16 — required by Google Play for new/updated app submissions.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
