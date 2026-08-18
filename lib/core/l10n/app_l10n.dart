@@ -23,7 +23,7 @@ class L10n {
   String get more          => isAr ? 'المزيد ›'             : 'More ›';
   String get contactUs     => isAr ? 'تواصل معنا'          : 'Contact Us';
   String get moreLabel     => isAr ? 'المزيد'               : 'More';
-  String get connect       => isAr ? 'تواصل معنا'          : 'Connect';
+  String get connect       => isAr ? 'تواصل معنا'          : 'Contact Us';
   String get favorites     => isAr ? 'المفضلة'             : 'Favourites';
 
   // Match status
