@@ -1,14 +1,19 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/admin_api.dart';
 
-/// Holds the admin session (bearer token + user). The token is persisted in
-/// SharedPreferences so an admin stays logged in between launches — validated
+/// Holds the admin session (bearer token + user). The token is persisted in the
+/// platform keystore via flutter_secure_storage (Android Keystore / iOS
+/// Keychain) so it is never in plaintext prefs or device backups — validated
 /// against /me on startup and cleared on expiry. Mirrors the website's
 /// AdminAuthContext (which uses sessionStorage; on mobile we favour staying
 /// logged in for on-the-go data entry).
 class AdminAuth extends ChangeNotifier {
   static const _tokenKey = 'ys_admin_token';
+
+  // Keystore-backed on Android / Keychain on iOS (secure defaults in v11).
+  final FlutterSecureStorage _secure = const FlutterSecureStorage();
 
   final AdminApi _api = AdminApi();
 
@@ -23,10 +28,24 @@ class AdminAuth extends ChangeNotifier {
 
   AdminApi get api => _api;
 
+  /// Read the token from secure storage, migrating a legacy plaintext-prefs
+  /// token (written before this was hardened) on the first launch after upgrade.
+  Future<String?> _readToken() async {
+    final secure = await _secure.read(key: _tokenKey);
+    if (secure != null && secure.isNotEmpty) return secure;
+    final prefs = await SharedPreferences.getInstance();
+    final legacy = prefs.getString(_tokenKey);
+    if (legacy != null && legacy.isNotEmpty) {
+      await _secure.write(key: _tokenKey, value: legacy);
+      await prefs.remove(_tokenKey); // don't leave it in plaintext
+      return legacy;
+    }
+    return null;
+  }
+
   /// Restore a saved token and validate it. Safe to call once at startup.
   Future<void> restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_tokenKey);
+    final saved = await _readToken();
     if (saved == null || saved.isEmpty) {
       _loading = false;
       notifyListeners();
@@ -38,7 +57,7 @@ class AdminAuth extends ChangeNotifier {
       _user = u;
     } else {
       _token = null;
-      await prefs.remove(_tokenKey);
+      await _secure.delete(key: _tokenKey);
     }
     _loading = false;
     notifyListeners();
@@ -49,16 +68,14 @@ class AdminAuth extends ChangeNotifier {
     final res = await _api.login(username, password);
     _token = res.token;
     _user = res.user;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, res.token);
+    await _secure.write(key: _tokenKey, value: res.token);
     notifyListeners();
   }
 
   Future<void> logout() async {
     _token = null;
     _user = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
+    await _secure.delete(key: _tokenKey);
     notifyListeners();
   }
 

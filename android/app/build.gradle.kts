@@ -17,9 +17,10 @@ plugins {
 
 android {
     namespace = "com.waellotfy.youthscores"
-    // Pinned to 36 (Android 16): Google Play requires new/updated apps to target
-    // API 36+. Explicit so a build on an older Flutter can't silently regress it.
-    compileSdk = 36
+    // compileSdk 37: some plugins (flutter_secure_storage) require it. This only
+    // affects what we compile against (backward compatible); Play enforces the
+    // TARGET sdk, pinned to 36 below.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -51,6 +52,15 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            // Shrink + obfuscate Java/Kotlin (plugins) and strip unused resources
+            // for a smaller, harder-to-reverse release. Dart is obfuscated
+            // separately via `flutter build --obfuscate --split-debug-info`.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
