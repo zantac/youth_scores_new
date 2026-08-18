@@ -7,6 +7,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/loading_widget.dart';
 
 class AdsScreen extends StatelessWidget {
@@ -37,7 +38,7 @@ class AdsScreen extends StatelessWidget {
   void _openAd(AdItem ad, Uri uri,
       {LaunchMode mode = LaunchMode.platformDefault}) {
     if (ad.id > 0) ApiService().adClick(ad.id);
-    launchUrl(uri, mode: mode);
+    launchExternal(uri, mode: mode);
   }
 
   Widget _adCard(AdItem ad, L10n l10n, BuildContext context) {

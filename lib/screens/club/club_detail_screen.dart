@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../coach/coach_detail_screen.dart';
 import '../team/team_profile_screen.dart';
@@ -27,7 +27,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
   }
 
   void _open(String url) {
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    launchExternal(safeUri(url));
   }
 
   @override

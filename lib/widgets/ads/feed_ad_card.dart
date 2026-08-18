@@ -1,9 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/safe_launch.dart';
 
 /// A native sponsored card shown inline in the home feed as a flush 2:1 image,
 /// styled to blend in with the match cards around it. Logs a feed impression
@@ -25,24 +25,25 @@ class _FeedAdCardState extends State<FeedAdCard> {
     }
   }
 
-  // Where a tap goes: the explicit link, else the first available contact.
-  String? get _dest {
+  // Where a tap goes: the explicit link, else the first available contact. Each
+  // candidate is scheme-checked so a malicious link field can't open anything
+  // but a real http(s)/tel/mailto target.
+  Uri? get _dest {
     final a = widget.ad;
-    return a.link ??
-        a.facebookLink ??
-        a.youtubeVideo ??
-        a.locationUrl ??
-        (a.whatsappNumber != null ? 'https://wa.me/${a.whatsappNumber}' : null);
+    return safeUri(a.link) ??
+        safeUri(a.facebookLink) ??
+        safeUri(a.youtubeVideo) ??
+        safeUri(a.locationUrl) ??
+        (a.whatsappNumber != null
+            ? safeUri('https://wa.me/${Uri.encodeComponent(a.whatsappNumber!)}')
+            : null);
   }
 
   void _open() {
     if (widget.ad.id > 0) {
       ApiService().adClick(widget.ad.id, placement: 'feed');
     }
-    final url = _dest;
-    if (url != null) {
-      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    }
+    launchExternal(_dest);
   }
 
   @override

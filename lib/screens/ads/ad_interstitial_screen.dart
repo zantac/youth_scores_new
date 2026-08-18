@@ -9,6 +9,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/safe_launch.dart';
 
 class AdInterstitialScreen extends StatefulWidget {
   final WidgetBuilder destinationBuilder;
@@ -163,7 +164,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
     if (ad != null && ad.id > 0) {
       ApiService().adClick(ad.id, placement: 'interstitial');
     }
-    launchUrl(uri, mode: mode);
+    launchExternal(uri, mode: mode);
   }
 
   @override

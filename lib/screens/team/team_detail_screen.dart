@@ -1,13 +1,13 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/competition_data_model.dart';
 import '../../core/models/follows.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/utils/roster_position.dart';
+import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../../widgets/match/match_card.dart';
 import '../../widgets/stats/player_matches_sheet.dart' show showPlayerMatchesSheet, PlayerStatType;
@@ -491,7 +491,7 @@ class _CoachingStaffPage extends StatelessWidget {
                 const SizedBox(height: 2),
                 url != null
                     ? InkWell(
-                        onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+                        onTap: () => launchExternal(safeUri(url)),
                         child: Text(
                           field,
                           style: TextStyle(
