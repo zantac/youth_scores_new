@@ -16,11 +16,21 @@ class CoachDetailScreen extends StatefulWidget {
 
 class _CoachDetailScreenState extends State<CoachDetailScreen> {
   late Future<CoachFull> _future;
+  // Own controller so the list never attaches to the app-wide
+  // PrimaryScrollController and can't restore a stale offset (which otherwise
+  // sometimes opened the screen scrolled down); keepScrollOffset:false = top.
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void initState() {
     super.initState();
     _future = ApiService().fetchCoach(widget.coachId);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   @override
@@ -44,6 +54,7 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
           }
           final c = snap.data!;
           return ListView(
+            controller: _scroll,
             padding: const EdgeInsets.all(14),
             children: [
               _header(c, locale, isAr),
@@ -65,10 +76,8 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
   }
 
   Widget _header(CoachFull c, String locale, bool isAr) {
-    final sub = [
-      if (c.birthYear != null) '${isAr ? 'مواليد' : 'Born'} ${c.birthYear}',
-      c.getNationality(locale),
-    ].whereType<String>().join(' · ');
+    // Mirrors the site hero: birth year + nationality as teal pill chips.
+    final nationality = c.getNationality(locale);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -77,13 +86,15 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(16),
             child: CachedLogo(
                 url: c.photo,
-                size: 60,
-                borderRadius: 30,
+                size: 72,
+                borderRadius: 16,
+                fit: BoxFit.cover,
                 placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 14),
@@ -94,10 +105,16 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
                 Text(c.getName(locale),
                     style: TextStyle(
                         color: AppColors.aqua, fontSize: 18, fontWeight: FontWeight.bold)),
-                if (sub.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(sub, style: TextStyle(color: AppColors.teal, fontSize: 13)),
-                ],
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (c.birthYear != null)
+                      _chip('${isAr ? 'مواليد' : 'Born'} ${c.birthYear}'),
+                    if (nationality != null && nationality.isNotEmpty) _chip(nationality),
+                  ],
+                ),
               ],
             ),
           ),
@@ -105,6 +122,19 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
       ),
     );
   }
+
+  // A rounded teal pill matching the site's hero chips.
+  Widget _chip(String text) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.cardGradientEnd,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                color: AppColors.teal, fontSize: 11, fontWeight: FontWeight.w600)),
+      );
 
   Widget _careerTile(CoachCareerEntry e, String locale, bool isAr) {
     final isManager = e.type == 'manager';

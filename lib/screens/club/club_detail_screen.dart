@@ -19,11 +19,21 @@ class ClubDetailScreen extends StatefulWidget {
 
 class _ClubDetailScreenState extends State<ClubDetailScreen> {
   late Future<ClubPublic> _future;
+  // Own controller so the list never attaches to the app-wide
+  // PrimaryScrollController and can't restore a stale offset (which otherwise
+  // sometimes opened the screen scrolled down); keepScrollOffset:false = top.
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void initState() {
     super.initState();
     _future = ApiService().fetchClub(widget.clubId);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   void _open(String url) {
@@ -51,6 +61,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
           }
           final c = snap.data!;
           return ListView(
+            controller: _scroll,
             padding: const EdgeInsets.all(14),
             children: [
               _header(c, locale, isAr),
@@ -165,11 +176,12 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
         child: Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(10),
               child: CachedLogo(
                   url: m.photo,
                   size: 40,
-                  borderRadius: 20,
+                  borderRadius: 10,
+                  fit: BoxFit.cover,
                   placeholderIcon: Icons.person),
             ),
             const SizedBox(width: 12),

@@ -672,6 +672,29 @@ def push_unfollow_team():
     return jsonify({"unfollowed_team": tid, "result": result})
 
 
+@admin_bp.post("/api/push/results-broadcast")
+@limiter.limit("60 per minute")
+def push_results_broadcast():
+    """Public: join or leave the all-competitions results broadcast (TOPIC_RESULTS).
+
+    A device joins while it has NO favourites, so every round still reaches new
+    users; it leaves once it follows its first competition/team, after which only
+    its followed topics deliver. The web client drives this (it has no client-side
+    topic API); the native app manages the same topic itself via the FCM SDK.
+    Body: {token, subscribe: bool}."""
+    j = request.get_json(silent=True) or {}
+    token = _push_token(j)
+    if not token:
+        return jsonify({"error": "token is required"}), 400
+    subscribe = bool(j.get("subscribe", True))
+    result = (
+        notifications.subscribe_token_to_topic(token, notifications.TOPIC_RESULTS)
+        if subscribe
+        else notifications.unsubscribe_token_from_topic(token, notifications.TOPIC_RESULTS)
+    )
+    return jsonify({"results_broadcast": subscribe, "result": result})
+
+
 # ── global admin search ───────────────────────────────────────────────────────
 
 @admin_bp.get("/api/admin/search")

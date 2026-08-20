@@ -425,6 +425,7 @@ class _CardsPage extends StatelessWidget {
               style: TextStyle(color: AppColors.teal)));
     }
     return ListView(
+      primary: false,
       padding: const EdgeInsets.only(bottom: 16),
       children: [
         if (yellow.isNotEmpty) ...[
@@ -602,6 +603,7 @@ class _CompStatsPage extends StatelessWidget {
     );
 
     return ListView(
+      primary: false,
       padding: const EdgeInsets.all(12),
       children: [
         // ── Share button ─────────────────────────────────────────────────
@@ -779,6 +781,7 @@ class _PlayerPage extends StatelessWidget {
     }
     final canTap = matches != null && teams != null && statType != null;
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.only(bottom: 16),
       itemCount: stats.length,
       itemBuilder: (ctx, i) => PlayerStatItem(
@@ -1177,12 +1180,12 @@ class _PlayerShareCard extends StatelessWidget {
   final String?          groupName;
   final L10n             l10n;
 
-  static const _bg      = ShareColors.bg;
-  static const _surface = ShareColors.surface;
-  static const _aqua    = ShareColors.aqua;
-  static const _white   = ShareColors.white;
-  static const _hint    = ShareColors.hint;
-  static const _gold    = ShareColors.gold;
+  static Color get _bg => ShareColors.bg;
+  static Color get _surface => ShareColors.surface;
+  static Color get _aqua => ShareColors.aqua;
+  static Color get _white => ShareColors.white;
+  static Color get _hint => ShareColors.hint;
+  static Color get _gold => ShareColors.gold;
   static const _silver  = Color(0xFFC0C0C0);
   static const _bronze  = Color(0xFFCD7F32);
 
@@ -1200,7 +1203,7 @@ class _PlayerShareCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 400,
-      decoration: const BoxDecoration(color: _bg),
+      decoration: BoxDecoration(color: _bg),
       padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1218,7 +1221,7 @@ class _PlayerShareCard extends StatelessWidget {
                     if (competitionTitle.isNotEmpty)
                       Text(
                         competitionTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: _white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
@@ -1226,7 +1229,7 @@ class _PlayerShareCard extends StatelessWidget {
                       ),
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: _aqua,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1235,7 +1238,7 @@ class _PlayerShareCard extends StatelessWidget {
                     if (groupName != null && groupName!.isNotEmpty)
                       Text(
                         groupName!,
-                        style: const TextStyle(color: _hint, fontSize: 11),
+                        style: TextStyle(color: _hint, fontSize: 11),
                       ),
                   ],
                 ),
@@ -1306,7 +1309,7 @@ class _PlayerShareCard extends StatelessWidget {
                           ),
                         ),
                         Text(stat.getTeamName(l10n.locale),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: _hint, fontSize: 11)),
                       ],
                     ),
@@ -1320,7 +1323,7 @@ class _PlayerShareCard extends StatelessWidget {
                     ),
                     child: Text(
                       '${stat.count} $unit',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: _aqua,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1335,23 +1338,7 @@ class _PlayerShareCard extends StatelessWidget {
           const SizedBox(height: 14),
 
           // ── Branding footer ───────────────────────────────────────────────
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: _surface,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'بطولات الناشئين  |  Youth Scores  |  youthscores.org',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _hint,
-                fontSize: 11,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
+          const ShareBrandFooter(),
         ],
       ),
     );
@@ -1435,7 +1422,7 @@ class _OverviewShareCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 420,
-      decoration: const BoxDecoration(color: ShareColors.bg),
+      decoration: BoxDecoration(color: ShareColors.bg),
       padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1452,12 +1439,12 @@ class _OverviewShareCard extends StatelessWidget {
                   children: [
                     if (competitionTitle.isNotEmpty)
                       Text(competitionTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: ShareColors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 14)),
                     Text(l10n.isAr ? 'إحصائيات البطولة' : 'Competition Statistics',
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: ShareColors.aqua,
                             fontWeight: FontWeight.bold,
                             fontSize: 12)),
@@ -1481,7 +1468,7 @@ class _OverviewShareCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(l10n.matchResults,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: ShareColors.aqua,
                           fontWeight: FontWeight.bold,
                           fontSize: 13)),
@@ -1536,12 +1523,12 @@ class _OverviewShareCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('$total',
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: ShareColors.white,
                           fontSize: 22,
                           fontWeight: FontWeight.bold)),
                   Text(l10n.completedLabel,
-                      style: const TextStyle(
+                      style: TextStyle(
                           color: ShareColors.hint, fontSize: 9)),
                 ],
               ),
@@ -1575,13 +1562,13 @@ class _OverviewShareCard extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
             child: Text(label,
-                style: const TextStyle(color: ShareColors.white, fontSize: 12))),
+                style: TextStyle(color: ShareColors.white, fontSize: 12))),
         Text('$count',
             style: TextStyle(
                 color: color, fontWeight: FontWeight.bold, fontSize: 13)),
         const SizedBox(width: 6),
         Text('$pct%',
-            style: const TextStyle(color: ShareColors.hint, fontSize: 11)),
+            style: TextStyle(color: ShareColors.hint, fontSize: 11)),
       ],
     );
   }
@@ -1598,10 +1585,10 @@ class _OverviewShareCard extends StatelessWidget {
         children: [
           Expanded(
             child: Text(label,
-                style: const TextStyle(color: ShareColors.teal, fontSize: 13)),
+                style: TextStyle(color: ShareColors.teal, fontSize: 13)),
           ),
           Text(value,
-              style: const TextStyle(
+              style: TextStyle(
                   color: ShareColors.aqua,
                   fontSize: 15,
                   fontWeight: FontWeight.bold)),
@@ -1625,17 +1612,17 @@ class _OverviewShareCard extends StatelessWidget {
           SizedBox(
             width: 72,
             child: Text(label,
-                style: const TextStyle(color: ShareColors.hint, fontSize: 11)),
+                style: TextStyle(color: ShareColors.hint, fontSize: 11)),
           ),
           Expanded(
             child: Text(names.join('، '),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: ShareColors.white, fontSize: 12)),
+                style: TextStyle(color: ShareColors.white, fontSize: 12)),
           ),
           const SizedBox(width: 8),
           Text(value,
-              style: const TextStyle(
+              style: TextStyle(
                   color: ShareColors.aqua,
                   fontSize: 13,
                   fontWeight: FontWeight.bold)),

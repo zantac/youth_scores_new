@@ -10,6 +10,13 @@ const loc = (l?: Loc | null) => (l ? l.ar || l.en : '');
 const inputCls = 'w-full bg-darkBg border border-bdr rounded-lg px-2.5 py-2 text-text text-sm outline-none focus:border-aqua';
 const cellCls = 'bg-cardBg border border-bdr rounded px-2 py-1 text-text text-xs outline-none focus:border-aqua';
 
+// A yellow warning triangle badge for a field OCR could not read (empty).
+// Sits in the field's top-start corner; the parent must be `relative`.
+const EmptyFlag = ({ show }: { show: boolean }) =>
+  show ? (
+    <span className="absolute -top-1.5 start-0.5 text-gold text-[11px] leading-none pointer-events-none" title="لم يُقرأ — عبّئه يدويًا">⚠️</span>
+  ) : null;
+
 interface ReviewRow {
   enabled: boolean;
   homeId: string; awayId: string;
@@ -314,13 +321,28 @@ export default function ImportFromPhoto({
                       </select>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
-                      <input type="date" value={r.date} onChange={e => setRow(i, { date: e.target.value })} className={inputCls} />
-                      <input type="time" value={r.time} onChange={e => setRow(i, { time: e.target.value })} className={inputCls} />
-                      <input value={r.week} onChange={e => setRow(i, { week: e.target.value })} placeholder="الجولة" className={inputCls} />
+                      <div className="relative">
+                        <input type="date" value={r.date} onChange={e => setRow(i, { date: e.target.value })}
+                          className={`${inputCls} ${!r.date ? 'border-gold' : ''}`} />
+                        <EmptyFlag show={!r.date} />
+                      </div>
+                      <div className="relative">
+                        <input type="time" value={r.time} onChange={e => setRow(i, { time: e.target.value })}
+                          className={`${inputCls} ${!r.time ? 'border-gold' : ''}`} />
+                        <EmptyFlag show={!r.time} />
+                      </div>
+                      <div className="relative">
+                        <input value={r.week} onChange={e => setRow(i, { week: e.target.value })} placeholder="الجولة"
+                          className={`${inputCls} ${!r.week ? 'border-gold' : ''}`} />
+                        <EmptyFlag show={!r.week} />
+                      </div>
                     </div>
-                    <input value={r.venue} onChange={e => setRow(i, { venue: e.target.value, venueMatched: true })}
-                      list={VENUES_ID} placeholder="الملعب"
-                      className={`${inputCls} ${!r.venueMatched && r.venue ? 'border-gold/50' : ''}`} />
+                    <div className="relative">
+                      <input value={r.venue} onChange={e => setRow(i, { venue: e.target.value, venueMatched: true })}
+                        list={VENUES_ID} placeholder="الملعب"
+                        className={`${inputCls} ${!r.venue ? 'border-gold' : !r.venueMatched ? 'border-gold/50' : ''}`} />
+                      <EmptyFlag show={!r.venue} />
+                    </div>
                   </div>
                 </div>
               );

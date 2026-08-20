@@ -96,7 +96,7 @@ class _TeamsTabState extends State<TeamsTab>
             onRefresh: () => context.read<AppProvider>().refreshCompetition(),
             color: AppColors.aqua,
             child: filtered.isEmpty
-                ? ListView(children: [EmptyWidget(message: l10n.noTeams, icon: Icons.shield_outlined)])
+                ? ListView(primary: false, children: [EmptyWidget(message: l10n.noTeams, icon: Icons.shield_outlined)])
                 : isGrouped
                     ? _GroupedList(
                         grouped: grouped,
@@ -126,6 +126,7 @@ class _FlatList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
       itemCount: teams.length,
       itemBuilder: (_, i) => _TeamNameTile(
@@ -155,6 +156,7 @@ class _GroupedList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
+      primary: false,
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
       children: grouped.entries.map((entry) {
         final gName  = entry.key;

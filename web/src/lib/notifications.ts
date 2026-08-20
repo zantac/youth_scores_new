@@ -143,6 +143,20 @@ async function postJson(path: string, body: unknown): Promise<boolean> {
   } catch { return false; }
 }
 
+function hasFavourites(): boolean {
+  return followedCompetitions().length > 0 || followedTeams().length > 0;
+}
+
+/**
+ * Join the all-competitions results broadcast only while the user has no
+ * favourites, so every round still reaches new users; drop it the moment they
+ * follow their first competition/team, after which only followed topics deliver.
+ * Mirrors the native app + backend TOPIC_RESULTS. Best-effort.
+ */
+async function syncResultsBroadcast(token: string): Promise<void> {
+  await postJson('/api/push/results-broadcast', { token, subscribe: !hasFavourites() });
+}
+
 /**
  * On page load: if the user has already granted permission, silently refresh
  * the token, rejoin the always-on topics, and re-assert every followed
@@ -159,6 +173,7 @@ export async function initNotifications(): Promise<void> {
     ...followedCompetitions().map(cid => postJson('/api/push/follow', { token, competition_id: Number(cid) })),
     ...followedTeams().map(tid => postJson('/api/push/follow-team', { token, team_id: Number(tid) })),
   ]);
+  await syncResultsBroadcast(token);
 }
 
 /**
@@ -171,7 +186,10 @@ export async function enableNotifications(): Promise<NotifState> {
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') return perm as NotifState;
   const token = await currentToken(m);
-  if (token) await postJson('/api/push/subscribe', { token });
+  if (token) {
+    await postJson('/api/push/subscribe', { token });
+    await syncResultsBroadcast(token); // no favourites yet → join the results broadcast
+  }
   return 'granted';
 }
 
@@ -196,6 +214,7 @@ export async function followCompetition(cid: string | number): Promise<NotifStat
   if (token) {
     await postJson('/api/push/subscribe', { token }); // join the always-on topics too
     await postJson('/api/push/follow', { token, competition_id: Number(cid) });
+    await syncResultsBroadcast(token); // now has a favourite → leave the broadcast
   }
   return 'granted';
 }
@@ -206,7 +225,10 @@ export async function unfollowCompetition(cid: string | number): Promise<void> {
   const m = await ready();
   if (!m) return;
   const token = await currentToken(m);
-  if (token) await postJson('/api/push/unfollow', { token, competition_id: Number(cid) });
+  if (token) {
+    await postJson('/api/push/unfollow', { token, competition_id: Number(cid) });
+    await syncResultsBroadcast(token); // rejoin the broadcast if no favourites remain
+  }
 }
 
 /**
@@ -227,6 +249,7 @@ export async function followTeam(tid: string | number): Promise<NotifState> {
   if (token) {
     await postJson('/api/push/subscribe', { token }); // join the always-on topics too
     await postJson('/api/push/follow-team', { token, team_id: Number(tid) });
+    await syncResultsBroadcast(token); // now has a favourite → leave the broadcast
   }
   return 'granted';
 }
@@ -237,5 +260,8 @@ export async function unfollowTeam(tid: string | number): Promise<void> {
   const m = await ready();
   if (!m) return;
   const token = await currentToken(m);
-  if (token) await postJson('/api/push/unfollow-team', { token, team_id: Number(tid) });
+  if (token) {
+    await postJson('/api/push/unfollow-team', { token, team_id: Number(tid) });
+    await syncResultsBroadcast(token); // rejoin the broadcast if no favourites remain
+  }
 }

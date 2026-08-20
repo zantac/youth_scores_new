@@ -438,6 +438,7 @@ class _CoachingStaffPage extends StatelessWidget {
     }
 
     return ListView(
+      primary: false,
       padding: const EdgeInsets.all(14),
       children: rows,
     );
@@ -558,6 +559,7 @@ class _SquadPage extends StatelessWidget {
         name: (r) => r.getName(l10n.locale),
       );
       return ListView(
+        primary: false,
         padding: const EdgeInsets.all(14),
         children: [
           for (final s in sections)
@@ -593,6 +595,7 @@ class _SquadPage extends StatelessWidget {
       return Center(child: Text(l10n.noData, style: TextStyle(color: AppColors.teal)));
     }
     return ListView(
+      primary: false,
       padding: const EdgeInsets.all(14),
       children: [
         if (p.goalkeepers.isNotEmpty)
@@ -778,6 +781,7 @@ class _MatchesPage extends StatelessWidget {
       return Center(child: Text(l10n.noMatches, style: TextStyle(color: AppColors.teal)));
     }
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.all(12),
       itemCount: matches.length,
       itemBuilder: (context, i) {
@@ -826,6 +830,7 @@ class _PlayerListPage extends StatelessWidget {
       return Center(child: Text(emptyMessage, style: TextStyle(color: AppColors.teal)));
     }
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.all(12),
       itemCount: entries.length,
       itemBuilder: (ctx, i) {
@@ -1001,6 +1006,7 @@ class _StatsContent extends StatelessWidget {
       return Center(child: Text(l10n.noData, style: TextStyle(color: AppColors.teal)));
     }
     return ListView(
+      primary: false,
       padding: const EdgeInsets.all(14),
       children: [
         _MatchResultsCard(stats: stats, l10n: l10n),

@@ -34,7 +34,21 @@ function PlayerJourney() {
 
   const name = localize(p.name, locale);
   const monogram = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('');
-  const maxGoals = Math.max(1, ...p.career.map(c => c.goals));
+
+  // Goals-per-season chart: one bar per SEASON, summing a player's goals across
+  // every club/competition they played in that season (career rows split per
+  // club/competition, so a single season can span several rows).
+  const goalsBySeason = (() => {
+    const order: string[] = [];
+    const byKey = new Map<string, { season: PlayerFull['career'][number]['season']; goals: number }>();
+    for (const c of p.career) {
+      const key = localize(c.season, 'en') || localize(c.season, 'ar') || '—';
+      if (!byKey.has(key)) { byKey.set(key, { season: c.season, goals: 0 }); order.push(key); }
+      byKey.get(key)!.goals += c.goals;
+    }
+    return order.map(k => byKey.get(k)!);
+  })();
+  const maxGoals = Math.max(1, ...goalsBySeason.map(s => s.goals));
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
@@ -52,6 +66,7 @@ function PlayerJourney() {
             : <div className="w-20 h-20 rounded-2xl grid place-items-center text-2xl font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_10px_26px_-8px_rgb(var(--accent-rgb))]">{monogram}</div>}
           <div>
             <h1 className="text-xl font-extrabold">{name}</h1>
+            {/* Second line: position + birth year. */}
             <div className="flex flex-wrap gap-1.5 mt-2">
               {(() => {
                 // The specific sub-position takes the profile spot when set;
@@ -60,8 +75,13 @@ function PlayerJourney() {
                 return pos ? <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span> : null;
               })()}
               <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5 tnum">{isAr ? 'مواليد' : 'Born'} {p.birth_year}</span>
-              {p.current_club && <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>}
             </div>
+            {/* Third line: club name on its own row. */}
+            {p.current_club && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -91,8 +111,9 @@ function PlayerJourney() {
               <div key={i}
                 className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${c.current ? 'border-gold/40' : 'border-bdr'}`}>
                 <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--gold-rgb)/0.12),transparent_65%)]" />
-                {/* Club logo — big, spanning the full card height */}
-                <div className="relative w-24 flex-shrink-0 bg-darkBg grid place-items-center p-2.5">
+                {/* Club logo — big, spanning the full card height. No own
+                    background so the card's gradient shows through unbroken. */}
+                <div className="relative w-24 flex-shrink-0 grid place-items-center p-2.5">
                   {c.logo
                     ? <img src={c.logo} alt="" className="w-full h-full object-contain" />
                     : <span className="text-3xl">🛡️</span>}
@@ -151,13 +172,13 @@ function PlayerJourney() {
         <div className="px-4 pt-4">
           <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الأهداف لكل موسم' : 'Goals per season'}</h2>
           <div className="space-y-2">
-            {p.career.map((c, i) => (
+            {goalsBySeason.map((s, i) => (
               <div key={i} className="grid grid-cols-[92px_1fr_28px] items-center gap-2.5">
-                <span className="text-hint text-[11px] tnum truncate">{[localize(c.season, locale), c.age && localize(c.age, locale)].filter(Boolean).join(' · ')}</span>
+                <span className="text-hint text-[11px] tnum truncate">{localize(s.season, locale)}</span>
                 <div className="h-2.5 rounded-full bg-cardBg2 overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-l from-gold to-gold/70" style={{ width: `${(c.goals / maxGoals) * 100}%` }} />
+                  <div className="h-full rounded-full bg-gradient-to-l from-gold to-gold/70" style={{ width: `${(s.goals / maxGoals) * 100}%` }} />
                 </div>
-                <span className="text-text font-bold text-sm tnum text-start">{c.goals}</span>
+                <span className="text-text font-bold text-sm tnum text-start">{s.goals}</span>
               </div>
             ))}
           </div>

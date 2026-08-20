@@ -84,6 +84,7 @@ class AppProvider extends ChangeNotifier {
       wasFollowing
           ? await NotificationService.instance.unfollowComp(c.id)
           : await NotificationService.instance.followComp(c.id);
+      await _syncResultsBroadcast();
     } catch (_) {/* push is best-effort */}
   }
 
@@ -102,7 +103,20 @@ class AppProvider extends ChangeNotifier {
       wasFollowing
           ? await NotificationService.instance.unfollowTeam(t.id)
           : await NotificationService.instance.followTeam(t.id);
+      await _syncResultsBroadcast();
     } catch (_) {/* push is best-effort */}
+  }
+
+  bool get _hasFavourites =>
+      _followedComps.isNotEmpty || _followedTeams.isNotEmpty;
+
+  /// Join the all-results broadcast only while the user has no favourites; drop
+  /// it once they follow something, so from then on they get only their leagues/
+  /// teams. Mirrors the backend's TOPIC_RESULTS fan-out. Best-effort.
+  Future<void> _syncResultsBroadcast() async {
+    try {
+      await NotificationService.instance.setResultsBroadcast(!_hasFavourites);
+    } catch (_) {}
   }
 
   /// Re-join FCM topics for everything already followed — topic subscriptions are
@@ -115,6 +129,7 @@ class AppProvider extends ChangeNotifier {
       for (final t in _followedTeams) {
         await NotificationService.instance.followTeam(t.id);
       }
+      await _syncResultsBroadcast();
     } catch (_) {}
   }
 

@@ -19,11 +19,21 @@ class PlayerDetailScreen extends StatefulWidget {
 
 class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
   late Future<PlayerFull> _future;
+  // Own controller so the list never attaches to the app-wide
+  // PrimaryScrollController and can't restore a stale offset (which otherwise
+  // sometimes opened the screen scrolled down); keepScrollOffset:false = top.
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void initState() {
     super.initState();
     _future = ApiService().fetchPlayer(widget.playerId);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
   }
 
   @override
@@ -47,6 +57,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
           }
           final p = snap.data!;
           return ListView(
+            controller: _scroll,
             padding: const EdgeInsets.all(14),
             children: [
               _header(p, locale, isAr),
@@ -68,11 +79,10 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
   }
 
   Widget _header(PlayerFull p, String locale, bool isAr) {
-    final sub = [
-      p.getPosition(locale),
-      if (p.birthYear != null) '${isAr ? 'مواليد' : 'Born'} ${p.birthYear}',
-      p.getNationality(locale),
-    ].whereType<String>().join(' · ');
+    // Mirrors the site hero: line 2 is position + birth year as pill chips
+    // (teal on a bordered fill); line 3 is the club as a gold pill.
+    final position = p.getPosition(locale);
+    final hasClub = p.currentClub != null && p.currentClub!.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -81,13 +91,15 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
         border: Border.all(color: AppColors.border),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(16),
             child: CachedLogo(
                 url: p.photo,
-                size: 60,
-                borderRadius: 30,
+                size: 72,
+                borderRadius: 16,
+                fit: BoxFit.cover,
                 placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 14),
@@ -98,13 +110,24 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                 Text(p.getName(locale),
                     style: TextStyle(
                         color: AppColors.aqua, fontSize: 18, fontWeight: FontWeight.bold)),
-                if (sub.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(sub, style: TextStyle(color: AppColors.teal, fontSize: 13)),
-                ],
-                if (p.currentClub != null && p.currentClub!.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(p.currentClub!, style: TextStyle(color: AppColors.hint, fontSize: 12)),
+                const SizedBox(height: 6),
+                // Line 2: position · birth year pills.
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    if (position != null && position.isNotEmpty) _chip(position),
+                    if (p.birthYear != null)
+                      _chip('${isAr ? 'مواليد' : 'Born'} ${p.birthYear}'),
+                  ],
+                ),
+                // Line 3: club name in a gold pill.
+                if (hasClub) ...[
+                  const SizedBox(height: 6),
+                  _chip('◆ ${p.currentClub!}',
+                      textColor: _gold,
+                      bgColor: _gold.withValues(alpha: 0.1),
+                      borderColor: _gold.withValues(alpha: 0.3)),
                 ],
               ],
             ),
@@ -113,6 +136,22 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
       ),
     );
   }
+
+  // A rounded pill label matching the site's chips. Defaults to the teal
+  // "position / birth year" look; pass gold colours for the club chip.
+  Widget _chip(String text, {Color? textColor, Color? bgColor, Color? borderColor}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: bgColor ?? AppColors.cardGradientEnd,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: borderColor ?? AppColors.border),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                color: textColor ?? AppColors.teal,
+                fontSize: 11,
+                fontWeight: FontWeight.w600)),
+      );
 
   Widget _statsRow(PlayerFull p, bool isAr) {
     Widget cell(String label, int value, Color color) => Expanded(
@@ -173,10 +212,10 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Big club logo, spanning the full card height.
+            // Big club logo, spanning the full card height. No own background
+            // so the card's gradient shows through unbroken (matches the site).
             Container(
               width: 84,
-              color: AppColors.darkBg,
               padding: const EdgeInsets.all(10),
               child: Center(child: CachedLogo(url: c.logo, size: 62)),
             ),
@@ -310,9 +349,25 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
             style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
       );
 
-  // Horizontal bars of goals per career season.
+  // Horizontal bars of goals per SEASON: sum a player's goals across every
+  // club/competition they played in that season (career rows split per
+  // club/competition), one bar per season, labelled with the season only.
   Widget _goalsPerSeason(List<PlayerCareerEntry> career, String locale, bool isAr) {
-    final maxGoals = career.fold<int>(1, (m, c) => c.goals > m ? c.goals : m);
+    final order = <String>[];
+    final goalsByKey = <String, int>{};
+    final sampleByKey = <String, PlayerCareerEntry>{};
+    for (final c in career) {
+      final key = (c.season['en']?.isNotEmpty ?? false)
+          ? c.season['en']!
+          : (c.season['ar'] ?? c.seasonName(locale));
+      if (!goalsByKey.containsKey(key)) {
+        order.add(key);
+        goalsByKey[key] = 0;
+        sampleByKey[key] = c;
+      }
+      goalsByKey[key] = goalsByKey[key]! + c.goals;
+    }
+    final maxGoals = goalsByKey.values.fold<int>(1, (m, g) => g > m ? g : m);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
@@ -321,11 +376,9 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
         border: Border.all(color: AppColors.border),
       ),
       child: Column(
-        children: career.map((c) {
-          final label = [c.seasonName(locale), c.ageName(locale)]
-              .whereType<String>()
-              .where((s) => s.isNotEmpty)
-              .join(' · ');
+        children: order.map((key) {
+          final goals = goalsByKey[key]!;
+          final label = sampleByKey[key]!.seasonName(locale);
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 5),
             child: Row(
@@ -342,7 +395,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
-                      value: c.goals / maxGoals,
+                      value: goals / maxGoals,
                       minHeight: 8,
                       backgroundColor: AppColors.darkBg,
                       valueColor: const AlwaysStoppedAnimation<Color>(_gold),
@@ -352,7 +405,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                 const SizedBox(width: 8),
                 SizedBox(
                   width: 24,
-                  child: Text('${c.goals}',
+                  child: Text('$goals',
                       textAlign: TextAlign.end,
                       style: TextStyle(
                           color: AppColors.white,

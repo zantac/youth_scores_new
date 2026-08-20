@@ -37,6 +37,7 @@ class _StandingsTabState extends State<StandingsTab>
     String displayName,
     List<Standing> rows,
     List<Team> teams,
+    List<Match> matches,
     L10n l10n,
   ) async {
     if (_sharing[gName] == true) return;
@@ -50,6 +51,13 @@ class _StandingsTabState extends State<StandingsTab>
       final compTitle = context.mounted
           ? context.read<AppProvider>().competitionTitle
           : '';
+      // Decode the crests + brand icon before painting the off-screen frame.
+      await precacheShareImages(
+        context,
+        rows.map((r) =>
+            teams.where((t) => t.id == r.teamId).firstOrNull?.logo ?? ''),
+      );
+      if (!mounted) return;
       entry = OverlayEntry(
         builder: (_) => Positioned(
           left: -10000,
@@ -62,6 +70,7 @@ class _StandingsTabState extends State<StandingsTab>
                 groupName: displayName,
                 standings: rows,
                 teams: teams,
+                matches: matches,
                 competitionTitle: compTitle,
                 l10n: l10n,
               ),
@@ -127,6 +136,7 @@ class _StandingsTabState extends State<StandingsTab>
       onRefresh: () => context.read<AppProvider>().refreshCompetition(),
       color: AppColors.aqua,
       child: ListView(
+        primary: false,
         padding: const EdgeInsets.all(12),
         children: grouped.entries.map((entry) {
           final gName    = entry.key;
@@ -166,6 +176,7 @@ class _StandingsTabState extends State<StandingsTab>
                               l10n.standings,
                               rows,
                               comp.teams,
+                              comp.matches,
                               l10n,
                             ),
                           ),
@@ -243,6 +254,7 @@ class _StandingsTabState extends State<StandingsTab>
                               displayName,
                               rows,
                               comp.teams,
+                              comp.matches,
                               l10n,
                             ),
                           ),
@@ -279,26 +291,48 @@ class _ShareCard extends StatelessWidget {
   final String         groupName;
   final List<Standing> standings;
   final List<Team>     teams;
+  final List<Match>    matches;
   final String         competitionTitle;
   final L10n           l10n;
 
-  static const _bg      = ShareColors.bg;
-  static const _surface = ShareColors.surface;
-  static const _border  = ShareColors.border;
-  static const _aqua    = ShareColors.aqua;
-  static const _white   = ShareColors.white;
-  static const _hint    = ShareColors.hint;
-  static const _gold    = ShareColors.gold;
-  static const _green   = ShareColors.green;
-  static const _red     = ShareColors.red;
+  static Color get _bg => ShareColors.bg;
+  static Color get _surface => ShareColors.surface;
+  static Color get _border => ShareColors.border;
+  static Color get _aqua => ShareColors.aqua;
+  static Color get _white => ShareColors.white;
+  static Color get _hint => ShareColors.hint;
+  static Color get _gold => ShareColors.gold;
+  static Color get _green => ShareColors.green;
+  static Color get _red => ShareColors.red;
 
   const _ShareCard({
     required this.groupName,
     required this.standings,
     required this.teams,
+    required this.matches,
     required this.competitionTitle,
     required this.l10n,
   });
+
+  // Up-to-5 most recent completed results for a team (oldest→newest): 1 win,
+  // 0 draw, -1 loss. Dates are ISO 'YYYY-MM-DD', so a string sort is chronological.
+  List<int> _lastFive(String teamId) {
+    final played = matches
+        .where((m) =>
+            m.isCompleted &&
+            m.homeScore != null &&
+            m.awayScore != null &&
+            (m.homeTeamId == teamId || m.awayTeamId == teamId))
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    final recent =
+        played.length > 5 ? played.sublist(played.length - 5) : played;
+    return recent.map((m) {
+      final gf = m.homeTeamId == teamId ? m.homeScore! : m.awayScore!;
+      final ga = m.homeTeamId == teamId ? m.awayScore! : m.homeScore!;
+      return gf > ga ? 1 : (gf < ga ? -1 : 0);
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +340,7 @@ class _ShareCard extends StatelessWidget {
 
     return Container(
       width: 420,
-      decoration: const BoxDecoration(color: _bg),
+      decoration: BoxDecoration(color: _bg),
       padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -324,7 +358,7 @@ class _ShareCard extends StatelessWidget {
                     if (competitionTitle.isNotEmpty)
                       Text(
                         competitionTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: _white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
@@ -405,20 +439,34 @@ class _ShareCard extends StatelessWidget {
                 children: [
                   _cell('${s.position}', 28,
                       color: isTop ? _gold : _hint, bold: isTop),
+                  ShareLogo(url: team?.logo, size: 20),
+                  const SizedBox(width: 7),
                   Expanded(
-                    child: Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign:
-                          isAr ? TextAlign.right : TextAlign.left,
-                      style: TextStyle(
-                        color: isTop ? _aqua : _white,
-                        fontSize: 13,
-                        fontWeight: isTop
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
+                    child: Column(
+                      // start = leading edge: right in RTL (Arabic), left in LTR
+                      // — keeps the name tight against the crest either way.
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.start,
+                          style: TextStyle(
+                            color: isTop ? _aqua : _white,
+                            fontSize: 13,
+                            fontWeight: isTop
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                        if (_lastFive(s.teamId).isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: ShareFormDots(results: _lastFive(s.teamId)),
+                          ),
+                      ],
                     ),
                   ),
                   _cell('${s.played}',   32),
@@ -436,23 +484,7 @@ class _ShareCard extends StatelessWidget {
           const SizedBox(height: 14),
 
           // ── Branding footer ───────────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: _surface,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Text(
-              'بطولات الناشئين  |  Youth Scores  |  youthscores.org',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _hint,
-                fontSize: 11,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
+          const ShareBrandFooter(),
         ],
       ),
     );
@@ -465,7 +497,7 @@ class _ShareCard extends StatelessWidget {
       textAlign: left
           ? (isAr ? TextAlign.right : TextAlign.left)
           : TextAlign.center,
-      style: const TextStyle(
+      style: TextStyle(
           color: _hint, fontSize: 11, fontWeight: FontWeight.bold),
     );
     return width != null
@@ -476,7 +508,7 @@ class _ShareCard extends StatelessWidget {
   Widget _cell(
     String text,
     double width, {
-    Color color = _hint,
+    Color? color,
     bool bold   = false,
   }) {
     return SizedBox(
@@ -485,7 +517,7 @@ class _ShareCard extends StatelessWidget {
         text,
         textAlign: TextAlign.center,
         style: TextStyle(
-          color: color,
+          color: color ?? _hint,
           fontSize: 13,
           fontWeight: bold ? FontWeight.bold : FontWeight.normal,
         ),

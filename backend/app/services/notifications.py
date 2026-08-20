@@ -297,20 +297,23 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
         body = headline + (f" و{extra} مباراة أخرى" if extra > 0 else "")
     else:
         body = f"{n} مباراة — اضغط لعرض النتائج"
-    # Phase 2: send only to this competition's followers via competition_topic().
-    # A device that tapped "follow" on this league is subscribed to that topic
-    # (web: /api/push/follow -> subscribe_token_to_topic; native: the SDK). The
-    # title still carries the competition/age/sector for the notification text,
-    # and competition_id rides in the payload for the deep-link.
-    return send_to_topic(
-        competition_topic(competition.id), title, body,
-        data={
-            "type": "round",
-            "competition_id": competition.id,
-            "week": week,
-            "url": f"/competition?id={competition.id}&week={week}",
-        },
-    )
+    # Followers of this league get it via competition_topic() (web:
+    # /api/push/follow -> subscribe_token_to_topic; native: the SDK). Devices that
+    # haven't picked ANY favourite yet are instead subscribed to the broadcast
+    # TOPIC_RESULTS, so every round still reaches them — until they follow their
+    # first competition/team, at which point the client drops the broadcast and
+    # only its followed topics remain. The two audiences are disjoint (a device is
+    # on one or the other), and the shared android tag collapses any overlap into
+    # a single notification, so no one is double-notified.
+    data = {
+        "type": "round",
+        "competition_id": competition.id,
+        "week": week,
+        "url": f"/competition?id={competition.id}&week={week}",
+    }
+    result = send_to_topic(competition_topic(competition.id), title, body, data=data)
+    send_to_topic(TOPIC_RESULTS, title, body, data=data)
+    return result
 
 
 def team_topic(team_id: int) -> str:

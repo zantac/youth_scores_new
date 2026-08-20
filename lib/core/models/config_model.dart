@@ -233,6 +233,7 @@ class Venue {
 }
 
 class NewsItem {
+  final int? id;
   final String date;
   final Map<String, String> title;
   final String? image;
@@ -240,6 +241,7 @@ class NewsItem {
   final List<String> images;
 
   const NewsItem({
+    this.id,
     required this.date,
     required this.title,
     this.image,
@@ -284,6 +286,7 @@ class NewsItem {
     }
 
     return NewsItem(
+      id:      (json['id'] as num?)?.toInt(),
       date:    json['date']?.toString() ?? '',
       title:   titleMap,
       image:   json['image']?.toString(),

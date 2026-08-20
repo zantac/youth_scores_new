@@ -145,7 +145,6 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
                           photo: s.photo,
                           name: s.getName(locale),
                           subtitle: s.getRole(locale) ?? '—',
-                          rounded: true,
                           onTap: () => Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -254,11 +253,12 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
           child: Row(
             children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(10),
                 child: CachedLogo(
                     url: p.photo,
                     size: 36,
-                    borderRadius: 18,
+                    borderRadius: 10,
+                    fit: BoxFit.cover,
                     placeholderIcon: Icons.person),
               ),
               const SizedBox(width: 12),
@@ -306,18 +306,18 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
     required String name,
     required String subtitle,
     required VoidCallback onTap,
-    bool rounded = false,
   }) {
     return _rowCard(
       onTap: onTap,
       child: Row(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(rounded ? 20 : 8),
+            borderRadius: BorderRadius.circular(10),
             child: CachedLogo(
                 url: photo,
                 size: 40,
-                borderRadius: rounded ? 20 : 8,
+                borderRadius: 10,
+                fit: BoxFit.cover,
                 placeholderIcon: Icons.person),
           ),
           const SizedBox(width: 12),

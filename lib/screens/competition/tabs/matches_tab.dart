@@ -45,6 +45,8 @@ class _MatchesTabState extends State<MatchesTab>
         .map((m) => (
               home: provider.teamById(m.homeTeamId)?.getName(locale) ?? m.homeTeamId,
               away: provider.teamById(m.awayTeamId)?.getName(locale) ?? m.awayTeamId,
+              homeLogo: provider.teamById(m.homeTeamId)?.logo,
+              awayLogo: provider.teamById(m.awayTeamId)?.logo,
               homeScore: m.homeScore,
               awayScore: m.awayScore,
               completed: m.isCompleted,
@@ -61,6 +63,9 @@ class _MatchesTabState extends State<MatchesTab>
       context,
       filePrefix: 'round_${key.hashCode}',
       errorText: l10n.isAr ? 'تعذّر مشاركة المباريات' : 'Could not share matches',
+      preloadLogos: [
+        for (final r in rows) ...[r.homeLogo ?? '', r.awayLogo ?? ''],
+      ],
       card: _RoundShareCard(
         competitionTitle: provider.competitionTitle,
         roundLabel: roundLabel,
@@ -201,7 +206,7 @@ class _MatchesTabState extends State<MatchesTab>
             onRefresh: () => context.read<AppProvider>().refreshCompetition(),
             color: AppColors.aqua,
             child: filtered.isEmpty
-              ? ListView(children: [EmptyWidget(message: l10n.noMatches, icon: Icons.sports_soccer)])
+              ? ListView(primary: false, children: [EmptyWidget(message: l10n.noMatches, icon: Icons.sports_soccer)])
               : ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.only(bottom: 16),
@@ -468,6 +473,8 @@ class _MatchGrouped extends StatelessWidget {
 typedef _RoundRow = ({
   String home,
   String away,
+  String? homeLogo,
+  String? awayLogo,
   int? homeScore,
   int? awayScore,
   bool completed,
@@ -496,7 +503,7 @@ class _RoundShareCard extends StatelessWidget {
 
     return Container(
       width: 420,
-      decoration: const BoxDecoration(color: ShareColors.bg),
+      decoration: BoxDecoration(color: ShareColors.bg),
       padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -513,12 +520,12 @@ class _RoundShareCard extends StatelessWidget {
                   children: [
                     if (competitionTitle.isNotEmpty)
                       Text(competitionTitle,
-                          style: const TextStyle(
+                          style: TextStyle(
                               color: ShareColors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 14)),
                     Text(subtitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                             color: ShareColors.aqua,
                             fontWeight: FontWeight.bold,
                             fontSize: 12)),
@@ -546,27 +553,45 @@ class _RoundShareCard extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(r.home,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(
-                            color: ShareColors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Flexible(
+                          child: Text(r.home,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.end,
+                              style: TextStyle(
+                                  color: ShareColors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        const SizedBox(width: 7),
+                        ShareLogo(url: r.homeLogo, size: 22),
+                      ],
+                    ),
                   ),
                   const SizedBox(width: 8),
                   ..._middle(r),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(r.away,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.start,
-                        style: const TextStyle(
-                            color: ShareColors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600)),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        ShareLogo(url: r.awayLogo, size: 22),
+                        const SizedBox(width: 7),
+                        Flexible(
+                          child: Text(r.away,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.start,
+                              style: TextStyle(
+                                  color: ShareColors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -584,7 +609,7 @@ class _RoundShareCard extends StatelessWidget {
     if (r.completed && r.homeScore != null && r.awayScore != null) {
       return [
         _score('${r.homeScore}'),
-        const Text(' - ',
+        Text(' - ',
             style: TextStyle(color: ShareColors.hint, fontSize: 14)),
         _score('${r.awayScore}'),
       ];
@@ -598,7 +623,7 @@ class _RoundShareCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(label,
-            style: const TextStyle(color: ShareColors.hint, fontSize: 12)),
+            style: TextStyle(color: ShareColors.hint, fontSize: 12)),
       ),
     ];
   }
@@ -607,7 +632,7 @@ class _RoundShareCard extends StatelessWidget {
         width: 24,
         child: Text(s,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            style: TextStyle(
                 color: ShareColors.aqua,
                 fontSize: 16,
                 fontWeight: FontWeight.bold)),
