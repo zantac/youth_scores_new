@@ -30,6 +30,12 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
   int _tab = 0;
   Timer? _poll;
 
+  // A dedicated controller so this list never attaches to the app-wide
+  // PrimaryScrollController; keepScrollOffset:false stops any saved offset from
+  // being restored, so the screen always opens at the top (it otherwise
+  // sometimes opened scrolled to the bottom when reusing a stored offset).
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +45,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
   @override
   void dispose() {
     _poll?.cancel();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -120,6 +127,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> {
         ],
       ),
       body: ListView(
+        controller: _scroll,
         children: [
           _hero(m, homeName, awayName, context0, isAr),
           if (tabs.isNotEmpty) ...[

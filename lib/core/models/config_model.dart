@@ -233,6 +233,7 @@ class Venue {
 }
 
 class NewsItem {
+  final int? id;
   final String date;
   final Map<String, String> title;
   final String? image;
@@ -240,6 +241,7 @@ class NewsItem {
   final List<String> images;
 
   const NewsItem({
+    this.id,
     required this.date,
     required this.title,
     this.image,
@@ -284,6 +286,7 @@ class NewsItem {
     }
 
     return NewsItem(
+      id:      (json['id'] as num?)?.toInt(),
       date:    json['date']?.toString() ?? '',
       title:   titleMap,
       image:   json['image']?.toString(),
@@ -297,6 +300,7 @@ class NewsItem {
 }
 
 class AdItem {
+  final int id;
   final String name;
   final String? image;
   final String? youtubeVideo;
@@ -305,9 +309,15 @@ class AdItem {
   final String? whatsappNumber;
   final String? location;
   final String? locationUrl;
+  final String? link;        // primary tap-through URL (whole-ad tap)
+  final int weight;          // rotation weight (higher = shown more often)
+  final String placement;    // interstitial | feed | both
+  final int feedPosition;    // feed card shows after the Nth match (from anchor)
+  final int? feedRepeat;     // repeat every N matches after that; null = once
   final String? expireDate;
 
   const AdItem({
+    this.id = 0,
     required this.name,
     this.image,
     this.youtubeVideo,
@@ -316,10 +326,31 @@ class AdItem {
     this.whatsappNumber,
     this.location,
     this.locationUrl,
+    this.link,
+    this.weight = 1,
+    this.placement = 'interstitial',
+    this.feedPosition = 3,
+    this.feedRepeat,
     this.expireDate,
   });
 
+  /// Whether this ad runs on the given surface ('interstitial' or 'feed').
+  bool showsOn(String surface) => placement == surface || placement == 'both';
+
+  /// False once past the expiry date — a client-side guard for a cached config
+  /// that still carries an ad the server has since dropped.
+  bool get isLive {
+    final raw = expireDate;
+    if (raw == null || raw.isEmpty) return true;
+    final d = DateTime.tryParse(raw);
+    if (d == null) return true;
+    final now = DateTime.now();
+    return !DateTime(d.year, d.month, d.day)
+        .isBefore(DateTime(now.year, now.month, now.day));
+  }
+
   factory AdItem.fromJson(Map<String, dynamic> json) => AdItem(
+    id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
     name: json['name']?.toString() ?? '',
     image: json['image']?.toString(),
     youtubeVideo: json['youtube_video']?.toString(),
@@ -328,6 +359,11 @@ class AdItem {
     whatsappNumber: json['whatsapp_number']?.toString(),
     location: json['location']?.toString(),
     locationUrl: json['location_url']?.toString(),
+    link: json['link']?.toString(),
+    weight: int.tryParse(json['weight']?.toString() ?? '') ?? 1,
+    placement: json['placement']?.toString() ?? 'interstitial',
+    feedPosition: int.tryParse(json['feed_position']?.toString() ?? '') ?? 3,
+    feedRepeat: int.tryParse(json['feed_repeat']?.toString() ?? ''),
     expireDate: json['expire_date']?.toString(),
   );
 }
@@ -335,11 +371,17 @@ class AdItem {
 class AppVersion {
   final String versionCode;
   final String versionName;
+  final bool forceUpdate;
 
-  const AppVersion({required this.versionCode, required this.versionName});
+  const AppVersion({
+    required this.versionCode,
+    required this.versionName,
+    this.forceUpdate = false,
+  });
 
   factory AppVersion.fromJson(Map<String, dynamic> json) => AppVersion(
     versionCode: json['version_code']?.toString() ?? '',
     versionName: json['version_name']?.toString() ?? '',
+    forceUpdate: json['force_update'] == true,
   );
 }

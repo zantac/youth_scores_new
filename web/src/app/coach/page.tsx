@@ -70,8 +70,9 @@ function CoachProfile() {
               <div key={i}
                 className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${r.current ? 'border-gold/40' : 'border-bdr'}`}>
                 <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.12),transparent_65%)]" />
-                {/* Club logo — big, spanning the full card height */}
-                <div className="relative w-24 flex-shrink-0 bg-darkBg grid place-items-center p-2.5">
+                {/* Club logo — big, spanning the full card height. No own
+                    background so the card's gradient shows through unbroken. */}
+                <div className="relative w-24 flex-shrink-0 grid place-items-center p-2.5">
                   {r.logo
                     ? <img src={r.logo} alt="" className="w-full h-full object-contain" />
                     : <span className="text-3xl">🛡️</span>}

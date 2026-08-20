@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/empty_widget.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../../widgets/common/search_field.dart';
@@ -71,17 +71,11 @@ class _VenuesScreenState extends State<VenuesScreen> {
                                     icon: Icon(Icons.map_outlined,
                                         color: AppColors.teal),
                                     tooltip: l10n.openMap,
-                                    onPressed: () => launchUrl(
-                                      Uri.parse(v.url!),
-                                      mode: LaunchMode.externalApplication,
-                                    ),
+                                    onPressed: () => launchExternal(safeUri(v.url)),
                                   )
                                 : null,
                             onTap: v.url != null
-                                ? () => launchUrl(
-                                      Uri.parse(v.url!),
-                                      mode: LaunchMode.externalApplication,
-                                    )
+                                ? () => launchExternal(safeUri(v.url))
                                 : null,
                           ),
                         );

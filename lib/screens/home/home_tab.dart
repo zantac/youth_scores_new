@@ -9,8 +9,11 @@ import '../../core/models/follows.dart';
 import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
+import '../../widgets/ads/feed_ad_card.dart';
 import '../../widgets/match/match_card.dart';
+import '../ads/ad_interstitial_screen.dart';
 import '../competition/competition_data_screen.dart';
 import '../match/match_detail_screen.dart';
 import '../news/news_detail_screen.dart';
@@ -45,6 +48,7 @@ class _HomeTabState extends State<HomeTab> {
   bool _didScroll = false;
   String? _restoreDate;
   List<_Row> _rows = const [];
+  AdItem? _feedAd; // native sponsored card, picked once per session
 
   @override
   void initState() {
@@ -133,6 +137,32 @@ class _HomeTabState extends State<HomeTab> {
     return null;
   }
 
+  /// Match ids to render the sponsored card after. Counted from the anchor date
+  /// (where the feed lands) downward, so cards sit in the natural forward-scroll
+  /// path rather than up among older matches. First card after match N
+  /// (feedPosition); if feedRepeat is set, repeats every R after that. Falls
+  /// back to the last match when there are fewer than N from the anchor.
+  Set<String> _adAfterMatchIds() {
+    final ids = <String>{};
+    final ad = _feedAd;
+    final anchor = _anchorDate;
+    if (ad == null || anchor == null) return ids;
+    final n = ad.feedPosition < 1 ? 1 : ad.feedPosition;
+    final r = (ad.feedRepeat != null && ad.feedRepeat! > 0) ? ad.feedRepeat! : 0;
+    var count = 0;
+    String? lastId;
+    for (final m in _ascending) {
+      if (m.date.compareTo(anchor) < 0) continue; // skip older matches above
+      lastId = m.id;
+      count++;
+      if (count == n || (r != 0 && count > n && (count - n) % r == 0)) {
+        ids.add(m.id);
+      }
+    }
+    if (ids.isEmpty && lastId != null) ids.add(lastId); // fewer than N: show once
+    return ids;
+  }
+
   List<_Row> _buildRows(List<NewsItem> news) {
     // The banner now lives in HomeTopBar above every tab, so the feed no longer
     // carries its own banner row.
@@ -146,6 +176,7 @@ class _HomeTabState extends State<HomeTab> {
       rows.add(const _MsgRow());
     } else {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
+      final adAfterIds = _adAfterMatchIds();
       String? date;
       String? comp;
       for (final m in _ascending) {
@@ -159,6 +190,11 @@ class _HomeTabState extends State<HomeTab> {
           rows.add(_CompRow(m.competition));
         }
         rows.add(_MatchRow(m));
+        // Native sponsored card after the Nth match (and every R after) counted
+        // from the anchor date, so it sits in the natural downward-scroll path.
+        if (_feedAd != null && adAfterIds.contains(m.id)) {
+          rows.add(_AdRow(_feedAd!));
+        }
       }
       if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
     }
@@ -180,6 +216,12 @@ class _HomeTabState extends State<HomeTab> {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
+    // Pick a feed-placement ad once (stable across rebuilds within a session).
+    final feedAds = provider.config?.ads
+            .where((a) => a.isLive && a.showsOn('feed'))
+            .toList() ??
+        const <AdItem>[];
+    _feedAd ??= weightedPickAd(feedAds);
     _rows = _buildRows(provider.config?.news ?? const []);
 
     return RefreshIndicator(
@@ -307,6 +349,9 @@ class _HomeTabState extends State<HomeTab> {
         ),
       );
     }
+    if (r is _AdRow) {
+      return FeedAdCard(ad: r.ad);
+    }
     if (r is _NewsHeaderRow) {
       return _SectionHeader(
         title: l10n.news,
@@ -335,14 +380,16 @@ class _HomeTabState extends State<HomeTab> {
 
   void _openCompetition(BuildContext ctx, HomeMatchCompetition comp, String locale) {
     if (comp.dataUrl.isEmpty) return;
-    Navigator.push(
+    final url = comp.dataUrl;
+    // Show an interstitial ad (subject to the frequency cap) before the
+    // competition page, mirroring the website and the other open paths.
+    AdInterstitialScreen.open(
       ctx,
-      MaterialPageRoute(
-        builder: (_) => CompetitionDataScreen(
-          dataUrl: comp.dataUrl,
-          title: comp.getTitle(locale),
-          seasonName: '',
-        ),
+      dataUrl: url,
+      destinationBuilder: (_) => CompetitionDataScreen(
+        dataUrl: url,
+        title: comp.getTitle(locale),
+        seasonName: '',
       ),
     );
   }
@@ -381,6 +428,11 @@ class _CompRow extends _Row {
 class _MatchRow extends _Row {
   final HomeMatch m;
   const _MatchRow(this.m);
+}
+
+class _AdRow extends _Row {
+  final AdItem ad;
+  const _AdRow(this.ad);
 }
 
 class _NewsHeaderRow extends _Row {

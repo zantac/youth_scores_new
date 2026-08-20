@@ -10,6 +10,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/l10n/app_l10n.dart';
 import '../../../core/models/competition_data_model.dart';
 import '../../../core/providers/app_provider.dart';
+import '../../../core/utils/share_image.dart';
 import '../../../core/utils/stats_calculator.dart';
 import '../../../widgets/common/cached_logo.dart';
 import '../../../widgets/common/empty_widget.dart';
@@ -220,12 +221,14 @@ class _StatsTabState extends State<StatsTab> with AutomaticKeepAliveClientMixin 
       return EmptyWidget(message: l10n.noStats, icon: Icons.bar_chart);
     }
 
+    // Colored emoji mirror the website's stats sub-tabs; scorers uses a goal
+    // net (⚽ is reserved for the matches tab).
     final tabs = [
-      (Icons.bar_chart,          l10n.statsOverview),
-      (Icons.sports_score,       l10n.scorers),
-      (Icons.assistant,          l10n.assists),
-      (Icons.shield_outlined,    l10n.cleanSheets),
-      (Icons.style_outlined,     l10n.cards),
+      ('📊', l10n.statsOverview),
+      ('🥅', l10n.scorers),
+      ('🎯', l10n.assists),
+      ('🛡️', l10n.cleanSheets),
+      ('🟨', l10n.cards),
     ];
 
     return Column(
@@ -338,7 +341,7 @@ class _StatsTabState extends State<StatsTab> with AutomaticKeepAliveClientMixin 
 // ── Tab strip ─────────────────────────────────────────────────────────────────
 
 class _TabStrip extends StatelessWidget {
-  final List<(IconData, String)> tabs;
+  final List<(String, String)> tabs;
   final int current;
   final ValueChanged<int> onTap;
 
@@ -373,9 +376,10 @@ class _TabStrip extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon,
-                        size: 18,
-                        color: active ? AppColors.aqua : AppColors.hint),
+                    Opacity(
+                      opacity: active ? 1.0 : 0.6,
+                      child: Text(icon, style: const TextStyle(fontSize: 18)),
+                    ),
                     const SizedBox(height: 3),
                     Text(
                       label,
@@ -421,6 +425,7 @@ class _CardsPage extends StatelessWidget {
               style: TextStyle(color: AppColors.teal)));
     }
     return ListView(
+      primary: false,
       padding: const EdgeInsets.only(bottom: 16),
       children: [
         if (yellow.isNotEmpty) ...[
@@ -583,9 +588,26 @@ class _CompStatsPage extends StatelessWidget {
     final bestDefenseTeams  = byDefense.isNotEmpty ? byDefense.where((t) => t.goalsAgainst == byDefense.first.goalsAgainst).toList()    : <TeamGoalStat>[];
     final worstDefenseTeams = byDefense.isNotEmpty ? byDefense.where((t) => t.goalsAgainst == byDefense.last.goalsAgainst).toList()     : <TeamGoalStat>[];
 
+    final locale = l10n.locale;
+    final overviewCard = _OverviewShareCard(
+      competitionTitle: context.read<AppProvider>().competitionTitle,
+      l10n: l10n,
+      goalRate: goalRate,
+      decisive: wins,
+      draws: draws,
+      bestAttackNames: bestAttackTeams.map((t) => t.getTeamName(locale)).toList(),
+      bestAttackCount: bestAttackTeams.isNotEmpty ? bestAttackTeams.first.goalsFor : 0,
+      bestDefenseNames: bestDefenseTeams.map((t) => t.getTeamName(locale)).toList(),
+      bestDefenseCount:
+          bestDefenseTeams.isNotEmpty ? bestDefenseTeams.first.goalsAgainst : 0,
+    );
+
     return ListView(
+      primary: false,
       padding: const EdgeInsets.all(12),
       children: [
+        // ── Share button ─────────────────────────────────────────────────
+        _OverviewShareButton(l10n: l10n, shareCard: overviewCard),
         // ── Overview chips ───────────────────────────────────────────────
         _Card(
           child: Row(
@@ -604,7 +626,7 @@ class _CompStatsPage extends StatelessWidget {
               ),
               Container(width: 1, height: 44, color: AppColors.border),
               _StatPill(
-                icon: Icons.radar,
+                emoji: '🥅',
                 value: '$totalGoals',
                 label: l10n.goals,
                 highlight: true,
@@ -759,6 +781,7 @@ class _PlayerPage extends StatelessWidget {
     }
     final canTap = matches != null && teams != null && statType != null;
     return ListView.builder(
+      primary: false,
       padding: const EdgeInsets.only(bottom: 16),
       itemCount: stats.length,
       itemBuilder: (ctx, i) => PlayerStatItem(
@@ -821,13 +844,15 @@ class _Card extends StatelessWidget {
 // ── Overview stat pill ────────────────────────────────────────────────────────
 
 class _StatPill extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final String? emoji;
   final String value;
   final String label;
   final bool highlight;
 
   const _StatPill({
-    required this.icon,
+    this.icon,
+    this.emoji,
     required this.value,
     required this.label,
     this.highlight = false,
@@ -838,9 +863,11 @@ class _StatPill extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon,
-            size: 20,
-            color: highlight ? AppColors.aqua : AppColors.teal),
+        emoji != null
+            ? Text(emoji!, style: const TextStyle(fontSize: 18))
+            : Icon(icon,
+                size: 20,
+                color: highlight ? AppColors.aqua : AppColors.teal),
         const SizedBox(height: 6),
         Text(
           value,
@@ -1153,12 +1180,12 @@ class _PlayerShareCard extends StatelessWidget {
   final String?          groupName;
   final L10n             l10n;
 
-  static const _bg      = Color(0xFF0D1117);
-  static const _surface = Color(0xFF161B22);
-  static const _aqua    = Color(0xFF00C9A7);
-  static const _white   = Color(0xFFE6EDF3);
-  static const _hint    = Color(0xFF8B949E);
-  static const _gold    = Color(0xFFFFD700);
+  static Color get _bg => ShareColors.bg;
+  static Color get _surface => ShareColors.surface;
+  static Color get _aqua => ShareColors.aqua;
+  static Color get _white => ShareColors.white;
+  static Color get _hint => ShareColors.hint;
+  static Color get _gold => ShareColors.gold;
   static const _silver  = Color(0xFFC0C0C0);
   static const _bronze  = Color(0xFFCD7F32);
 
@@ -1176,7 +1203,7 @@ class _PlayerShareCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 400,
-      decoration: const BoxDecoration(color: _bg),
+      decoration: BoxDecoration(color: _bg),
       padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1194,7 +1221,7 @@ class _PlayerShareCard extends StatelessWidget {
                     if (competitionTitle.isNotEmpty)
                       Text(
                         competitionTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: _white,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
@@ -1202,7 +1229,7 @@ class _PlayerShareCard extends StatelessWidget {
                       ),
                     Text(
                       title,
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: _aqua,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1211,7 +1238,7 @@ class _PlayerShareCard extends StatelessWidget {
                     if (groupName != null && groupName!.isNotEmpty)
                       Text(
                         groupName!,
-                        style: const TextStyle(color: _hint, fontSize: 11),
+                        style: TextStyle(color: _hint, fontSize: 11),
                       ),
                   ],
                 ),
@@ -1282,7 +1309,7 @@ class _PlayerShareCard extends StatelessWidget {
                           ),
                         ),
                         Text(stat.getTeamName(l10n.locale),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 color: _hint, fontSize: 11)),
                       ],
                     ),
@@ -1296,7 +1323,7 @@ class _PlayerShareCard extends StatelessWidget {
                     ),
                     child: Text(
                       '${stat.count} $unit',
-                      style: const TextStyle(
+                      style: TextStyle(
                         color: _aqua,
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -1311,23 +1338,294 @@ class _PlayerShareCard extends StatelessWidget {
           const SizedBox(height: 14),
 
           // ── Branding footer ───────────────────────────────────────────────
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: _surface,
-              borderRadius: BorderRadius.circular(8),
+          const ShareBrandFooter(),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Overview share button + card ──────────────────────────────────────────────
+
+class _OverviewShareButton extends StatefulWidget {
+  final L10n l10n;
+  final Widget shareCard;
+  const _OverviewShareButton({required this.l10n, required this.shareCard});
+
+  @override
+  State<_OverviewShareButton> createState() => _OverviewShareButtonState();
+}
+
+class _OverviewShareButtonState extends State<_OverviewShareButton> {
+  bool _sharing = false;
+
+  Future<void> _share() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    await shareWidgetImage(
+      context,
+      filePrefix: 'overview',
+      errorText: widget.l10n.isAr
+          ? 'تعذّر مشاركة الإحصائيات'
+          : 'Could not share stats',
+      card: widget.shareCard,
+    );
+    if (mounted) setState(() => _sharing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerEnd,
+      child: _sharing
+          ? const Padding(
+              padding: EdgeInsets.all(8),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : TextButton.icon(
+              icon: Icon(Icons.share, size: 16, color: AppColors.aqua),
+              label: Text(widget.l10n.share,
+                  style: TextStyle(color: AppColors.aqua, fontSize: 13)),
+              onPressed: _share,
             ),
-            child: const Text(
-              'بطولات الناشئين  |  Youth Scores  |  youthscores.org',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _hint,
-                fontSize: 11,
-                letterSpacing: 0.5,
+    );
+  }
+}
+
+class _OverviewShareCard extends StatelessWidget {
+  final String competitionTitle;
+  final L10n l10n;
+  final int decisive, draws;
+  final double goalRate;
+  final List<String> bestAttackNames;
+  final int bestAttackCount;
+  final List<String> bestDefenseNames;
+  final int bestDefenseCount;
+
+  const _OverviewShareCard({
+    required this.competitionTitle,
+    required this.l10n,
+    required this.goalRate,
+    required this.decisive,
+    required this.draws,
+    required this.bestAttackNames,
+    required this.bestAttackCount,
+    required this.bestDefenseNames,
+    required this.bestDefenseCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 420,
+      decoration: BoxDecoration(color: ShareColors.bg),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Row(
+            children: [
+              const Text('📊', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (competitionTitle.isNotEmpty)
+                      Text(competitionTitle,
+                          style: TextStyle(
+                              color: ShareColors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14)),
+                    Text(l10n.isAr ? 'إحصائيات البطولة' : 'Competition Statistics',
+                        style: TextStyle(
+                            color: ShareColors.aqua,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Match-results graph (decisive vs draws)
+          if (decisive + draws > 0) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: ShareColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: ShareColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l10n.matchResults,
+                      style: TextStyle(
+                          color: ShareColors.aqua,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+                  const SizedBox(height: 12),
+                  _donut(),
+                ],
               ),
             ),
+            const SizedBox(height: 10),
+          ],
+
+          // Goal rate
+          _row(l10n.goalRateLabel, goalRate.toStringAsFixed(1)),
+
+          // Strong attack / defense
+          if (bestAttackNames.isNotEmpty)
+            _rankRow('⚔️', l10n.bestAttackLabel, bestAttackNames,
+                '$bestAttackCount ${l10n.goals}'),
+          if (bestDefenseNames.isNotEmpty)
+            _rankRow('🛡️', l10n.bestDefenseLabel, bestDefenseNames,
+                '$bestDefenseCount ${l10n.goals}'),
+
+          const SizedBox(height: 14),
+          const ShareBrandFooter(),
+        ],
+      ),
+    );
+  }
+
+  // Donut of decisive vs draw matches, with a legend.
+  Widget _donut() {
+    final total = decisive + draws;
+    final decisivePct = total > 0 ? decisive / total : 0.0;
+    return Row(
+      children: [
+        SizedBox(
+          width: 108,
+          height: 108,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: const Size(108, 108),
+                painter: _DonutPainter(
+                  decisivePct: decisivePct,
+                  decisiveColor: ShareColors.green,
+                  drawsColor: ShareColors.yellow,
+                  trackColor: ShareColors.border,
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('$total',
+                      style: TextStyle(
+                          color: ShareColors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold)),
+                  Text(l10n.completedLabel,
+                      style: TextStyle(
+                          color: ShareColors.hint, fontSize: 9)),
+                ],
+              ),
+            ],
           ),
+        ),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _legend(ShareColors.green, l10n.decisiveMatches, decisive, total),
+              const SizedBox(height: 14),
+              _legend(ShareColors.yellow, l10n.drawMatchesLabel, draws, total),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _legend(Color color, String label, int count, int total) {
+    final pct = total > 0 ? (count / total * 100).round() : 0;
+    return Row(
+      children: [
+        Container(
+            width: 11,
+            height: 11,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 8),
+        Expanded(
+            child: Text(label,
+                style: TextStyle(color: ShareColors.white, fontSize: 12))),
+        Text('$count',
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(width: 6),
+        Text('$pct%',
+            style: TextStyle(color: ShareColors.hint, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ShareColors.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: TextStyle(color: ShareColors.teal, fontSize: 13)),
+          ),
+          Text(value,
+              style: TextStyle(
+                  color: ShareColors.aqua,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _rankRow(String emoji, String label, List<String> names, String value) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: ShareColors.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('$emoji ', style: const TextStyle(fontSize: 13)),
+          SizedBox(
+            width: 72,
+            child: Text(label,
+                style: TextStyle(color: ShareColors.hint, fontSize: 11)),
+          ),
+          Expanded(
+            child: Text(names.join('، '),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: ShareColors.white, fontSize: 12)),
+          ),
+          const SizedBox(width: 8),
+          Text(value,
+              style: TextStyle(
+                  color: ShareColors.aqua,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );

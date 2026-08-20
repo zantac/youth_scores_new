@@ -1286,7 +1286,13 @@ function CompetitionPageInner() {
       <div ref={setHeadEl} className="sticky top-[var(--header-h,0px)] z-40">
         <AppBar title={title || compTitle} back embedded
           actions={idParam ? <FollowButton competitionId={idParam} /> : undefined} />
-        <TabStrip tabs={mainTabs} current={mainTab} onChange={i => setView({ tab: i })} />
+        <TabStrip tabs={mainTabs} current={mainTab} onChange={i => {
+          // Switch the tab without letting the router jump (scroll:false), then
+          // reset to the top ourselves — otherwise the new tab opens scrolled to
+          // wherever the previous one was left.
+          setView({ tab: i });
+          if (i !== mainTab) window.scrollTo({ top: 0 });
+        }} />
       </div>
 
       {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} />}

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchSearch } from '@/lib/api';
@@ -18,6 +19,13 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
   const [res, setRes] = useState<SearchResults>(EMPTY);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Rendered through a portal to <body>: ControlsBar lives inside StickyHeader,
+  // which is `sticky z-40` and thus its own stacking context — so a z-index here
+  // is trapped under it, letting the page's own title bar and the bottom nav
+  // (z-50, sibling contexts at the root) show through. Portalling to the body
+  // lifts the overlay to the top level where its z-index actually wins.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -81,9 +89,11 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   const typed = q.trim().length >= 2;
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-[200] flex flex-col" dir={isAr ? 'rtl' : 'ltr'}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-lg mx-auto flex flex-col min-h-0 flex-1">
         {/* Search bar */}
@@ -94,6 +104,10 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder={isAr ? 'ابحث عن فريق أو لاعب أو مدرب…' : 'Search teams, players, coaches…'}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="flex-1 bg-transparent text-text text-sm placeholder:text-hint outline-none"
           />
           {q && <button onClick={() => setQ('')} className="text-hint text-lg leading-none px-1" aria-label="clear">✕</button>}
@@ -101,7 +115,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Results */}
-        <div className="flex-1 overflow-y-auto bg-darkBg/95">
+        <div className="flex-1 overflow-y-auto bg-darkBg">
           {!typed ? (
             <p className="text-hint text-xs text-center px-6 py-10">
               {isAr ? 'اكتب حرفين على الأقل للبحث' : 'Type at least two characters to search'}
@@ -143,6 +157,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

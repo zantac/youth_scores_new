@@ -934,11 +934,6 @@ class _TeamsSectionState extends State<_TeamsSection> {
                         if (t.subtitle() != null)
                           Text(t.subtitle()!,
                               style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                        if (t.seasons.isNotEmpty)
-                          Text(t.seasons.join('، '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
                       ]),
                     ),
                     Icon(Icons.chevron_right, color: AppColors.aqua, size: 18),

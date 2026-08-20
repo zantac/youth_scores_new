@@ -4,6 +4,7 @@ class AppColors {
   AppColors._();
 
   static bool _isDark = true;
+  static bool get isDark => _isDark;
   static void setTheme(bool isDark) => _isDark = isDark;
 
   // ── Theme-sensitive colours ──────────────────────────────────────────────────

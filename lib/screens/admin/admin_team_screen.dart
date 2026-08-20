@@ -130,14 +130,9 @@ class AdminTeamScreen extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(team.title(),
-                      style: TextStyle(
-                          color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-                  if (team.seasons.isNotEmpty)
-                    Text(team.seasons.join('، '),
-                        style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                ]),
+                child: Text(team.title(),
+                    style: TextStyle(
+                        color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
               ),
             ]),
           ),
@@ -661,14 +656,7 @@ class _RosterSectionState extends State<_RosterSection> {
       child: Opacity(
         opacity: variant == 'former' ? 0.6 : 1,
         child: Row(children: [
-          Container(
-            width: 32,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(color: AppColors.darkBg, borderRadius: BorderRadius.circular(8)),
-            child: Text(r.shirtNumber?.toString() ?? '—',
-                style: TextStyle(color: AppColors.aqua, fontWeight: FontWeight.bold, fontSize: 13)),
-          ),
+          _avatar(r.photo),
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -678,6 +666,7 @@ class _RosterSectionState extends State<_RosterSection> {
                   style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 13.5)),
               Text(
                 [
+                  if (r.shirtNumber != null) '#${r.shirtNumber}',
                   if (r.position(isAr).isNotEmpty) r.position(isAr),
                   if (r.birthYear != null) '${r.birthYear}${r.birthYearVerified ? '' : '؟'}',
                   if (r.status != 'active' && variant == 'active') _statusLabel(r.status, isAr),

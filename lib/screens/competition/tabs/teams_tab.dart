@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/l10n/app_l10n.dart';
 import '../../../core/models/competition_data_model.dart';
 import '../../../core/providers/app_provider.dart';
+import '../../../widgets/common/cached_logo.dart';
 import '../../../widgets/common/empty_widget.dart';
 import '../../../widgets/common/search_field.dart';
 import '../../team/team_detail_screen.dart';
@@ -95,7 +96,7 @@ class _TeamsTabState extends State<TeamsTab>
             onRefresh: () => context.read<AppProvider>().refreshCompetition(),
             color: AppColors.aqua,
             child: filtered.isEmpty
-                ? ListView(children: [EmptyWidget(message: l10n.noTeams, icon: Icons.shield_outlined)])
+                ? ListView(primary: false, children: [EmptyWidget(message: l10n.noTeams, icon: Icons.shield_outlined)])
                 : isGrouped
                     ? _GroupedList(
                         grouped: grouped,
@@ -125,11 +126,13 @@ class _FlatList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 16),
+      primary: false,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
       itemCount: teams.length,
       itemBuilder: (_, i) => _TeamNameTile(
         team: teams[i],
         onTap: () => onTeamTap(teams[i].id),
+        card: true,
       ),
     );
   }
@@ -153,17 +156,19 @@ class _GroupedList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
+      primary: false,
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
       children: grouped.entries.map((entry) {
         final gName  = entry.key;
         final teams  = entry.value;
         final isOpen = expanded[gName] ?? true;
 
-        // Teams with no group — flat, no header
+        // Teams with no group — standalone cards, no header
         if (gName.isEmpty) {
           return Column(
             children: teams
-                .map((t) => _TeamNameTile(team: t, onTap: () => onTeamTap(t.id)))
+                .map((t) => _TeamNameTile(
+                    team: t, onTap: () => onTeamTap(t.id), card: true))
                 .toList(),
           );
         }
@@ -245,33 +250,80 @@ class _GroupedList extends StatelessWidget {
 class _TeamNameTile extends StatelessWidget {
   final Team team;
   final VoidCallback onTap;
+  // `card`: a standalone bordered card (ungrouped list); otherwise a plain row
+  // with a divider, sitting inside a group card.
+  final bool card;
 
-  const _TeamNameTile({required this.team, required this.onTap});
+  const _TeamNameTile({required this.team, required this.onTap, this.card = false});
 
   @override
   Widget build(BuildContext context) {
+    final locale = Provider.of<AppProvider>(context, listen: false).locale;
+    final lines  = team.nameLines(locale);
+
+    final row = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          CachedLogo(url: team.logo, size: 36),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  lines.primary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (lines.alias != null)
+                  Text(
+                    lines.alias!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.hint, fontSize: 11),
+                  ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: AppColors.teal, size: 20),
+        ],
+      ),
+    );
+
+    if (card) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Ink(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: row,
+            ),
+          ),
+        ),
+      );
+    }
+
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.border, width: 0.5)),
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                team.getName(Provider.of<AppProvider>(context, listen: false).locale),
-                style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            Icon(Icons.chevron_right, color: AppColors.border, size: 20),
-          ],
-        ),
+        child: row,
       ),
     );
   }

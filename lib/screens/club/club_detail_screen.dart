@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/profile_models.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/cached_logo.dart';
 import '../coach/coach_detail_screen.dart';
+import '../team/team_profile_screen.dart';
 
 class ClubDetailScreen extends StatefulWidget {
   final int clubId;
@@ -18,6 +19,10 @@ class ClubDetailScreen extends StatefulWidget {
 
 class _ClubDetailScreenState extends State<ClubDetailScreen> {
   late Future<ClubPublic> _future;
+  // Own controller so the list never attaches to the app-wide
+  // PrimaryScrollController and can't restore a stale offset (which otherwise
+  // sometimes opened the screen scrolled down); keepScrollOffset:false = top.
+  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
 
   @override
   void initState() {
@@ -25,8 +30,14 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
     _future = ApiService().fetchClub(widget.clubId);
   }
 
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   void _open(String url) {
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    launchExternal(safeUri(url));
   }
 
   @override
@@ -50,6 +61,7 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
           }
           final c = snap.data!;
           return ListView(
+            controller: _scroll,
             padding: const EdgeInsets.all(14),
             children: [
               _header(c, locale, isAr),
@@ -164,8 +176,13 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
         child: Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: CachedLogo(url: m.photo, size: 40, borderRadius: 20),
+              borderRadius: BorderRadius.circular(10),
+              child: CachedLogo(
+                  url: m.photo,
+                  size: 40,
+                  borderRadius: 10,
+                  fit: BoxFit.cover,
+                  placeholderIcon: Icons.person),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -187,25 +204,34 @@ class _ClubDetailScreenState extends State<ClubDetailScreen> {
   }
 
   Widget _teamTile(ClubTeamEntry t, String locale) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+    // On the club page the club is implicit, so show the age only (falling back
+    // to the team name). Tapping opens the standalone team page.
+    final label = t.ageName(locale) ?? t.getName(locale);
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => TeamProfileScreen(teamId: t.id)),
       ),
-      child: Row(
-        children: [
-          Icon(Icons.groups_outlined, color: AppColors.teal, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(t.getName(locale),
-                style: TextStyle(color: AppColors.white, fontSize: 14)),
-          ),
-          if (t.ageName(locale) != null)
-            Text(t.ageName(locale)!, style: TextStyle(color: AppColors.hint, fontSize: 12)),
-        ],
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.groups_outlined, color: AppColors.teal, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(color: AppColors.white, fontSize: 14)),
+            ),
+            Icon(Icons.chevron_right, color: AppColors.hint, size: 18),
+          ],
+        ),
       ),
     );
   }

@@ -124,9 +124,25 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
       return matchesQ && matchesWeek && matchesDate;
     }).toList();
     final filtering = _filter.isNotEmpty || _week.isNotEmpty || _date.isNotEmpty;
+    // Result count, mirroring the website: "X of Y" while filtering, else "Y".
+    final countText = filtering
+        ? (isAr
+            ? '${shown.length} من ${active.length} مباراة'
+            : '${shown.length} of ${active.length} matches')
+        : (isAr ? '${active.length} مباراة' : '${active.length} matches');
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.competition.getName(locale))),
+      appBar: AppBar(
+        title: Text(widget.competition.getName(locale)),
+        actions: [
+          if (!_loading && _error == null)
+            IconButton(
+              icon: const Icon(Icons.notifications_active_outlined),
+              tooltip: isAr ? 'إشعار نتائج الجولة' : 'Round results notification',
+              onPressed: () => _openRoundNotify(isAr, locale),
+            ),
+        ],
+      ),
       floatingActionButton: _loading || _error != null
           ? null
           : FloatingActionButton.extended(
@@ -227,19 +243,29 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
                             ),
                           ),
                         ]),
-                        if (filtering)
-                          Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: TextButton.icon(
-                              onPressed: () => setState(() {
-                                _filter = '';
-                                _week = '';
-                                _date = '';
-                              }),
-                              icon: const Icon(Icons.close, size: 16),
-                              label: Text(isAr ? 'مسح الفلاتر' : 'Clear filters'),
-                            ),
-                          ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Row(children: [
+                            Text(countText,
+                                style: TextStyle(
+                                    color: AppColors.teal,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600)),
+                            const Spacer(),
+                            if (filtering)
+                              TextButton.icon(
+                                onPressed: () => setState(() {
+                                  _filter = '';
+                                  _week = '';
+                                  _date = '';
+                                }),
+                                style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact),
+                                icon: const Icon(Icons.close, size: 16),
+                                label: Text(isAr ? 'مسح الفلاتر' : 'Clear filters'),
+                              ),
+                          ]),
+                        ),
                       ]),
                     ),
                     Expanded(
@@ -264,6 +290,27 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
                     ),
                   ],
                 ),
+    );
+  }
+
+  void _openRoundNotify(bool isAr, String locale) {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    final active = _matches.where((m) => !m.isDeleted).toList();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _RoundNotifySheet(
+        api: _api,
+        token: token,
+        cid: _cid,
+        matches: active,
+        isAr: isAr,
+        locale: locale,
+      ),
     );
   }
 
@@ -377,6 +424,224 @@ class _MatchTile extends StatelessWidget {
                 style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+// ── Round-results notification sheet ──────────────────────────────────────────
+// Pick a round, see how many of its matches have a result, and send ONE digest
+// push to the competition's followers. Mirrors the website's RoundNotify.
+class _RoundNotifySheet extends StatefulWidget {
+  final AdminApi api;
+  final String token;
+  final int cid;
+  final List<EntryMatchRow> matches;
+  final bool isAr;
+  final String locale;
+  const _RoundNotifySheet({
+    required this.api,
+    required this.token,
+    required this.cid,
+    required this.matches,
+    required this.isAr,
+    required this.locale,
+  });
+
+  @override
+  State<_RoundNotifySheet> createState() => _RoundNotifySheetState();
+}
+
+class _RoundNotifySheetState extends State<_RoundNotifySheet> {
+  String _week = '';
+  bool _confirm = false;
+  bool _busy = false;
+  String? _msg;
+  String? _err;
+
+  InputDecoration _dec(String? hint) => InputDecoration(
+        isDense: true,
+        hintText: hint,
+        hintStyle: TextStyle(color: AppColors.hint, fontSize: 13),
+        filled: true,
+        fillColor: AppColors.cardBg,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.aqua)),
+      );
+
+  Future<void> _send() async {
+    setState(() {
+      _busy = true;
+      _err = null;
+      _msg = null;
+    });
+    try {
+      final r = await widget.api.notifyRound(widget.token, widget.cid, _week);
+      if (!mounted) return;
+      final count = r['count'] ?? 0;
+      final notif = r['notification'];
+      final dry = notif is Map && notif['status'] == 'dry_run';
+      final isAr = widget.isAr;
+      setState(() {
+        _msg = dry
+            ? (isAr
+                ? '✓ جُهّز الإشعار (وضع التجربة) — $count مباراة. يُرسل فعليًا بعد ربط Firebase.'
+                : '✓ Prepared (dry run) — $count matches. Sends for real once Firebase is configured.')
+            : (isAr
+                ? '✓ أُرسل الإشعار — $count مباراة.'
+                : '✓ Notification sent — $count matches.');
+        _confirm = false;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      setState(() {
+        _err = e.toString().replaceFirst('Exception: ', '');
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final weeks = {for (final m in widget.matches) m.week}
+        .where((w) => w.isNotEmpty)
+        .toList()
+      ..sort((a, b) {
+        final na = int.tryParse(a) ?? 0, nb = int.tryParse(b) ?? 0;
+        return na != nb ? na.compareTo(nb) : a.compareTo(b);
+      });
+    final inWeek = widget.matches.where((m) => m.week == _week).toList();
+    final done = inWeek.where((m) => m.status == 'completed').length;
+    final total = inWeek.length;
+    final allDone = total > 0 && done == total;
+
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Text(isAr ? '🔔 إشعار نتائج الجولة' : '🔔 Round results',
+                  style: TextStyle(
+                      color: AppColors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+            ),
+            IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: Icon(Icons.close, color: AppColors.hint)),
+          ]),
+          Text(
+              isAr
+                  ? 'بعد إدخال نتائج الجولة، أرسِل إشعارًا واحدًا لمتابعي هذه البطولة — بدل إشعار لكل مباراة.'
+                  : "After a round's results are entered, send one digest to this competition's followers instead of one per match.",
+              style: TextStyle(color: AppColors.hint, fontSize: 11.5, height: 1.5)),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: _week.isEmpty ? null : _week,
+            isExpanded: true,
+            dropdownColor: AppColors.cardBg,
+            style: TextStyle(color: AppColors.white, fontSize: 13),
+            hint: Text(isAr ? '— اختر الجولة —' : '— Select round —',
+                style: TextStyle(color: AppColors.hint, fontSize: 13)),
+            decoration: _dec(null),
+            items: [
+              for (final w in weeks)
+                DropdownMenuItem(
+                    value: w, child: Text(isAr ? 'الجولة $w' : 'Round $w')),
+            ],
+            onChanged: (v) => setState(() {
+              _week = v ?? '';
+              _msg = null;
+              _confirm = false;
+            }),
+          ),
+          if (_week.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+                '${allDone ? '✅' : '⏳'} $done/$total ${isAr ? 'مباراة لها نتيجة' : 'matches have a result'}',
+                style: TextStyle(
+                    color: allDone ? AppColors.green : AppColors.orange,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.bold)),
+          ],
+          if (_err != null) ...[
+            const SizedBox(height: 10),
+            Text(_err!, style: TextStyle(color: AppColors.red, fontSize: 12)),
+          ],
+          if (_msg != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.green.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.green.withValues(alpha: 0.3)),
+              ),
+              child: Text(_msg!,
+                  style: TextStyle(color: AppColors.green, fontSize: 12)),
+            ),
+          ],
+          const SizedBox(height: 16),
+          if (!_confirm)
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: (_week.isEmpty || done == 0)
+                    ? null
+                    : () => setState(() => _confirm = true),
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.aqua,
+                    padding: const EdgeInsets.symmetric(vertical: 14)),
+                child: Text(
+                    isAr ? '🔔 أرسل إشعار نتائج الجولة' : '🔔 Send round notification',
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            )
+          else
+            Row(children: [
+              Expanded(
+                child: Text(
+                    isAr
+                        ? 'إرسال إشعار بـ$done نتيجة لمتابعي البطولة؟'
+                        : 'Send a $done-result digest to followers?',
+                    style: TextStyle(color: AppColors.teal, fontSize: 12)),
+              ),
+              TextButton(
+                  onPressed:
+                      _busy ? null : () => setState(() => _confirm = false),
+                  child: Text(isAr ? 'إلغاء' : 'Cancel')),
+              FilledButton(
+                onPressed: _busy ? null : _send,
+                style: FilledButton.styleFrom(backgroundColor: AppColors.aqua),
+                child: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : Text(isAr ? 'تأكيد' : 'Confirm'),
+              ),
+            ]),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }

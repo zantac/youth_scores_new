@@ -380,7 +380,7 @@ class _SeasonsSectionState extends State<_SeasonsSection> {
                           await _api.updateSeason(_token, s.id, {'is_active': true});
                           _load();
                         } catch (e) {
-                          if (!mounted) return;
+                          if (!context.mounted) return;
                           if (handleAdminError(context, e)) return;
                           showAdminError(context, e);
                         }

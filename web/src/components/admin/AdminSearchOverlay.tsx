@@ -79,7 +79,7 @@ export default function AdminSearchOverlay({ onClose }: { onClose: () => void })
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col" dir="rtl">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-3xl mx-auto flex flex-col min-h-0 flex-1">
         <div className="flex items-center gap-2 px-3 py-3 bg-cardBg border-b border-bdr">
@@ -89,13 +89,17 @@ export default function AdminSearchOverlay({ onClose }: { onClose: () => void })
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder="ابحث عن نادٍ أو فريق أو لاعب…"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className="flex-1 bg-transparent text-text text-sm placeholder:text-hint outline-none"
           />
           {q && <button onClick={() => setQ('')} className="text-hint text-lg leading-none px-1" aria-label="clear">✕</button>}
           <button onClick={onClose} className="text-aqua text-sm font-bold px-2">إلغاء</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-darkBg/95">
+        <div className="flex-1 overflow-y-auto bg-darkBg">
           {!typed ? (
             <p className="text-hint text-xs text-center px-6 py-10">اكتب حرفين على الأقل للبحث</p>
           ) : loading && total === 0 ? (

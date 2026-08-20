@@ -8,6 +8,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/providers/app_provider.dart';
 import 'home_tab.dart';
 import 'competitions_tab.dart';
+import '../club/clubs_screen.dart';
 import '../news/news_screen.dart';
 import '../venues/venues_screen.dart';
 import '../more/more_screen.dart';
@@ -76,7 +77,10 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _UpdateDialog(locale: provider.locale),
+      builder: (_) => _UpdateDialog(
+        locale: provider.locale,
+        force: provider.forceUpdate,
+      ),
     );
   }
 
@@ -97,9 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final screens = [
       HomeTab(
         onGoToCompetitions: () => setState(() => _tab = 1),
-        onGoToNews: () => setState(() => _tab = 2),
+        onGoToNews: () => setState(() => _tab = 3),
       ),
       const CompetitionsTab(),
+      const ClubsScreen(),
       const NewsScreen(),
       const VenuesScreen(),
     ];
@@ -126,8 +131,9 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _tab,
+        type: BottomNavigationBarType.fixed,
         onTap: (i) {
-          if (i == 4) {
+          if (i == 5) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const MoreScreen()),
@@ -144,6 +150,10 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: const Text('🏆', style: TextStyle(fontSize: 20)),
             label: l10n.competitions,
+          ),
+          BottomNavigationBarItem(
+            icon: const Text('🛡️', style: TextStyle(fontSize: 20)),
+            label: l10n.clubs,
           ),
           BottomNavigationBarItem(
             icon: const Text('📰', style: TextStyle(fontSize: 20)),
@@ -167,7 +177,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _UpdateDialog extends StatelessWidget {
   final String locale;
-  const _UpdateDialog({required this.locale});
+  final bool force;
+  const _UpdateDialog({required this.locale, this.force = false});
 
   static const _storeUrl =
       'https://play.google.com/store/apps/details?id=com.waellotfy.youthscores&pcampaignid=web_share';
@@ -175,7 +186,9 @@ class _UpdateDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isAr = locale == 'ar';
-    return AlertDialog(
+    return PopScope(
+      canPop: !force,
+      child: AlertDialog(
       backgroundColor: AppColors.cardBg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
@@ -199,13 +212,14 @@ class _UpdateDialog extends StatelessWidget {
         style: TextStyle(color: AppColors.white, fontSize: 14, height: 1.6),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            isAr ? 'لاحقاً' : 'Later',
-            style: TextStyle(color: AppColors.hint),
+        if (!force)
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              isAr ? 'لاحقاً' : 'Later',
+              style: TextStyle(color: AppColors.hint),
+            ),
           ),
-        ),
         ElevatedButton.icon(
           icon: const Icon(Icons.download_rounded, size: 18),
           label: Text(isAr ? 'تحديث الآن' : 'Update Now'),
@@ -224,6 +238,7 @@ class _UpdateDialog extends StatelessWidget {
           },
         ),
       ],
+      ),
     );
   }
 }

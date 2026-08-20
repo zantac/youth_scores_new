@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Android 13+ runtime notification permission (requested at runtime). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
@@ -6,7 +7,10 @@
         android:label="Youth Scores"
         android:networkSecurityConfig="@xml/network_security_config"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        tools:replace="android:allowBackup">
         <!-- Default FCM notification channel for the app's background/killed pushes. -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

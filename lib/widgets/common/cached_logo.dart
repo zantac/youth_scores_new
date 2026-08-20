@@ -7,12 +7,20 @@ class CachedLogo extends StatelessWidget {
   final String? url;
   final double size;
   final double borderRadius;
+  // Fallback glyph when there's no image — a shield for clubs/teams, a person
+  // silhouette for people (players, coaches).
+  final IconData placeholderIcon;
+  // Logos default to `contain` so the whole crest is visible; a person's photo
+  // should pass `cover` to fill the frame (cropping overflow, never stretching).
+  final BoxFit fit;
 
   const CachedLogo({
     super.key,
     this.url,
     this.size = 40,
     this.borderRadius = 8,
+    this.placeholderIcon = Icons.shield,
+    this.fit = BoxFit.contain,
   });
 
   @override
@@ -24,7 +32,7 @@ class CachedLogo extends StatelessWidget {
       imageUrl: url!,
       width: size,
       height: size,
-      fit: BoxFit.contain,
+      fit: fit,
       placeholder: (_, __) => Shimmer.fromColors(
         baseColor: AppColors.cardBg,
         highlightColor: AppColors.border,
@@ -44,6 +52,6 @@ class CachedLogo extends StatelessWidget {
   Widget _placeholder() => SizedBox(
     width: size,
     height: size,
-    child: Icon(Icons.shield, color: AppColors.teal),
+    child: Icon(placeholderIcon, color: AppColors.teal, size: size * 0.6),
   );
 }

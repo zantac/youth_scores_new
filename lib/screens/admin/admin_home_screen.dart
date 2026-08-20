@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
+import 'admin_ads_tab.dart';
 import 'admin_content_tab.dart';
 import 'admin_dashboard_tab.dart';
 import 'admin_merge_tab.dart';
@@ -64,6 +65,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       labelEn: 'News & venues',
       access: _Access.editor,
       body: () => const AdminContentTab(),
+    ),
+    _NavItem(
+      emoji: '📢',
+      labelAr: 'الإعلانات',
+      labelEn: 'Ads',
+      access: _Access.editor,
+      body: () => const AdminAdsTab(),
     ),
     _NavItem(
       emoji: '👤',

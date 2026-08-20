@@ -17,7 +17,10 @@ plugins {
 
 android {
     namespace = "com.waellotfy.youthscores"
-    compileSdk = flutter.compileSdkVersion
+    // compileSdk 37: some plugins (flutter_secure_storage) require it. This only
+    // affects what we compile against (backward compatible); Play enforces the
+    // TARGET sdk, pinned to 36 below.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -31,7 +34,8 @@ android {
         applicationId = "com.waellotfy.youthscores"
         // Firebase needs a modern minimum; 23 (Android 6) is a safe floor.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        // Android 16 — required by Google Play for new/updated app submissions.
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -48,6 +52,15 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            // Shrink + obfuscate Java/Kotlin (plugins) and strip unused resources
+            // for a smaller, harder-to-reverse release. Dart is obfuscated
+            // separately via `flutter build --obfuscate --split-debug-info`.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

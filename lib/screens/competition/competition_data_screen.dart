@@ -58,11 +58,12 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
         bottom: TabBar(
           controller: _tabs,
           isScrollable: false,
+          // Colored emoji icons mirror the website's competition tabs.
           tabs: [
-            Tab(icon: const Icon(Icons.sports_soccer, size: 18), text: l10n.matches),
-            Tab(icon: const Icon(Icons.leaderboard,   size: 18), text: l10n.standings),
-            Tab(icon: const Icon(Icons.shield,        size: 18), text: l10n.teams),
-            Tab(icon: const Icon(Icons.bar_chart,     size: 18), text: l10n.statistics),
+            Tab(icon: const Text('⚽',  style: TextStyle(fontSize: 18)), text: l10n.matches),
+            Tab(icon: const Text('📊', style: TextStyle(fontSize: 18)), text: l10n.standings),
+            Tab(icon: const Text('👕', style: TextStyle(fontSize: 18)), text: l10n.teams),
+            Tab(icon: const Text('📈', style: TextStyle(fontSize: 18)), text: l10n.statistics),
           ],
         ),
       ),

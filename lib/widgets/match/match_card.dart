@@ -75,22 +75,7 @@ class MatchCard extends StatelessWidget {
   Widget _teamCol(Team? team, String fallback, {required bool winner}) {
     return Column(
       children: [
-        // Winner gets a subtle golden glow ring around the logo
-        winner
-            ? Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.45),
-                      blurRadius: 10,
-                      spreadRadius: 2,
-                    ),
-                  ],
-                ),
-                child: CachedLogo(url: team?.logo, size: 40),
-              )
-            : CachedLogo(url: team?.logo, size: 40),
+        CachedLogo(url: team?.logo, size: 40),
         const SizedBox(height: 4),
         Text(
           team?.getName(locale) ?? fallback,

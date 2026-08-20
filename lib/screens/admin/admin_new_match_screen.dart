@@ -44,6 +44,13 @@ class _AdminNewMatchScreenState extends State<AdminNewMatchScreen> {
   String get _hm =>
       '${_time.hour.toString().padLeft(2, '0')}:${_time.minute.toString().padLeft(2, '0')}';
 
+  // 12-hour display (the value is still submitted as 24h "HH:mm").
+  String get _hm12 {
+    final h = _time.hourOfPeriod == 0 ? 12 : _time.hourOfPeriod;
+    final m = _time.minute.toString().padLeft(2, '0');
+    return '$h:$m ${_time.period == DayPeriod.am ? 'AM' : 'PM'}';
+  }
+
   Future<void> _submit() async {
     final isAr = context.read<AppProvider>().locale == 'ar';
     final token = context.read<AdminAuth>().token;
@@ -148,11 +155,17 @@ class _AdminNewMatchScreenState extends State<AdminNewMatchScreen> {
                 child: AdminField(
                   label: isAr ? 'الوقت' : 'Time',
                   child: _PickerTile(
-                    text: _hm,
+                    text: _hm12,
                     icon: Icons.access_time,
                     onTap: () async {
                       final t = await showTimePicker(
-                          context: context, initialTime: _time);
+                          context: context,
+                          initialTime: _time,
+                          builder: (context, child) => MediaQuery(
+                                data: MediaQuery.of(context)
+                                    .copyWith(alwaysUse24HourFormat: false),
+                                child: child!,
+                              ));
                       if (t != null) setState(() => _time = t);
                     },
                   ),
