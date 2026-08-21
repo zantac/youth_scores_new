@@ -255,6 +255,10 @@ export async function fetchConfig(): Promise<ConfigData> {
     news: (Array.isArray(data.news) ? data.news : [])
       .filter((n: unknown): n is Record<string, unknown> => typeof n === 'object' && n !== null)
       .map((n: Record<string, unknown>) => ({
+        // Carry the id through: the /news page puts it in the URL (?id=) so a
+        // shared link reopens this exact item, and a news-notification deep-link
+        // (/news?id=<id>) matches on it. Dropping it broke both.
+        id:      Number.isFinite(Number(n.id)) ? Number(n.id) : undefined,
         date:    String(n.date ?? ''),
         title:   parseLocalized(n.title) ?? '',
         image:   n.image ? String(n.image) : undefined,

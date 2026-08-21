@@ -76,7 +76,7 @@ function MatchCenter() {
   const openTeam = (teamId?: number) => {
     const c = m.competition;
     if (!c || teamId == null) return;
-    const p = new URLSearchParams({ id: String(c.id), tab: '2', team: String(teamId) });
+    const p = new URLSearchParams({ id: String(c.id), tab: 'teams', team: String(teamId) });
     router.push(`/competition?${p.toString()}`);
   };
 

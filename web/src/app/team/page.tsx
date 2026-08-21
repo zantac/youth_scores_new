@@ -39,7 +39,7 @@ function TeamProfile() {
   // Open a competition the team played, on its Teams tab with this team's
   // in-competition detail open — the same view the standings/match links use.
   const openCompetition = (c: TeamPublic['competitions'][number]) => {
-    const p = new URLSearchParams({ id: String(c.competition_id), tab: '2', team: id });
+    const p = new URLSearchParams({ id: String(c.competition_id), tab: 'teams', team: id });
     router.push(`/competition?${p.toString()}`);
   };
 

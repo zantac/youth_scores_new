@@ -1199,20 +1199,47 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
 
 import { Suspense } from 'react';
 
+// The main tabs, serialized to the URL by name (not array index) so a shared
+// link says what it points at and survives the tabs being reordered. Legacy
+// numeric links (?tab=1) are still accepted on read for backward compatibility.
+const TAB_SLUGS = ['matches', 'standings', 'teams', 'stats'] as const;
+
+function tabIndexFromParam(raw: string | null): number {
+  if (!raw) return 0;
+  const named = (TAB_SLUGS as readonly string[]).indexOf(raw.toLowerCase());
+  if (named >= 0) return named;
+  const n = Number(raw); // legacy ?tab=1|2|3
+  return Number.isInteger(n) && n >= 0 && n < TAB_SLUGS.length ? n : 0;
+}
+
 function CompetitionPageInner() {
   const params = useSearchParams();
   const router  = useRouter();
   const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, locale } = useApp();
   // The tab and the open team live in the URL, so a competition view can be
   // shared and reopened exactly (e.g. ?url=...&tab=2&team=t001).
-  const mainTab = Number(params.get('tab')) || 0;
+  const mainTab = tabIndexFromParam(params.get('tab'));
   const teamDetail = params.get('team');
   const setView = (patch: { tab?: number; team?: string | null }) => {
     const p = new URLSearchParams(params.toString());
-    if ('tab' in patch) { if (patch.tab) p.set('tab', String(patch.tab)); else p.delete('tab'); }
+    if ('tab' in patch && patch.tab != null) p.set('tab', TAB_SLUGS[patch.tab]);
     if ('team' in patch) { if (patch.team) p.set('team', patch.team); else p.delete('team'); }
     router.replace(`/competition?${p.toString()}`, { scroll: false });
   };
+
+  // Keep the tab named in the URL: fill in the default (?id=29 → &tab=matches)
+  // and upgrade any legacy numeric ?tab=1 to its slug, so every URL names its
+  // tab. Only runs once there's a competition to show, and is idempotent.
+  useEffect(() => {
+    if (!params.get('id') && !params.get('url')) return;
+    const raw = params.get('tab');
+    const canonical = TAB_SLUGS[tabIndexFromParam(raw)];
+    if (raw !== canonical) {
+      const p = new URLSearchParams(params.toString());
+      p.set('tab', canonical);
+      router.replace(`/competition?${p.toString()}`, { scroll: false });
+    }
+  }, [params, router]);
 
   // The sticky header (title bar + main tabs) can grow with the safe-area inset
   // and font, so its height is measured rather than assumed — the per-tab second
