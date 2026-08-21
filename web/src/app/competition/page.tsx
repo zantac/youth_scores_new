@@ -880,12 +880,13 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
 }
 
 // A football-shirt icon with the player's squad number sitting on the torso.
+// The torso is kept wide so a two-digit number reads clearly.
 function JerseyNumber({ shirt }: { shirt: number | null }) {
   return (
-    <div className="relative flex-shrink-0 w-8 h-9" title="#">
-      <svg viewBox="0 0 24 26" className="w-8 h-9" aria-hidden="true">
-        <path d="M8 2 L3 5 L1.5 9 L5 11 L7 9.8 L7 24 L17 24 L17 9.8 L19 11 L22.5 9 L21 5 L16 2 C15.2 4 13.4 4.8 12 4.8 C10.6 4.8 8.8 4 8 2 Z"
-          className="fill-aqua/15 stroke-aqua/60" strokeWidth="1.2" strokeLinejoin="round" />
+    <div className="relative flex-shrink-0 w-11 h-9" title="#">
+      <svg viewBox="0 0 30 26" className="w-11 h-9" aria-hidden="true">
+        <path d="M11 2 L4 5 L1.5 9 L6 11.5 L8.5 10 L8.5 24 L21.5 24 L21.5 10 L24 11.5 L28.5 9 L26 5 L19 2 C18 4.2 16.5 5 15 5 C13.5 5 12 4.2 11 2 Z"
+          className="fill-aqua/15 stroke-aqua/60" strokeWidth="1.1" strokeLinejoin="round" />
       </svg>
       <span className="absolute inset-0 flex items-center justify-center pt-2 text-aqua font-extrabold text-[11px] tnum leading-none">
         {shirt ?? '—'}
