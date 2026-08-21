@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,17 +18,10 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  // Firebase Cloud Messaging. Guarded so the app still runs if Firebase is
-  // unavailable (e.g. an emulator without Google Play services).
-  try {
-    await Firebase.initializeApp();
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    await NotificationService.instance.init();
-  } catch (_) {}
-
+  // Only local, fast work runs before runApp(): loads locale/theme so the very
+  // first frame is correct. Anything network-dependent is deferred below.
   final provider = AppProvider();
   await provider.init();
-  await provider.resubscribeFollows();
 
   // Admin session — restore any saved token in the background; the login screen
   // reacts once it resolves.
@@ -42,6 +36,31 @@ void main() async {
       child: const YouthScoresApp(),
     ),
   );
+
+  // Firebase Cloud Messaging init + FCM topic (re)subscription run AFTER the UI
+  // is up. These await an FCM registration token, which needs network + Google
+  // Play services; awaiting them before runApp() left the app stuck on a white
+  // (native launch) screen whenever the device was offline or FCM was slow to
+  // hand out a token — a hang, not an exception, so the try/catch never fired.
+  // Best-effort and fire-and-forget so launch never blocks on the network.
+  unawaited(_initMessaging(provider));
+
+  // Web URL deep links (Android App Links): a shared youthscores.org link opens
+  // the app on the right screen. Kept separate from FCM so it works even when
+  // Firebase is unavailable.
+  unawaited(NotificationService.instance.initDeepLinks());
+}
+
+/// Guarded FCM setup, run off the launch critical path. If Firebase is
+/// unavailable (e.g. an emulator without Google Play services) the app still
+/// runs; push is simply inactive.
+Future<void> _initMessaging(AppProvider provider) async {
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    await NotificationService.instance.init();
+    await provider.resubscribeFollows();
+  } catch (_) {}
 }
 
 class YouthScoresApp extends StatelessWidget {

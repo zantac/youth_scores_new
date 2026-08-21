@@ -36,6 +36,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Android App Links: open shared youthscores.org content links
+                 (competition / news / club / team) straight in the app instead of
+                 the browser. Verified against /.well-known/assetlinks.json on both
+                 the apex and www hosts. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="youthscores.org"/>
+                <data android:scheme="https" android:host="www.youthscores.org"/>
+                <data android:pathPrefix="/competition"/>
+                <data android:pathPrefix="/news"/>
+                <data android:pathPrefix="/club"/>
+                <data android:pathPrefix="/team"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

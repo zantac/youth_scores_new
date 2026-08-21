@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -5,7 +7,9 @@ import 'package:provider/provider.dart';
 import 'api_service.dart';
 import '../providers/app_provider.dart';
 import '../../screens/competition/competition_data_screen.dart';
+import '../../screens/club/club_detail_screen.dart';
 import '../../screens/news/news_detail_screen.dart';
+import '../../screens/team/team_profile_screen.dart';
 
 /// Global navigator so a notification tap can push a screen from anywhere.
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -39,18 +43,22 @@ class NotificationService {
 
   bool _ready = false;
 
+  // A deep-link from a cold launch (a notification tap that started a killed app)
+  // waits here until Home is on screen, so the splash's pushReplacement(Home)
+  // can't discard a competition route pushed too early. Flushed by markHomeReady.
+  String? _pendingUrl;
+  bool _homeReady = false;
+
   Future<void> init() async {
     if (_ready) return;
     _ready = true;
 
-    await FirebaseMessaging.instance.requestPermission();
-
-    // Join the always-on topics so news and venue pushes reach this device even
-    // when the user hasn't followed any competition or team.
-    for (final topic in _alwaysOnTopics) {
-      await FirebaseMessaging.instance.subscribeToTopic(topic);
-    }
-
+    // ── Notification display + tap routing FIRST ───────────────────────────
+    // Everything a tap needs — the open-app listener, the cold-start launch
+    // message, foreground display — is wired up before any network call below.
+    // subscribeToTopic() never completes while FCM returns SERVICE_NOT_AVAILABLE,
+    // so awaiting it ahead of this (as we used to) meant a tapped notification
+    // never deep-linked: the app just opened on Home.
     const initSettings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
@@ -65,11 +73,69 @@ class NotificationService {
 
     // Foreground: the OS doesn't show it, so draw it ourselves.
     FirebaseMessaging.onMessage.listen(_showForeground);
-    // Tapped while backgrounded, or launched from a notification.
-    FirebaseMessaging.onMessageOpenedApp.listen((m) => _route(m.data['url'] as String?));
+    // Tapped while backgrounded — Home is already up, so route immediately.
+    FirebaseMessaging.onMessageOpenedApp
+        .listen((m) => _route(m.data['url'] as String?));
+    // Launched from a killed state by a tap: hold the deep-link until Home is on
+    // screen (markHomeReady) so the splash's pushReplacement can't clobber it.
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     if (initial != null) {
-      _route(initial.data['url'] as String?);
+      _deepLink(initial.data['url'] as String?);
+    }
+
+    // ── Permission + always-on topics LAST, and non-blocking ───────────────
+    // These can hang indefinitely (FCM SERVICE_NOT_AVAILABLE retries forever), so
+    // never await them on any path the UI or routing depends on.
+    unawaited(_joinAlwaysOnTopics());
+  }
+
+  /// Join the always-on topics so news and venue pushes reach this device even
+  /// when the user hasn't followed any competition or team. Best-effort.
+  Future<void> _joinAlwaysOnTopics() async {
+    try {
+      await FirebaseMessaging.instance.requestPermission();
+      for (final topic in _alwaysOnTopics) {
+        await FirebaseMessaging.instance.subscribeToTopic(topic);
+      }
+    } catch (_) {}
+  }
+
+  // ── Web URL deep links (Android App Links) ─────────────────────────────────
+  // A shared youthscores.org link (competition/news/club/team) opens the app
+  // here instead of the browser. Independent of Firebase so it works even if FCM
+  // is unavailable; shares the same routing + pending-link machinery as pushes.
+  final _appLinks = AppLinks();
+  bool _deepLinksReady = false;
+
+  Future<void> initDeepLinks() async {
+    if (_deepLinksReady) return;
+    _deepLinksReady = true;
+    try {
+      // A link that cold-started the app: hold it until Home is up (like a
+      // notification launch) so the splash's replacement can't discard it.
+      final initial = await _appLinks.getInitialLink();
+      if (initial != null) _deepLink(initial.toString());
+      // Links that arrive while the app is already running — route immediately.
+      _appLinks.uriLinkStream.listen((uri) => _route(uri.toString()));
+    } catch (_) {/* deep links are best-effort */}
+  }
+
+  /// The splash calls this once Home is on screen; flushes any cold-launch
+  /// deep-link so it lands on top of Home rather than being replaced away.
+  void markHomeReady() {
+    _homeReady = true;
+    final url = _pendingUrl;
+    _pendingUrl = null;
+    if (url != null) _route(url);
+  }
+
+  // Route now if Home is up, else stash it for markHomeReady to flush.
+  void _deepLink(String? url) {
+    if (url == null || url.isEmpty) return;
+    if (_homeReady) {
+      _route(url);
+    } else {
+      _pendingUrl = url;
     }
   }
 
@@ -120,15 +186,50 @@ class NotificationService {
       return;
     }
 
-    // Round digests / match results / new-competition all deep-link to a league.
+    // Everything else deep-links by id: competition / club / team. Shared from
+    // the website (App Links) as /competition?id=&tab=&week=, /club?id=, /team?id=.
     if (id == null || id.isEmpty) return;
+
+    if (target.startsWith('club')) {
+      final clubId = int.tryParse(id);
+      if (clubId != null) {
+        nav.push(MaterialPageRoute(builder: (_) => ClubDetailScreen(clubId: clubId)));
+      }
+      return;
+    }
+
+    if (target.startsWith('team')) {
+      final teamId = int.tryParse(id);
+      if (teamId != null) {
+        nav.push(MaterialPageRoute(builder: (_) => TeamProfileScreen(teamId: teamId)));
+      }
+      return;
+    }
+
+    // Competition. A round-results digest carries the round (?week=): open that
+    // round's matches, not today's. A website link may carry ?tab= to land on
+    // standings/teams/stats; both default sensibly when absent.
+    final week = uri.queryParameters['week'];
     nav.push(MaterialPageRoute(
       builder: (_) => CompetitionDataScreen(
         dataUrl: ApiService.competitionDataUrl(id),
         title: '',
         seasonName: '',
+        initialWeek: (week != null && week.isNotEmpty) ? week : null,
+        initialTab: _tabIndex(uri.queryParameters['tab']),
       ),
     ));
+  }
+
+  // The competition's main tabs, matching CompetitionDataScreen's order and the
+  // website's slugs. Accepts the named slug or a legacy numeric index.
+  static int _tabIndex(String? tab) {
+    if (tab == null || tab.isEmpty) return 0;
+    const slugs = ['matches', 'standings', 'teams', 'stats'];
+    final named = slugs.indexOf(tab.toLowerCase());
+    if (named >= 0) return named;
+    final n = int.tryParse(tab);
+    return (n != null && n >= 0 && n < slugs.length) ? n : 0;
   }
 
   // Open a news item by id from the config feed (news carries no standalone

@@ -3,7 +3,7 @@ import os
 
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
-from flask import Flask, abort, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_compress import Compress
 
 from app.config import CONFIGS
@@ -12,6 +12,223 @@ from app.extensions import db, migrate, limiter
 # Gzip responses over ~500 bytes (JSON feed + static JS/CSS). Shared instance,
 # bound to the app in create_app() like the other extensions.
 compress = Compress()
+
+
+# ── Social-preview (Open Graph) tags for a shared competition link ────────────
+# The site is a static export: every page ships the one generic card, so a shared
+# /competition link previews the same site-wide blurb on WhatsApp/Facebook. Since
+# Flask serves the HTML, we can rewrite that page's tags per request from the
+# ?id= (competition) and ?tab= (matches/standings/…) so the preview names the
+# competition + age and the specific tab. Crawlers don't run JS, so this must be
+# in the served HTML — client metadata wouldn't reach them.
+_SHARE_TAB_AR = {
+    "matches":   "جدول المباريات و النتائج",
+    "standings": "جدول الترتيب",
+    "teams":     "الفرق",
+    "stats":     "الإحصائيات",
+}
+# Legacy numeric tabs (?tab=0..3) that may still be shared around.
+_SHARE_TAB_ORDER = ["matches", "standings", "teams", "stats"]
+
+
+def _competition_share_meta(competition_id: int, tab: str | None) -> dict | None:
+    """Arabic title (name - age - sector) + the tab's description for the card,
+    or None when the competition doesn't exist."""
+    from app.extensions import db
+    from app.models import AgeGroup, Competition
+
+    comp = db.session.get(Competition, competition_id)
+    if comp is None:
+        return None
+    name = (comp.name_ar or comp.name_en or "بطولة").strip()
+    age = ""
+    if comp.age_group_id:
+        ag = db.session.get(AgeGroup, comp.age_group_id)
+        if ag:
+            age = (ag.name_ar or ag.name_en or "").strip()
+    sector = (comp.sector_ar or comp.sector_en or "").strip()
+    title = " - ".join(p for p in (name, age, sector) if p) or name
+
+    key = (tab or "matches").lower()
+    if key.isdigit():
+        i = int(key)
+        key = _SHARE_TAB_ORDER[i] if 0 <= i < len(_SHARE_TAB_ORDER) else "matches"
+    return {"title": title, "description": _SHARE_TAB_AR.get(key, _SHARE_TAB_AR["matches"])}
+
+
+def _abs_url(base: str, raw: str | None) -> str | None:
+    """Absolutize an image URL for OG tags: pass http(s) through, prefix a
+    same-origin ``/uploads/…`` path with the request base, else give up (None)."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    if raw.startswith(("http://", "https://")):
+        return raw
+    if raw.startswith("/"):
+        return base + raw
+    return None
+
+
+def _inject_share_meta(html_text: str, meta: dict, url: str, image: str, og_type: str = "website") -> str:
+    """Point the served card at this item: rewrite the generic <title>/description
+    (for the browser tab + plain scrapers) and add the OG + Twitter tags the
+    social crawlers actually read."""
+    import html as _h
+    import re
+
+    t = _h.escape(meta["title"])
+    d = _h.escape(meta.get("description") or "")
+    u, img = _h.escape(url), _h.escape(image)
+    tags = [
+        f'<meta property="og:type" content="{_h.escape(og_type)}"/>',
+        f'<meta property="og:site_name" content="Youth Scores"/>',
+        f'<meta property="og:title" content="{t}"/>',
+        f'<meta property="og:url" content="{u}"/>',
+        f'<meta property="og:image" content="{img}"/>',
+        f'<meta property="og:locale" content="ar_AR"/>',
+        f'<meta name="twitter:card" content="summary"/>',
+        f'<meta name="twitter:title" content="{t}"/>',
+        f'<meta name="twitter:image" content="{img}"/>',
+    ]
+    # Some items (e.g. clubs) are just a name + logo — no description. Omit the
+    # description tags entirely then, so no generic blurb leaks into the card.
+    if d:
+        tags.append(f'<meta property="og:description" content="{d}"/>')
+        tags.append(f'<meta name="twitter:description" content="{d}"/>')
+    html_text = re.sub(r"<title>.*?</title>", f"<title>{t}</title>", html_text, count=1, flags=re.S)
+    html_text = re.sub(
+        r'<meta\s+name="description"[^>]*/?>',
+        f'<meta name="description" content="{d}"/>',
+        html_text, count=1,
+    )
+    return html_text.replace("</head>", "".join(tags) + "</head>", 1)
+
+
+def _render_share_page(index_abs: str, meta: dict | None, og_type: str = "website"):
+    """Serve a static-export page with per-item preview tags injected from `meta`
+    (title / description / optional image), or None to fall back to the plain file.
+    A preview tweak must never break page serving, so any error yields None."""
+    from flask import request
+
+    if meta is None:
+        return None
+    try:
+        with open(index_abs, encoding="utf-8") as f:
+            html_text = f.read()
+        base = f"{request.scheme}://{request.host}"
+        url = base + request.full_path.rstrip("?")
+        image = _abs_url(base, meta.get("image")) or (base + "/icons/icon-512.png")
+        return _inject_share_meta(html_text, meta, url, image, og_type=og_type)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _competition_share_page(index_abs: str):
+    """Competition preview: name + age title, tab description."""
+    from flask import request
+
+    try:
+        meta = _competition_share_meta(int(request.args.get("id", "")), request.args.get("tab"))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta)
+
+
+def _news_share_meta(news_id: int) -> dict | None:
+    """Title + snippet + cover image for a shared news item's preview, or None
+    when it doesn't exist or isn't published."""
+    from app.extensions import db
+    from app.models import News
+
+    n = db.session.get(News, news_id)
+    if n is None or not n.is_published:
+        return None
+    title = (n.title_ar or n.title_en or "خبر").strip()
+    body = " ".join((n.details_ar or n.details_en or "").split())  # collapse newlines
+    if len(body) > 160:
+        body = body[:159].rstrip() + "…"
+    image = n.image_url or ""
+    if not image and isinstance(n.images, list) and n.images:
+        image = str(n.images[0] or "")
+    return {"title": title, "description": body or "اضغط لقراءة الخبر", "image": image}
+
+
+def _news_share_page(index_abs: str):
+    """News preview: headline title, snippet, cover image."""
+    from flask import request
+
+    try:
+        meta = _news_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta, og_type="article")
+
+
+def _club_share_meta(club_id: int) -> dict | None:
+    """Title (club name) + logo for a shared club link — no description, just the
+    name and crest. None when the club doesn't exist."""
+    from app.extensions import db
+    from app.models import Club
+
+    club = db.session.get(Club, club_id)
+    if club is None:
+        return None
+    name = (club.name_ar or club.name_en or "نادي").strip()
+    return {"title": name, "image": club.logo_url or ""}
+
+
+def _club_share_page(index_abs: str):
+    """Club preview: club name title, club logo (no description)."""
+    from flask import request
+
+    try:
+        meta = _club_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta)
+
+
+def _team_share_meta(team_id: int) -> dict | None:
+    """Title (club name + age) + the club's logo for a shared team link. A team
+    is a club's squad for one age group, so the club owns the name and crest.
+    None when the team doesn't exist."""
+    from app.extensions import db
+    from app.models import AgeGroup, Club, Team
+
+    t = db.session.get(Team, team_id)
+    if t is None:
+        return None
+    club = db.session.get(Club, t.club_id) if t.club_id else None
+    name = ((club.name_ar or club.name_en) if club else "").strip() or "فريق"
+    logo = (club.logo_url or "") if club else ""
+    age = ""
+    if t.age_group_id:
+        ag = db.session.get(AgeGroup, t.age_group_id)
+        if ag:
+            age = (ag.name_ar or ag.name_en or "").strip()
+    title = " - ".join(p for p in (name, age) if p) or name
+    return {"title": title, "image": logo}
+
+
+def _team_share_page(index_abs: str):
+    """Team preview: club name + age title, club logo (no description)."""
+    from flask import request
+
+    try:
+        meta = _team_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta)
+
+
+# SHA-256 signing-cert fingerprints for Android App Links (assetlinks.json). Two
+# certs verify the app: Google Play App Signing (Play Store installs) and the
+# upload key (a directly-installed release APK). Override via the
+# ANDROID_CERT_FINGERPRINTS env (comma-separated) if the keys ever rotate.
+_ANDROID_CERT_FINGERPRINTS = [
+    "48:7F:05:34:6B:81:53:3D:54:81:39:3F:C2:B8:65:10:F1:84:3F:15:56:5A:94:D3:66:B4:F3:8B:28:44:20:CE",
+    "84:79:31:AF:0D:8E:98:C8:9B:22:FD:E6:1E:7A:5E:7F:E4:F2:B5:F7:10:19:ED:9E:CF:C4:F8:10:9E:54:5D:EC",
+]
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -179,6 +396,32 @@ def create_app(config_name: str | None = None) -> Flask:
     def health():
         return {"status": "ok"}
 
+    @app.get("/.well-known/assetlinks.json")
+    def assetlinks():
+        # Android App Links verification: lets a shared youthscores.org content
+        # link (competition/news/club/team) open the native app directly. Served
+        # only on the main host — the tla3bny subdomain has no linked app.
+        if _is_tla3bny_host():
+            abort(404)
+        env = os.environ.get("ANDROID_CERT_FINGERPRINTS")
+        fingerprints = (
+            [f.strip() for f in env.split(",") if f.strip()]
+            if env
+            else _ANDROID_CERT_FINGERPRINTS
+        )
+        return jsonify(
+            [
+                {
+                    "relation": ["delegate_permission/common.handle_all_urls"],
+                    "target": {
+                        "namespace": "android_app",
+                        "package_name": "com.waellotfy.youthscores",
+                        "sha256_cert_fingerprints": fingerprints,
+                    },
+                }
+            ]
+        )
+
     # ── serve the exported Next.js sites on the same origin(s) as the API ─────
     # Two static exports share one backend, chosen by the request's Host:
     #   • the main youthscores web  → FRONTEND_DIR         (../web/out)
@@ -236,6 +479,24 @@ def create_app(config_name: str | None = None) -> Flask:
             return resp
         index = os.path.join(path, "index.html") if path else "index.html"
         if os.path.isfile(os.path.join(root, index)):
+            # A shared /competition, /news or /club link (…?id=…) gets per-item
+            # Open Graph tags injected so its WhatsApp/social preview names the
+            # item, instead of the one generic card every static page ships with.
+            # Only on the youthscores host, only when an id is present; any failure
+            # falls through to the plain file below.
+            _share_builders = {
+                "competition": _competition_share_page,
+                "news": _news_share_page,
+                "club": _club_share_page,
+                "team": _team_share_page,
+            }
+            builder = _share_builders.get(path.strip("/"))
+            if builder is not None and not _is_tla3bny_host() and request.args.get("id"):
+                shared = builder(os.path.join(root, index))
+                if shared is not None:
+                    resp = app.response_class(shared, mimetype="text/html")
+                    resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+                    return resp
             # HTML shells must revalidate so a deploy's new asset hashes are
             # picked up promptly rather than served from a stale cache.
             resp = send_from_directory(root, index)

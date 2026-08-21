@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/constants/app_colors.dart';
 import '../core/providers/app_provider.dart';
+import '../core/services/notification_service.dart';
 import 'home/home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -37,6 +38,9 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
+    // Home is now the base route — release any deep-link that a cold-launch
+    // notification tap parked during startup, so it lands on top of Home.
+    NotificationService.instance.markHomeReady();
   }
 
   @override

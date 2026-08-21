@@ -13,12 +13,20 @@ class CompetitionDataScreen extends StatefulWidget {
   final String dataUrl;
   final String title;
   final String seasonName;
+  // When set (e.g. opened from a round-results notification), the Matches tab
+  // opens on this round instead of today's.
+  final String? initialWeek;
+  // Which main tab to open on (0=Matches, 1=Standings, 2=Teams, 3=Stats) — set
+  // from a shared website link's ?tab=. Defaults to Matches.
+  final int initialTab;
 
   const CompetitionDataScreen({
     super.key,
     required this.dataUrl,
     required this.title,
     required this.seasonName,
+    this.initialWeek,
+    this.initialTab = 0,
   });
 
   @override
@@ -32,7 +40,11 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTab.clamp(0, 3),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final p = context.read<AppProvider>();
       p.setCompetitionMeta(widget.title, widget.seasonName);
@@ -88,11 +100,11 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
 
     return TabBarView(
       controller: _tabs,
-      children: const [
-        MatchesTab(),
-        StandingsTab(),
-        TeamsTab(),
-        StatsTab(),
+      children: [
+        MatchesTab(initialWeek: widget.initialWeek),
+        const StandingsTab(),
+        const TeamsTab(),
+        const StatsTab(),
       ],
     );
   }
