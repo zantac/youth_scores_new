@@ -11,7 +11,11 @@ import '../../../widgets/match/match_card.dart';
 import '../../match/match_detail_screen.dart';
 
 class MatchesTab extends StatefulWidget {
-  const MatchesTab({super.key});
+  // When set (opened from a round-results notification), auto-open this round
+  // instead of the nearest current/upcoming one.
+  final String? initialWeek;
+
+  const MatchesTab({super.key, this.initialWeek});
 
   @override
   State<MatchesTab> createState() => _MatchesTabState();
@@ -133,23 +137,39 @@ class _MatchesTabState extends State<MatchesTab>
       byRoundDate.putIfAbsent(key, () => []).add(m);
     }
 
-    // Auto-expand the nearest current/upcoming round
+    // Auto-expand: the round from a notification (initialWeek) if given, else the
+    // nearest current/upcoming round.
     if (_expanded.isEmpty && byRoundDate.isNotEmpty) {
-      final today = _todayStr();
+      final wantWeek = widget.initialWeek;
       String? target;
-      for (final entry in byRoundDate.entries) {
-        final date = entry.value.first.date;
-        if (date == today) { target = entry.key; break; }
+      if (wantWeek != null && wantWeek.isNotEmpty) {
+        for (final entry in byRoundDate.entries) {
+          if (entry.value.first.week == wantWeek) { target = entry.key; break; }
+        }
       }
       if (target == null) {
+        final today = _todayStr();
         for (final entry in byRoundDate.entries) {
           final date = entry.value.first.date;
-          if (date.compareTo(today) > 0) { target = entry.key; break; }
+          if (date == today) { target = entry.key; break; }
+        }
+        if (target == null) {
+          for (final entry in byRoundDate.entries) {
+            final date = entry.value.first.date;
+            if (date.compareTo(today) > 0) { target = entry.key; break; }
+          }
         }
       }
       target ??= byRoundDate.keys.last;
+      // A round can span several dates (separate keys, same week). When targeting
+      // a round, open every one of its date-groups; otherwise just the one round.
+      final targetWeek = byRoundDate[target]!.first.week;
+      final openWholeWeek =
+          wantWeek != null && wantWeek.isNotEmpty && targetWeek == wantWeek;
       for (final k in byRoundDate.keys) {
-        _expanded[k] = k == target;
+        _expanded[k] = openWholeWeek
+            ? byRoundDate[k]!.first.week == targetWeek
+            : k == target;
       }
       // Scroll to the target section after the list is rendered
       if (!_initialScrollDone) {
