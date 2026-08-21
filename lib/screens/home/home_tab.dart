@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -35,7 +36,7 @@ class HomeTab extends StatefulWidget {
 
 const int _kStep = 120; // matches pulled per direction per "load more"
 
-class _HomeTabState extends State<HomeTab> {
+class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
   final _api = ApiService();
   final ItemScrollController _itemCtrl = ItemScrollController();
 
@@ -50,10 +51,62 @@ class _HomeTabState extends State<HomeTab> {
   List<_Row> _rows = const [];
   AdItem? _feedAd; // native sponsored card, picked once per session
 
+  Timer? _pollTimer;
+  static const _kPollInterval = Duration(seconds: 45);
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  // Live scores: while a today fixture is still unfinished, quietly re-fetch
+  // every 45s — no spinner, no scroll jump — so the home list stays current
+  // without a manual pull. Polling pauses in the background and resumes (with an
+  // immediate refresh) when the app returns to the foreground.
+  void _startPolling() {
+    _pollTimer ??= Timer.periodic(_kPollInterval, (_) {
+      if (_hasUnfinishedTodayMatch) _silentRefresh();
+    });
+  }
+
+  bool get _hasUnfinishedTodayMatch {
+    final today = _today;
+    return _future.any(
+        (m) => m.date == today && m.status.toLowerCase() != 'completed');
+  }
+
+  Future<void> _silentRefresh() async {
+    try {
+      final res = await Future.wait([
+        _api.fetchAllMatches(from: _today, order: 'asc', limit: _futureLimit),
+        _api.fetchAllMatches(to: _yesterday, order: 'desc', limit: _pastLimit),
+      ]);
+      if (!mounted) return;
+      // Update scores in place; deliberately no _scheduleScroll() so the user's
+      // viewport stays put.
+      setState(() { _future = res[0]; _past = res[1]; });
+    } catch (_) {/* keep what we have */}
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      _silentRefresh();
+    } else if (state == AppLifecycleState.paused) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    }
   }
 
   String _ymd(DateTime d) =>
