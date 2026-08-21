@@ -9,6 +9,7 @@ import '../../core/providers/app_provider.dart';
 import '../../core/utils/roster_position.dart';
 import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/cached_logo.dart';
+import '../../widgets/common/jersey_number.dart';
 import '../../widgets/match/match_card.dart';
 import '../../widgets/stats/player_matches_sheet.dart' show showPlayerMatchesSheet, PlayerStatType;
 import '../match/match_detail_screen.dart';
@@ -567,13 +568,14 @@ class _SquadPage extends StatelessWidget {
               emoji: s.emoji,
               label: '${s.label} (${s.players.length})',
               children: s.players
-                  .map((r) => _PersonRow(
+                  .map((r) => _RosterRow(
                         name: r.getName(l10n.locale),
                         subtitle: [
                           r.getPosition(l10n.locale),
                           r.birthYear?.toString(),
                         ].whereType<String>().where((x) => x.isNotEmpty).join(' · '),
-                        leadingNumber: r.shirt,
+                        photo: r.photo,
+                        shirt: r.shirt,
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => PlayerDetailScreen(playerId: r.id)),
@@ -648,15 +650,72 @@ class _LinkedSection extends StatelessWidget {
   }
 }
 
+// A roster player: photo on the leading side, the squad number in a jersey icon
+// on the opposite side — mirroring the website's team roster.
+class _RosterRow extends StatelessWidget {
+  final String name;
+  final String? subtitle;
+  final String? photo;
+  final int? shirt;
+  final VoidCallback onTap;
+  const _RosterRow({
+    required this.name,
+    this.subtitle,
+    this.photo,
+    this.shirt,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: CachedLogo(
+                  url: photo,
+                  size: 36,
+                  borderRadius: 10,
+                  fit: BoxFit.cover,
+                  placeholderIcon: Icons.person),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.white, fontSize: 13, height: 1.3)),
+                  if (subtitle != null && subtitle!.isNotEmpty)
+                    Text(subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            JerseyNumber(shirt: shirt),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PersonRow extends StatelessWidget {
   final String name;
   final String? subtitle;
-  final int? leadingNumber;
   final VoidCallback onTap;
   const _PersonRow({
     required this.name,
     this.subtitle,
-    this.leadingNumber,
     required this.onTap,
   });
 
@@ -670,12 +729,7 @@ class _PersonRow extends StatelessWidget {
           children: [
             SizedBox(
               width: 22,
-              child: leadingNumber != null
-                  ? Text('$leadingNumber',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                          color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold))
-                  : Icon(Icons.person_outline, color: AppColors.teal, size: 16),
+              child: Icon(Icons.person_outline, color: AppColors.teal, size: 16),
             ),
             const SizedBox(width: 8),
             Expanded(

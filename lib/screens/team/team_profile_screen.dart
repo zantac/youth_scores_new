@@ -6,6 +6,7 @@ import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/utils/roster_position.dart';
 import '../../widgets/common/cached_logo.dart';
+import '../../widgets/common/jersey_number.dart';
 import '../club/club_detail_screen.dart';
 import '../coach/coach_detail_screen.dart';
 import '../competition/competition_data_screen.dart';
@@ -237,10 +238,9 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
                 fontWeight: FontWeight.bold)),
       ));
       for (final p in s.players) {
-        // Keep the shirt number in the subtitle now that the photo takes the
-        // leading spot.
+        // The shirt number now rides in a jersey icon at the trailing edge, so
+        // the subtitle carries just position + birth year.
         final subtitle = [
-          if (p.shirt != null) '#${p.shirt}',
           p.getPosition(locale),
           p.birthYear?.toString(),
         ].whereType<String>().where((x) => x.isNotEmpty).join(' · ');
@@ -292,7 +292,7 @@ class _TeamProfileScreenState extends State<TeamProfileScreen> {
                   child: Text(isAr ? 'صاعد' : 'up',
                       style: TextStyle(color: AppColors.teal, fontSize: 10)),
                 ),
-              Icon(Icons.chevron_right, color: AppColors.aqua, size: 18),
+              JerseyNumber(shirt: p.shirt),
             ],
           ),
         ));
