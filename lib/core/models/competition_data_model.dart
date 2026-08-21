@@ -180,6 +180,7 @@ class TeamStaff {
 class RosterPlayer {
   final int id;
   final Map<String, String> name;
+  final String? photo;
   final int? shirt;
   final Map<String, String>? position;
   final int? birthYear;
@@ -187,6 +188,7 @@ class RosterPlayer {
   const RosterPlayer({
     required this.id,
     required this.name,
+    this.photo,
     this.shirt,
     this.position,
     this.birthYear,
@@ -202,6 +204,7 @@ class RosterPlayer {
   factory RosterPlayer.fromJson(Map<String, dynamic> j) => RosterPlayer(
         id: int.tryParse(j['id']?.toString() ?? '') ?? 0,
         name: localizedMap(j['name']),
+        photo: j['photo']?.toString(),
         shirt: j['shirt'] is int ? j['shirt'] as int : int.tryParse(j['shirt']?.toString() ?? ''),
         position: localizedMapOrNull(j['position']),
         birthYear: j['birth_year'] is int
