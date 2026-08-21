@@ -6,6 +6,7 @@ import AppBar from '@/components/ui/AppBar';
 import FollowButton from '@/components/ui/FollowButton';
 import TabStrip from '@/components/ui/TabStrip';
 import Spinner from '@/components/ui/Spinner';
+import JerseyNumber from '@/components/ui/JerseyNumber';
 import MatchCard from '@/components/competition/MatchCard';
 import StandingsTable from '@/components/competition/StandingsTable';
 import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
@@ -877,22 +878,6 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
     if (gf > ga) won++; else if (gf === ga) drawn++; else lost++;
   }
   return { played, won, drawn, lost, goalsFor, goalsAgainst, points: won * 3 + drawn };
-}
-
-// A football-shirt icon with the player's squad number sitting on the torso.
-// The torso is kept wide so a two-digit number reads clearly.
-function JerseyNumber({ shirt }: { shirt: number | null }) {
-  return (
-    <div className="relative flex-shrink-0 w-11 h-9" title="#">
-      <svg viewBox="0 0 30 26" className="w-11 h-9" aria-hidden="true">
-        <path d="M11 2 L4 5 L1.5 9 L6 11.5 L8.5 10 L8.5 24 L21.5 24 L21.5 10 L24 11.5 L28.5 9 L26 5 L19 2 C18 4.2 16.5 5 15 5 C13.5 5 12 4.2 11 2 Z"
-          className="fill-aqua/15 stroke-aqua/60" strokeWidth="1.1" strokeLinejoin="round" />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center pt-2 text-aqua font-extrabold text-[11px] tnum leading-none">
-        {shirt ?? '—'}
-      </span>
-    </div>
-  );
 }
 
 // ── Team Detail Modal ─────────────────────────────────────────────────────────
