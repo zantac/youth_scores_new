@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import FollowButton from '@/components/ui/FollowButton';
 import Spinner from '@/components/ui/Spinner';
+import JerseyNumber from '@/components/ui/JerseyNumber';
 import { fetchTeam } from '@/lib/api';
 import { localize, teamNameLines, groupRosterByPosition } from '@/lib/utils';
 import type { TeamPublic } from '@/lib/types';
@@ -159,11 +160,11 @@ function TeamProfile() {
                             <div className="flex-1 min-w-0">
                               <p className="text-text text-sm font-bold truncate">{localize(p.name, locale)}</p>
                               <p className="text-hint text-[11px] truncate">
-                                {[p.shirt != null ? `#${p.shirt}` : '', localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
+                                {[localize(p.position, locale), p.birth_year || ''].filter(Boolean).join(' · ')}
                               </p>
                             </div>
                             {p.guest && <span className="text-teal text-[10px] border border-teal/40 rounded px-2 py-0.5 flex-shrink-0">{isAr ? 'صاعد' : 'up'}</span>}
-                            <span className="text-aqua text-xs flex-shrink-0">›</span>
+                            <JerseyNumber shirt={p.shirt} />
                           </button>
                         ))}
                       </div>

@@ -135,6 +135,7 @@ function parseRoster(raw: unknown): Team['roster'] {
     .map(r => ({
       id: Number(r.id ?? 0),
       name: (parseLocalized(r.name) as Localized) ?? { ar: '', en: '' },
+      photo: typeof r.photo === 'string' && r.photo ? r.photo : null,
       shirt: r.shirt != null ? Number(r.shirt) : null,
       position: (parseLocalized(r.position) as Localized) ?? null,
       birthYear: Number(r.birth_year ?? 0),

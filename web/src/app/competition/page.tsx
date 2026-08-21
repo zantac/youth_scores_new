@@ -6,6 +6,7 @@ import AppBar from '@/components/ui/AppBar';
 import FollowButton from '@/components/ui/FollowButton';
 import TabStrip from '@/components/ui/TabStrip';
 import Spinner from '@/components/ui/Spinner';
+import JerseyNumber from '@/components/ui/JerseyNumber';
 import MatchCard from '@/components/competition/MatchCard';
 import StandingsTable from '@/components/competition/StandingsTable';
 import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
@@ -1010,12 +1011,14 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
                     {sec.players.map(r => (
                       <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
                         className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
+                        {r.photo
+                          ? <img src={r.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+                          : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                         <div className="flex-1 min-w-0">
                           <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
                           <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
                         </div>
-                        <span className="text-aqua text-xs flex-shrink-0">›</span>
+                        <JerseyNumber shirt={r.shirt} />
                       </button>
                     ))}
                   </div>
