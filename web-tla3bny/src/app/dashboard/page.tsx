@@ -222,7 +222,7 @@ function ProfileEditor({ token, refresh }: { token: string; refresh: () => Promi
  *  an organiser, an academy owner or a team manager logs in with. */
 function CredentialsEditor({ token, refresh }: { token: string; refresh: () => Promise<void> }) {
   const tt = useTT();
-  const { user } = useTla3bnyAuth();
+  const { user, updateToken } = useTla3bnyAuth();
   const [username, setUsername] = useState(user?.username ?? '');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -234,13 +234,16 @@ function CredentialsEditor({ token, refresh }: { token: string; refresh: () => P
   const save = async () => {
     setBusy(true); setErr(null); setMsg(null);
     try {
-      await tUpdateCredentials(token, {
+      const res = await tUpdateCredentials(token, {
         username: username.trim().toLowerCase(),
         ...(password ? { password } : {}),
       });
       setPassword('');
       setMsg(tt('تم الحفظ', 'Saved'));
-      await refresh();
+      // A password change invalidates the old token; swap in the fresh one so
+      // this session survives. Otherwise just re-hydrate.
+      if (res.token) await updateToken(res.token);
+      else await refresh();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };

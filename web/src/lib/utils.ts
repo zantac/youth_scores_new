@@ -408,3 +408,32 @@ export function buildCompTitle(name: LocVal, age: LocVal, sector: LocVal, sep = 
     [name, age, sector].map(v => (v ? localize(v, loc) : '')).filter(Boolean).join(sep);
   return { ar: build('ar'), en: build('en') };
 }
+
+// ── Safe external links ───────────────────────────────────────────────────────
+
+/**
+ * Allow only web-safe schemes for admin/user-supplied link fields before they
+ * go into an <a href>. Blocks `javascript:`/`data:`/etc. (stored-XSS vectors).
+ * Bare domains ("example.com/x") are upgraded to https. Anything else → undefined
+ * so callers can drop the href entirely.
+ */
+export function safeUrl(u: string | null | undefined): string | undefined {
+  if (!u) return undefined;
+  const s = u.trim();
+  if (!s) return undefined;
+  if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
+  // Scheme-less but clearly a domain (has a dot, no control/scheme chars).
+  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+([/?#].*)?$/i.test(s)) return `https://${s}`;
+  return undefined;
+}
+
+/**
+ * Whether an ad is still live: no expiry, or a parseable expiry still in the
+ * future. An unparseable date is treated as non-expiring (fail open) rather than
+ * silently dropping the ad.
+ */
+export function adNotExpired(expireDate: string | undefined, now: Date = new Date()): boolean {
+  if (!expireDate) return true;
+  const d = new Date(expireDate);
+  return Number.isNaN(d.getTime()) ? true : d > now;
+}

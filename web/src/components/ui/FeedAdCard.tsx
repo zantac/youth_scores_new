@@ -1,15 +1,17 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
+import { safeUrl } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
-// Where a feed-card tap goes: the explicit link, else the first contact.
+// Where a feed-card tap goes: the explicit link, else the first contact. Each
+// candidate is scheme-checked so a malicious link field can't inject javascript:.
 function adDest(ad: AdItem): string | undefined {
-  return ad.link
-    ?? ad.facebook_link
-    ?? ad.youtube_video
-    ?? ad.location_url
-    ?? (ad.whatsapp_number ? `https://wa.me/${ad.whatsapp_number}` : undefined);
+  return safeUrl(ad.link)
+    ?? safeUrl(ad.facebook_link)
+    ?? safeUrl(ad.youtube_video)
+    ?? safeUrl(ad.location_url)
+    ?? (ad.whatsapp_number ? `https://wa.me/${encodeURIComponent(ad.whatsapp_number)}` : undefined);
 }
 
 /** A native "sponsored" card rendered inline in the home match feed. Logs one

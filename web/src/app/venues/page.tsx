@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
-import { localize } from '@/lib/utils';
+import { localize, safeUrl } from '@/lib/utils';
 
 export default function VenuesPage() {
   const { config, configLoading, locale } = useApp();
@@ -29,8 +29,8 @@ export default function VenuesPage() {
             <div key={v.venue_id} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl flex items-center gap-3 px-4 py-3 transition-all hover:border-aqua/30">
               <span className="w-10 h-10 rounded-xl grid place-items-center text-lg bg-aqua/10 border border-aqua/20 flex-shrink-0">🏟️</span>
               <span className="flex-1 text-text text-sm font-medium">{localize(v.name, locale)}</span>
-              {v.url && (
-                <a href={v.url} target="_blank" rel="noopener noreferrer"
+              {safeUrl(v.url) && (
+                <a href={safeUrl(v.url)} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 text-aqua text-xs font-bold bg-aqua/10 border border-aqua/30 rounded-lg px-3 py-1.5 hover:bg-aqua/20 transition-colors">
                   📍 {isAr ? 'الخريطة' : 'Map'}
                 </a>

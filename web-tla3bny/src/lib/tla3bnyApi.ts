@@ -566,7 +566,16 @@ function authHeaders(token?: string | null, json = false): HeadersInit {
 
 async function parse<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== 'undefined') {
+      // Token rejected (expired/revoked, e.g. after a password change) — drop it
+      // and signal the auth provider to reset to logged-out instead of retrying
+      // with a dead token.
+      localStorage.removeItem('tla3bny_token');
+      window.dispatchEvent(new Event('tla3bny-session-expired'));
+    }
+    throw new Error((data as { error?: string }).error || `خطأ (${res.status})`);
+  }
   return data as T;
 }
 
@@ -608,11 +617,12 @@ export function tRegister(fd: {
 
 export const tMe = (token: string) => get<TMeResponse>('/auth/me', token).catch(() => null);
 
-/** Change your own username / email / password. */
+/** Change your own username / email / password. Returns the updated user plus,
+ *  when the password changed, a fresh token (the old one is now invalidated). */
 export const tUpdateCredentials = (
   token: string,
   b: { username?: string; email?: string; password?: string },
-) => send<TUser>('PUT', '/auth/credentials', b, token);
+) => send<{ user: TUser; token?: string }>('PUT', '/auth/credentials', b, token);
 
 /** Upload one image and get back the path to put in a gallery. */
 export function tUploadImage(token: string, file: File) {

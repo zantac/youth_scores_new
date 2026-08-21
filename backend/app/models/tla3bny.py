@@ -113,6 +113,10 @@ class Tla3bnyUser(TimestampMixin, db.Model):
 
     def set_password(self, raw: str) -> None:
         self.password_hash = generate_password_hash(raw)
+        # Invalidate every previously-issued token (mirrors AdminUser): a password
+        # change is the standard "I've been compromised" remedy, so existing
+        # 30-day sessions must stop verifying.
+        self.token_version = (self.token_version or 0) + 1
 
     def check_password(self, raw: str) -> bool:
         return check_password_hash(self.password_hash, raw)

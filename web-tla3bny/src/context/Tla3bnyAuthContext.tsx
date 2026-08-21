@@ -22,6 +22,9 @@ interface Ctx {
   register: (fd: Parameters<typeof tRegister>[0]) => Promise<TUser>;
   logout: () => void;
   refresh: () => Promise<void>;
+  /** Replace the stored session token (e.g. the fresh one issued after a
+   *  password change) and re-hydrate the account from it. */
+  updateToken: (token: string) => Promise<void>;
   isSuperAdmin: boolean;
   isCompetitionAdmin: boolean;
   isAcademy: boolean;
@@ -100,12 +103,26 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     applyMe(await tMe(token));
   }, [token, applyMe]);
 
+  const updateToken = useCallback(async (t: string) => {
+    localStorage.setItem(TOKEN_KEY, t);
+    setToken(t);
+    applyMe(await tMe(t));
+  }, [applyMe]);
+
   // Once logged in (on login or a restored session), subscribe this device to
   // the account's private notification topics. No-op unless push is enabled;
   // the server derives which topics from the bearer token.
   useEffect(() => {
     if (token && user) subscribeAccount(token).catch(() => {});
   }, [token, user]);
+
+  // The API client fires this when any request gets a 401 (token expired or
+  // revoked). Reset to logged-out so the UI stops using a dead token.
+  useEffect(() => {
+    const onExpired = () => logout();
+    window.addEventListener('tla3bny-session-expired', onExpired);
+    return () => window.removeEventListener('tla3bny-session-expired', onExpired);
+  }, [logout]);
 
   const canAdminCompetition = useCallback(
     (compId: number) =>
@@ -116,7 +133,7 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
   return (
     <AuthCtx.Provider value={{
       token, user, academy, team, competitions, loading,
-      login, register, logout, refresh,
+      login, register, logout, refresh, updateToken,
       isSuperAdmin: user?.role === 'super_admin',
       isCompetitionAdmin: user?.role === 'competition_admin',
       isAcademy: user?.role === 'academy',
