@@ -366,6 +366,7 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
     roster = [{
         "id": r.player_id,
         "name": _loc(r.player.full_name_ar, r.player.full_name_en) or {"ar": "", "en": ""},
+        "photo": r.player.profile_pic_url,
         "shirt": r.shirt_number,
         "position": _loc(r.player.position_ar, r.player.position_en),
         "birth_year": r.player.birth_year,

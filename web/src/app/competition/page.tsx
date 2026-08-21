@@ -879,6 +879,21 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
   return { played, won, drawn, lost, goalsFor, goalsAgainst, points: won * 3 + drawn };
 }
 
+// A football-shirt icon with the player's squad number sitting on the torso.
+function JerseyNumber({ shirt }: { shirt: number | null }) {
+  return (
+    <div className="relative flex-shrink-0 w-8 h-9" title="#">
+      <svg viewBox="0 0 24 26" className="w-8 h-9" aria-hidden="true">
+        <path d="M8 2 L3 5 L1.5 9 L5 11 L7 9.8 L7 24 L17 24 L17 9.8 L19 11 L22.5 9 L21 5 L16 2 C15.2 4 13.4 4.8 12 4.8 C10.6 4.8 8.8 4 8 2 Z"
+          className="fill-aqua/15 stroke-aqua/60" strokeWidth="1.2" strokeLinejoin="round" />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center pt-2 text-aqua font-extrabold text-[11px] tnum leading-none">
+        {shirt ?? '—'}
+      </span>
+    </div>
+  );
+}
+
 // ── Team Detail Modal ─────────────────────────────────────────────────────────
 
 function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, compTitle }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void; compTitle?: string }) {
@@ -1010,12 +1025,14 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
                     {sec.players.map(r => (
                       <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
                         className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
-                        <div className="w-8 h-8 rounded-lg bg-darkBg grid place-items-center flex-shrink-0 text-aqua font-bold text-sm tnum">{r.shirt ?? '—'}</div>
+                        {r.photo
+                          ? <img src={r.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+                          : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                         <div className="flex-1 min-w-0">
                           <p className="text-text text-sm font-bold truncate">{localize(r.name, locale)}</p>
                           <p className="text-hint text-[11px] truncate">{[localize(r.position, locale), r.birthYear || ''].filter(Boolean).join(' · ')}</p>
                         </div>
-                        <span className="text-aqua text-xs flex-shrink-0">›</span>
+                        <JerseyNumber shirt={r.shirt} />
                       </button>
                     ))}
                   </div>

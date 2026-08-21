@@ -83,7 +83,7 @@ export interface Players {
 }
 
 export interface TeamStaff { id: number; name: Localized; role: Localized | null; current: boolean; }
-export interface RosterPlayer { id: number; name: Localized; shirt: number | null; position: Localized | null; birthYear: number; current: boolean; }
+export interface RosterPlayer { id: number; name: Localized; photo: string | null; shirt: number | null; position: Localized | null; birthYear: number; current: boolean; }
 
 export interface Team {
   id: string;
