@@ -80,6 +80,12 @@ function Dashboard() {
     .filter(c => c.total > c.played)
     .sort((a, b) => (b.total - b.played) - (a.total - a.played));
 
+  // "Most followed" — anonymous device follows (global, not affected by the
+  // filter above). Only shown once at least one device has followed something.
+  const compFollows = (s?.follows.competitions ?? []).filter(c => c.followers > 0);
+  const teamFollows = (s?.follows.teams ?? []).filter(t => t.followers > 0);
+  const hasFollows = compFollows.length > 0 || teamFollows.length > 0;
+
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-l from-aqua/[0.08] to-transparent border border-bdr rounded-2xl p-4">
@@ -162,7 +168,57 @@ function Dashboard() {
               )}
             </div>
           )}
+
+          {hasFollows && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <FollowList
+                title="⭐ البطولات الأكثر متابعة"
+                rows={compFollows.map(c => ({
+                  id: c.id,
+                  label: c.name,
+                  sub: [c.age, c.sector].filter(Boolean).join(' · '),
+                  followers: c.followers,
+                }))}
+              />
+              <FollowList
+                title="⭐ الفرق الأكثر متابعة"
+                rows={teamFollows.map(t => ({
+                  id: t.id,
+                  label: t.name,
+                  sub: t.age,
+                  followers: t.followers,
+                }))}
+              />
+            </div>
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+// One "most followed" column (competitions or teams): top rows with a follower
+// count, capped so the card stays compact. Follower = a device that opted into
+// notifications for it (web or app), which is what the tally can see.
+function FollowList({ title, rows }: {
+  title: string;
+  rows: { id: number; label: string; sub: string; followers: number }[];
+}) {
+  const shown = rows.slice(0, 8);
+  return (
+    <div className={card + ' p-4 space-y-2'}>
+      <p className="text-text font-bold text-sm">{title}</p>
+      {shown.length === 0 && <p className="text-hint text-xs">لا يوجد متابعون بعد</p>}
+      {shown.map(r => (
+        <div key={r.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+          <span className="flex-1 min-w-0 text-text text-xs truncate">
+            {r.label}{r.sub && <span className="text-hint"> · {r.sub}</span>}
+          </span>
+          <span className="text-aqua text-xs font-bold tnum flex-shrink-0">👥 {r.followers}</span>
+        </div>
+      ))}
+      {rows.length > 8 && (
+        <p className="text-hint text-[11px]">و{rows.length - 8} أخرى</p>
       )}
     </div>
   );

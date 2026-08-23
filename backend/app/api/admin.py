@@ -15,7 +15,8 @@ import sqlalchemy as sa
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import Ad, AdEvent, AdminUser, AppVersion, Match, News, Venue
+from app.models import (Ad, AdEvent, AdminUser, AppVersion, DeviceFollow,
+                        Match, News, Venue)
 from app.models import codes
 from app.services import auth, images, notifications
 
@@ -695,6 +696,54 @@ def push_results_broadcast():
     return jsonify({"results_broadcast": subscribe, "result": result})
 
 
+# ── follower tally (anonymous, for the admin dashboard) ──────────────────────
+
+@admin_bp.post("/api/follows")
+@limiter.limit("60 per minute")
+def follows_report():
+    """Public, anonymous: record that a device followed / unfollowed a competition
+    or team, so the admin dashboard can count followers.
+
+    Favourites are a device concept (localStorage / SharedPreferences) and this is
+    only a best-effort mirror for the tally — it is deliberately decoupled from FCM
+    so both clients report the same way (web routes its topic subscribe through the
+    server, native does it in the SDK; both call here purely for counting).
+
+    Body: ``{device_id, kind: "comp"|"team", id, subscribe: bool}``. ``device_id``
+    is an anonymous, client-generated per-install id — never an FCM token, never
+    personal data. Idempotent via the row's unique constraint."""
+    j = request.get_json(silent=True) or {}
+    device_id = (j.get("device_id") or "").strip()[:64]
+    kind = (j.get("kind") or "").strip()
+    if not device_id or kind not in ("comp", "team"):
+        return jsonify({"error": "device_id and kind are required"}), 400
+    try:
+        target_id = int(j.get("id"))
+    except (TypeError, ValueError):
+        target_id = 0
+    if target_id <= 0:
+        return jsonify({"error": "id is required"}), 400
+
+    subscribe = bool(j.get("subscribe", True))
+    try:
+        if subscribe:
+            exists = DeviceFollow.query.filter_by(
+                device_id=device_id, kind=kind, target_id=target_id
+            ).first()
+            if exists is None:
+                db.session.add(DeviceFollow(
+                    device_id=device_id, kind=kind, target_id=target_id))
+        else:
+            DeviceFollow.query.filter_by(
+                device_id=device_id, kind=kind, target_id=target_id
+            ).delete()
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - a tally write must never break a follow
+        db.session.rollback()
+        return jsonify({"ok": False}), 200
+    return jsonify({"ok": True})
+
+
 # ── global admin search ───────────────────────────────────────────────────────
 
 @admin_bp.get("/api/admin/search")
@@ -946,6 +995,58 @@ def stats():
         news = News.query.count()
         venues = Venue.query.count()
 
+    # Follower tallies from device_follows (anonymous per-install rows). Global,
+    # not scoped by the season/competition filter — "most followed" is an overall
+    # engagement view, and follows carry no season. Two grouped counts, then names
+    # resolved once for the overview lists below.
+    comp_follow_counts = dict(
+        db.session.query(DeviceFollow.target_id, sa.func.count())
+        .filter(DeviceFollow.kind == "comp")
+        .group_by(DeviceFollow.target_id).all()
+    )
+    team_follow_counts = dict(
+        db.session.query(DeviceFollow.target_id, sa.func.count())
+        .filter(DeviceFollow.kind == "team")
+        .group_by(DeviceFollow.target_id).all()
+    )
+    comp_meta = {c.id: c for c in all_comps}
+    comp_follows = sorted(
+        [
+            {
+                "id": cid,
+                "name": (comp_meta[cid].name_ar or comp_meta[cid].name_en or ""),
+                "sector": (comp_meta[cid].sector_ar or comp_meta[cid].sector_en or ""),
+                "age": age_name.get(comp_meta[cid].age_group_id, ""),
+                "followers": n,
+            }
+            for cid, n in comp_follow_counts.items()
+            if n and cid in comp_meta
+        ],
+        key=lambda r: r["followers"], reverse=True,
+    )
+    team_follows = []
+    if team_follow_counts:
+        rows = (
+            db.session.query(Team.id, Club.name_ar, Club.name_en,
+                             AgeGroup.name_ar, AgeGroup.name_en)
+            .join(Club, Team.club_id == Club.id)
+            .join(AgeGroup, Team.age_group_id == AgeGroup.id)
+            .filter(Team.id.in_(list(team_follow_counts.keys())))
+            .all()
+        )
+        team_follows = sorted(
+            [
+                {
+                    "id": tid,
+                    "name": (cn_ar or cn_en or ""),
+                    "age": (an_ar or an_en or ""),
+                    "followers": team_follow_counts.get(tid, 0),
+                }
+                for tid, cn_ar, cn_en, an_ar, an_en in rows
+            ],
+            key=lambda r: r["followers"], reverse=True,
+        )
+
     # Per-competition rows, so the dashboard can show where entry is behind.
     per_comp = []
     for c in comps:
@@ -963,6 +1064,7 @@ def stats():
             "name": c.name_ar or c.name_en or "",
             "sector": c.sector_ar or c.sector_en or "",
             "played": done, "total": tot,
+            "followers": comp_follow_counts.get(c.id, 0),
         })
 
     return jsonify({
@@ -993,6 +1095,12 @@ def stats():
         },
         "active_season": (active.name_ar or active.name_en) if active else None,
         "competitions": per_comp,
+        # "Most followed" — anonymous device follows, sorted desc, global (the
+        # season/competition filter doesn't scope these).
+        "follows": {
+            "competitions": comp_follows,
+            "teams": team_follows,
+        },
         # Full lists for the dashboard's season/competition filter, always
         # returned in full so the dropdowns stay populated under any filter.
         "filters": {

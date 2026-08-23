@@ -111,6 +111,39 @@ class AdEvent(db.Model):
     )
 
 
+class DeviceFollow(db.Model):
+    """One row per (anonymous device, followed competition/team).
+
+    Favourites live on the device (localStorage on web, SharedPreferences in the
+    app) — there are no public accounts. This table exists only so the admin can
+    see how many devices follow each competition and team; it is written
+    best-effort from the public ``/api/follows`` endpoint alongside the client's
+    own FCM topic subscription (web via the server, native via the FCM SDK).
+
+    ``device_id`` is an anonymous, client-generated per-install id — never an FCM
+    token and never personal data. The unique constraint makes a follow
+    idempotent, so a re-asserted subscription on app startup can't double-count.
+    """
+
+    __tablename__ = "device_follows"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    kind: Mapped[str] = mapped_column(sa.String(8), nullable=False)  # comp | team
+    target_id: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "device_id", "kind", "target_id", name="uq_device_follow"
+        ),
+        # Followers-per-target is the only read (the admin tally), so index it.
+        sa.Index("ix_device_follows_target", "kind", "target_id"),
+    )
+
+
 class AppVersion(TimestampMixin, db.Model):
     """Version gate the clients poll on startup."""
 

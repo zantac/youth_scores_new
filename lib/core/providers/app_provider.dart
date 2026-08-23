@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -27,11 +28,18 @@ class AppProvider extends ChangeNotifier {
   bool   get needsUpdate => _needsUpdate;
   bool   get forceUpdate => _needsUpdate && (_config?.appVersion?.forceUpdate ?? false);
 
+  // Anonymous, per-install id so the admin can count how many devices follow
+  // each competition/team. Not an FCM token; carries no personal data. Reported
+  // to /api/follows on every follow change and re-asserted on startup.
+  static const _kDeviceId = 'deviceId';
+  String _deviceId = '';
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _locale = prefs.getString('locale') ?? 'ar';
     _isDark = prefs.getBool('isDark') ?? true;
     AppColors.setTheme(_isDark);
+    _deviceId = await _ensureDeviceId(prefs);
     _loadFollows(prefs);
     final info = await PackageInfo.fromPlatform();
     _appBuildNumber = int.tryParse(info.buildNumber) ?? 0;
@@ -55,6 +63,20 @@ class AppProvider extends ChangeNotifier {
   void _loadFollows(SharedPreferences prefs) {
     _followedComps = _decode(prefs.getString(_kFollowComps), FollowedComp.fromJson);
     _followedTeams = _decode(prefs.getString(_kFollowTeams), FollowedTeam.fromJson);
+  }
+
+  /// The device's anonymous install id, generated once and persisted. Prefix
+  /// 'a-' marks an app-origin id; kept well under the server's 64-char cap.
+  Future<String> _ensureDeviceId(SharedPreferences prefs) async {
+    var id = prefs.getString(_kDeviceId);
+    if (id == null || id.isEmpty) {
+      final r = Random();
+      final rand =
+          List.generate(20, (_) => r.nextInt(16).toRadixString(16)).join();
+      id = 'a-$rand${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}';
+      await prefs.setString(_kDeviceId, id);
+    }
+    return id;
   }
 
   List<T> _decode<T>(String? raw, T Function(Map<String, dynamic>) f) {
@@ -84,6 +106,8 @@ class AppProvider extends ChangeNotifier {
       wasFollowing
           ? await NotificationService.instance.unfollowComp(c.id)
           : await NotificationService.instance.followComp(c.id);
+      await _api.reportFollow(
+          deviceId: _deviceId, kind: 'comp', id: c.id, subscribe: !wasFollowing);
       await _syncResultsBroadcast();
     } catch (_) {/* push is best-effort */}
   }
@@ -103,6 +127,8 @@ class AppProvider extends ChangeNotifier {
       wasFollowing
           ? await NotificationService.instance.unfollowTeam(t.id)
           : await NotificationService.instance.followTeam(t.id);
+      await _api.reportFollow(
+          deviceId: _deviceId, kind: 'team', id: t.id, subscribe: !wasFollowing);
       await _syncResultsBroadcast();
     } catch (_) {/* push is best-effort */}
   }
@@ -125,9 +151,15 @@ class AppProvider extends ChangeNotifier {
     try {
       for (final c in _followedComps) {
         await NotificationService.instance.followComp(c.id);
+        // Re-assert the anonymous tally too, so a device that followed before
+        // this existed (or after a reinstall) is counted. Idempotent server-side.
+        await _api.reportFollow(
+            deviceId: _deviceId, kind: 'comp', id: c.id, subscribe: true);
       }
       for (final t in _followedTeams) {
         await NotificationService.instance.followTeam(t.id);
+        await _api.reportFollow(
+            deviceId: _deviceId, kind: 'team', id: t.id, subscribe: true);
       }
       await _syncResultsBroadcast();
     } catch (_) {}
