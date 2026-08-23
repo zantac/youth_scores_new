@@ -83,6 +83,11 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
     final pending = s.competitions.where((c) => c.total > c.played).toList()
       ..sort((a, b) => b.remaining - a.remaining);
 
+    // "Most followed" — anonymous device follows (global, unaffected by the
+    // filters above). Already sorted desc by the backend.
+    final followComps = s.followComps.where((f) => f.followers > 0).toList();
+    final followTeams = s.followTeams.where((f) => f.followers > 0).toList();
+
     final gold = AppColors.orange;
     final white = AppColors.white;
     final name = (user?.fullName?.isNotEmpty == true) ? user!.fullName! : (user?.username ?? '');
@@ -191,6 +196,19 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
           const SizedBox(height: 12),
           // ── Outstanding competitions ─────────────────────────────────────
           if (pending.isNotEmpty) _pendingCard(pending, isAr, gold),
+          // ── Most followed (anonymous device follows) ─────────────────────
+          if (followComps.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _followCard(
+                isAr ? '⭐ البطولات الأكثر متابعة' : '⭐ Most followed competitions',
+                followComps, isAr),
+          ],
+          if (followTeams.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _followCard(
+                isAr ? '⭐ الفرق الأكثر متابعة' : '⭐ Most followed teams',
+                followTeams, isAr),
+          ],
           const SizedBox(height: 24),
         ],
       ),
@@ -283,6 +301,54 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
         if (pending.length > 6)
           Text(
             isAr ? 'و${pending.length - 6} بطولة أخرى' : 'and ${pending.length - 6} more',
+            style: TextStyle(color: AppColors.hint, fontSize: 11),
+          ),
+      ]),
+    );
+  }
+
+  // A "most followed" list — top rows with a 👥 follower count, capped so the
+  // card stays compact. Follower = a device that opted into notifications for it
+  // (web or app), which is what the tally can see.
+  Widget _followCard(String title, List<StatFollow> rows, bool isAr) {
+    final shown = rows.take(8).toList();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title,
+            style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+        const SizedBox(height: 8),
+        for (final r in shown)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.darkBg.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  [r.name, r.sub].where((x) => x.isNotEmpty).join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppColors.white, fontSize: 12),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text('👥 ${r.followers}',
+                  style: TextStyle(color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold)),
+            ]),
+          ),
+        if (rows.length > 8)
+          Text(
+            isAr ? 'و${rows.length - 8} أخرى' : 'and ${rows.length - 8} more',
             style: TextStyle(color: AppColors.hint, fontSize: 11),
           ),
       ]),

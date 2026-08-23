@@ -6,7 +6,7 @@ from app.models.competition import (
     GroupTeam,
     Stage,
 )
-from app.models.content import Ad, AdEvent, AppVersion, News, Venue
+from app.models.content import Ad, AdEvent, AppVersion, DeviceFollow, News, Venue
 from app.models.core import AgeGroup, Club, Coach, Player, Season
 from app.models.match import (
     Match,
@@ -81,6 +81,7 @@ __all__ = [
     "Ad",
     "AdEvent",
     "AppVersion",
+    "DeviceFollow",
     # auth
     "AdminUser",
     # tla3bny (youth-academy competitions subdomain)

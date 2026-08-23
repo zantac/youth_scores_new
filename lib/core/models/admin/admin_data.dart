@@ -18,12 +18,14 @@ class StatComp {
   final String sector;
   final int played;
   final int total;
+  final int followers;
   const StatComp({
     required this.id,
     required this.name,
     required this.sector,
     required this.played,
     required this.total,
+    this.followers = 0,
   });
 
   int get remaining => (total - played).clamp(0, total);
@@ -34,6 +36,40 @@ class StatComp {
         sector: j['sector']?.toString() ?? '',
         played: _i(j['played']),
         total: _i(j['total']),
+        followers: _i(j['followers']),
+      );
+}
+
+/// One "most followed" row — an anonymous device-follow tally for a competition
+/// or a team. `sub` is the secondary label (age · sector for competitions, age
+/// for teams). Rows arrive already sorted by followers descending.
+class StatFollow {
+  final int id;
+  final String name;
+  final String sub;
+  final int followers;
+  const StatFollow({
+    required this.id,
+    required this.name,
+    required this.sub,
+    required this.followers,
+  });
+
+  factory StatFollow.comp(Map<String, dynamic> j) => StatFollow(
+        id: _i(j['id']),
+        name: j['name']?.toString() ?? '',
+        sub: [j['age'], j['sector']]
+            .map((x) => x?.toString() ?? '')
+            .where((x) => x.isNotEmpty)
+            .join(' · '),
+        followers: _i(j['followers']),
+      );
+
+  factory StatFollow.team(Map<String, dynamic> j) => StatFollow(
+        id: _i(j['id']),
+        name: j['name']?.toString() ?? '',
+        sub: j['age']?.toString() ?? '',
+        followers: _i(j['followers']),
       );
 }
 
@@ -77,6 +113,10 @@ class AdminStats {
   final double teamsPerCompetition;
   final String? activeSeason;
   final List<StatComp> competitions;
+  // "Most followed" — anonymous device-follow tallies, sorted desc, global (not
+  // scoped by the season/competition filter).
+  final List<StatFollow> followComps;
+  final List<StatFollow> followTeams;
   final List<StatSeasonFilter> filterSeasons;
   final List<StatCompFilter> filterComps;
 
@@ -90,6 +130,8 @@ class AdminStats {
     required this.teamsPerCompetition,
     this.activeSeason,
     this.competitions = const [],
+    this.followComps = const [],
+    this.followTeams = const [],
     this.filterSeasons = const [],
     this.filterComps = const [],
   });
@@ -104,6 +146,7 @@ class AdminStats {
     final m = (j['matches'] as Map?)?.cast<String, dynamic>() ?? const {};
     final a = (j['averages'] as Map?)?.cast<String, dynamic>() ?? const {};
     final f = (j['filters'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final fl = (j['follows'] as Map?)?.cast<String, dynamic>() ?? const {};
     List<T> list<T>(dynamic src, T Function(Map<String, dynamic>) fn) =>
         (src as List? ?? [])
             .whereType<Map>()
@@ -119,6 +162,8 @@ class AdminStats {
       teamsPerCompetition: _d(a['teams_per_competition']),
       activeSeason: _s(j['active_season']),
       competitions: list(j['competitions'], StatComp.fromJson),
+      followComps: list(fl['competitions'], StatFollow.comp),
+      followTeams: list(fl['teams'], StatFollow.team),
       filterSeasons: list(f['seasons'], StatSeasonFilter.fromJson),
       filterComps: list(f['competitions'], StatCompFilter.fromJson),
     );

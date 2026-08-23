@@ -81,6 +81,31 @@ class ApiService {
         .toList();
   }
 
+  /// Best-effort, anonymous: tell the server this device followed/unfollowed a
+  /// competition (`kind: 'comp'`) or team (`kind: 'team'`), for the admin's
+  /// follower tally only. The FCM topic subscription is handled separately by the
+  /// SDK; this call just counts. `deviceId` is an anonymous per-install id — never
+  /// a push token, never personal data. Fire-and-forget: never throws.
+  Future<void> reportFollow({
+    required String deviceId,
+    required String kind,
+    required String id,
+    required bool subscribe,
+  }) async {
+    try {
+      await http.post(
+        Uri.parse('$_origin/api/follows'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'device_id': deviceId,
+          'kind': kind,
+          'id': int.tryParse(id) ?? 0,
+          'subscribe': subscribe,
+        }),
+      ).timeout(_timeout);
+    } catch (_) {/* the tally is best-effort */}
+  }
+
   // ── Public profiles (fetched by id, independent of the loaded competition) ──
   Future<Map<String, dynamic>> _getJson(String path) async {
     final res = await http.get(Uri.parse('$_origin$path')).timeout(_timeout);

@@ -74,6 +74,27 @@ function setFollowedTeams(ids: string[]): void {
   localStorage.setItem(LS_FOLLOWS_TEAMS, JSON.stringify([...new Set(ids)]));
 }
 
+// An anonymous, per-install id so the admin can count how many devices follow
+// each competition/team. Generated once and kept in localStorage; it is not an
+// FCM token and carries no personal data. Reported to /api/follows on every
+// follow/unfollow, independently of the FCM subscription (the native app does
+// the same via its own SDK path), so the tally covers web and app alike.
+const LS_DEVICE_ID = 'deviceId';
+function deviceId(): string {
+  let id = localStorage.getItem(LS_DEVICE_ID);
+  if (!id) {
+    id = (crypto.randomUUID?.() ?? `w-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
+    localStorage.setItem(LS_DEVICE_ID, id);
+  }
+  return id;
+}
+
+/** Best-effort: tell the server this device followed/unfollowed a competition
+ *  (kind='comp') or team (kind='team'), for the admin's follower tally only. */
+async function reportFollow(kind: 'comp' | 'team', id: string | number, subscribe: boolean): Promise<void> {
+  await postJson('/api/follows', { device_id: deviceId(), kind, id: Number(id), subscribe });
+}
+
 /** Current permission, without touching Firebase. */
 export function notifState(): NotifState {
   if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
@@ -172,6 +193,10 @@ export async function initNotifications(): Promise<void> {
   await Promise.all([
     ...followedCompetitions().map(cid => postJson('/api/push/follow', { token, competition_id: Number(cid) })),
     ...followedTeams().map(tid => postJson('/api/push/follow-team', { token, team_id: Number(tid) })),
+    // Re-assert the anonymous tally too, so a device that followed before this
+    // existed (or on any revisit) is counted. Idempotent server-side.
+    ...followedCompetitions().map(cid => reportFollow('comp', cid, true)),
+    ...followedTeams().map(tid => reportFollow('team', tid, true)),
   ]);
   await syncResultsBroadcast(token);
 }
@@ -210,6 +235,7 @@ export async function followCompetition(cid: string | number): Promise<NotifStat
   // is best-effort and re-asserted on every page load (initNotifications), so a
   // flaky network never loses the choice or leaves the star out of sync.
   setFollowed([...followedCompetitions(), String(cid)]);
+  reportFollow('comp', cid, true); // anonymous tally; fire-and-forget
   const token = await currentToken(m);
   if (token) {
     await postJson('/api/push/subscribe', { token }); // join the always-on topics too
@@ -222,6 +248,7 @@ export async function followCompetition(cid: string | number): Promise<NotifStat
 /** Unfollow a competition: forget it locally (optimistic) and unsubscribe. */
 export async function unfollowCompetition(cid: string | number): Promise<void> {
   setFollowed(followedCompetitions().filter(id => id !== String(cid)));
+  reportFollow('comp', cid, false); // anonymous tally; fire-and-forget
   const m = await ready();
   if (!m) return;
   const token = await currentToken(m);
@@ -245,6 +272,7 @@ export async function followTeam(tid: string | number): Promise<NotifState> {
   // Local record is the source of truth (turns the star gold); the server call is
   // best-effort and re-asserted on every load (initNotifications).
   setFollowedTeams([...followedTeams(), String(tid)]);
+  reportFollow('team', tid, true); // anonymous tally; fire-and-forget
   const token = await currentToken(m);
   if (token) {
     await postJson('/api/push/subscribe', { token }); // join the always-on topics too
@@ -257,6 +285,7 @@ export async function followTeam(tid: string | number): Promise<NotifState> {
 /** Unfollow a team: forget it locally (optimistic) and unsubscribe. */
 export async function unfollowTeam(tid: string | number): Promise<void> {
   setFollowedTeams(followedTeams().filter(id => id !== String(tid)));
+  reportFollow('team', tid, false); // anonymous tally; fire-and-forget
   const m = await ready();
   if (!m) return;
   const token = await currentToken(m);
