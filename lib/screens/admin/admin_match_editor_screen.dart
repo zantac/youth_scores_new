@@ -233,6 +233,55 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     }
   }
 
+  // Call up the whole registered squad in one tap: every roster player not yet
+  // placed goes to the bench (starters get promoted later).
+  void _callAllLineup() {
+    final missing = (_players[_lnTeamId] ?? const <String>[])
+        .where((n) => !_lnStarters.contains(n) && !_lnBench.contains(n))
+        .toList();
+    if (missing.isNotEmpty) setState(() => _lnBench = [..._lnBench, ...missing]);
+  }
+
+  // The saved-lineup draft still matches the server (nothing to save first).
+  bool get _lnDirty {
+    final side = _lnSide == 'home' ? _m.lineupHome : _m.lineupAway;
+    return _lnStarters.join('|') != side.starters.join('|') ||
+        _lnBench.join('|') != side.bench.join('|');
+  }
+
+  // The called squad (starters + bench) for a side — the names to suggest when
+  // entering goals/cards/subs; falls back to the roster before a squad is saved.
+  List<String> _squadFor(String side) {
+    final ln = side == 'home' ? _m.lineupHome : _m.lineupAway;
+    final named = [...ln.starters, ...ln.bench];
+    final tid = side == 'home' ? _m.row.home.id : _m.row.away.id;
+    return named.isNotEmpty ? named : (_players[tid] ?? const <String>[]);
+  }
+
+  Map<String, List<String>> get _squads =>
+      {'home': _squadFor('home'), 'away': _squadFor('away')};
+
+  Future<void> _squadNews() async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null) return;
+    final isAr = context.read<AppProvider>().locale == 'ar';
+    setState(() => _busy = true);
+    try {
+      final r = await _api.squadNews(token, _m.id, _lnTeamId);
+      if (!mounted) return;
+      final n = r['count'] ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isAr ? '✅ تم نشر الخبر ($n لاعبًا)' : '✅ News published ($n players)'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      showAdminError(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   // ── Substitutions ───────────────────────────────────────────────────────────
   Future<void> _editSub(EntrySub? sub) async {
     final token = context.read<AdminAuth>().token;
@@ -246,6 +295,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
         sub: sub,
         homeName: _m.row.home.getName(locale),
         awayName: _m.row.away.getName(locale),
+        squads: _squads,
       ),
     );
     if (body == null) return;
@@ -524,6 +574,20 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               _resetLineup();
             }),
           ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: OutlinedButton.icon(
+              onPressed: _callAllLineup,
+              icon: const Icon(Icons.group_add, size: 18),
+              style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.aqua,
+                  side: BorderSide(color: AppColors.aqua.withValues(alpha: 0.4)),
+                  minimumSize: const Size(double.infinity, 38)),
+              label: Text(
+                  isAr ? 'استدعاء كل اللاعبين المسجّلين (كبدلاء)' : 'Call up all registered players (bench)',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ),
           for (final n in _lnRoster) _lineupRow(n, isAr),
           if (_lnRoster.isEmpty)
             Padding(
@@ -560,6 +624,27 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               child: Text(isAr ? 'حفظ التشكيلة' : 'Save line-up'),
             ),
           ),
+          // Publish the called squad as a news item (title + names + club logo).
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: (_busy || _lnDirty || (_lnStarters.length + _lnBench.length) == 0)
+                  ? null
+                  : _squadNews,
+              icon: const Icon(Icons.campaign, size: 18),
+              style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.orange,
+                  side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5))),
+              label: Text(isAr ? 'إنشاء خبر بالقائمة' : 'Publish squad news'),
+            ),
+          ),
+          if (_lnDirty && (_lnStarters.length + _lnBench.length) > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(isAr ? 'احفظ التشكيلة أولًا لإنشاء الخبر.' : 'Save the line-up first.',
+                  style: TextStyle(color: AppColors.hint, fontSize: 11)),
+            ),
           // ── Substitutions ─────────────────────────────────────────────────
           const SizedBox(height: 8),
           const Divider(),
@@ -761,6 +846,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
         goal: goal,
         homeName: _m.row.home.getName(context.read<AppProvider>().locale),
         awayName: _m.row.away.getName(context.read<AppProvider>().locale),
+        squads: _squads,
       ),
     );
     if (body == null) return;
@@ -783,6 +869,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
         card: card,
         homeName: _m.row.home.getName(context.read<AppProvider>().locale),
         awayName: _m.row.away.getName(context.read<AppProvider>().locale),
+        squads: _squads,
       ),
     );
     if (body == null) return;
@@ -794,13 +881,51 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   }
 }
 
+// A player-name field with a dropdown to pick from the called squad. Free text
+// still works (the backend resolves a name to a player, creating one if unknown);
+// the dropdown just surfaces the squad so a typo can't quietly invent a player.
+class _SquadNameField extends StatelessWidget {
+  final TextEditingController controller;
+  final List<String> squad;
+  final bool autofocus;
+  const _SquadNameField(
+      {required this.controller, required this.squad, this.autofocus = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      autofocus: autofocus,
+      style: TextStyle(color: AppColors.white),
+      decoration: adminInputDecoration().copyWith(
+        suffixIcon: squad.isEmpty
+            ? null
+            : PopupMenuButton<String>(
+                icon: Icon(Icons.arrow_drop_down, color: AppColors.hint),
+                color: AppColors.cardBg,
+                onSelected: (v) => controller.text = v,
+                itemBuilder: (_) => [
+                  for (final n in squad)
+                    PopupMenuItem<String>(
+                        value: n,
+                        child: Text(n,
+                            style: TextStyle(color: AppColors.white, fontSize: 13))),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
 // ── Goal entry sheet ─────────────────────────────────────────────────────────
 class _GoalSheet extends StatefulWidget {
   final EntryGoal? goal;
   final String homeName;
   final String awayName;
+  final Map<String, List<String>> squads;
   const _GoalSheet(
-      {required this.goal, required this.homeName, required this.awayName});
+      {required this.goal, required this.homeName, required this.awayName,
+      required this.squads});
 
   @override
   State<_GoalSheet> createState() => _GoalSheetState();
@@ -860,20 +985,19 @@ class _GoalSheetState extends State<_GoalSheet> {
             onChanged: (s) => setState(() => _side = s)),
         AdminField(
           label: isAr ? 'الهدّاف' : 'Scorer',
-          child: TextField(
+          // An own goal is credited to _side but put in by the opposite team, so
+          // the scorer's names come from that other side's squad.
+          child: _SquadNameField(
               controller: _scorer,
               autofocus: true,
-              style: TextStyle(color: AppColors.white),
-              decoration: adminInputDecoration()),
+              squad: widget.squads[_og ? (_side == 'home' ? 'away' : 'home') : _side] ?? const []),
         ),
         Row(children: [
           Expanded(
             child: AdminField(
               label: isAr ? 'صناعة' : 'Assist',
-              child: TextField(
-                  controller: _assist,
-                  style: TextStyle(color: AppColors.white),
-                  decoration: adminInputDecoration()),
+              child: _SquadNameField(
+                  controller: _assist, squad: widget.squads[_side] ?? const []),
             ),
           ),
           const SizedBox(width: 12),
@@ -922,8 +1046,10 @@ class _CardSheet extends StatefulWidget {
   final EntryCard? card;
   final String homeName;
   final String awayName;
+  final Map<String, List<String>> squads;
   const _CardSheet(
-      {required this.card, required this.homeName, required this.awayName});
+      {required this.card, required this.homeName, required this.awayName,
+      required this.squads});
 
   @override
   State<_CardSheet> createState() => _CardSheetState();
@@ -976,11 +1102,10 @@ class _CardSheetState extends State<_CardSheet> {
             onChanged: (s) => setState(() => _side = s)),
         AdminField(
           label: isAr ? 'اللاعب' : 'Player',
-          child: TextField(
+          child: _SquadNameField(
               controller: _player,
               autofocus: true,
-              style: TextStyle(color: AppColors.white),
-              decoration: adminInputDecoration()),
+              squad: widget.squads[_side] ?? const []),
         ),
         Row(children: [
           Expanded(
@@ -1023,7 +1148,10 @@ class _SubSheet extends StatefulWidget {
   final EntrySub? sub;
   final String homeName;
   final String awayName;
-  const _SubSheet({required this.sub, required this.homeName, required this.awayName});
+  final Map<String, List<String>> squads;
+  const _SubSheet(
+      {required this.sub, required this.homeName, required this.awayName,
+      required this.squads});
 
   @override
   State<_SubSheet> createState() => _SubSheetState();
@@ -1075,17 +1203,13 @@ class _SubSheetState extends State<_SubSheet> {
             onChanged: (s) => setState(() => _side = s)),
         AdminField(
           label: isAr ? 'خارج ↓' : 'Out ↓',
-          child: TextField(
-              controller: _out,
-              style: TextStyle(color: AppColors.white),
-              decoration: adminInputDecoration()),
+          child: _SquadNameField(
+              controller: _out, squad: widget.squads[_side] ?? const []),
         ),
         AdminField(
           label: isAr ? 'داخل ↑' : 'In ↑',
-          child: TextField(
-              controller: _in,
-              style: TextStyle(color: AppColors.white),
-              decoration: adminInputDecoration()),
+          child: _SquadNameField(
+              controller: _in, squad: widget.squads[_side] ?? const []),
         ),
         AdminField(
           label: isAr ? 'الدقيقة' : 'Minute',
