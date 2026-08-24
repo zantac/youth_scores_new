@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
@@ -32,6 +32,7 @@ from app.models import (
     MatchPlayer,
     MatchSubstitution,
     Match,
+    News,
     Player,
     PlayerTeam,
     Stage,
@@ -786,6 +787,78 @@ def set_lineup(mid: int):
                                    is_starter=False))
     db.session.commit()
     return jsonify(_match_detail(m))
+
+
+# Python's date.weekday(): Monday=0 … Sunday=6.
+_AR_WEEKDAYS = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
+
+
+@entry_bp.post("/api/admin/matches/<int:mid>/squad-news")
+@auth.role_required("editor")
+def squad_news(mid: int):
+    """Publish a news item announcing one team's called squad for this match.
+
+    Title: «قائمة نادي {الفريق} مواليد {السنة} لمواجهة {المنافس} في الجولة {الجولة}
+    اليوم {اليوم} و التاريخ {التاريخ}». Body: the whole called squad — starters and
+    bench alike — one name per line. Cover: the club's logo. The squad must be
+    saved first via the line-up endpoint, since that is what this reads.
+    """
+    m = db.session.get(Match, mid)
+    if m is None:
+        return jsonify({"error": "المباراة غير موجودة"}), 404
+    j = request.get_json(silent=True) or {}
+    team_id = j.get("team_id")
+    if team_id not in (m.home_team_id, m.away_team_id):
+        return jsonify({"error": "الفريق ليس في هذه المباراة"}), 400
+
+    team = db.session.get(Team, team_id)
+    opp_id = m.away_team_id if team_id == m.home_team_id else m.home_team_id
+    opp = db.session.get(Team, opp_id)
+    comp_id = m.stage.competition_id if m.stage else None
+
+    # The whole called squad (starters first, then bench), one name per line.
+    rows = (MatchPlayer.query.filter_by(match_id=mid, team_id=team_id)
+            .order_by(MatchPlayer.is_starter.desc(), MatchPlayer.id).all())
+    names = [n for n in (_pname(r.player) for r in rows) if n]
+    if not names:
+        return jsonify({"error": "احفظ قائمة الفريق أولًا"}), 400
+
+    team_name = _team_name(team, comp_id).get("ar") or ""
+    opp_name = _team_name(opp, comp_id).get("ar") or ""
+    ag = db.session.get(AgeGroup, team.age_group_id)
+    age = (ag.name_ar or ag.name_en or "").strip() if ag else ""
+    rnd = (m.week or "").strip()
+
+    parts = [f"قائمة نادي {team_name}".strip()]
+    if age:
+        parts.append(f"مواليد {age}")
+    if opp_name:
+        parts.append(f"لمواجهة {opp_name}")
+    if rnd:
+        parts.append(f"في الجولة {rnd}")
+    if m.match_date:
+        parts.append(
+            f"اليوم {_AR_WEEKDAYS[m.match_date.weekday()]} "
+            f"و التاريخ {m.match_date.strftime('%Y-%m-%d')}"
+        )
+    title = " ".join(parts)
+    logo = team.club.logo_url if team.club else None
+
+    news = News(
+        date=(m.match_date.date() if m.match_date else date.today()),
+        title_ar=title,
+        details_ar="\n".join(names),
+        image_url=logo,
+        images=([logo] if logo else None),
+        is_published=True,
+    )
+    db.session.add(news)
+    db.session.commit()
+    result = notifications.notify_new_news(news)
+    return jsonify({
+        "id": news.id, "title": title, "count": len(names),
+        "notification": result,
+    }), 201
 
 
 @entry_bp.post("/api/admin/matches/<int:mid>/subs")

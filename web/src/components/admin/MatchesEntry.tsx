@@ -7,7 +7,7 @@ import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
-  apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiAddSub, apiUpdateSub, apiDeleteSub,
+  apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiSquadNews, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
   apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
@@ -814,6 +814,8 @@ function LineupSection({ token, match, players, onChange }: {
   const [extra, setExtra] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [newsBusy, setNewsBusy] = useState(false);
+  const [newsMsg, setNewsMsg] = useState<string | null>(null);
 
   // Reload the draft whenever the side changes or the server sends a new match.
   useEffect(() => {
@@ -836,7 +838,24 @@ function LineupSection({ token, match, players, onChange }: {
     setExtra('');
   };
 
+  // Call up the whole registered squad in one tap: every roster player not yet
+  // placed goes to the bench (starters get promoted later).
+  const callAll = () => {
+    const missing = (players[Number(teamId)] ?? []).filter(n => !starters.includes(n) && !bench.includes(n));
+    if (missing.length) setBench(b => [...b, ...missing]);
+  };
+
   const dirty = starters.join('|') !== side.starters.join('|') || bench.join('|') !== side.bench.join('|');
+  const called = starters.length + bench.length;
+
+  const makeNews = async () => {
+    setNewsMsg(null); setNewsBusy(true);
+    try {
+      const r = await apiSquadNews(token, match.id, Number(teamId));
+      setNewsMsg(`✅ تم نشر الخبر (${r.count} لاعبًا)`);
+    } catch (e) { setNewsMsg(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setNewsBusy(false); }
+  };
 
   const save = async () => {
     setErr(null); setBusy(true);
@@ -852,6 +871,11 @@ function LineupSection({ token, match, players, onChange }: {
         <span className="text-hint text-[11px] tnum">{starters.length} أساسي · {bench.length} بديل</span>
       </div>
       <SideSelect match={match} value={teamId} onChange={setTeamId} />
+
+      <button onClick={callAll}
+        className="w-full text-aqua text-[11px] font-bold border border-aqua/40 rounded-lg py-1.5 hover:bg-aqua/5">
+        ⏬ استدعاء كل اللاعبين المسجّلين (كبدلاء)
+      </button>
 
       <div className="space-y-1">
         {roster.map(n => {
@@ -885,6 +909,14 @@ function LineupSection({ token, match, players, onChange }: {
         className="w-full bg-aqua text-on-accent font-extrabold py-2 rounded-lg text-sm disabled:opacity-40">
         {busy ? '…' : 'حفظ التشكيلة'}
       </button>
+
+      {/* Publish the called squad as a news item (title + names + club logo). */}
+      <button onClick={makeNews} disabled={newsBusy || dirty || called === 0}
+        className="w-full border border-gold/50 bg-gold/10 text-gold font-bold py-2 rounded-lg text-sm disabled:opacity-40">
+        {newsBusy ? '…' : '📣 إنشاء خبر بالقائمة'}
+      </button>
+      {dirty && called > 0 && <p className="text-hint text-[11px]">احفظ التشكيلة أولًا لإنشاء الخبر.</p>}
+      {newsMsg && <p className="text-hint text-[11px]">{newsMsg}</p>}
     </div>
   );
 }
@@ -978,6 +1010,15 @@ function SideSelect({ match, value, onChange }: { match: EntryMatch; value: stri
   );
 }
 
+// Names to suggest when entering a goal/card for a team: the called squad
+// (starters + bench) once it's saved, else the full roster — so entry is never
+// blocked (e.g. an own goal credited to an opponent whose squad wasn't entered).
+function squadNames(match: EntryMatch, teamId: number, roster: string[]): string[] {
+  const s = teamId === match.home.id ? match.lineup.home : match.lineup.away;
+  const named = [...s.starters, ...s.bench];
+  return named.length ? named : roster;
+}
+
 function GoalForm({ token, match, players, onAdd, editGoal, onCancelEdit }: {
   token: string; match: EntryMatch; players: Record<number, string[]>; onAdd: (m: EntryMatch) => void;
   editGoal?: EntryGoal | null; onCancelEdit?: () => void;
@@ -990,7 +1031,7 @@ function GoalForm({ token, match, players, onAdd, editGoal, onCancelEdit }: {
   // an opponent, so the names to choose from come from the other team.
   const otherId = Number(teamId) === match.home.id ? match.away.id : match.home.id;
   const scorerTeamId = og ? otherId : Number(teamId);
-  const list = players[scorerTeamId] ?? [];
+  const list = squadNames(match, scorerTeamId, players[scorerTeamId] ?? []);
 
   // In edit mode, load the chosen goal into the fields (and clear back to a
   // blank add-form when the edit is cancelled or saved). team_id is always the
@@ -1119,7 +1160,7 @@ function CardForm({ token, match, players, onAdd, editCard, onCancelEdit }: {
   const [teamId, setTeamId] = useState(String(match.home.id));
   const [player, setPlayer] = useState(''); const [type, setType] = useState('yellow'); const [minute, setMinute] = useState('');
   const [busy, setBusy] = useState(false);
-  const list = players[Number(teamId)] ?? [];
+  const list = squadNames(match, Number(teamId), players[Number(teamId)] ?? []);
 
   // Load the chosen card in edit mode; blank the form otherwise.
   useEffect(() => {
