@@ -60,6 +60,10 @@ function AdStats({ token, embedded = false }: { token: string; embedded?: boolea
   const [data, setData] = useState<{ ads: AdStatRow[]; daily: AdDailyRow[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Which day the chart is reading out (null = default to the latest day), and
+  // whether the full per-day breakdown list is expanded.
+  const [selDay, setSelDay] = useState<number | null>(null);
+  const [showDaily, setShowDaily] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true); setErr(null);
@@ -95,29 +99,69 @@ function AdStats({ token, embedded = false }: { token: string; embedded?: boolea
               <StatBox label="نسبة النقر" value={`${ctr.toFixed(1)}%`} color="text-gold" />
             </div>
             {data.daily.length > 0 && (() => {
-              // Line (sparkline) of daily impressions. The SVG is stretched to
-              // fill the width (preserveAspectRatio=none), so the stroke uses
-              // non-scaling-stroke to stay an even thickness.
+              // Daily bars, one per calendar day (the series is zero-filled server
+              // side). Hover (desktop) or tap (mobile) a bar to read that day's
+              // exact date, views and clicks — the sparkline before this showed no
+              // numbers, so a day's value couldn't be read. A short bar with a
+              // faded tone still marks a zero day so the timeline stays continuous.
               const n = data.daily.length;
-              const W = 300, H = 60, pad = 5;
-              const px = (i: number) => n <= 1 ? W / 2 : pad + (i / (n - 1)) * (W - pad * 2);
-              const py = (v: number) => H - pad - (v / maxDaily) * (H - pad * 2);
-              const line = data.daily.map((d, i) => `${px(i).toFixed(1)},${py(d.impressions).toFixed(1)}`).join(' ');
-              const area = `${px(0).toFixed(1)},${H - pad} ${line} ${px(n - 1).toFixed(1)},${H - pad}`;
-              const last = data.daily[n - 1];
+              const idx = selDay != null && selDay < n ? selDay : n - 1; // default: latest
+              const cur = data.daily[idx];
+              const md = (s: string) => s.slice(5); // MM-DD
+              const activeDays = [...data.daily].reverse().filter(d => d.impressions || d.clicks);
               return (
                 <div>
-                  <p className="text-hint text-[11px] mb-1">آخر 30 يوم — مشاهدات</p>
-                  <div className="bg-darkBg border border-bdr rounded-lg p-2">
-                    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-16">
-                      <polygon points={area} className="fill-aqua/10" />
-                      <polyline points={line} className="fill-none stroke-aqua" strokeWidth={1.5}
-                        strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                    </svg>
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <p className="text-hint text-[11px] flex-shrink-0">آخر 30 يوم</p>
+                    <p className="text-[11px] tnum text-end truncate">
+                      <span className="text-hint" dir="ltr">{cur.date}</span>{' · '}
+                      <span className="text-aqua font-bold">{cur.impressions}</span>
+                      <span className="text-hint"> مشاهدة</span>{' · '}
+                      <span className="text-win font-bold">{cur.clicks}</span>
+                      <span className="text-hint"> نقرة</span>
+                    </p>
                   </div>
-                  <p className="text-hint text-[10px] mt-1 text-end">
-                    {last.date}: <span className="text-aqua tnum">{last.impressions}</span> مشاهدة
-                  </p>
+                  <div className="bg-darkBg border border-bdr rounded-lg p-2">
+                    <div className="flex items-end gap-[2px] h-20" dir="ltr">
+                      {data.daily.map((d, i) => {
+                        const on = i === idx;
+                        const zero = d.impressions === 0;
+                        return (
+                          <button key={d.date} type="button"
+                            onMouseEnter={() => setSelDay(i)} onFocus={() => setSelDay(i)}
+                            onClick={() => setSelDay(i)}
+                            title={`${d.date}: ${d.impressions} مشاهدة · ${d.clicks} نقرة`}
+                            className="flex-1 h-full flex items-end min-w-0 group">
+                            <span
+                              className={`w-full rounded-t-sm transition-colors ${on ? 'bg-aqua' : 'bg-aqua/40 group-hover:bg-aqua/70'} ${zero ? 'opacity-30' : ''}`}
+                              style={{ height: `${Math.max(3, (d.impressions / maxDaily) * 100)}%` }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between mt-1 text-hint text-[9px] tnum" dir="ltr">
+                      <span>{md(data.daily[0].date)}</span>
+                      <span>{md(data.daily[Math.floor(n / 2)].date)}</span>
+                      <span>{md(data.daily[n - 1].date)}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowDaily(s => !s)} className="text-aqua text-[11px] font-bold mt-1">
+                    {showDaily ? '▾ إخفاء التفاصيل اليومية' : '▸ عرض التفاصيل اليومية'}
+                  </button>
+                  {showDaily && (
+                    <div className="mt-1 max-h-44 overflow-auto space-y-1">
+                      {activeDays.map(d => (
+                        <div key={d.date} className="flex items-center gap-2 text-[11px] tnum bg-darkBg border border-bdr rounded px-2 py-1">
+                          <span className="text-hint flex-1" dir="ltr">{d.date}</span>
+                          <span className="text-aqua">{d.impressions} 👁</span>
+                          <span className="text-win">{d.clicks} 👆</span>
+                        </div>
+                      ))}
+                      {activeDays.length === 0 && (
+                        <p className="text-hint text-[11px] text-center py-1">لا مشاهدات في آخر 30 يوم</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
