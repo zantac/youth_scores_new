@@ -231,10 +231,12 @@ class AdminApi {
       EntryMatch.fromJson(await _send(token, 'PUT', '/api/admin/matches/$mid/lineup',
           {'team_id': teamId, 'starters': starters, 'subs': subs, 'called': called}));
 
-  /// Publish a news item with one team's called squad (title + names + club
-  /// logo). Returns {id, title, count}. The squad must be saved (setLineup) first.
-  Future<Map<String, dynamic>> squadNews(String token, int mid, int teamId) async =>
-      _send(token, 'POST', '/api/admin/matches/$mid/squad-news', {'team_id': teamId});
+  /// Build a *draft* squad-news item (title + body + a low-res logo suggestion).
+  /// Does NOT publish — the caller opens it in the news editor to add a cover
+  /// photo and submit. Returns {title, body, image_url, date, count}. The squad
+  /// must be saved (setLineup) first.
+  Future<Map<String, dynamic>> squadNewsDraft(String token, int mid, int teamId) async =>
+      _get(token, '/api/admin/matches/$mid/squad-news?team_id=$teamId');
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
   Future<AdminStats> stats(String token, {int? seasonId, int? competitionId}) async {

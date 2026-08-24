@@ -168,9 +168,12 @@ export const apiDeleteCard = (t: string, cid: number) => send<EntryMatch>(t, 'DE
 // The line-up is sent as a whole side at a time, so a save cannot leave half a list.
 export const apiSetLineup = (t: string, mid: number, teamId: number, starters: string[], subs: string[], called: string[]) =>
   send<EntryMatch>(t, 'PUT', `/api/admin/matches/${mid}/lineup`, { team_id: teamId, starters, subs, called });
-// Publish a news item with one team's called squad (title + names + club logo).
-export const apiSquadNews = (t: string, mid: number, teamId: number) =>
-  send<{ id: number; title: string; count: number }>(t, 'POST', `/api/admin/matches/${mid}/squad-news`, { team_id: teamId });
+// Build a *draft* news item for one team's called squad (title + body + a
+// low-res logo suggestion). Does NOT publish — the admin reviews it, adds a
+// proper cover photo, and submits it from the news editor.
+export const apiSquadNewsDraft = (t: string, mid: number, teamId: number) =>
+  get<{ title: string; body: string; image_url: string | null; date: string; count: number }>(
+    t, `/api/admin/matches/${mid}/squad-news?team_id=${teamId}`);
 export const apiAddSub = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/subs`, body);
 export const apiUpdateSub = (t: string, sid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/subs/${sid}`, body);
 export const apiDeleteSub = (t: string, sid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/subs/${sid}`);

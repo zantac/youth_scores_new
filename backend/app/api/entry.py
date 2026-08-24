@@ -32,7 +32,6 @@ from app.models import (
     MatchPlayer,
     MatchSubstitution,
     Match,
-    News,
     Player,
     PlayerTeam,
     Stage,
@@ -801,21 +800,24 @@ def set_lineup(mid: int):
 _AR_WEEKDAYS = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]
 
 
-@entry_bp.post("/api/admin/matches/<int:mid>/squad-news")
+@entry_bp.get("/api/admin/matches/<int:mid>/squad-news")
 @auth.role_required("editor")
 def squad_news(mid: int):
-    """Publish a news item announcing one team's called squad for this match.
+    """Build a *draft* news item for one team's called squad — it does NOT publish.
+
+    The admin opens this draft in the news editor to add a proper cover photo,
+    review it, and submit it themselves (the auto club logo was too low-res to use
+    as the cover). Returns the prefilled ``title`` and ``body``.
 
     Title: «قائمة نادي {الفريق} مواليد {السنة} لمواجهة {المنافس} في الجولة {الجولة}
-    اليوم {اليوم} و التاريخ {التاريخ}». Body: the whole called squad — starters and
-    bench alike — one name per line. Cover: the club's logo. The squad must be
-    saved first via the line-up endpoint, since that is what this reads.
+    {اليوم} الموافق {التاريخ}». Body: the same header line, a blank line, then the
+    whole called squad — starters and bench alike — one name per line. The squad
+    must be saved first via the line-up endpoint, since that is what this reads.
     """
     m = db.session.get(Match, mid)
     if m is None:
         return jsonify({"error": "المباراة غير موجودة"}), 404
-    j = request.get_json(silent=True) or {}
-    team_id = j.get("team_id")
+    team_id = request.args.get("team_id", type=int)
     if team_id not in (m.home_team_id, m.away_team_id):
         return jsonify({"error": "الفريق ليس في هذه المباراة"}), 400
 
@@ -845,28 +847,20 @@ def squad_news(mid: int):
     if rnd:
         parts.append(f"في الجولة {rnd}")
     if m.match_date:
-        parts.append(
-            f"اليوم {_AR_WEEKDAYS[m.match_date.weekday()]} "
-            f"و التاريخ {m.match_date.strftime('%Y-%m-%d')}"
-        )
+        parts.append(f"{_AR_WEEKDAYS[m.match_date.weekday()]} الموافق {m.match_date.strftime('%Y-%m-%d')}")
     title = " ".join(parts)
+    # Header line, a blank line, then the names — so the header reads at the top
+    # of the article body too.
+    body = title + "\n\n" + "\n".join(names)
     logo = team.club.logo_url if team.club else None
 
-    news = News(
-        date=(m.match_date.date() if m.match_date else date.today()),
-        title_ar=title,
-        details_ar="\n".join(names),
-        image_url=logo,
-        images=([logo] if logo else None),
-        is_published=True,
-    )
-    db.session.add(news)
-    db.session.commit()
-    result = notifications.notify_new_news(news)
     return jsonify({
-        "id": news.id, "title": title, "count": len(names),
-        "notification": result,
-    }), 201
+        "title": title,
+        "body": body,
+        "image_url": logo,   # a low-res suggestion only; the admin replaces it
+        "date": (m.match_date.date().isoformat() if m.match_date else date.today().isoformat()),
+        "count": len(names),
+    })
 
 
 @entry_bp.post("/api/admin/matches/<int:mid>/subs")

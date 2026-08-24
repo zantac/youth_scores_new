@@ -259,11 +259,45 @@ class _NewsSectionState extends State<_NewsSection> {
   }
 }
 
+/// Open the news editor as a modal sheet. With `draftTitle`/`draftBody` it opens
+/// a *new* news prefilled (e.g. a squad list handed over from the matches tab) so
+/// the admin can add a cover photo, review, and publish. Returns true if saved.
+Future<bool?> showNewsEditor(
+  BuildContext context, {
+  required AdminApi api,
+  required String token,
+  String? draftTitle,
+  String? draftBody,
+  String? draftDate,
+}) {
+  return showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.dialogBg,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+    builder: (_) => _NewsEditor(
+        api: api, token: token,
+        draftTitle: draftTitle, draftBody: draftBody, draftDate: draftDate),
+  );
+}
+
 class _NewsEditor extends StatefulWidget {
   final AdminApi api;
   final String token;
   final AdminNews? news;
-  const _NewsEditor({required this.api, required this.token, this.news});
+  // Prefill for a new news handed over from elsewhere (e.g. a squad list).
+  final String? draftTitle;
+  final String? draftBody;
+  final String? draftDate;
+  const _NewsEditor({
+    required this.api,
+    required this.token,
+    this.news,
+    this.draftTitle,
+    this.draftBody,
+    this.draftDate,
+  });
 
   @override
   State<_NewsEditor> createState() => _NewsEditorState();
@@ -283,10 +317,10 @@ class _NewsEditorState extends State<_NewsEditor> {
   void initState() {
     super.initState();
     final n = widget.news;
-    _titleAr = TextEditingController(text: n?.titleAr ?? '');
+    _titleAr = TextEditingController(text: n?.titleAr ?? widget.draftTitle ?? '');
     _titleEn = TextEditingController(text: n?.titleEn ?? '');
-    _details = TextEditingController(text: n?.detailsAr ?? '');
-    _date = TextEditingController(text: n?.date ?? _today());
+    _details = TextEditingController(text: n?.detailsAr ?? widget.draftBody ?? '');
+    _date = TextEditingController(text: n?.date ?? widget.draftDate ?? _today());
     _images = List<String>.from(n?.images ?? const []);
     _publish = n?.isPublished ?? true;
   }
