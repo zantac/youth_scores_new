@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import CompetitionSelect from './CompetitionSelect';
 import ImportFromPhoto from './ImportFromPhoto';
@@ -7,7 +8,7 @@ import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
   apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
-  apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiSquadNews, apiAddSub, apiUpdateSub, apiDeleteSub,
+  apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiSquadNewsDraft, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
   apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
@@ -849,14 +850,17 @@ function LineupSection({ token, match, players, onChange }: {
   const key = (a: string[]) => a.join('|');
   const dirty = key(starters) !== key(side.starters) || key(subs) !== key(side.subs) || key(called) !== key(side.called);
   const squadTotal = starters.length + subs.length + called.length;
+  const router = useRouter();
 
+  // Build the draft server-side, stash it, and hand off to the news editor — the
+  // admin adds a proper cover photo, reviews, and publishes it there. No auto-post.
   const makeNews = async () => {
     setNewsMsg(null); setNewsBusy(true);
     try {
-      const r = await apiSquadNews(token, match.id, Number(teamId));
-      setNewsMsg(`✅ تم نشر الخبر (${r.count} لاعبًا)`);
-    } catch (e) { setNewsMsg(e instanceof Error ? e.message : 'خطأ'); }
-    finally { setNewsBusy(false); }
+      const d = await apiSquadNewsDraft(token, match.id, Number(teamId));
+      sessionStorage.setItem('squadNewsDraft', JSON.stringify({ title_ar: d.title, details_ar: d.body, date: d.date }));
+      router.push('/admin/content');
+    } catch (e) { setNewsMsg(e instanceof Error ? e.message : 'خطأ'); setNewsBusy(false); }
   };
 
   const save = async () => {
@@ -913,13 +917,15 @@ function LineupSection({ token, match, players, onChange }: {
         {busy ? '…' : 'حفظ القائمة'}
       </button>
 
-      {/* Publish the called squad as a news item (title + names + club logo). */}
+      {/* Prepare a squad-news draft and open the news editor (admin adds the
+          cover photo, reviews, then publishes). */}
       <button onClick={makeNews} disabled={newsBusy || dirty || squadTotal === 0}
         className="w-full border border-gold/50 bg-gold/10 text-gold font-bold py-2 rounded-lg text-sm disabled:opacity-40">
-        {newsBusy ? '…' : '📣 إنشاء خبر بالقائمة'}
+        {newsBusy ? '…' : '📣 تجهيز خبر القائمة'}
       </button>
-      {dirty && squadTotal > 0 && <p className="text-hint text-[11px]">احفظ القائمة أولًا لإنشاء الخبر.</p>}
-      {newsMsg && <p className="text-hint text-[11px]">{newsMsg}</p>}
+      <p className="text-hint text-[11px]">يفتح محرّر الأخبار بالعنوان والأسماء جاهزة — أضِف صورة الغلاف ثم انشر.</p>
+      {dirty && squadTotal > 0 && <p className="text-hint text-[11px]">احفظ القائمة أولًا.</p>}
+      {newsMsg && <p className="text-loss text-[11px]">{newsMsg}</p>}
     </div>
   );
 }

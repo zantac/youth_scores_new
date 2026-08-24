@@ -6,6 +6,7 @@ import '../../core/models/admin/structure_models.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import 'admin_content_tab.dart' show showNewsEditor;
 import 'admin_error.dart';
 import 'admin_widgets.dart';
 
@@ -268,24 +269,37 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   Map<String, List<String>> get _squads =>
       {'home': _squadFor('home'), 'away': _squadFor('away')};
 
+  // Fetch the prefilled squad-news draft, then open the news editor so the admin
+  // can add a cover photo, review, and publish it (no auto-post).
   Future<void> _squadNews() async {
     final token = context.read<AdminAuth>().token;
     if (token == null) return;
     final isAr = context.read<AppProvider>().locale == 'ar';
     setState(() => _busy = true);
+    Map<String, dynamic> draft;
     try {
-      final r = await _api.squadNews(token, _m.id, _lnTeamId);
-      if (!mounted) return;
-      final n = r['count'] ?? 0;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isAr ? '✅ تم نشر الخبر ($n لاعبًا)' : '✅ News published ($n players)'),
-      ));
+      draft = await _api.squadNewsDraft(token, _m.id, _lnTeamId);
     } catch (e) {
       if (!mounted) return;
+      setState(() => _busy = false);
       if (handleAdminError(context, e)) return;
       showAdminError(context, e);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    final saved = await showNewsEditor(
+      context,
+      api: _api,
+      token: token,
+      draftTitle: '${draft['title'] ?? ''}',
+      draftBody: '${draft['body'] ?? ''}',
+      draftDate: '${draft['date'] ?? ''}',
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isAr ? '✅ تم نشر خبر القائمة' : '✅ Squad news published'),
+      ));
     }
   }
 
@@ -630,13 +644,13 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.orange,
                   side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5))),
-              label: Text(isAr ? 'إنشاء خبر بالقائمة' : 'Publish squad news'),
+              label: Text(isAr ? 'تجهيز خبر القائمة' : 'Prepare squad news'),
             ),
           ),
           if (_lnDirty && _lnTotal > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text(isAr ? 'احفظ التشكيلة أولًا لإنشاء الخبر.' : 'Save the line-up first.',
+              child: Text(isAr ? 'احفظ القائمة أولًا. سيفتح محرّر الأخبار لإضافة الصورة والنشر.' : 'Save first. The news editor opens to add a photo and publish.',
                   style: TextStyle(color: AppColors.hint, fontSize: 11)),
             ),
           // ── Substitutions ─────────────────────────────────────────────────

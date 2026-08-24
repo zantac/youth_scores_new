@@ -103,17 +103,30 @@ function ImagePicker({ token, images, onChange }: { token: string; images: strin
 
 // ── news: create form + manage/delete list ───────────────────────────────────
 
+type NewsDraft = { title_ar: string; details_ar: string; date: string };
+
 function NewsTab() {
   const { token } = useAdminAuth();
   const [items, setItems] = useState<AdminNews[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminNews | null>(null);
+  // A squad-news draft handed over from the matches tab (via sessionStorage):
+  // prefill the create form so the admin can add a photo, review, and publish.
+  const [draft, setDraft] = useState<NewsDraft | null>(null);
 
   const load = useCallback(() => {
     if (!token) return;
     apiListNews(token).then(setItems).catch(() => {}).finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const raw = sessionStorage.getItem('squadNewsDraft');
+    if (raw) {
+      try { setDraft(JSON.parse(raw)); } catch { /* ignore malformed */ }
+      sessionStorage.removeItem('squadNewsDraft');
+    }
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -124,7 +137,10 @@ function NewsTab() {
         // different item has to remount it or it would keep the first one's text.
         ? <NewsForm key={editing.id} token={token!} news={editing} onCancel={() => setEditing(null)}
             onCreated={() => { setEditing(null); load(); }} />
-        : <NewsForm token={token!} onCreated={load} />}
+        // Keyed by draft presence so an arriving draft remounts the form prefilled,
+        // and clears back to blank once published.
+        : <NewsForm key={draft ? 'draft' : 'new'} token={token!} draft={draft ?? undefined}
+            onCreated={() => { setDraft(null); load(); }} />}
       <div>
         <p className="text-text font-bold text-sm mb-2">الأخبار المنشورة {!loading && `(${items.length})`}</p>
         {loading ? <p className="text-hint text-sm text-center py-4">جارٍ التحميل…</p> : (
@@ -163,11 +179,15 @@ function NewsTab() {
 // Serves both jobs: with `news` it edits that item, without it creates a new
 // one. Sharing the form keeps the two from drifting apart, which is how an
 // edit screen ends up missing a field the create screen has.
-function NewsForm({ token, news, onCreated, onCancel }: {
-  token: string; news?: AdminNews; onCreated: () => void; onCancel?: () => void;
+function NewsForm({ token, news, draft, onCreated, onCancel }: {
+  token: string; news?: AdminNews; draft?: NewsDraft; onCreated: () => void; onCancel?: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
-  const blank = { title_ar: '', title_en: '', details_ar: '', date: today, is_published: true };
+  // A create form may arrive pre-filled from a squad-news draft (title + body).
+  const blank = {
+    title_ar: draft?.title_ar ?? '', title_en: '',
+    details_ar: draft?.details_ar ?? '', date: draft?.date ?? today, is_published: true,
+  };
   const [f, setF] = useState(news
     ? {
       title_ar: news.title_ar ?? '', title_en: news.title_en ?? '',
@@ -198,7 +218,12 @@ function NewsForm({ token, news, onCreated, onCancel }: {
 
   return (
     <div className={`bg-gradient-to-b from-cardBg to-cardBg2 border rounded-2xl p-4 space-y-3 ${news ? 'border-aqua/40' : 'border-bdr'}`}>
-      <p className="text-aqua font-bold text-sm">{news ? '✏️ تعديل الخبر' : '➕ خبر جديد'}</p>
+      <p className="text-aqua font-bold text-sm">{news ? '✏️ تعديل الخبر' : draft ? '📣 خبر القائمة المستدعاة' : '➕ خبر جديد'}</p>
+      {draft && !news && (
+        <p className="text-gold text-[11px] bg-gold/10 border border-gold/30 rounded-lg px-3 py-2">
+          تم تجهيز العنوان والأسماء من القائمة. أضِف صورة الغلاف، راجع الخبر، ثم اضغط «نشر الخبر».
+        </p>
+      )}
       <Field label="العنوان (عربي) *"><input value={f.title_ar} onChange={e => set('title_ar', e.target.value)} className={inputCls} /></Field>
       <Field label="العنوان (إنجليزي)"><input value={f.title_en} onChange={e => set('title_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
       <Field label="التفاصيل"><textarea value={f.details_ar} onChange={e => set('details_ar', e.target.value)} rows={3} className={inputCls} /></Field>
