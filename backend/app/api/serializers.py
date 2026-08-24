@@ -635,6 +635,11 @@ def player_full(p) -> dict:
     # Aggregate goals/assists/appearances by (team_id, competition_id) in three
     # queries rather than loading every event row.  Own goals are excluded from
     # the scorer tally; they do count against MatchPlayer appearances.
+    #
+    # An appearance means the player actually played — a starter ('start') or a
+    # substitute ('sub'). A player who was only *called up* ('called') sat out, so
+    # he is excluded. (Pre-role rows were backfilled to start/sub, so history is
+    # unaffected.)
     goal_rows = (
         MatchGoal.query
         .join(Match, Match.id == MatchGoal.match_id)
@@ -668,6 +673,7 @@ def player_full(p) -> dict:
         .join(Stage, Stage.id == Match.stage_id)
         .filter(
             MatchPlayer.player_id == p.id,
+            MatchPlayer.role != "called",   # called-up-only players didn't play
             Match.deleted_at.is_(None),
             Match.status == codes.MATCH_STATUS_COMPLETED,
         )
