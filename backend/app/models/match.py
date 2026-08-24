@@ -145,6 +145,12 @@ class MatchPlayer(TimestampMixin, db.Model):
     jersey_number: Mapped[int | None] = mapped_column(sa.SmallInteger)
     position: Mapped[str | None] = mapped_column(code_enum(*codes.POSITION, length=8))
     is_starter: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    # Squad role for match-day entry: 'called' (named in the squad, role not yet
+    # decided), 'start' (starting XI) or 'sub' (named substitute). A player is
+    # "called up" the moment this row exists; the role is refined later. is_starter
+    # is kept in sync (True iff role == 'start') so the public lineup views — which
+    # only split starters from the rest — keep working unchanged.
+    role: Mapped[str] = mapped_column(sa.String(8), nullable=False, default="called")
     minutes_played: Mapped[int] = mapped_column(sa.SmallInteger, nullable=False, default=0)
 
     goals: Mapped[int] = mapped_column(sa.SmallInteger, nullable=False, default=0)

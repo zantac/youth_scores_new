@@ -46,7 +46,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   final _lnExtra = TextEditingController();
   String _lnSide = 'home';
   List<String> _lnStarters = const [];
-  List<String> _lnBench = const [];
+  List<String> _lnSubs = const [];
+  List<String> _lnCalled = const []; // called up, role not yet decided
   // Named players per team id, for line-up suggestions.
   final Map<int, List<String>> _players = {};
 
@@ -87,7 +88,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   void _resetLineup() {
     final side = _lnSide == 'home' ? _m.lineupHome : _m.lineupAway;
     _lnStarters = List<String>.from(side.starters);
-    _lnBench = List<String>.from(side.bench);
+    _lnSubs = List<String>.from(side.subs);
+    _lnCalled = List<String>.from(side.called);
   }
 
   @override
@@ -200,27 +202,40 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   List<String> get _lnRoster {
     final seen = <String>{};
     final out = <String>[];
-    for (final n in [...(_players[_lnTeamId] ?? const []), ..._lnStarters, ..._lnBench]) {
+    for (final n in [...(_players[_lnTeamId] ?? const []), ..._lnStarters, ..._lnSubs, ..._lnCalled]) {
       if (seen.add(n)) out.add(n);
     }
     return out;
   }
 
-  void _setRole(String name, String? role) {
+  bool _inSquad(String n) =>
+      _lnStarters.contains(n) || _lnSubs.contains(n) || _lnCalled.contains(n);
+  int get _lnTotal => _lnStarters.length + _lnSubs.length + _lnCalled.length;
+
+  // Move a player to exactly one role, or out of the squad entirely (null).
+  void _place(String name, String? role) {
     setState(() {
       _lnStarters = _lnStarters.where((x) => x != name).toList();
-      _lnBench = _lnBench.where((x) => x != name).toList();
+      _lnSubs = _lnSubs.where((x) => x != name).toList();
+      _lnCalled = _lnCalled.where((x) => x != name).toList();
       if (role == 'start') _lnStarters = [..._lnStarters, name];
-      if (role == 'bench') _lnBench = [..._lnBench, name];
+      if (role == 'sub') _lnSubs = [..._lnSubs, name];
+      if (role == 'called') _lnCalled = [..._lnCalled, name];
     });
   }
+
+  // استدعاء: in/out of the squad. أساسي/بديل: set that role (auto-calls); tapping
+  // the active role again drops back to just "called".
+  void _callToggle(String n) => _place(n, _inSquad(n) ? null : 'called');
+  void _starterToggle(String n) => _place(n, _lnStarters.contains(n) ? 'called' : 'start');
+  void _subToggle(String n) => _place(n, _lnSubs.contains(n) ? 'called' : 'sub');
 
   Future<void> _saveLineup() async {
     final token = context.read<AdminAuth>().token;
     if (token == null) return;
     setState(() => _busy = true);
     try {
-      final m = await _api.setLineup(token, _m.id, _lnTeamId, _lnStarters, _lnBench);
+      final m = await _api.setLineup(token, _m.id, _lnTeamId, _lnStarters, _lnSubs, _lnCalled);
       if (!mounted) return;
       setState(() => _m = m);
       _resetLineup();
@@ -233,27 +248,19 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     }
   }
 
-  // Call up the whole registered squad in one tap: every roster player not yet
-  // placed goes to the bench (starters get promoted later).
-  void _callAllLineup() {
-    final missing = (_players[_lnTeamId] ?? const <String>[])
-        .where((n) => !_lnStarters.contains(n) && !_lnBench.contains(n))
-        .toList();
-    if (missing.isNotEmpty) setState(() => _lnBench = [..._lnBench, ...missing]);
-  }
-
   // The saved-lineup draft still matches the server (nothing to save first).
   bool get _lnDirty {
     final side = _lnSide == 'home' ? _m.lineupHome : _m.lineupAway;
     return _lnStarters.join('|') != side.starters.join('|') ||
-        _lnBench.join('|') != side.bench.join('|');
+        _lnSubs.join('|') != side.subs.join('|') ||
+        _lnCalled.join('|') != side.called.join('|');
   }
 
-  // The called squad (starters + bench) for a side — the names to suggest when
-  // entering goals/cards/subs; falls back to the roster before a squad is saved.
+  // The whole called squad for a side — the names to suggest when entering
+  // goals/cards/subs; falls back to the roster before a squad is saved.
   List<String> _squadFor(String side) {
     final ln = side == 'home' ? _m.lineupHome : _m.lineupAway;
-    final named = [...ln.starters, ...ln.bench];
+    final named = ln.all;
     final tid = side == 'home' ? _m.row.home.id : _m.row.away.id;
     return named.isNotEmpty ? named : (_players[tid] ?? const <String>[]);
   }
@@ -557,14 +564,17 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(children: [
-              Text(isAr ? 'التشكيلة' : 'Line-up',
+              Text(isAr ? 'القائمة المستدعاة' : 'Called squad',
                   style: TextStyle(
                       color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 15)),
               const Spacer(),
-              Text('${_lnStarters.length} ${isAr ? 'أساسي' : 'start'} · ${_lnBench.length} ${isAr ? 'بديل' : 'bench'}',
+              Text('$_lnTotal ${isAr ? 'مستدعى' : 'called'} · ${_lnStarters.length} ${isAr ? 'أساسي' : 'start'} · ${_lnSubs.length} ${isAr ? 'بديل' : 'sub'}',
                   style: TextStyle(color: AppColors.hint, fontSize: 11)),
             ]),
           ),
+          Text(isAr ? 'استدعِ اللاعبين، ثم حدّد الأساسي/البديل لاحقًا عند معرفتهم.' : 'Call players up, then set starter/sub later.',
+              style: TextStyle(color: AppColors.hint, fontSize: 11)),
+          const SizedBox(height: 4),
           _SideToggle(
             side: _lnSide,
             homeName: _m.row.home.getName(locale),
@@ -573,20 +583,6 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               _lnSide = s;
               _resetLineup();
             }),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: OutlinedButton.icon(
-              onPressed: _callAllLineup,
-              icon: const Icon(Icons.group_add, size: 18),
-              style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.aqua,
-                  side: BorderSide(color: AppColors.aqua.withValues(alpha: 0.4)),
-                  minimumSize: const Size(double.infinity, 38)),
-              label: Text(
-                  isAr ? 'استدعاء كل اللاعبين المسجّلين (كبدلاء)' : 'Call up all registered players (bench)',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
           ),
           for (final n in _lnRoster) _lineupRow(n, isAr),
           if (_lnRoster.isEmpty)
@@ -607,8 +603,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
             IconButton(
               onPressed: () {
                 final n = _lnExtra.text.trim();
-                if (n.isNotEmpty && !_lnRoster.contains(n)) {
-                  setState(() => _lnBench = [..._lnBench, n]);
+                if (n.isNotEmpty && !_inSquad(n)) {
+                  setState(() => _lnCalled = [..._lnCalled, n]);
                 }
                 _lnExtra.clear();
               },
@@ -629,9 +625,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: (_busy || _lnDirty || (_lnStarters.length + _lnBench.length) == 0)
-                  ? null
-                  : _squadNews,
+              onPressed: (_busy || _lnDirty || _lnTotal == 0) ? null : _squadNews,
               icon: const Icon(Icons.campaign, size: 18),
               style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.orange,
@@ -639,7 +633,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               label: Text(isAr ? 'إنشاء خبر بالقائمة' : 'Publish squad news'),
             ),
           ),
-          if (_lnDirty && (_lnStarters.length + _lnBench.length) > 0)
+          if (_lnDirty && _lnTotal > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(isAr ? 'احفظ التشكيلة أولًا لإنشاء الخبر.' : 'Save the line-up first.',
@@ -790,12 +784,13 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
 
   Widget _lineupRow(String n, bool isAr) {
     final isStart = _lnStarters.contains(n);
-    final isBench = _lnBench.contains(n);
+    final isSub = _lnSubs.contains(n);
+    final member = _inSquad(n);
     Widget pill(String label, bool on, Color color, VoidCallback onTap) => InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
             decoration: BoxDecoration(
               color: on ? color.withValues(alpha: 0.15) : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
@@ -804,7 +799,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
             child: Text(label,
                 style: TextStyle(
                     color: on ? color : AppColors.hint,
-                    fontSize: 11.5,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold)),
           ),
         );
@@ -822,14 +817,14 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  color: (isStart || isBench) ? AppColors.white : AppColors.hint,
+                  color: member ? AppColors.white : AppColors.hint,
                   fontSize: 13)),
         ),
-        pill(isAr ? 'أساسي' : 'Start', isStart, AppColors.aqua,
-            () => _setRole(n, isStart ? null : 'start')),
+        pill(isAr ? 'استدعاء' : 'Call', member, AppColors.green, () => _callToggle(n)),
         const SizedBox(width: 6),
-        pill(isAr ? 'بديل' : 'Bench', isBench, AppColors.orange,
-            () => _setRole(n, isBench ? null : 'bench')),
+        pill(isAr ? 'أساسي' : 'Start', isStart, AppColors.aqua, () => _starterToggle(n)),
+        const SizedBox(width: 6),
+        pill(isAr ? 'بديل' : 'Sub', isSub, AppColors.orange, () => _subToggle(n)),
       ]),
     );
   }

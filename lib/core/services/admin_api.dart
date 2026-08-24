@@ -227,9 +227,9 @@ class AdminApi {
       EntryMatch.fromJson(await _send(token, 'DELETE', '/api/admin/shootout/$kid'));
 
   Future<EntryMatch> setLineup(String token, int mid, int teamId,
-          List<String> starters, List<String> bench) async =>
+          List<String> starters, List<String> subs, List<String> called) async =>
       EntryMatch.fromJson(await _send(token, 'PUT', '/api/admin/matches/$mid/lineup',
-          {'team_id': teamId, 'starters': starters, 'bench': bench}));
+          {'team_id': teamId, 'starters': starters, 'subs': subs, 'called': called}));
 
   /// Publish a news item with one team's called squad (title + names + club
   /// logo). Returns {id, title, count}. The squad must be saved (setLineup) first.

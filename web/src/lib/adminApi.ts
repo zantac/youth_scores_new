@@ -114,8 +114,9 @@ export interface EntryShootoutKick {
   id: number; team_id: number; side: string; player: string;
   kick_order: number; result: string; is_winning_kick: boolean;
 }
-/** Who started and who was on the bench. Names only — no minutes or positions. */
-export interface EntrySide { team_id: number; starters: string[]; bench: string[] }
+/** The called squad, split by role. `called` = named in the squad but not yet
+ *  assigned a starter/sub role. Names only — no minutes or positions. */
+export interface EntrySide { team_id: number; starters: string[]; subs: string[]; called: string[] }
 
 export interface EntryMatch extends EntryMatchRow {
   home_penalty_score: number | null; away_penalty_score: number | null;
@@ -165,8 +166,8 @@ export const apiAddCard = (t: string, mid: number, body: Record<string, unknown>
 export const apiUpdateCard = (t: string, cid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/cards/${cid}`, body);
 export const apiDeleteCard = (t: string, cid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/cards/${cid}`);
 // The line-up is sent as a whole side at a time, so a save cannot leave half a list.
-export const apiSetLineup = (t: string, mid: number, teamId: number, starters: string[], bench: string[]) =>
-  send<EntryMatch>(t, 'PUT', `/api/admin/matches/${mid}/lineup`, { team_id: teamId, starters, bench });
+export const apiSetLineup = (t: string, mid: number, teamId: number, starters: string[], subs: string[], called: string[]) =>
+  send<EntryMatch>(t, 'PUT', `/api/admin/matches/${mid}/lineup`, { team_id: teamId, starters, subs, called });
 // Publish a news item with one team's called squad (title + names + club logo).
 export const apiSquadNews = (t: string, mid: number, teamId: number) =>
   send<{ id: number; title: string; count: number }>(t, 'POST', `/api/admin/matches/${mid}/squad-news`, { team_id: teamId });

@@ -401,14 +401,17 @@ def _match_detail(m: Match) -> dict:
         "player_out": _pname(s.player_out), "player_in": _pname(s.player_in),
         "minute": s.minute,
     } for s in sorted(m.substitutions, key=lambda x: (x.minute or 999))]
-    # Grouped by side and split into XI and bench, which is how it is entered.
+    # Grouped by side and split into the three squad roles, which is how it is
+    # entered: a called player may be a starter, a named substitute, or just
+    # called (role not decided yet).
     lineup = {}
     for tid, key in ((m.home_team_id, "home"), (m.away_team_id, "away")):
         rows = MatchPlayer.query.filter_by(match_id=m.id, team_id=tid).all()
         lineup[key] = {
             "team_id": tid,
-            "starters": [_pname(r.player) for r in rows if r.is_starter],
-            "bench": [_pname(r.player) for r in rows if not r.is_starter],
+            "starters": [_pname(r.player) for r in rows if r.role == "start"],
+            "subs": [_pname(r.player) for r in rows if r.role == "sub"],
+            "called": [_pname(r.player) for r in rows if r.role == "called"],
         }
     shootout = [{
         "id": k.id, "team_id": k.team_id, "side": _side(m, k.team_id),
@@ -740,12 +743,15 @@ def delete_card(card_id: int):
 @entry_bp.put("/api/admin/matches/<int:mid>/lineup")
 @auth.login_required
 def set_lineup(mid: int):
-    """Replace one team's line-up for this match.
+    """Replace one team's called squad for this match.
 
-    The whole side is sent at once rather than a row at a time: an XI is picked
-    as a set, and replacing it wholesale cannot leave a half-saved list behind.
-    Substitutions are checked afterwards, since dropping a player who came on
-    would otherwise leave the sub pointing at nobody.
+    The whole side is sent at once rather than a row at a time: the squad is
+    picked as a set, and replacing it wholesale cannot leave a half-saved list
+    behind. Every named player is "called up" (a row exists); ``role`` splits them
+    into the starting XI (``starters``), named substitutes (``subs``) or players
+    called but not yet assigned (``called``). Substitutions are checked afterwards,
+    since dropping a player who came on would otherwise leave the sub pointing at
+    nobody. ``bench`` is still accepted as an alias for ``subs`` (older clients).
     """
     m = db.session.get(Match, mid)
     if m is None:
@@ -765,12 +771,16 @@ def set_lineup(mid: int):
         return out
 
     starters = resolve_all(j.get("starters"))
-    bench = resolve_all(j.get("bench"))
-    # A player named on both lists is a slip; the starting XI wins.
+    subs = resolve_all(j.get("subs") if j.get("subs") is not None else j.get("bench"))
+    called = resolve_all(j.get("called"))
+    # A player named in more than one bucket is a slip; the more specific role
+    # wins (start > sub > called).
     starter_ids = {p.id for p in starters}
-    bench = [p for p in bench if p.id not in starter_ids]
+    subs = [p for p in subs if p.id not in starter_ids]
+    assigned_ids = starter_ids | {p.id for p in subs}
+    called = [p for p in called if p.id not in assigned_ids]
 
-    keep = starter_ids | {p.id for p in bench}
+    keep = assigned_ids | {p.id for p in called}
     stranded = [
         s for s in MatchSubstitution.query.filter_by(match_id=mid, team_id=team_id).all()
         if s.player_in_id not in keep or s.player_out_id not in keep
@@ -779,12 +789,10 @@ def set_lineup(mid: int):
         return jsonify({"error": f"احذف {len(stranded)} تبديلًا يعتمد على لاعب أزلته أولًا"}), 409
 
     MatchPlayer.query.filter_by(match_id=mid, team_id=team_id).delete()
-    for p in starters:
-        db.session.add(MatchPlayer(match_id=mid, team_id=team_id, player_id=p.id,
-                                   is_starter=True))
-    for p in bench:
-        db.session.add(MatchPlayer(match_id=mid, team_id=team_id, player_id=p.id,
-                                   is_starter=False))
+    for role, group in (("start", starters), ("sub", subs), ("called", called)):
+        for p in group:
+            db.session.add(MatchPlayer(match_id=mid, team_id=team_id, player_id=p.id,
+                                       role=role, is_starter=(role == "start")))
     db.session.commit()
     return jsonify(_match_detail(m))
 
