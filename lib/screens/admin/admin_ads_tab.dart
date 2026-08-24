@@ -596,11 +596,7 @@ class _AdStatsSectionState extends State<_AdStatsSection> {
               ),
               const SizedBox(height: 14),
               if (daily.isNotEmpty) ...[
-                Text(isAr ? 'آخر 30 يوم — مشاهدات' : 'Last 30 days — impressions',
-                    style: TextStyle(
-                        color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                _DailyLine(daily: daily),
+                _DailyBars(daily: daily, isAr: isAr),
                 const SizedBox(height: 14),
               ],
               Text(isAr ? 'لكل إعلان' : 'Per ad',
@@ -676,73 +672,173 @@ class _AdStatsSectionState extends State<_AdStatsSection> {
       );
 }
 
-// Compact 30-day impressions line (sparkline) with a faint area fill.
-class _DailyLine extends StatelessWidget {
+// 30-day impressions as one bar per day. Tapping a bar reads out that day's
+// exact date, views and clicks (a bare sparkline showed no numbers, so a day's
+// value couldn't be read). The series is zero-filled server side, so every bar
+// maps to a real calendar day; a faded stub still marks a zero day. An
+// expandable list gives the exact numbers for every active day at a glance.
+class _DailyBars extends StatefulWidget {
   final List<Map<String, dynamic>> daily;
-  const _DailyLine({required this.daily});
+  final bool isAr;
+  const _DailyBars({required this.daily, required this.isAr});
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 90,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _DailyLinePainter(daily, AppColors.aqua),
-      ),
-    );
-  }
+  State<_DailyBars> createState() => _DailyBarsState();
 }
 
-class _DailyLinePainter extends CustomPainter {
-  final List<Map<String, dynamic>> daily;
-  final Color color;
-  _DailyLinePainter(this.daily, this.color);
+class _DailyBarsState extends State<_DailyBars> {
+  int? _sel; // null = default to the latest day
+  bool _showDetails = false;
 
   int _im(Map<String, dynamic> d) =>
       d['impressions'] is int ? d['impressions'] : int.tryParse('${d['impressions'] ?? 0}') ?? 0;
+  int _ck(Map<String, dynamic> d) =>
+      d['clicks'] is int ? d['clicks'] : int.tryParse('${d['clicks'] ?? 0}') ?? 0;
+  String _date(Map<String, dynamic> d) => '${d['date'] ?? ''}';
+  String _md(String s) => s.length >= 10 ? s.substring(5) : s; // MM-DD
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (daily.isEmpty) return;
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final daily = widget.daily;
     final n = daily.length;
     final maxV = daily.fold<int>(1, (m, d) => _im(d) > m ? _im(d) : m);
-    const pad = 3.0;
-    double px(int i) =>
-        n <= 1 ? size.width / 2 : pad + (i / (n - 1)) * (size.width - 2 * pad);
-    double py(int v) => size.height - pad - (v / maxV) * (size.height - 2 * pad);
+    final idx = (_sel != null && _sel! < n) ? _sel! : n - 1;
+    final cur = daily[idx];
 
-    final line = Path();
-    final area = Path()..moveTo(px(0), size.height - pad);
-    for (var i = 0; i < n; i++) {
-      final x = px(i), y = py(_im(daily[i]));
-      if (i == 0) {
-        line.moveTo(x, y);
-      } else {
-        line.lineTo(x, y);
-      }
-      area.lineTo(x, y);
-    }
-    area.lineTo(px(n - 1), size.height - pad);
-    area.close();
-
-    canvas.drawPath(area, Paint()..color = color.withValues(alpha: 0.12)..style = PaintingStyle.fill);
-    canvas.drawPath(
-      line,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeJoin = StrokeJoin.round
-        ..strokeCap = StrokeCap.round,
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // Header + selected-day readout.
+      Row(children: [
+        Text(isAr ? 'آخر 30 يوم' : 'Last 30 days',
+            style: TextStyle(color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold)),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            '${_date(cur)} · ${_im(cur)} ${isAr ? 'مشاهدة' : 'imp'} · ${_ck(cur)} ${isAr ? 'نقرة' : 'clk'}',
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: AppColors.hint, fontSize: 11),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        // LTR so the timeline runs oldest→newest left→right regardless of locale.
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Column(children: [
+            SizedBox(
+              height: 80,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < n; i++)
+                    Expanded(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => setState(() => _sel = i),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 1),
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              widthFactor: 1,
+                              heightFactor: (_im(daily[i]) / maxV).clamp(0.03, 1.0),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: i == idx
+                                      ? AppColors.aqua
+                                      : AppColors.aqua.withValues(
+                                          alpha: _im(daily[i]) == 0 ? 0.15 : 0.4),
+                                  borderRadius:
+                                      const BorderRadius.vertical(top: Radius.circular(2)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (n > 0)
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text(_md(_date(daily.first)),
+                    style: TextStyle(color: AppColors.hint, fontSize: 9)),
+                Text(_md(_date(daily[n ~/ 2])),
+                    style: TextStyle(color: AppColors.hint, fontSize: 9)),
+                Text(_md(_date(daily.last)),
+                    style: TextStyle(color: AppColors.hint, fontSize: 9)),
+              ]),
+          ]),
+        ),
+      ),
+      TextButton(
+        onPressed: () => setState(() => _showDetails = !_showDetails),
+        style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 4), minimumSize: Size.zero),
+        child: Text(
+          _showDetails
+              ? (isAr ? '▾ إخفاء التفاصيل اليومية' : '▾ Hide daily details')
+              : (isAr ? '▸ عرض التفاصيل اليومية' : '▸ Show daily details'),
+          style: TextStyle(color: AppColors.aqua, fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+      ),
+      if (_showDetails) _detailsList(daily, isAr),
+    ]);
   }
 
-  @override
-  bool shouldRepaint(_DailyLinePainter old) => old.daily != daily || old.color != color;
+  Widget _detailsList(List<Map<String, dynamic>> daily, bool isAr) {
+    final active = [
+      for (var i = daily.length - 1; i >= 0; i--)
+        if (_im(daily[i]) != 0 || _ck(daily[i]) != 0) daily[i]
+    ];
+    if (active.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Text(isAr ? 'لا مشاهدات في آخر 30 يوم' : 'No views in the last 30 days',
+            style: TextStyle(color: AppColors.hint, fontSize: 11)),
+      );
+    }
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 200),
+      child: ListView(
+        shrinkWrap: true,
+        children: [
+          for (final d in active)
+            Container(
+              margin: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.darkBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Text(_date(d),
+                        style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                  ),
+                ),
+                Text('${_im(d)} 👁',
+                    style: TextStyle(color: AppColors.aqua, fontSize: 11)),
+                const SizedBox(width: 10),
+                Text('${_ck(d)} 👆',
+                    style: TextStyle(color: AppColors.green, fontSize: 11)),
+              ]),
+            ),
+        ],
+      ),
+    );
+  }
 }

@@ -508,7 +508,16 @@ def ad_stats():
             row["impressions"] = n
         elif kind == "click":
             row["clicks"] = n
-    daily_out = [{"date": k, **v} for k, v in sorted(daily.items())]
+    # Zero-fill every calendar day in the window so the chart has one point per
+    # day (quiet days read as 0) and each bar maps to a real date — sparse output
+    # would collapse gaps and make per-day values unreadable.
+    start_day = (datetime.utcnow() - timedelta(days=29)).date()
+    daily_out = []
+    for i in range(30):
+        key = (start_day + timedelta(days=i)).isoformat()
+        v = daily.get(key, {"impressions": 0, "clicks": 0})
+        daily_out.append({"date": key, "impressions": v["impressions"],
+                          "clicks": v["clicks"]})
 
     # Split by surface (feed vs interstitial) so the two placements can be
     # compared. Older events have a null placement -> grouped as "unknown".
