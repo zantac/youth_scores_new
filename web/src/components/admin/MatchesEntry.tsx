@@ -11,7 +11,7 @@ import {
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
   apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
-  type EntryCard, type EntrySub, type EntryShootoutKick, type MStage,
+  type EntryCard, type EntrySub, type EntryShootoutKick, type EntrySide, type MStage,
 } from '@/lib/adminApi';
 
 type Loc = { ar: string; en: string };
@@ -352,8 +352,7 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
   const matchHasEvents =
     match.goals.length > 0 || match.cards.length > 0 || match.subs.length > 0 ||
     (match.shootout?.length ?? 0) > 0 ||
-    match.lineup.home.starters.length + match.lineup.home.bench.length +
-    match.lineup.away.starters.length + match.lineup.away.bench.length > 0;
+    sideCount(match.lineup.home) + sideCount(match.lineup.away) > 0;
 
   const saveStage = async () => {
     setErr(null);
@@ -810,7 +809,8 @@ function LineupSection({ token, match, players, onChange }: {
   const [teamId, setTeamId] = useState(String(match.home.id));
   const side = Number(teamId) === match.home.id ? match.lineup.home : match.lineup.away;
   const [starters, setStarters] = useState<string[]>(side.starters);
-  const [bench, setBench] = useState<string[]>(side.bench);
+  const [subs, setSubs] = useState<string[]>(side.subs);
+  const [called, setCalled] = useState<string[]>(side.called);
   const [extra, setExtra] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -820,33 +820,35 @@ function LineupSection({ token, match, players, onChange }: {
   // Reload the draft whenever the side changes or the server sends a new match.
   useEffect(() => {
     const s = Number(teamId) === match.home.id ? match.lineup.home : match.lineup.away;
-    setStarters(s.starters); setBench(s.bench); setErr(null);
+    setStarters(s.starters); setSubs(s.subs); setCalled(s.called); setErr(null);
   }, [teamId, match]);
 
   // Anyone already named belongs in the list even if they are not on the roster,
   // since entry creates players on the fly.
-  const roster = [...new Set([...(players[Number(teamId)] ?? []), ...starters, ...bench])];
+  const roster = [...new Set([...(players[Number(teamId)] ?? []), ...starters, ...subs, ...called])];
+  const inSquad = (n: string) => starters.includes(n) || subs.includes(n) || called.includes(n);
 
-  const setRole = (name: string, role: 'start' | 'bench' | null) => {
+  // Move a player to exactly one role, or remove from the squad entirely (null).
+  const place = (name: string, role: 'start' | 'sub' | 'called' | null) => {
     setStarters(s => { const w = s.filter(x => x !== name); return role === 'start' ? [...w, name] : w; });
-    setBench(b => { const w = b.filter(x => x !== name); return role === 'bench' ? [...w, name] : w; });
+    setSubs(s => { const w = s.filter(x => x !== name); return role === 'sub' ? [...w, name] : w; });
+    setCalled(s => { const w = s.filter(x => x !== name); return role === 'called' ? [...w, name] : w; });
   };
+  // استدعاء: in/out of the squad. أساسي/بديل: set that role (auto-calls the player);
+  // tapping the active role again drops back to just "called".
+  const callToggle = (n: string) => place(n, inSquad(n) ? null : 'called');
+  const starterToggle = (n: string) => place(n, starters.includes(n) ? 'called' : 'start');
+  const subToggle = (n: string) => place(n, subs.includes(n) ? 'called' : 'sub');
 
   const addExtra = () => {
     const n = extra.trim();
-    if (n && !roster.includes(n)) setBench(b => [...b, n]);
+    if (n && !inSquad(n)) setCalled(c => [...c, n]);
     setExtra('');
   };
 
-  // Call up the whole registered squad in one tap: every roster player not yet
-  // placed goes to the bench (starters get promoted later).
-  const callAll = () => {
-    const missing = (players[Number(teamId)] ?? []).filter(n => !starters.includes(n) && !bench.includes(n));
-    if (missing.length) setBench(b => [...b, ...missing]);
-  };
-
-  const dirty = starters.join('|') !== side.starters.join('|') || bench.join('|') !== side.bench.join('|');
-  const called = starters.length + bench.length;
+  const key = (a: string[]) => a.join('|');
+  const dirty = key(starters) !== key(side.starters) || key(subs) !== key(side.subs) || key(called) !== key(side.called);
+  const squadTotal = starters.length + subs.length + called.length;
 
   const makeNews = async () => {
     setNewsMsg(null); setNewsBusy(true);
@@ -859,37 +861,38 @@ function LineupSection({ token, match, players, onChange }: {
 
   const save = async () => {
     setErr(null); setBusy(true);
-    try { onChange(await apiSetLineup(token, match.id, Number(teamId), starters, bench)); }
+    try { onChange(await apiSetLineup(token, match.id, Number(teamId), starters, subs, called)); }
     catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
     finally { setBusy(false); }
   };
 
+  const pill = (on: boolean, cls: string) =>
+    `text-[11px] font-bold rounded-lg px-2.5 py-1 border ${on ? cls : 'text-hint border-bdr'}`;
+
   return (
     <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-text font-bold text-sm">👥 التشكيلة</p>
-        <span className="text-hint text-[11px] tnum">{starters.length} أساسي · {bench.length} بديل</span>
+        <p className="text-text font-bold text-sm">👥 القائمة المستدعاة</p>
+        <span className="text-hint text-[11px] tnum">{squadTotal} مستدعى · {starters.length} أساسي · {subs.length} بديل</span>
       </div>
+      <p className="text-hint text-[11px]">استدعِ اللاعبين، ثم حدّد الأساسي/البديل لاحقًا عند معرفتهم.</p>
       <SideSelect match={match} value={teamId} onChange={setTeamId} />
-
-      <button onClick={callAll}
-        className="w-full text-aqua text-[11px] font-bold border border-aqua/40 rounded-lg py-1.5 hover:bg-aqua/5">
-        ⏬ استدعاء كل اللاعبين المسجّلين (كبدلاء)
-      </button>
 
       <div className="space-y-1">
         {roster.map(n => {
+          const called_ = called.includes(n);
           const isStart = starters.includes(n);
-          const isBench = bench.includes(n);
-          const pill = (on: boolean, cls: string) =>
-            `text-[11px] font-bold rounded-lg px-2.5 py-1 border ${on ? cls : 'text-hint border-bdr'}`;
+          const isSub = subs.includes(n);
+          const member = called_ || isStart || isSub;
           return (
-            <div key={n} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              <span className={`flex-1 text-sm truncate ${isStart || isBench ? 'text-text' : 'text-hint'}`}>{n}</span>
-              <button onClick={() => setRole(n, isStart ? null : 'start')}
+            <div key={n} className="flex items-center gap-1.5 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+              <span className={`flex-1 text-sm truncate ${member ? 'text-text' : 'text-hint'}`}>{n}</span>
+              <button onClick={() => callToggle(n)}
+                className={pill(member, 'text-win border-win/50 bg-win/10')}>استدعاء</button>
+              <button onClick={() => starterToggle(n)}
                 className={pill(isStart, 'text-aqua border-aqua/50 bg-aqua/10')}>أساسي</button>
-              <button onClick={() => setRole(n, isBench ? null : 'bench')}
-                className={pill(isBench, 'text-gold border-gold/50 bg-gold/10')}>بديل</button>
+              <button onClick={() => subToggle(n)}
+                className={pill(isSub, 'text-gold border-gold/50 bg-gold/10')}>بديل</button>
             </div>
           );
         })}
@@ -901,21 +904,21 @@ function LineupSection({ token, match, players, onChange }: {
           onKeyDown={e => { if (e.key === 'Enter') addExtra(); }}
           placeholder="أضف لاعبًا غير مسجّل…" className={inputCls} />
         <button onClick={addExtra} disabled={!extra.trim()}
-          className="text-aqua text-xs font-bold px-3 border border-aqua/40 rounded-lg disabled:opacity-40 whitespace-nowrap">+ إضافة</button>
+          className="text-aqua text-xs font-bold px-3 border border-aqua/40 rounded-lg disabled:opacity-40 whitespace-nowrap">+ استدعاء</button>
       </div>
 
       {err && <p className="text-loss text-xs">{err}</p>}
       <button onClick={save} disabled={busy || !dirty}
         className="w-full bg-aqua text-on-accent font-extrabold py-2 rounded-lg text-sm disabled:opacity-40">
-        {busy ? '…' : 'حفظ التشكيلة'}
+        {busy ? '…' : 'حفظ القائمة'}
       </button>
 
       {/* Publish the called squad as a news item (title + names + club logo). */}
-      <button onClick={makeNews} disabled={newsBusy || dirty || called === 0}
+      <button onClick={makeNews} disabled={newsBusy || dirty || squadTotal === 0}
         className="w-full border border-gold/50 bg-gold/10 text-gold font-bold py-2 rounded-lg text-sm disabled:opacity-40">
         {newsBusy ? '…' : '📣 إنشاء خبر بالقائمة'}
       </button>
-      {dirty && called > 0 && <p className="text-hint text-[11px]">احفظ التشكيلة أولًا لإنشاء الخبر.</p>}
+      {dirty && squadTotal > 0 && <p className="text-hint text-[11px]">احفظ القائمة أولًا لإنشاء الخبر.</p>}
       {newsMsg && <p className="text-hint text-[11px]">{newsMsg}</p>}
     </div>
   );
@@ -932,7 +935,7 @@ function SubForm({ token, match, onAdd, editSub, onCancelEdit }: {
 
   // Pick from the named squad, so a typo cannot invent a player here.
   const side = Number(teamId) === match.home.id ? match.lineup.home : match.lineup.away;
-  const named = [...side.starters, ...side.bench];
+  const named = sideNames(side);
 
   // Load the chosen sub in edit mode; blank the form otherwise.
   useEffect(() => {
@@ -1010,12 +1013,15 @@ function SideSelect({ match, value, onChange }: { match: EntryMatch; value: stri
   );
 }
 
-// Names to suggest when entering a goal/card for a team: the called squad
-// (starters + bench) once it's saved, else the full roster — so entry is never
-// blocked (e.g. an own goal credited to an opponent whose squad wasn't entered).
+// The whole called squad for a side, across all three roles.
+function sideNames(s: EntrySide): string[] { return [...s.starters, ...s.subs, ...s.called]; }
+function sideCount(s: EntrySide): number { return sideNames(s).length; }
+
+// Names to suggest when entering a goal/card for a team: the called squad once
+// it's saved, else the full roster — so entry is never blocked (e.g. an own goal
+// credited to an opponent whose squad wasn't entered).
 function squadNames(match: EntryMatch, teamId: number, roster: string[]): string[] {
-  const s = teamId === match.home.id ? match.lineup.home : match.lineup.away;
-  const named = [...s.starters, ...s.bench];
+  const named = sideNames(teamId === match.home.id ? match.lineup.home : match.lineup.away);
   return named.length ? named : roster;
 }
 

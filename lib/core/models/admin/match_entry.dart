@@ -232,17 +232,29 @@ class EntryShootoutKick {
 class EntrySide {
   final int teamId;
   final List<String> starters;
-  final List<String> bench;
+  final List<String> subs;
+  // Called up but not yet assigned a starter/sub role.
+  final List<String> called;
   const EntrySide(
-      {required this.teamId, this.starters = const [], this.bench = const []});
+      {required this.teamId,
+      this.starters = const [],
+      this.subs = const [],
+      this.called = const []});
 
-  factory EntrySide.fromJson(Map<String, dynamic> j) => EntrySide(
-        teamId: _i(j['team_id']) ?? 0,
-        starters: (j['starters'] as List? ?? [])
-            .map((e) => e.toString())
-            .toList(),
-        bench: (j['bench'] as List? ?? []).map((e) => e.toString()).toList(),
-      );
+  /// Everyone in the called squad, across all three roles.
+  List<String> get all => [...starters, ...subs, ...called];
+
+  factory EntrySide.fromJson(Map<String, dynamic> j) {
+    List<String> list(dynamic v) =>
+        (v as List? ?? []).map((e) => e.toString()).toList();
+    return EntrySide(
+      teamId: _i(j['team_id']) ?? 0,
+      starters: list(j['starters']),
+      // 'bench' kept as a fallback for any old payload.
+      subs: list(j['subs'] ?? j['bench']),
+      called: list(j['called']),
+    );
+  }
 }
 
 /// A full match with all its detail, from `/api/admin/matches/<id>`.
