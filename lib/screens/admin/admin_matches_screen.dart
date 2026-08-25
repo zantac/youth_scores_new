@@ -117,8 +117,8 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
               : (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0));
     final shown = active.where((m) {
       final matchesQ = q.isEmpty ||
-          m.home.getName(locale).toLowerCase().contains(q) ||
-          m.away.getName(locale).toLowerCase().contains(q);
+          m.home.label(locale).toLowerCase().contains(q) ||
+          m.away.label(locale).toLowerCase().contains(q);
       final matchesWeek = _week.isEmpty || m.week == _week;
       final matchesDate = _date.isEmpty || m.date == _date;
       return matchesQ && matchesWeek && matchesDate;
@@ -374,7 +374,7 @@ class _MatchTile extends StatelessWidget {
             Row(children: [
               // Home — aligned toward the centre.
               Expanded(
-                child: Text(match.home.getName(locale),
+                child: Text(match.home.label(locale),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.end,
@@ -408,7 +408,7 @@ class _MatchTile extends StatelessWidget {
               ),
               // Away — aligned toward the centre.
               Expanded(
-                child: Text(match.away.getName(locale),
+                child: Text(match.away.label(locale),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.start,

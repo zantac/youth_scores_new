@@ -18,6 +18,17 @@ import {
 type Loc = { ar: string; en: string };
 const loc = (l?: Loc | null) => (l ? l.ar || l.en : '');
 
+// A team's label showing the club's own name with its competition alternative
+// name appended, the way the public view does (the club is the identity; the
+// alias sits alongside). `name` already falls back to the club name, so when
+// there is no alternative only the club name shows.
+type TeamLike = { name?: Loc | null; club_name?: Loc | null };
+const teamLabel = (t?: TeamLike) => {
+  const name = loc(t?.name);
+  const club = loc(t?.club_name);
+  return club && club !== name ? `${club} — ${name}` : name;
+};
+
 // Loose enough that a search types the way people actually spell: alef and ya
 // variants fold together and diacritics are ignored, so "الاهلى" finds "الأهلي".
 const fold = (s: string) =>
@@ -88,7 +99,7 @@ export default function MatchesEntry() {
   const shown = useMemo(() => {
     const q = fold(fTeam);
     return active.filter(m =>
-      (!q || fold(loc(m.home.name)).includes(q) || fold(loc(m.away.name)).includes(q))
+      (!q || fold(teamLabel(m.home)).includes(q) || fold(teamLabel(m.away)).includes(q))
       && (!fWeek || m.week === fWeek)
       && (!fDate || m.date === fDate));
   }, [active, fTeam, fWeek, fDate]);
@@ -185,14 +196,14 @@ export default function MatchesEntry() {
               <button key={m.id} onClick={() => openMatch(m.id)}
                 className="w-full bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 text-start hover:border-aqua/40 transition-colors">
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 text-sm font-medium truncate text-end">{loc(m.home.name)}</div>
+                  <div className="flex-1 text-sm font-medium truncate text-end">{teamLabel(m.home)}</div>
                   <div className="flex flex-col items-center min-w-[64px]">
                     {m.home_score != null
                       ? <span className="text-aqua font-extrabold tnum bg-darkBg border border-bdr rounded-lg px-2.5 py-0.5">{m.home_score} - {m.away_score}</span>
                       : <span className="text-hint tnum text-xs">{m.date ? (m.time || '--:--') : 'غير محدد'}</span>}
                     <span className="text-[9px] text-hint mt-1">{STATUS_L[m.status] ?? m.status}</span>
                   </div>
-                  <div className="flex-1 text-sm font-medium truncate">{loc(m.away.name)}</div>
+                  <div className="flex-1 text-sm font-medium truncate">{teamLabel(m.away)}</div>
                 </div>
                 {/* Round and date, so two meetings of the same pair are told apart. */}
                 <p className="text-hint text-[10px] tnum text-center mt-1.5">
@@ -212,11 +223,11 @@ export default function MatchesEntry() {
               {recentlyDeleted.map(m => (
                 <div key={m.id} className="bg-cardBg border border-loss/20 rounded-xl p-3 opacity-60">
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 text-sm text-hint truncate text-end line-through">{loc(m.home.name)}</div>
+                    <div className="flex-1 text-sm text-hint truncate text-end line-through">{teamLabel(m.home)}</div>
                     <div className="text-hint text-xs tnum min-w-[64px] text-center">
                       {m.home_score != null ? `${m.home_score} - ${m.away_score}` : (m.date || 'غير محدد')}
                     </div>
-                    <div className="flex-1 text-sm text-hint truncate line-through">{loc(m.away.name)}</div>
+                    <div className="flex-1 text-sm text-hint truncate line-through">{teamLabel(m.away)}</div>
                     <button onClick={() => restoreFromList(m.id)}
                       className="flex-shrink-0 text-gold text-[11px] font-bold border border-gold/40 rounded-lg px-2.5 py-1 hover:bg-gold/10">
                       استعادة
@@ -270,7 +281,7 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
     } catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); } finally { setBusy(false); }
   };
 
-  const teamOpts = <>{teams.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}</>;
+  const teamOpts = <>{teams.map(t => <option key={t.id} value={t.id}>{teamLabel(t)}</option>)}</>;
   return (
     <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
       <div className="grid grid-cols-2 gap-3">
@@ -452,13 +463,13 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
       {/* Score card */}
       <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
-          <div className="text-sm font-bold">{loc(match.home.name)}</div>
+          <div className="text-sm font-bold">{teamLabel(match.home)}</div>
           <div className="flex items-center gap-2">
             <input type="number" value={hs} onChange={e => setHs(e.target.value)} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
             <span className="text-hint">-</span>
             <input type="number" value={as} onChange={e => setAs(e.target.value)} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
           </div>
-          <div className="text-sm font-bold">{loc(match.away.name)}</div>
+          <div className="text-sm font-bold">{teamLabel(match.away)}</div>
         </div>
         {/* Penalty shootout score — shown when the match ends level */}
         {(hs !== '' && as !== '' && Number(hs) === Number(as)) || hp !== '' || ap !== '' ? (
@@ -777,7 +788,7 @@ function TeamsEditor({ token, match, teams, onChange }: {
     finally { setBusy(false); }
   };
 
-  const opts = teams.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>);
+  const opts = teams.map(t => <option key={t.id} value={t.id}>{teamLabel(t)}</option>);
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2">
@@ -1013,8 +1024,8 @@ function EventSection({ title, items, onDelete, onEdit, editingId, home, away, f
 function SideSelect({ match, value, onChange }: { match: EntryMatch; value: string; onChange: (v: string) => void }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
-      <option value={String(match.home.id)}>{loc(match.home.name)}</option>
-      <option value={String(match.away.id)}>{loc(match.away.name)}</option>
+      <option value={String(match.home.id)}>{teamLabel(match.home)}</option>
+      <option value={String(match.away.id)}>{teamLabel(match.away)}</option>
     </select>
   );
 }

@@ -92,7 +92,7 @@ class _AdminNewMatchScreenState extends State<AdminNewMatchScreen> {
     final locale = isAr ? 'ar' : 'en';
     final teamItems = [
       for (final t in widget.teams)
-        DropdownMenuItem(value: t.id, child: Text(t.getName(locale))),
+        DropdownMenuItem(value: t.id, child: Text(t.label(locale))),
     ];
 
     return Scaffold(
