@@ -368,6 +368,18 @@ function Competitions() {
 
   const compName = (c: MComp) => c.name_ar || c.name_en || '';
 
+  // Existing competitions reuse a code across seasons/ages, and a code always
+  // names the same competition — so a code maps to one (name_ar, name_en).
+  // Picking an existing code in the form auto-fills those names.
+  const codeMap = useMemo(() => {
+    const m = new Map<string, { name_ar: string; name_en: string }>();
+    for (const c of items) {
+      const code = (c.code || '').trim();
+      if (code && !m.has(code)) m.set(code, { name_ar: c.name_ar || '', name_en: c.name_en || '' });
+    }
+    return m;
+  }, [items]);
+
   // With several seasons the same competition name repeats, so the list narrows
   // by season (newest first) then by competition name — leaving its age variants.
   const seasonNames = useMemo(
@@ -402,7 +414,19 @@ function Competitions() {
             <Field label="الموسم *"><select value={f.season_id} onChange={e => setF({ ...f, season_id: e.target.value })} className={inputCls}><option value="">—</option>{seasons.map(s => <option key={s.id} value={s.id}>{s.name_ar || s.name_en}</option>)}</select></Field>
             <Field label="المرحلة السنية"><select value={f.age_group_id} onChange={e => setF({ ...f, age_group_id: e.target.value })} className={inputCls}><option value="">مفتوحة</option>{ages.map(a => <option key={a.id} value={a.id}>{a.name_ar || a.name_en}</option>)}</select></Field>
             <Field label="القطاع (اختياري)"><input value={f.sector_ar} onChange={e => setF({ ...f, sector_ar: e.target.value })} placeholder="القاهرة" className={inputCls} /></Field>
-            <Field label="الرمز (اختياري)"><input value={f.code} onChange={e => setF({ ...f, code: e.target.value })} dir="ltr" placeholder="c001" className={inputCls} /></Field>
+            <Field label="الرمز (اختياري)">
+              <input value={f.code} list="comp-codes" dir="ltr" placeholder="c001" className={inputCls}
+                onChange={e => {
+                  const code = e.target.value;
+                  const hit = codeMap.get(code.trim());
+                  // An existing code fills the names from that competition; a new
+                  // code just sets the code and leaves the names as typed.
+                  setF(prev => ({ ...prev, code, ...(hit ? { name_ar: hit.name_ar, name_en: hit.name_en } : {}) }));
+                }} />
+            </Field>
+            <datalist id="comp-codes">
+              {[...codeMap].map(([code, n]) => <option key={code} value={code}>{n.name_ar || n.name_en}</option>)}
+            </datalist>
           </div>
           <Err e={err} />
           <button onClick={add} disabled={busy} className={btn + ' w-full'}>{busy ? '…' : 'إضافة البطولة'}</button>
