@@ -890,10 +890,11 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   }
 }
 
-// A player-name field with a dropdown to pick from the called squad. Free text
+// A player-name field with a type-ahead filter over the called squad: as the
+// admin types, matching names drop down (mirroring the web datalist). Free text
 // still works (the backend resolves a name to a player, creating one if unknown);
-// the dropdown just surfaces the squad so a typo can't quietly invent a player.
-class _SquadNameField extends StatelessWidget {
+// the list just surfaces the squad so a typo can't quietly invent a player.
+class _SquadNameField extends StatefulWidget {
   final TextEditingController controller;
   final List<String> squad;
   final bool autofocus;
@@ -901,28 +902,90 @@ class _SquadNameField extends StatelessWidget {
       {required this.controller, required this.squad, this.autofocus = false});
 
   @override
+  State<_SquadNameField> createState() => _SquadNameFieldState();
+}
+
+class _SquadNameFieldState extends State<_SquadNameField> {
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  // Fold Arabic so a match ignores tashkeel, tatweel and alef/ya spelling — the
+  // way people actually type when searching.
+  String _fold(String s) => s
+      .replaceAll(RegExp(r'[ً-ْـ]'), '')
+      .replaceAll(RegExp(r'[أإآ]'), 'ا')
+      .replaceAll('ى', 'ي')
+      .toLowerCase()
+      .trim();
+
+  @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: controller,
-      autofocus: autofocus,
-      style: TextStyle(color: AppColors.white),
-      decoration: adminInputDecoration().copyWith(
-        suffixIcon: squad.isEmpty
-            ? null
-            : PopupMenuButton<String>(
-                icon: Icon(Icons.arrow_drop_down, color: AppColors.hint),
-                color: AppColors.cardBg,
-                onSelected: (v) => controller.text = v,
-                itemBuilder: (_) => [
-                  for (final n in squad)
-                    PopupMenuItem<String>(
-                        value: n,
-                        child: Text(n,
-                            style: TextStyle(color: AppColors.white, fontSize: 13))),
-                ],
+    // No squad saved yet — a plain field (still free text, backend resolves it).
+    if (widget.squad.isEmpty) {
+      return TextField(
+        controller: widget.controller,
+        focusNode: _focus,
+        autofocus: widget.autofocus,
+        style: TextStyle(color: AppColors.white),
+        decoration: adminInputDecoration(),
+      );
+    }
+    return LayoutBuilder(builder: (context, constraints) {
+      return RawAutocomplete<String>(
+        textEditingController: widget.controller,
+        focusNode: _focus,
+        optionsBuilder: (value) {
+          final q = _fold(value.text);
+          if (q.isEmpty) return widget.squad; // show the whole squad on focus
+          return widget.squad.where((n) => _fold(n).contains(q));
+        },
+        onSelected: (_) => _focus.unfocus(),
+        fieldViewBuilder: (context, controller, focusNode, onSubmit) => TextField(
+          controller: controller,
+          focusNode: focusNode,
+          autofocus: widget.autofocus,
+          style: TextStyle(color: AppColors.white),
+          decoration: adminInputDecoration().copyWith(
+            suffixIcon: Icon(Icons.arrow_drop_down, color: AppColors.hint),
+          ),
+          onSubmitted: (_) => onSubmit(),
+        ),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topRight,
+          child: Material(
+            color: AppColors.cardBg,
+            elevation: 4,
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(
+              width: constraints.maxWidth,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  children: [
+                    for (final o in options)
+                      InkWell(
+                        onTap: () => onSelected(o),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          child: Text(o,
+                              style: TextStyle(color: AppColors.white, fontSize: 13)),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-      ),
-    );
+            ),
+          ),
+        ),
+      );
+    });
   }
 }
 
