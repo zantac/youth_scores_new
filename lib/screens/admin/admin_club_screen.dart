@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/constants/governorates.dart';
 import '../../core/models/admin/admin_data.dart' show CoachSearchResult;
 import '../../core/models/admin/structure_models.dart';
 import '../../core/providers/admin_auth.dart';
@@ -98,6 +99,7 @@ class _ClubInfo extends StatefulWidget {
 
 class _ClubInfoState extends State<_ClubInfo> {
   late final Map<String, TextEditingController> _c;
+  final _cityFocus = FocusNode();
   bool _busy = false;
   bool _done = false;
 
@@ -119,6 +121,7 @@ class _ClubInfoState extends State<_ClubInfo> {
     for (final v in _c.values) {
       v.dispose();
     }
+    _cityFocus.dispose();
     super.dispose();
   }
 
@@ -180,7 +183,71 @@ class _ClubInfoState extends State<_ClubInfo> {
         const SizedBox(height: 12),
         f('name_ar', isAr ? 'الاسم (عربي) *' : 'Name (Arabic) *'),
         f('name_en', isAr ? 'الاسم (إنجليزي)' : 'Name (English)'),
-        f('city_ar', isAr ? 'المدينة (عربي)' : 'City (Arabic)'),
+        // City (Arabic) suggests Egypt's governorates; picking one auto-fills the
+        // English name. Free text still works (custom city → English untouched).
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            sLabel(isAr ? 'المدينة (عربي)' : 'City (Arabic)'),
+            RawAutocomplete<String>(
+              textEditingController: _c['city_ar']!,
+              focusNode: _cityFocus,
+              optionsBuilder: (v) {
+                final q = foldAr(v.text);
+                final names = kEgyptGovernorates.map((g) => g.ar);
+                return q.isEmpty ? names : names.where((n) => foldAr(n).contains(q));
+              },
+              onSelected: (sel) {
+                final en = governorateEn(sel);
+                setState(() {
+                  if (en != null) _c['city_en']!.text = en;
+                  _done = false;
+                });
+                _cityFocus.unfocus();
+              },
+              fieldViewBuilder: (context, controller, focusNode, onSubmit) => TextField(
+                controller: controller,
+                focusNode: focusNode,
+                style: _ts(),
+                onChanged: (v) {
+                  final en = governorateEn(v);
+                  setState(() {
+                    if (en != null) _c['city_en']!.text = en;
+                    _done = false;
+                  });
+                },
+                decoration: sDec().copyWith(
+                    suffixIcon: Icon(Icons.arrow_drop_down, color: AppColors.hint)),
+                onSubmitted: (_) => onSubmit(),
+              ),
+              optionsViewBuilder: (context, onSelected, options) => Align(
+                alignment: Alignment.topRight,
+                child: Material(
+                  color: AppColors.cardBg,
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(10),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 240, maxWidth: 340),
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      children: [
+                        for (final o in options)
+                          InkWell(
+                            onTap: () => onSelected(o),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              child: Text(o, style: TextStyle(color: AppColors.white, fontSize: 13)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ]),
+        ),
         f('city_en', isAr ? 'المدينة (إنجليزي)' : 'City (English)'),
         f('logo_url', isAr ? 'رابط الشعار' : 'Logo URL', hint: 'https://…'),
         Align(

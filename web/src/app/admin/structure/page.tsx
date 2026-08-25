@@ -6,6 +6,7 @@ import DeleteBtn from '@/components/admin/DeleteBtn';
 import MatchesEntry from '@/components/admin/MatchesEntry';
 import CompetitionSelect from '@/components/admin/CompetitionSelect';
 import { compareCompName } from '@/lib/compOrder';
+import { EGYPT_GOVERNORATES, governorateEn } from '@/lib/governorates';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiSeasons, apiCreateSeason, apiUpdateSeason,
@@ -337,8 +338,14 @@ function ClubForm({ token, club, onDone, onCancel }: { token: string; club: MClu
       <div className="grid grid-cols-2 gap-3">
         <Field label="الاسم (عربي) *"><input value={f.name_ar} onChange={e => set('name_ar', e.target.value)} className={inputCls} /></Field>
         <Field label="الاسم (إنجليزي)"><input value={f.name_en} onChange={e => set('name_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
-        <Field label="المدينة (عربي)"><input value={f.city_ar} onChange={e => set('city_ar', e.target.value)} className={inputCls} /></Field>
+        <Field label="المدينة (عربي)">
+          <input value={f.city_ar} list="egypt-governorates"
+            onChange={e => { const v = e.target.value; const en = governorateEn(v);
+              setF(prev => ({ ...prev, city_ar: v, ...(en ? { city_en: en } : {}) })); }}
+            className={inputCls} />
+        </Field>
         <Field label="المدينة (إنجليزي)"><input value={f.city_en} onChange={e => set('city_en', e.target.value)} dir="ltr" className={inputCls} /></Field>
+        <datalist id="egypt-governorates">{EGYPT_GOVERNORATES.map(g => <option key={g.en} value={g.ar} />)}</datalist>
       </div>
       <Field label="الشعار"><LogoInput token={token} value={f.logo_url} onChange={v => set('logo_url', v)} /></Field>
       <div className="grid grid-cols-2 gap-3">
