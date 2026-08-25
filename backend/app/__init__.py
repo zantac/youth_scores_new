@@ -30,10 +30,22 @@ _SHARE_TAB_AR = {
 # Legacy numeric tabs (?tab=0..3) that may still be shared around.
 _SHARE_TAB_ORDER = ["matches", "standings", "teams", "stats"]
 
+# The stats tab's sub-tabs (?tab=stats&stat=…) each get their own description.
+_SHARE_STAT_AR = {
+    "overview":    "إحصائيات عامة",
+    "scorers":     "قائمة الهدافين",
+    "assists":     "قائمة صنّاع الأهداف",
+    "cleansheets": "الشباك النظيفة",
+    "cards":       "البطاقات",
+}
+_SHARE_STAT_ORDER = ["overview", "scorers", "assists", "cleansheets", "cards"]
 
-def _competition_share_meta(competition_id: int, tab: str | None) -> dict | None:
+
+def _competition_share_meta(competition_id: int, tab: str | None,
+                            stat: str | None = None) -> dict | None:
     """Arabic title (name - age - sector) + the tab's description for the card,
-    or None when the competition doesn't exist."""
+    or None when the competition doesn't exist. On the stats tab, an optional
+    ``stat`` sub-tab (scorers / assists / …) refines the description."""
     from app.extensions import db
     from app.models import AgeGroup, Competition
 
@@ -53,7 +65,15 @@ def _competition_share_meta(competition_id: int, tab: str | None) -> dict | None
     if key.isdigit():
         i = int(key)
         key = _SHARE_TAB_ORDER[i] if 0 <= i < len(_SHARE_TAB_ORDER) else "matches"
-    return {"title": title, "description": _SHARE_TAB_AR.get(key, _SHARE_TAB_AR["matches"])}
+    desc = _SHARE_TAB_AR.get(key, _SHARE_TAB_AR["matches"])
+    # On the stats tab, name the specific sub-tab (scorers, assists, …).
+    if key == "stats" and stat:
+        s = stat.lower()
+        if s.isdigit():
+            i = int(s)
+            s = _SHARE_STAT_ORDER[i] if 0 <= i < len(_SHARE_STAT_ORDER) else ""
+        desc = _SHARE_STAT_AR.get(s, desc)
+    return {"title": title, "description": desc}
 
 
 def _abs_url(base: str, raw: str | None) -> str | None:
@@ -128,7 +148,9 @@ def _competition_share_page(index_abs: str):
     from flask import request
 
     try:
-        meta = _competition_share_meta(int(request.args.get("id", "")), request.args.get("tab"))
+        meta = _competition_share_meta(
+            int(request.args.get("id", "")),
+            request.args.get("tab"), request.args.get("stat"))
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta)

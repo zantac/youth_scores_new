@@ -422,7 +422,16 @@ function PlayerList({ stats, unit, locale, matches, teams, statType = 'scorers' 
 }
 
 function StatsTab({ matches, teams, locale, stickyTop }: { matches: Match[]; teams: Team[]; locale: string; stickyTop?: number }) {
-  const [sub, setSub] = useState(0);
+  // The active sub-tab lives in the URL (?stat=scorers) so it can be shared and
+  // gets its own social card. Other params (id, tab, team) are preserved.
+  const params = useSearchParams();
+  const router = useRouter();
+  const sub = statIndexFromParam(params.get('stat'));
+  const setSub = (i: number) => {
+    const p = new URLSearchParams(params.toString());
+    p.set('stat', STAT_SLUGS[i]);
+    router.replace(`/competition?${p.toString()}`, { scroll: false });
+  };
   const [group, setGroup] = useState<string | null>(null);
   const isAr = locale === 'ar';
 
@@ -1215,6 +1224,17 @@ function tabIndexFromParam(raw: string | null): number {
   return Number.isInteger(n) && n >= 0 && n < TAB_SLUGS.length ? n : 0;
 }
 
+// The stats tab's sub-tabs, serialized to ?stat= so a scorers/assists view is
+// itself shareable (and gets its own social card). Order matches StatsTab.
+const STAT_SLUGS = ['overview', 'scorers', 'assists', 'cleansheets', 'cards'] as const;
+function statIndexFromParam(raw: string | null): number {
+  if (!raw) return 0;
+  const named = (STAT_SLUGS as readonly string[]).indexOf(raw.toLowerCase());
+  if (named >= 0) return named;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n < STAT_SLUGS.length ? n : 0;
+}
+
 function CompetitionPageInner() {
   const params = useSearchParams();
   const router  = useRouter();
@@ -1225,7 +1245,11 @@ function CompetitionPageInner() {
   const teamDetail = params.get('team');
   const setView = (patch: { tab?: number; team?: string | null }) => {
     const p = new URLSearchParams(params.toString());
-    if ('tab' in patch && patch.tab != null) p.set('tab', TAB_SLUGS[patch.tab]);
+    if ('tab' in patch && patch.tab != null) {
+      p.set('tab', TAB_SLUGS[patch.tab]);
+      // The stats sub-tab only applies to the stats tab — drop it elsewhere.
+      if (TAB_SLUGS[patch.tab] !== 'stats') p.delete('stat');
+    }
     if ('team' in patch) { if (patch.team) p.set('team', patch.team); else p.delete('team'); }
     router.replace(`/competition?${p.toString()}`, { scroll: false });
   };
