@@ -32,16 +32,35 @@ export default function CompetitionsPage() {
 
   const filteredSeasons = useMemo(() => {
     if (!config) return [];
-    const lq = q.trim().toLowerCase();
+    // Fold Arabic (tashkeel/tatweel + alef/ya/ta spelling) and lowercase, so a
+    // city/section search matches regardless of spelling variants.
+    const fold = (s: string) => s.toLowerCase()
+      .replace(/[ً-ْـ]/g, '')
+      .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+      .replace(/\s+/g, ' ').trim();
+    const lq = fold(q);
+    const secText = (s: { name: { ar: string; en: string } }) =>
+      fold(`${s.name.ar ?? ''} ${s.name.en ?? ''}`);
     const seasons = lq
       ? config.seasons
-          .map(season => ({
-            ...season,
-            competitions: season.competitions.filter(comp => {
-              const name = getCompName(comp, locale).toLowerCase();
-              return name.includes(lq) || localize(season.name, locale).toLowerCase().includes(lq);
-            }),
-          }))
+          .map(season => {
+            const seasonHay = fold(`${localize(season.name, 'ar')} ${localize(season.name, 'en')}`);
+            return {
+              ...season,
+              // Match on the competition's own name/season (keep all its sections),
+              // or on a section (sector) name — then keep only the matching sections
+              // so a city search lands right on the relevant one.
+              competitions: season.competitions.flatMap(comp => {
+                const nm = typeof comp.name === 'string'
+                  ? comp.name : `${comp.name.ar ?? ''} ${comp.name.en ?? ''}`;
+                if (fold(nm).includes(lq) || seasonHay.includes(lq)) return [comp];
+                const ages = comp.ages
+                  .map(age => ({ ...age, sectors: age.sectors.filter(s => secText(s).includes(lq)) }))
+                  .filter(age => age.sectors.length > 0);
+                return ages.length ? [{ ...comp, ages }] : [];
+              }),
+            };
+          })
           .filter(season => season.competitions.length > 0)
       : config.seasons;
     // Newest season first — season names are year ranges ("2025-2026") that sort
