@@ -85,6 +85,12 @@ async function getService(opts: OcrOptions): Promise<PaddleService> {
     // Single-thread avoids the COOP/COEP header requirement (a static host like
     // gh-pages can't set those). WebGPU, when present, still accelerates.
     ort.env.wasm.numThreads = 1;
+    // Run inference in a Web Worker so the (synchronous) WASM call doesn't freeze
+    // the page — without this the tab locks for the few seconds a scan takes and
+    // the browser shows its "page unresponsive" prompt. Proxy needs no COOP/COEP
+    // (that's only for multi-threaded SharedArrayBuffer); the worker fetches the
+    // same wasm from wasmPaths set above.
+    ort.env.wasm.proxy = true;
     // Silence the benign VerifyOutputSizes warning the detection model emits on
     // every run (dynamic output shape). At 'warning' it hits console.error and
     // Next.js's dev overlay treats it as a fatal error, which it is not.
