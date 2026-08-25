@@ -1072,6 +1072,7 @@ def stats():
             "id": c.id,
             "name": c.name_ar or c.name_en or "",
             "sector": c.sector_ar or c.sector_en or "",
+            "age": age_name.get(c.age_group_id, ""),
             "played": done, "total": tot,
             "followers": comp_follow_counts.get(c.id, 0),
         })

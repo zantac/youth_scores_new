@@ -158,7 +158,9 @@ function Dashboard() {
               {pending.slice(0, 6).map(c => (
                 <div key={c.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
                   <span className="flex-1 text-text text-xs truncate">
-                    {c.name}{c.sector && <span className="text-hint"> · {c.sector}</span>}
+                    {c.name}
+                    {[c.age, c.sector].filter(Boolean).length > 0 &&
+                      <span className="text-hint"> · {[c.age, c.sector].filter(Boolean).join(' · ')}</span>}
                   </span>
                   <span className="text-gold text-xs font-bold tnum flex-shrink-0">{c.total - c.played}</span>
                 </div>
