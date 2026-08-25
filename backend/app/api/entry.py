@@ -158,7 +158,14 @@ def competition_teams(cid: int):
         .order_by(CompetitionTeam.id)
         .all()
     )
-    return jsonify({"teams": [{"id": t.id, "name": _team_name(t, cid), "logo": t.club.logo_url} for t in teams]})
+    return jsonify({"teams": [{
+        "id": t.id,
+        "name": _team_name(t, cid),
+        # The club's own name too, so the picker can show the original alongside
+        # the competition's alternative name (as the public view does).
+        "club_name": _loc(t.club.name_ar, t.club.name_en),
+        "logo": t.club.logo_url,
+    } for t in teams]})
 
 
 @entry_bp.get("/api/admin/teams/<int:team_id>/players")
@@ -179,8 +186,10 @@ def _match_row(m: Match) -> dict:
         "time": m.match_date.strftime("%H:%M") if m.match_date else "",
         "week": m.week or "",
         "status": m.status,
-        "home": {"id": m.home_team_id, "name": _team_name(m.home_team, comp_id)},
-        "away": {"id": m.away_team_id, "name": _team_name(m.away_team, comp_id)},
+        "home": {"id": m.home_team_id, "name": _team_name(m.home_team, comp_id),
+                 "club_name": _loc(m.home_team.club.name_ar, m.home_team.club.name_en)},
+        "away": {"id": m.away_team_id, "name": _team_name(m.away_team, comp_id),
+                 "club_name": _loc(m.away_team.club.name_ar, m.away_team.club.name_en)},
         "home_score": m.home_score,
         "away_score": m.away_score,
         "stage_id": m.stage_id,

@@ -95,10 +95,10 @@ export async function apiDeleteUser(token: string, id: number) {
 
 type Loc = { ar: string; en: string };
 export interface EntryCompetition { id: number; name: Loc; age: string; sector: Loc | null; season: string; }
-export interface EntryTeam { id: number; name: Loc; logo?: string; }
+export interface EntryTeam { id: number; name: Loc; club_name?: Loc; logo?: string; }
 export interface EntryMatchRow {
   id: number; date: string; time: string; week: string; status: string;
-  home: { id: number; name: Loc }; away: { id: number; name: Loc };
+  home: { id: number; name: Loc; club_name?: Loc }; away: { id: number; name: Loc; club_name?: Loc };
   home_score: number | null; away_score: number | null;
   stage_id: number | null; group_id: number | null;
   stage_name: string | null; group_name: string | null;

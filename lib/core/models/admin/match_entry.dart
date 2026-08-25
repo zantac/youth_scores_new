@@ -35,17 +35,28 @@ class EntryCompetition {
       );
 }
 
+// The club's own name with its competition alternative name appended, the way
+// the public view shows it (club = identity, alias alongside). `name` already
+// falls back to the club name, so with no alternative only the club name shows.
+String _teamLabel(String name, Map<String, String>? club, String l) {
+  final c = club == null ? '' : pickLocale(club, l);
+  return (c.isNotEmpty && c != name) ? '$c — $name' : name;
+}
+
 class EntryTeam {
   final int id;
   final Map<String, String> name;
+  final Map<String, String>? clubName;
   final String? logo;
-  const EntryTeam({required this.id, required this.name, this.logo});
+  const EntryTeam({required this.id, required this.name, this.clubName, this.logo});
 
   String getName(String l) => pickLocale(name, l);
+  String label(String l) => _teamLabel(pickLocale(name, l), clubName, l);
 
   factory EntryTeam.fromJson(Map<String, dynamic> j) => EntryTeam(
         id: _i(j['id']) ?? 0,
         name: localizedMap(j['name']),
+        clubName: localizedMapOrNull(j['club_name']),
         logo: _s(j['logo']),
       );
 }
@@ -53,10 +64,13 @@ class EntryTeam {
 class EntryTeamRef {
   final int id;
   final Map<String, String> name;
-  const EntryTeamRef({required this.id, required this.name});
+  final Map<String, String>? clubName;
+  const EntryTeamRef({required this.id, required this.name, this.clubName});
   String getName(String l) => pickLocale(name, l);
+  String label(String l) => _teamLabel(pickLocale(name, l), clubName, l);
   factory EntryTeamRef.fromJson(Map<String, dynamic> j) =>
-      EntryTeamRef(id: _i(j['id']) ?? 0, name: localizedMap(j['name']));
+      EntryTeamRef(id: _i(j['id']) ?? 0, name: localizedMap(j['name']),
+          clubName: localizedMapOrNull(j['club_name']));
 }
 
 class EntryMatchRow {

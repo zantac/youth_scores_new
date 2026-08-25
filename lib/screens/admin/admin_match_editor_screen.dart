@@ -350,7 +350,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('${_m.row.home.getName(locale)}  ×  ${_m.row.away.getName(locale)}',
+          Text('${_m.row.home.label(locale)}  ×  ${_m.row.away.label(locale)}',
               style: TextStyle(
                   color: AppColors.white,
                   fontSize: 16,
