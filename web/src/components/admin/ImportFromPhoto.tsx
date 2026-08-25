@@ -21,6 +21,10 @@ const isBye = (s?: string) => {
     .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').trim();
   return n === 'باي';
 };
+// "م.ش" (and spacing/dot variants) is the common abbreviation of «مركز شباب»
+// (youth centre) — expand it so the scanned name matches the club record.
+const expandAbbrev = (s?: string) =>
+  (s || '').replace(/(^|\s)م\s*\.?\s*ش(?=\s|$)/g, '$1مركز شباب');
 const inputCls = 'w-full bg-darkBg border border-bdr rounded-lg px-2.5 py-2 text-text text-sm outline-none focus:border-aqua';
 const cellCls = 'bg-cardBg border border-bdr rounded px-2 py-1 text-text text-xs outline-none focus:border-aqua';
 
@@ -50,6 +54,15 @@ type Phase = 'setup' | 'processing' | 'review' | 'creating' | 'done';
 
 const VENUES_ID = 'import-venues';
 const emptyRound = (num: number): RoundPlan => ({ num: String(num), date: '', time: '16:30', count: '' });
+// A new round defaults to the previous round's kickoff time and match count (they
+// rarely change round to round), so the admin only fills the new date. The number
+// increments; the date stays blank because each round is played on its own day.
+const nextRound = (prev?: RoundPlan): RoundPlan => ({
+  num: String((Number(prev?.num) || 0) + 1),
+  date: '',
+  time: prev?.time || '16:30',
+  count: prev?.count || '',
+});
 
 // Slice the OCR'd matches into the planned rounds by count, stamping each match
 // with its round's number/date/time. Leftover matches (OCR read more than the
@@ -110,8 +123,7 @@ export default function ImportFromPhoto({
     setPlan(ps => {
       if (n <= ps.length) return ps.slice(0, Math.max(1, n));
       const next = [...ps];
-      let num = Number(ps[ps.length - 1]?.num) || 0;
-      while (next.length < n) next.push(emptyRound(++num));
+      while (next.length < n) next.push(nextRound(next[next.length - 1]));
       return next;
     });
 
@@ -127,7 +139,15 @@ export default function ImportFromPhoto({
         onProgress: p => { if (p.total) setPct(Math.round((p.loaded / p.total) * 100)); },
       });
       const rec = reconstructFixtures(words, px.width);
-      const matched = matchFixtures(rec.fixtures, teamCandidates, venues);
+      // Expand «م.ش» → «مركز شباب» in the scanned names before matching, so the
+      // abbreviation resolves to the club record (and the raw text shows in full).
+      const fixtures = rec.fixtures.map(f => ({
+        ...f,
+        home: expandAbbrev(f.home),
+        away: expandAbbrev(f.away),
+        venue: expandAbbrev(f.venue),
+      }));
+      const matched = matchFixtures(fixtures, teamCandidates, venues);
       // Drop "باي" (bye) rows — a resting team, not a match.
       const played = matched.filter(m => !isBye(m.raw.home) && !isBye(m.raw.away));
       const byes = matched.length - played.length;
@@ -218,7 +238,7 @@ export default function ImportFromPhoto({
         </div>
       ))}
       <div className="flex items-center gap-2 pt-0.5">
-        <button onClick={() => setPlan(ps => [...ps, emptyRound((Number(ps[ps.length - 1]?.num) || 0) + 1)])}
+        <button onClick={() => setPlan(ps => [...ps, nextRound(ps[ps.length - 1])])}
           className="text-teal text-[11px] font-bold">+ جولة</button>
         <span className="flex-1" />
         <span className="text-hint text-[10px]">إجمالي {planTotal} مباراة</span>
