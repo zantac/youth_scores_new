@@ -49,8 +49,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   List<String> _lnStarters = const [];
   List<String> _lnSubs = const [];
   List<String> _lnCalled = const []; // called up, role not yet decided
-  // Named players per team id, for line-up suggestions.
-  final Map<int, List<String>> _players = {};
+  // Registered players per team id (position-ordered), for line-up entry.
+  final Map<int, List<RosterPlayer>> _players = {};
 
   List<MStage> get _stages => widget.stages;
 
@@ -200,13 +200,24 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   // ── Line-up ───────────────────────────────────────────────────────────────
   int get _lnTeamId => _lnSide == 'home' ? _m.row.home.id : _m.row.away.id;
 
+  // Registered players arrive position-ordered from the server; keep that order,
+  // then append any named-but-unregistered player (created on the fly), sorted.
+  List<RosterPlayer> get _lnRosterPlayers => _players[_lnTeamId] ?? const [];
+  Map<String, String> get _posOf =>
+      {for (final p in _lnRosterPlayers) p.name: p.position};
+
   List<String> get _lnRoster {
     final seen = <String>{};
     final out = <String>[];
-    for (final n in [...(_players[_lnTeamId] ?? const []), ..._lnStarters, ..._lnSubs, ..._lnCalled]) {
-      if (seen.add(n)) out.add(n);
+    for (final p in _lnRosterPlayers) {
+      if (seen.add(p.name)) out.add(p.name);
     }
-    return out;
+    final extras = <String>[];
+    for (final n in [..._lnStarters, ..._lnSubs, ..._lnCalled]) {
+      if (seen.add(n)) extras.add(n);
+    }
+    extras.sort();
+    return [...out, ...extras];
   }
 
   bool _inSquad(String n) =>
@@ -263,7 +274,9 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     final ln = side == 'home' ? _m.lineupHome : _m.lineupAway;
     final named = ln.all;
     final tid = side == 'home' ? _m.row.home.id : _m.row.away.id;
-    return named.isNotEmpty ? named : (_players[tid] ?? const <String>[]);
+    return named.isNotEmpty
+        ? named
+        : (_players[tid] ?? const <RosterPlayer>[]).map((p) => p.name).toList();
   }
 
   Map<String, List<String>> get _squads =>
@@ -800,6 +813,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     final isStart = _lnStarters.contains(n);
     final isSub = _lnSubs.contains(n);
     final member = _inSquad(n);
+    final pos = _posOf[n] ?? '';
     Widget pill(String label, bool on, Color color, VoidCallback onTap) => InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
@@ -827,12 +841,23 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
       ),
       child: Row(children: [
         Expanded(
-          child: Text(n,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  color: member ? AppColors.white : AppColors.hint,
-                  fontSize: 13)),
+          child: Row(children: [
+            Flexible(
+              child: Text(n,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: member ? AppColors.white : AppColors.hint,
+                      fontSize: 13)),
+            ),
+            if (pos.isNotEmpty) ...[
+              const SizedBox(width: 6),
+              Text(pos,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
+            ],
+          ]),
         ),
         pill(isAr ? 'استدعاء' : 'Call', member, AppColors.green, () => _callToggle(n)),
         const SizedBox(width: 6),

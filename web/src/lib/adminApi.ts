@@ -132,7 +132,9 @@ const send = <T,>(token: string, method: string, path: string, body?: unknown) =
 
 export const apiCompetitions = (t: string) => get<{ competitions: EntryCompetition[] }>(t, '/api/admin/competitions').then(d => d.competitions);
 export const apiCompetitionTeams = (t: string, cid: number) => get<{ teams: EntryTeam[] }>(t, `/api/admin/competitions/${cid}/teams`).then(d => d.teams);
-export const apiTeamPlayers = (t: string, teamId: number) => get<{ players: string[] }>(t, `/api/admin/teams/${teamId}/players`).then(d => d.players);
+// A registered player for line-up entry, with position for sorting/labelling.
+export interface EntryPlayer { name: string; position: string }
+export const apiTeamPlayers = (t: string, teamId: number) => get<{ players: EntryPlayer[] }>(t, `/api/admin/teams/${teamId}/players`).then(d => d.players);
 // Venue suggestions scoped to one competition — only the grounds already used
 // on its matches (empty until fixtures are entered).
 export const apiMatchVenues = (t: string, cid: number) => get<{ venues: string[] }>(t, `/api/admin/competitions/${cid}/match-venues`).then(d => d.venues);

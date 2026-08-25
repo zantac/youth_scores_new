@@ -168,12 +168,53 @@ def competition_teams(cid: int):
     } for t in teams]})
 
 
+# Rough positional order (goalkeeper → defence → midfield → attack) so a squad
+# reads top-to-bottom like a team sheet. Keys are folded (tashkeel/alef/ya/ta)
+# codes and common Arabic labels; an unrecognised-but-present position groups by
+# its own label after these, and a player with no position sorts last.
+_POS_RANK = {
+    "gk": 0, "حارس": 0, "حارس مرمي": 0, "حارس المرمي": 0, "goalkeeper": 0, "goalie": 0,
+    "rb": 1, "lb": 1, "cb": 1, "مدافع": 1, "ظهير": 1, "ظهير ايمن": 1, "ظهير ايسر": 1,
+    "قلب دفاع": 1, "defender": 1,
+    "cdm": 2, "cm": 2, "cam": 2, "rm": 2, "lm": 2, "وسط": 2, "لاعب وسط": 2,
+    "ارتكاز": 2, "صانع العاب": 2, "midfielder": 2,
+    "rw": 3, "lw": 3, "جناح": 3, "جناح ايمن": 3, "جناح ايسر": 3, "winger": 3,
+    "st": 4, "cf": 4, "مهاجم": 4, "راس حربه": 4, "forward": 4, "striker": 4,
+}
+
+
+def _pos_fold(s: str) -> str:
+    return _norm(s).lower().replace("ى", "ي").replace("ة", "ه")
+
+
+def _pos_sort_key(position: str, name: str):
+    key = _pos_fold(position)
+    if key in _POS_RANK:
+        return (0, _POS_RANK[key], key, _norm(name))
+    if key:
+        return (1, 0, key, _norm(name))   # unknown position: group by its label
+    return (2, 0, "", _norm(name))        # no position: last
+
+
 @entry_bp.get("/api/admin/teams/<int:team_id>/players")
 @auth.login_required
 def team_players(team_id: int):
-    rows = PlayerTeam.query.filter_by(team_id=team_id).all()
-    names = sorted({(pt.player.full_name_ar or pt.player.full_name_en or "").strip() for pt in rows} - {""})
-    return jsonify({"players": names})
+    """The team's registered players for line-up entry, each with its position,
+    ordered like a team sheet: by position (GK → defence → midfield → attack),
+    then alphabetically. Players with no position come last, alphabetical."""
+    pos_of: dict[str, str] = {}
+    for pt in PlayerTeam.query.filter_by(team_id=team_id).all():
+        p = pt.player
+        name = (p.full_name_ar or p.full_name_en or "").strip()
+        if not name:
+            continue
+        pos = (p.position_ar or p.position_en or "").strip()
+        # A player may have several spells; keep the first non-empty position.
+        if name not in pos_of or (not pos_of[name] and pos):
+            pos_of[name] = pos
+    players = [{"name": n, "position": pos} for n, pos in pos_of.items()]
+    players.sort(key=lambda x: _pos_sort_key(x["position"], x["name"]))
+    return jsonify({"players": players})
 
 
 # ── matches ──────────────────────────────────────────────────────────────────

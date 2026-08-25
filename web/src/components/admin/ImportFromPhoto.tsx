@@ -91,8 +91,15 @@ export default function ImportFromPhoto({
 
   const teamOpts = useMemo(
     () => [...teams].sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'ar')), [teams]);
+  // Match against the club's own name AND any competition alternative name: the
+  // printed fixtures tables use the official club name, while the alternative is
+  // extra branding the admin added — so a team keyed only by its alias would go
+  // unrecognised.
   const teamCandidates = useMemo(
-    () => teams.map(t => ({ id: t.id, names: [t.name.ar, t.name.en].filter(Boolean) })), [teams]);
+    () => teams.map(t => ({
+      id: t.id,
+      names: [t.name?.ar, t.name?.en, t.club_name?.ar, t.club_name?.en].filter(Boolean) as string[],
+    })), [teams]);
 
   const setRow = (i: number, patch: Partial<ReviewRow>) =>
     setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));

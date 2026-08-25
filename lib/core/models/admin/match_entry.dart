@@ -61,6 +61,17 @@ class EntryTeam {
       );
 }
 
+// A registered player for line-up entry, with position (for sorting + labelling).
+class RosterPlayer {
+  final String name;
+  final String position;
+  const RosterPlayer({required this.name, this.position = ''});
+  factory RosterPlayer.fromJson(Map<String, dynamic> j) => RosterPlayer(
+        name: j['name']?.toString() ?? '',
+        position: j['position']?.toString() ?? '',
+      );
+}
+
 class EntryTeamRef {
   final int id;
   final Map<String, String> name;

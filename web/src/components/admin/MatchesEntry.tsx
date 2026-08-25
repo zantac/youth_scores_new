@@ -12,7 +12,7 @@ import {
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
   apiStages, apiNotifyRound,
   type EntryCompetition, type EntryTeam, type EntryMatchRow, type EntryMatch, type EntryGoal,
-  type EntryCard, type EntrySub, type EntryShootoutKick, type EntrySide, type MStage,
+  type EntryCard, type EntrySub, type EntryShootoutKick, type EntrySide, type EntryPlayer, type MStage,
 } from '@/lib/adminApi';
 
 type Loc = { ar: string; en: string };
@@ -328,7 +328,7 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
   venues: string[]; onVenueSaved: () => void;
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
-  const [players, setPlayers] = useState<Record<number, string[]>>({});
+  const [players, setPlayers] = useState<Record<number, EntryPlayer[]>>({});
   const [hs, setHs] = useState(match.home_score ?? '');
   const [as, setAs] = useState(match.away_score ?? '');
   const [hp, setHp] = useState<string | number>(match.home_penalty_score ?? '');
@@ -815,7 +815,7 @@ function TeamsEditor({ token, match, teams, onChange }: {
 // one call means a save can never leave half a list behind. Only starter/bench
 // is recorded — no minutes or positions.
 function LineupSection({ token, match, players, onChange }: {
-  token: string; match: EntryMatch; players: Record<number, string[]>;
+  token: string; match: EntryMatch; players: Record<number, EntryPlayer[]>;
   onChange: (m: EntryMatch) => void;
 }) {
   const [teamId, setTeamId] = useState(String(match.home.id));
@@ -835,9 +835,15 @@ function LineupSection({ token, match, players, onChange }: {
     setStarters(s.starters); setSubs(s.subs); setCalled(s.called); setErr(null);
   }, [teamId, match]);
 
-  // Anyone already named belongs in the list even if they are not on the roster,
-  // since entry creates players on the fly.
-  const roster = [...new Set([...(players[Number(teamId)] ?? []), ...starters, ...subs, ...called])];
+  // Registered players come back already ordered like a team sheet (by position,
+  // then name); keep that order and map each name to its position for the label.
+  const rosterPlayers = players[Number(teamId)] ?? [];
+  const posOf = useMemo(() => new Map(rosterPlayers.map(p => [p.name, p.position])), [rosterPlayers]);
+  // Anyone already named but not on the roster (created on the fly) is appended,
+  // alphabetical, after the registered squad.
+  const extras = [...new Set([...starters, ...subs, ...called])]
+    .filter(n => !posOf.has(n)).sort((a, b) => a.localeCompare(b, 'ar'));
+  const roster = [...rosterPlayers.map(p => p.name), ...extras];
   const inSquad = (n: string) => starters.includes(n) || subs.includes(n) || called.includes(n);
 
   // Move a player to exactly one role, or remove from the squad entirely (null).
@@ -901,7 +907,9 @@ function LineupSection({ token, match, players, onChange }: {
           const member = called_ || isStart || isSub;
           return (
             <div key={n} className="flex items-center gap-1.5 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              <span className={`flex-1 text-sm truncate ${member ? 'text-text' : 'text-hint'}`}>{n}</span>
+              <span className={`flex-1 text-sm truncate ${member ? 'text-text' : 'text-hint'}`}>
+                {n}{posOf.get(n) && <span className="text-hint text-[11px]"> · {posOf.get(n)}</span>}
+              </span>
               <button onClick={() => callToggle(n)}
                 className={pill(member, 'text-win border-win/50 bg-win/10')}>استدعاء</button>
               <button onClick={() => starterToggle(n)}
@@ -1043,7 +1051,7 @@ function squadNames(match: EntryMatch, teamId: number, roster: string[]): string
 }
 
 function GoalForm({ token, match, players, onAdd, editGoal, onCancelEdit }: {
-  token: string; match: EntryMatch; players: Record<number, string[]>; onAdd: (m: EntryMatch) => void;
+  token: string; match: EntryMatch; players: Record<number, EntryPlayer[]>; onAdd: (m: EntryMatch) => void;
   editGoal?: EntryGoal | null; onCancelEdit?: () => void;
 }) {
   const [teamId, setTeamId] = useState(String(match.home.id));
@@ -1054,7 +1062,7 @@ function GoalForm({ token, match, players, onAdd, editGoal, onCancelEdit }: {
   // an opponent, so the names to choose from come from the other team.
   const otherId = Number(teamId) === match.home.id ? match.away.id : match.home.id;
   const scorerTeamId = og ? otherId : Number(teamId);
-  const list = squadNames(match, scorerTeamId, players[scorerTeamId] ?? []);
+  const list = squadNames(match, scorerTeamId, (players[scorerTeamId] ?? []).map(p => p.name));
 
   // In edit mode, load the chosen goal into the fields (and clear back to a
   // blank add-form when the edit is cancelled or saved). team_id is always the
@@ -1177,13 +1185,13 @@ function ShootoutKickForm({ token, match, onAdd, editKick, onCancelEdit }: {
 }
 
 function CardForm({ token, match, players, onAdd, editCard, onCancelEdit }: {
-  token: string; match: EntryMatch; players: Record<number, string[]>; onAdd: (m: EntryMatch) => void;
+  token: string; match: EntryMatch; players: Record<number, EntryPlayer[]>; onAdd: (m: EntryMatch) => void;
   editCard?: EntryCard | null; onCancelEdit?: () => void;
 }) {
   const [teamId, setTeamId] = useState(String(match.home.id));
   const [player, setPlayer] = useState(''); const [type, setType] = useState('yellow'); const [minute, setMinute] = useState('');
   const [busy, setBusy] = useState(false);
-  const list = squadNames(match, Number(teamId), players[Number(teamId)] ?? []);
+  const list = squadNames(match, Number(teamId), (players[Number(teamId)] ?? []).map(p => p.name));
 
   // Load the chosen card in edit mode; blank the form otherwise.
   useEffect(() => {
