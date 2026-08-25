@@ -1141,7 +1141,7 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
         backgroundColor: AppColors.aqua,
         onPressed: () async {
           final ok = await showSheet<bool>(context,
-              _CompEditor(api: _api, token: _token, seasons: _seasons, ages: _ages));
+              _CompEditor(api: _api, token: _token, seasons: _seasons, ages: _ages, comps: _comps));
           if (ok == true) _load();
         },
         icon: const Icon(Icons.add),
@@ -1226,6 +1226,7 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
                                       token: _token,
                                       seasons: _seasons,
                                       ages: _ages,
+                                      comps: _comps,
                                       comp: c));
                               if (ok == true) _load();
                             },
@@ -1264,12 +1265,15 @@ class _CompEditor extends StatefulWidget {
   final String token;
   final List<MSeason> seasons;
   final List<MAge> ages;
+  // Existing competitions, so an existing code auto-fills the Arabic/English name.
+  final List<MComp> comps;
   final MComp? comp;
   const _CompEditor({
     required this.api,
     required this.token,
     required this.seasons,
     required this.ages,
+    this.comps = const [],
     this.comp,
   });
   @override
@@ -1281,6 +1285,9 @@ class _CompEditorState extends State<_CompEditor> {
   late final TextEditingController _nameEn;
   late final TextEditingController _sector;
   late final TextEditingController _code;
+  final _codeFocus = FocusNode();
+  // Existing code → (Arabic, English) competition name.
+  final Map<String, ({String ar, String en})> _codeMap = {};
   int? _seasonId;
   int? _ageId;
   bool _busy = false;
@@ -1295,6 +1302,18 @@ class _CompEditorState extends State<_CompEditor> {
     _code = TextEditingController(text: c?.code ?? '');
     _seasonId = c?.seasonId;
     _ageId = c?.ageGroupId;
+    for (final x in widget.comps) {
+      final code = (x.code ?? '').trim();
+      if (code.isNotEmpty && !_codeMap.containsKey(code)) {
+        _codeMap[code] = (ar: x.nameAr ?? '', en: x.nameEn ?? '');
+      }
+    }
+  }
+
+  // Fill the names from an existing code (no-op for a new code).
+  void _applyCode(String code) {
+    final hit = _codeMap[code.trim()];
+    if (hit != null) setState(() { _nameAr.text = hit.ar; _nameEn.text = hit.en; });
   }
 
   @override
@@ -1303,6 +1322,7 @@ class _CompEditorState extends State<_CompEditor> {
     _nameEn.dispose();
     _sector.dispose();
     _code.dispose();
+    _codeFocus.dispose();
     super.dispose();
   }
 
@@ -1387,7 +1407,61 @@ class _CompEditorState extends State<_CompEditor> {
       TextField(controller: _sector, style: _txt(), decoration: sDec(isAr ? 'القاهرة' : 'Cairo')),
       const SizedBox(height: 10),
       sLabel(isAr ? 'الرمز (اختياري)' : 'Code (optional)'),
-      TextField(controller: _code, style: _txt(), decoration: sDec('c001')),
+      // Typing filters existing codes; picking one (or typing a match) auto-fills
+      // the Arabic/English name from that competition. A new code just stays.
+      RawAutocomplete<String>(
+        textEditingController: _code,
+        focusNode: _codeFocus,
+        optionsBuilder: (v) {
+          final q = v.text.trim().toLowerCase();
+          final codes = _codeMap.keys;
+          return q.isEmpty ? codes : codes.where((c) => c.toLowerCase().contains(q));
+        },
+        onSelected: (code) { _applyCode(code); _codeFocus.unfocus(); },
+        fieldViewBuilder: (context, controller, focusNode, onSubmit) => TextField(
+          controller: controller,
+          focusNode: focusNode,
+          style: _txt(),
+          textDirection: TextDirection.ltr,
+          onChanged: _applyCode,
+          decoration: sDec('c001').copyWith(
+              suffixIcon: _codeMap.isEmpty ? null : Icon(Icons.arrow_drop_down, color: AppColors.hint)),
+          onSubmitted: (_) => onSubmit(),
+        ),
+        optionsViewBuilder: (context, onSelected, options) => Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            color: AppColors.cardBg,
+            elevation: 4,
+            borderRadius: BorderRadius.circular(10),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240, maxWidth: 360),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                children: [
+                  for (final o in options)
+                    InkWell(
+                      onTap: () => onSelected(o),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Row(children: [
+                          Text(o, style: TextStyle(color: AppColors.aqua, fontSize: 13, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(_codeMap[o]?.ar ?? '',
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: TextStyle(color: AppColors.white, fontSize: 12)),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
       const SizedBox(height: 14),
       _saveButton(_busy, _save, isAr),
       const SizedBox(height: 8),
