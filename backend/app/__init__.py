@@ -221,6 +221,85 @@ def _team_share_page(index_abs: str):
     return _render_share_page(index_abs, meta)
 
 
+def _player_share_meta(player_id: int) -> dict | None:
+    """Title (player name) + position/birth-year line + photo for a shared player
+    profile, or None when the player doesn't exist."""
+    from app.extensions import db
+    from app.models import Player
+
+    p = db.session.get(Player, player_id)
+    if p is None:
+        return None
+    name = (p.full_name_ar or p.full_name_en or "لاعب").strip()
+    bits = []
+    pos = (p.sub_position_ar or p.sub_position_en
+           or p.position_ar or p.position_en or "").strip()
+    if pos:
+        bits.append(pos)
+    if p.birth_year:
+        bits.append(f"مواليد {p.birth_year}")
+    return {"title": name, "description": " · ".join(bits) or "ملف لاعب",
+            "image": p.profile_pic_url or ""}
+
+
+def _player_share_page(index_abs: str):
+    """Player preview: name title, position + birth year, photo."""
+    from flask import request
+
+    try:
+        meta = _player_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta, og_type="profile")
+
+
+def _coach_share_meta(coach_id: int) -> dict | None:
+    """Title (coach name) + role + photo for a shared coach profile, or None when
+    the coach doesn't exist."""
+    from app.extensions import db
+    from app.models import Coach
+
+    c = db.session.get(Coach, coach_id)
+    if c is None:
+        return None
+    name = (c.full_name_ar or c.full_name_en or "مدرّب").strip()
+    # The most recent team role's label, else a generic "مدرّب".
+    role = ""
+    for tc in sorted(c.team_roles, key=lambda r: r.id, reverse=True):
+        role = (tc.role_ar or tc.role_en or "").strip()
+        if role:
+            break
+    return {"title": name, "description": role or "مدرّب",
+            "image": c.profile_pic_url or ""}
+
+
+def _coach_share_page(index_abs: str):
+    """Coach preview: name title, role, photo."""
+    from flask import request
+
+    try:
+        meta = _coach_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta, og_type="profile")
+
+
+# Static pages (no id) that still deserve their own card instead of the one
+# generic site card. Path (without slashes) → (title, description), both Arabic.
+_STATIC_SHARE = {
+    "competitions": ("البطولات", "كل بطولات الناشئين — المباريات والترتيب والإحصائيات"),
+    "clubs": ("الأندية", "دليل الأندية والأكاديميات المشاركة"),
+    "news": ("الأخبار", "آخر أخبار بطولات الناشئين"),
+    "venues": ("الملاعب", "دليل ملاعب المباريات ومواقعها على الخريطة"),
+    "more": ("المزيد", "المفضلة، تواصل معنا، ومعلومات عن التطبيق"),
+    "more/favourites": ("المفضلة", "بطولاتك وفرقك المفضّلة في مكان واحد"),
+    "contact": ("تواصل معنا", "طرق التواصل مع Youth Scores"),
+    "about": ("من نحن", "عن Youth Scores — منصّة متابعة بطولات كرة القدم للناشئين"),
+    "privacy-policy": ("سياسة الخصوصية", "سياسة الخصوصية في Youth Scores"),
+    "terms": ("الشروط والأحكام", "شروط استخدام Youth Scores"),
+}
+
+
 # SHA-256 signing-cert fingerprints for Android App Links (assetlinks.json). Two
 # certs verify the app: Google Play App Signing (Play Store installs) and the
 # upload key (a directly-installed release APK). Override via the
@@ -489,14 +568,27 @@ def create_app(config_name: str | None = None) -> Flask:
                 "news": _news_share_page,
                 "club": _club_share_page,
                 "team": _team_share_page,
+                "player": _player_share_page,
+                "coach": _coach_share_page,
             }
-            builder = _share_builders.get(path.strip("/"))
-            if builder is not None and not _is_tla3bny_host() and request.args.get("id"):
-                shared = builder(os.path.join(root, index))
-                if shared is not None:
-                    resp = app.response_class(shared, mimetype="text/html")
-                    resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
-                    return resp
+            page = path.strip("/")
+            shared = None
+            if not _is_tla3bny_host():
+                builder = _share_builders.get(page)
+                if builder is not None and request.args.get("id"):
+                    # A per-item page (…?id=…): name the item in the card.
+                    shared = builder(os.path.join(root, index))
+                elif page in _STATIC_SHARE:
+                    # A static section (venues, more, about…): its own fixed card.
+                    title, desc = _STATIC_SHARE[page]
+                    shared = _render_share_page(
+                        os.path.join(root, index),
+                        {"title": title, "description": desc},
+                    )
+            if shared is not None:
+                resp = app.response_class(shared, mimetype="text/html")
+                resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+                return resp
             # HTML shells must revalidate so a deploy's new asset hashes are
             # picked up promptly rather than served from a stale cache.
             resp = send_from_directory(root, index)
