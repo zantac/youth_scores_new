@@ -159,11 +159,12 @@ class AdminApi {
           .map((e) => EntryMatchRow.fromJson(e.cast<String, dynamic>()))
           .toList();
 
-  Future<List<String>> teamPlayers(String token, int teamId) async =>
+  Future<List<RosterPlayer>> teamPlayers(String token, int teamId) async =>
       ((await _get(token, '/api/admin/teams/$teamId/players'))['players']
                   as List? ??
               [])
-          .map((e) => e.toString())
+          .whereType<Map>()
+          .map((e) => RosterPlayer.fromJson(e.cast<String, dynamic>()))
           .toList();
 
   Future<List<String>> matchVenues(String token, int cid) async =>
