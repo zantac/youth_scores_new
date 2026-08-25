@@ -287,7 +287,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
             child: Row(children: [
               Expanded(
                 child: Text(
-                  [c.name, c.sector].where((x) => x.isNotEmpty).join(' · '),
+                  [c.name, c.age, c.sector].where((x) => x.isNotEmpty).join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: AppColors.white, fontSize: 12),

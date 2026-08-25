@@ -215,7 +215,7 @@ export interface AdminStats {
   matches: { total: number; played: number; remaining: number };
   averages: { goals_per_match: number; players_per_team: number; teams_per_competition: number };
   active_season: string | null;
-  competitions: { id: number; name: string; sector: string; played: number; total: number; followers: number }[];
+  competitions: { id: number; name: string; sector: string; age: string; played: number; total: number; followers: number }[];
   // "Most followed" — anonymous device follows, sorted desc, global (not scoped
   // by the season/competition filter).
   follows: {

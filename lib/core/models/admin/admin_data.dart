@@ -16,6 +16,7 @@ class StatComp {
   final int id;
   final String name;
   final String sector;
+  final String age;
   final int played;
   final int total;
   final int followers;
@@ -23,6 +24,7 @@ class StatComp {
     required this.id,
     required this.name,
     required this.sector,
+    this.age = '',
     required this.played,
     required this.total,
     this.followers = 0,
@@ -34,6 +36,7 @@ class StatComp {
         id: _i(j['id']),
         name: j['name']?.toString() ?? '',
         sector: j['sector']?.toString() ?? '',
+        age: j['age']?.toString() ?? '',
         played: _i(j['played']),
         total: _i(j['total']),
         followers: _i(j['followers']),

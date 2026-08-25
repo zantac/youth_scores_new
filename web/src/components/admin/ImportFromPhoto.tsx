@@ -7,6 +7,20 @@ import { matchFixtures } from '@/lib/ocr/matchFixtures';
 
 type Loc = { ar: string; en: string };
 const loc = (l?: Loc | null) => (l ? l.ar || l.en : '');
+// Show the club's own name with its competition alternative name alongside, like
+// the public/admin views (club = identity, alias appended). `name` already falls
+// back to the club name, so with no alternative only the club name shows.
+const teamLabel = (t?: { name?: Loc | null; club_name?: Loc | null }) => {
+  const name = loc(t?.name), club = loc(t?.club_name);
+  return club && club !== name ? `${club} — ${name}` : name;
+};
+// "باي" (bye) in a scanned fixture means the team rests that round — it is not a
+// real match, so such rows are dropped from the import.
+const isBye = (s?: string) => {
+  const n = (s || '').replace(/[ً-ْـ]/g, '')  // harakat + tatweel
+    .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').trim();
+  return n === 'باي';
+};
 const inputCls = 'w-full bg-darkBg border border-bdr rounded-lg px-2.5 py-2 text-text text-sm outline-none focus:border-aqua';
 const cellCls = 'bg-cardBg border border-bdr rounded px-2 py-1 text-text text-xs outline-none focus:border-aqua';
 
@@ -76,7 +90,7 @@ export default function ImportFromPhoto({
   const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId)) && planTotal > 0;
 
   const teamOpts = useMemo(
-    () => [...teams].sort((a, b) => loc(a.name).localeCompare(loc(b.name), 'ar')), [teams]);
+    () => [...teams].sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'ar')), [teams]);
   const teamCandidates = useMemo(
     () => teams.map(t => ({ id: t.id, names: [t.name.ar, t.name.en].filter(Boolean) })), [teams]);
 
@@ -107,8 +121,14 @@ export default function ImportFromPhoto({
       });
       const rec = reconstructFixtures(words, px.width);
       const matched = matchFixtures(rec.fixtures, teamCandidates, venues);
-      setWarnings(rec.warnings.filter(w => !w.includes('Round')));
-      const built: ReviewRow[] = matched.map(m => ({
+      // Drop "باي" (bye) rows — a resting team, not a match.
+      const played = matched.filter(m => !isBye(m.raw.home) && !isBye(m.raw.away));
+      const byes = matched.length - played.length;
+      setWarnings([
+        ...rec.warnings.filter(w => !w.includes('Round')),
+        ...(byes > 0 ? [`تم تجاهل ${byes} صفًّا يحتوي على «باي» (فريق مستريح).`] : []),
+      ]);
+      const built: ReviewRow[] = played.map(m => ({
         enabled: true,
         homeId: m.home.id ? String(m.home.id) : '',
         awayId: m.away.id ? String(m.away.id) : '',
@@ -311,13 +331,13 @@ export default function ImportFromPhoto({
                       <select value={r.homeId} onChange={e => setRow(i, { homeId: e.target.value, homeReview: false })}
                         className={`${inputCls} ${homeWarn ? 'border-gold' : ''}`}>
                         <option value="">— المضيف ⚠️</option>
-                        {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
+                        {teamOpts.map(t => <option key={t.id} value={t.id}>{teamLabel(t)}</option>)}
                       </select>
                       <span className="text-hint text-xs">×</span>
                       <select value={r.awayId} onChange={e => setRow(i, { awayId: e.target.value, awayReview: false })}
                         className={`${inputCls} ${awayWarn ? 'border-gold' : ''}`}>
                         <option value="">— الضيف ⚠️</option>
-                        {teamOpts.map(t => <option key={t.id} value={t.id}>{loc(t.name)}</option>)}
+                        {teamOpts.map(t => <option key={t.id} value={t.id}>{teamLabel(t)}</option>)}
                       </select>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
