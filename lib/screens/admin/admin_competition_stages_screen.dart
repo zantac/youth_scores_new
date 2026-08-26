@@ -484,8 +484,9 @@ class _GroupTeams extends StatefulWidget {
 
 class _GroupTeamsState extends State<_GroupTeams> {
   bool _loading = true;
+  bool _adding = false;
   List<MGroupTeam> _items = const [];
-  int? _pick;
+  final Set<int> _selected = {};
 
   @override
   void initState() {
@@ -510,18 +511,21 @@ class _GroupTeamsState extends State<_GroupTeams> {
     }
   }
 
-  Future<void> _add() async {
-    if (_pick == null) return;
+  Future<void> _addSelected() async {
+    if (_selected.isEmpty) return;
+    setState(() => _adding = true);
     try {
-      await widget.api.addGroupTeam(widget.token, widget.group.id, _pick!);
+      await widget.api.addGroupTeams(widget.token, widget.group.id, _selected.toList());
       if (!mounted) return;
-      setState(() => _pick = null);
+      _selected.clear();
       await _load();
       widget.onChanged();
     } catch (e) {
       if (!mounted) return;
       if (handleAdminError(context, e)) return;
       showAdminError(context, e);
+    } finally {
+      if (mounted) setState(() => _adding = false);
     }
   }
 
@@ -543,37 +547,86 @@ class _GroupTeamsState extends State<_GroupTeams> {
     final isAr = context.watch<AppProvider>().locale == 'ar';
     final taken = _items.map((e) => e.id).toSet();
     final available = widget.compTeams.where((t) => !taken.contains(t.id)).toList();
+    final allSelected =
+        available.isNotEmpty && available.every((t) => _selected.contains(t.id));
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Column(children: [
-        Row(children: [
-          Expanded(
-            child: DropdownButtonFormField<int>(
-              initialValue: _pick,
-              isExpanded: true,
-              isDense: true,
-              dropdownColor: AppColors.cardBg,
-              style: TextStyle(color: AppColors.white, fontSize: 12.5),
-              decoration: sDec(isAr ? '— أضف فريقًا —' : '— add a team —'),
-              items: [
-                for (final t in available)
-                  DropdownMenuItem(
-                    value: t.id,
-                    child: Text(t.nameAr?.isNotEmpty == true ? t.nameAr! : t.clubName,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              onChanged: (v) => setState(() => _pick = v),
+        if (available.isNotEmpty)
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
             ),
+            child: Column(children: [
+              // Select-all row.
+              InkWell(
+                onTap: () => setState(() {
+                  if (allSelected) {
+                    _selected.clear();
+                  } else {
+                    _selected.addAll(available.map((t) => t.id));
+                  }
+                }),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  child: Row(children: [
+                    Icon(allSelected ? Icons.check_box : Icons.check_box_outline_blank,
+                        size: 18, color: AppColors.aqua),
+                    const SizedBox(width: 8),
+                    Text(isAr ? 'تحديد الكل (${available.length})' : 'Select all (${available.length})',
+                        style: TextStyle(color: AppColors.hint, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ]),
+                ),
+              ),
+              const Divider(height: 1),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  children: [
+                    for (final t in available)
+                      InkWell(
+                        onTap: () => setState(() => _selected.contains(t.id)
+                            ? _selected.remove(t.id)
+                            : _selected.add(t.id)),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          child: Row(children: [
+                            Icon(
+                                _selected.contains(t.id)
+                                    ? Icons.check_box
+                                    : Icons.check_box_outline_blank,
+                                size: 18,
+                                color: _selected.contains(t.id) ? AppColors.aqua : AppColors.hint),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                  t.nameAr?.isNotEmpty == true ? t.nameAr! : t.clubName,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: AppColors.white, fontSize: 12.5)),
+                            ),
+                          ]),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: (_adding || _selected.isEmpty) ? null : _addSelected,
+                  style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.aqua, visualDensity: VisualDensity.compact),
+                  child: Text(_adding
+                      ? '…'
+                      : (isAr ? '+ إضافة المحدد (${_selected.length})' : '+ Add selected (${_selected.length})')),
+                ),
+              ),
+            ]),
           ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: _pick == null ? null : _add,
-            style: FilledButton.styleFrom(
-                backgroundColor: AppColors.aqua, visualDensity: VisualDensity.compact),
-            child: Text(isAr ? '+ إضافة' : '+ Add'),
-          ),
-        ]),
         if (_loading)
           const Padding(padding: EdgeInsets.all(8), child: LinearProgressIndicator())
         else if (_items.isEmpty)

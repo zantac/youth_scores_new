@@ -7,7 +7,7 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiCompetition, apiStages, apiCreateStage, apiUpdateStage, apiDeleteStage,
   apiCreateGroup, apiDeleteGroup, apiMoveGroup,
-  apiGroupTeams, apiAddGroupTeam, apiRemoveGroupTeam, apiCompTeamsManage,
+  apiGroupTeams, apiAddGroupTeams, apiRemoveGroupTeam, apiCompTeamsManage,
   STAGE_TYPE_LABEL,
   type MComp, type MStage, type MGroup, type MGroupTeam, type MTeam, type StageType,
 } from '@/lib/adminApi';
@@ -85,32 +85,52 @@ function GroupTeams({ token, group, compTeams, onChanged }: {
 }) {
   const [items, setItems] = useState<MGroupTeam[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [pick, setPick] = useState('');
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
   const reload = useCallback(() => {
     apiGroupTeams(token, group.id).then(setItems).catch(() => {});
   }, [token, group.id]);
   useEffect(() => { reload(); }, [reload]);
 
-  const add = async () => {
-    if (!pick) return;
-    setErr(null);
-    try { await apiAddGroupTeam(token, group.id, Number(pick)); setPick(''); reload(); onChanged(); }
+  const toggle = (id: number) =>
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Add all the checked teams in one request (server skips any already in).
+  const addSelected = async () => {
+    if (!selected.size) return;
+    setErr(null); setBusy(true);
+    try { await apiAddGroupTeams(token, group.id, [...selected]); setSelected(new Set()); reload(); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBusy(false); }
   };
   const remove = async (gt: MGroupTeam) => { await apiRemoveGroupTeam(token, gt.group_team_id); reload(); onChanged(); };
 
   const taken = new Set(items.map(i => i.id));
   const available = compTeams.filter(t => !taken.has(t.id));
+  const allSelected = available.length > 0 && available.every(t => selected.has(t.id));
 
   return (
     <div className="mt-2 space-y-2">
-      <div className="flex gap-2">
-        <select value={pick} onChange={e => setPick(e.target.value)} className={inputCls}>
-          <option value="">— أضف فريقًا —</option>
-          {available.map(t => <option key={t.id} value={t.id}>{t.name_ar || t.club_name}</option>)}
-        </select>
-        <button onClick={add} disabled={!pick} className="bg-aqua text-on-accent font-bold text-xs px-4 rounded-lg disabled:opacity-40 whitespace-nowrap">+ إضافة</button>
-      </div>
+      {available.length > 0 && (
+        <div className="border border-bdr rounded-lg p-1.5 space-y-1">
+          <label className="flex items-center gap-2 px-2 py-1 cursor-pointer border-b border-bdr/50">
+            <input type="checkbox" checked={allSelected}
+              onChange={() => setSelected(allSelected ? new Set() : new Set(available.map(t => t.id)))} />
+            <span className="text-hint text-[11px] font-bold">تحديد الكل ({available.length})</span>
+          </label>
+          <div className="max-h-44 overflow-auto space-y-0.5">
+            {available.map(t => (
+              <label key={t.id} className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-aqua/5 rounded">
+                <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
+                <span className="text-text text-xs truncate">{t.name_ar || t.club_name}</span>
+              </label>
+            ))}
+          </div>
+          <button onClick={addSelected} disabled={busy || !selected.size}
+            className="w-full bg-aqua text-on-accent font-bold text-xs py-1.5 rounded-lg disabled:opacity-40">
+            {busy ? '…' : `+ إضافة المحدد (${selected.size})`}
+          </button>
+        </div>
+      )}
       <Err e={err} />
       {items.length === 0 ? (
         <p className="text-hint text-[11px] text-center py-2">لا توجد فرق في المجموعة</p>
