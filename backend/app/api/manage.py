@@ -751,10 +751,31 @@ def add_group_team(gid: int):
     if g is None:
         return jsonify({"error": "المجموعة غير موجودة"}), 404
     j = request.get_json(silent=True) or {}
+    cid = g.stage.competition_id
+
+    # Bulk: {team_ids:[...]} adds several at once, silently skipping teams that
+    # aren't registered in the competition or are already in the group.
+    if j.get("team_ids") is not None:
+        added = []
+        for tid in j.get("team_ids") or []:
+            team = db.session.get(Team, tid)
+            if team is None:
+                continue
+            if not CompetitionTeam.query.filter_by(competition_id=cid, team_id=team.id).first():
+                continue
+            if GroupTeam.query.filter_by(group_id=gid, team_id=team.id).first():
+                continue
+            gt = GroupTeam(group_id=gid, team_id=team.id)
+            db.session.add(gt)
+            db.session.flush()
+            added.append({"group_team_id": gt.id, **_team_dto(team, cid)})
+        db.session.commit()
+        return jsonify({"teams": added}), 201
+
+    # Single (legacy): {team_id} with explicit validation errors.
     team = db.session.get(Team, j.get("team_id"))
     if team is None:
         return jsonify({"error": "اختر فريقًا"}), 400
-    cid = g.stage.competition_id
     if not CompetitionTeam.query.filter_by(competition_id=cid, team_id=team.id).first():
         return jsonify({"error": "الفريق غير مسجّل في هذه البطولة"}), 400
     if GroupTeam.query.filter_by(group_id=gid, team_id=team.id).first():

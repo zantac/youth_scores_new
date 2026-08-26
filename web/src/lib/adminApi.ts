@@ -422,6 +422,8 @@ export const apiMoveGroup = (t: string, gid: number, direction: 'up' | 'down') =
 
 export const apiGroupTeams = (t: string, gid: number) => get<{ teams: MGroupTeam[] }>(t, `/api/admin/groups/${gid}/teams`).then(d => d.teams);
 export const apiAddGroupTeam = (t: string, gid: number, teamId: number) => send<{ team: MGroupTeam }>(t, 'POST', `/api/admin/groups/${gid}/teams`, { team_id: teamId }).then(d => d.team);
+// Add several teams to a group at once (skips ones already in / not registered).
+export const apiAddGroupTeams = (t: string, gid: number, teamIds: number[]) => send<{ teams: MGroupTeam[] }>(t, 'POST', `/api/admin/groups/${gid}/teams`, { team_ids: teamIds }).then(d => d.teams);
 export const apiRemoveGroupTeam = (t: string, gtid: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/group-teams/${gtid}`);
 
 export const apiCompTeamsManage = (t: string, cid: number) => get<{ teams: MTeam[] }>(t, `/api/admin/competitions/${cid}/teams-manage`).then(d => d.teams);

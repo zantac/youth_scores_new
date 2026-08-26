@@ -490,6 +490,10 @@ class AdminApi {
   Future<void> addGroupTeam(String token, int gid, int teamId) =>
       _send(token, 'POST', '/api/admin/groups/$gid/teams', {'team_id': teamId});
 
+  // Add several teams to a group at once (server skips any already in / unregistered).
+  Future<void> addGroupTeams(String token, int gid, List<int> teamIds) =>
+      _send(token, 'POST', '/api/admin/groups/$gid/teams', {'team_ids': teamIds});
+
   Future<void> removeGroupTeam(String token, int groupTeamId) =>
       _send(token, 'DELETE', '/api/admin/group-teams/$groupTeamId');
 
