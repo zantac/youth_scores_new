@@ -5,8 +5,9 @@ import type { NewsItem } from '@/lib/types';
 
 // Fullscreen image with pinch / double-tap / wheel zoom and drag-to-pan. Pointer
 // events cover both touch and mouse; no external dependency. Zoom resets when the
-// photo changes.
-function ZoomableImage({ src }: { src: string }) {
+// photo changes. When not zoomed, a horizontal drag is treated as a swipe and
+// reported via onSwipe(+1 = next, -1 = prev) so the parent can change photo.
+function ZoomableImage({ src, onSwipe }: { src: string; onSwipe?: (dir: number) => void }) {
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -55,9 +56,17 @@ function ZoomableImage({ src }: { src: string }) {
     pts.current.delete(e.pointerId);
     if (pts.current.size < 2) pinch.current = null;
     if (pts.current.size === 0) {
+      const start = pan.current;
       pan.current = null;
       setActive(false);
-      if (scale <= 1) setPos({ x: 0, y: 0 });
+      if (scale <= 1) {
+        setPos({ x: 0, y: 0 });
+        // Not zoomed: a dominant horizontal drag navigates between photos.
+        if (start && onSwipe) {
+          const dx = e.clientX - start.x, dy = e.clientY - start.y;
+          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
+        }
+      }
     }
   };
 
@@ -87,6 +96,23 @@ export default function NewsDetail({ item, locale, onClose }: { item: NewsItem; 
   const photos = item.images?.length ? item.images : (item.image?.startsWith('http') ? [item.image] : []);
   const [photoIdx, setPhotoIdx] = useState<number | null>(null);
   const isAr = locale === 'ar';
+
+  // Move between photos while the fullscreen viewer is open; clamps at the ends.
+  const go = (dir: number) => setPhotoIdx(i =>
+    i === null ? i : Math.min(photos.length - 1, Math.max(0, i + dir)));
+
+  // Desktop keyboard: arrows navigate, Escape closes.
+  useEffect(() => {
+    if (photoIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'ArrowLeft') go(-1);
+      else if (e.key === 'Escape') setPhotoIdx(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [photoIdx, photos.length]);
+
   const title   = localize(item.title, locale);
   const details = localize(item.details, locale) || null;
 
@@ -139,15 +165,20 @@ export default function NewsDetail({ item, locale, onClose }: { item: NewsItem; 
             <span className="text-white/60 text-[11px]">قرّب بإصبعين أو اضغط مرتين</span>
             {photos.length > 1 && <span className="text-white text-sm">{photoIdx + 1} / {photos.length}</span>}
           </div>
-          <ZoomableImage key={photoIdx} src={photos[photoIdx]} />
-          {photos.length > 1 && (
+          <ZoomableImage key={photoIdx} src={photos[photoIdx]} onSwipe={photos.length > 1 ? go : undefined} />
+          {photos.length > 1 && <>
+            {/* Desktop arrows; hidden on touch where swipe is natural. */}
+            <button onClick={() => go(-1)} disabled={photoIdx === 0} aria-label="prev"
+              className="hidden sm:flex absolute left-2 top-1/2 -translate-y-1/2 h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white text-2xl disabled:opacity-25">‹</button>
+            <button onClick={() => go(1)} disabled={photoIdx === photos.length - 1} aria-label="next"
+              className="hidden sm:flex absolute right-2 top-1/2 -translate-y-1/2 h-11 w-11 items-center justify-center rounded-full bg-black/40 text-white text-2xl disabled:opacity-25">›</button>
             <div className="flex justify-center gap-2 pb-8">
               {photos.map((_, i) => (
                 <button key={i} onClick={() => setPhotoIdx(i)}
                   className={`rounded-full transition-all ${i === photoIdx ? 'bg-white w-4 h-2' : 'bg-white/40 w-2 h-2'}`} />
               ))}
             </div>
-          )}
+          </>}
         </div>
       )}
     </div>
