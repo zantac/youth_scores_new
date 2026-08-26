@@ -318,6 +318,17 @@ class _GroupsBlockState extends State<_GroupsBlock> {
     }
   }
 
+  Future<void> _moveGroup(int gid, String direction) async {
+    try {
+      await widget.api.moveGroup(_token, gid, direction);
+      widget.onChanged();
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      showAdminError(context, e);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAr = context.watch<AppProvider>().locale == 'ar';
@@ -391,6 +402,30 @@ class _GroupsBlockState extends State<_GroupsBlock> {
                         style: TextStyle(color: AppColors.hint, fontSize: 11)),
                   ]),
                 ),
+              ),
+              // Reorder — the standings + public group lists follow this order.
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                tooltip: isAr ? 'أعلى' : 'Up',
+                onPressed: widget.stage.groups.indexOf(g) == 0
+                    ? null
+                    : () => _moveGroup(g.id, 'up'),
+                icon: Icon(Icons.keyboard_arrow_up, size: 20,
+                    color: widget.stage.groups.indexOf(g) == 0 ? AppColors.hint : AppColors.aqua),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                tooltip: isAr ? 'أسفل' : 'Down',
+                onPressed: widget.stage.groups.indexOf(g) >= widget.stage.groups.length - 1
+                    ? null
+                    : () => _moveGroup(g.id, 'down'),
+                icon: Icon(Icons.keyboard_arrow_down, size: 20,
+                    color: widget.stage.groups.indexOf(g) >= widget.stage.groups.length - 1
+                        ? AppColors.hint : AppColors.aqua),
               ),
               InkWell(
                 onTap: () async {

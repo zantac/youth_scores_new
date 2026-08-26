@@ -214,7 +214,7 @@ def competition_data(competition_id: int) -> dict | None:
     groups_of: dict[int, list[Group]] = {}
     for g in (Group.query.join(Stage)
               .filter(Stage.competition_id == competition_id)
-              .order_by(Group.id).all()):
+              .order_by(Group.sort_order, Group.id).all()):
         for gt in GroupTeam.query.filter_by(group_id=g.id).all():
             groups_of.setdefault(gt.team_id, []).append(g)
 

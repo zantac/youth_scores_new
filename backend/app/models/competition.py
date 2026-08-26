@@ -122,6 +122,11 @@ class Group(TimestampMixin, db.Model):
     name_en: Mapped[str | None] = mapped_column(sa.String(80))
     name_ar: Mapped[str | None] = mapped_column(sa.String(80))
 
+    # Admin-controlled display order within the stage: the standings tables and
+    # the public group lists order by this (then id), so the admin's up/down
+    # arrangement is what everyone sees. Lower shows first.
+    sort_order: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
     stage: Mapped["Stage"] = relationship(back_populates="groups")
     entries: Mapped[list["GroupTeam"]] = relationship(
         back_populates="group", cascade="all, delete-orphan"

@@ -477,6 +477,10 @@ class AdminApi {
   Future<void> deleteGroup(String token, int gid) =>
       _send(token, 'DELETE', '/api/admin/groups/$gid');
 
+  // Reorder a group within its stage; the standings + public lists follow it.
+  Future<void> moveGroup(String token, int gid, String direction) =>
+      _send(token, 'POST', '/api/admin/groups/$gid/move', {'direction': direction});
+
   Future<List<MGroupTeam>> groupTeams(String token, int gid) async =>
       ((await _get(token, '/api/admin/groups/$gid/teams'))['teams'] as List? ?? [])
           .whereType<Map>()

@@ -6,7 +6,7 @@ import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiCompetition, apiStages, apiCreateStage, apiUpdateStage, apiDeleteStage,
-  apiCreateGroup, apiDeleteGroup,
+  apiCreateGroup, apiDeleteGroup, apiMoveGroup,
   apiGroupTeams, apiAddGroupTeam, apiRemoveGroupTeam, apiCompTeamsManage,
   STAGE_TYPE_LABEL,
   type MComp, type MStage, type MGroup, type MGroupTeam, type MTeam, type StageType,
@@ -151,6 +151,11 @@ function StageCard({ token, stage, compTeams, onChanged }: {
     try { await apiDeleteGroup(token, g.id); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
   };
+  const moveGroup = async (g: MGroup, direction: 'up' | 'down') => {
+    setErr(null);
+    try { await apiMoveGroup(token, g.id, direction); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+  };
   const removeStage = async () => {
     if (!confirm(`حذف مرحلة «${stage.name_ar}»؟`)) return;
     setErr(null);
@@ -199,7 +204,7 @@ function StageCard({ token, stage, compTeams, onChanged }: {
           {stage.groups.length === 0 && !addingGroup && (
             <p className="text-hint text-[11px]">بدون مجموعات — جدول واحد لكل فرق المرحلة</p>
           )}
-          {stage.groups.map(g => (
+          {stage.groups.map((g, i) => (
             <div key={g.id} className="bg-darkBg/50 border border-bdr rounded-xl p-2.5">
               <div className="flex items-center gap-2">
                 <button onClick={() => setOpenGroup(openGroup === g.id ? null : g.id)} className="flex-1 flex items-center gap-2 text-start">
@@ -207,6 +212,11 @@ function StageCard({ token, stage, compTeams, onChanged }: {
                   <span className="text-text text-xs font-bold">{g.name_ar || g.name_en}</span>
                   <span className="text-hint text-[10px]">({g.team_count} فريق)</span>
                 </button>
+                {/* Reorder — the standings + public group lists follow this order. */}
+                <button onClick={() => moveGroup(g, 'up')} disabled={i === 0}
+                  className="text-aqua text-xs font-bold px-1 disabled:opacity-25" title="أعلى">▲</button>
+                <button onClick={() => moveGroup(g, 'down')} disabled={i === stage.groups.length - 1}
+                  className="text-aqua text-xs font-bold px-1 disabled:opacity-25" title="أسفل">▼</button>
                 <button onClick={() => removeGroup(g)} className="text-loss text-[10px] font-bold">حذف</button>
               </div>
               {openGroup === g.id && <GroupTeams token={token} group={g} compTeams={compTeams} onChanged={onChanged} />}

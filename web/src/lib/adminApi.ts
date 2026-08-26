@@ -398,7 +398,7 @@ export const STAGE_TYPE_LABEL: Record<StageType, string> = {
   league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب',
 };
 export interface MGroup {
-  id: number; stage_id: number; name_ar: string | null; name_en: string | null; team_count: number;
+  id: number; stage_id: number; name_ar: string | null; name_en: string | null; sort_order: number; team_count: number;
 }
 export interface MStage {
   id: number; competition_id: number;
@@ -417,6 +417,8 @@ export const apiDeleteStage = (t: string, sid: number) => send<{ deleted: number
 export const apiCreateGroup = (t: string, sid: number, b: Record<string, unknown>) => send<{ group: MGroup }>(t, 'POST', `/api/admin/stages/${sid}/groups`, b).then(d => d.group);
 export const apiUpdateGroup = (t: string, gid: number, b: Record<string, unknown>) => send<{ group: MGroup }>(t, 'PATCH', `/api/admin/groups/${gid}`, b).then(d => d.group);
 export const apiDeleteGroup = (t: string, gid: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/groups/${gid}`);
+// Reorder a group within its stage; the standings + public group lists follow it.
+export const apiMoveGroup = (t: string, gid: number, direction: 'up' | 'down') => send<{ group: MGroup }>(t, 'POST', `/api/admin/groups/${gid}/move`, { direction });
 
 export const apiGroupTeams = (t: string, gid: number) => get<{ teams: MGroupTeam[] }>(t, `/api/admin/groups/${gid}/teams`).then(d => d.teams);
 export const apiAddGroupTeam = (t: string, gid: number, teamId: number) => send<{ team: MGroupTeam }>(t, 'POST', `/api/admin/groups/${gid}/teams`, { team_id: teamId }).then(d => d.team);
