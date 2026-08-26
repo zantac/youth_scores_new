@@ -404,9 +404,11 @@ function Competitions() {
   // When the chosen competition is split into areas (sectors), offer a sector
   // filter; the remaining dimension is then the age group.
   const compSector = (c: MComp) => c.sector_ar || c.sector_en || '';
+  // Only surface the sector filter after a specific competition is chosen (and
+  // only when that competition is actually split into areas) — hidden otherwise.
   const sectorNames = useMemo(
-    () => [...new Set(items
-      .filter(c => (!seasonFilter || c.season === seasonFilter) && (!nameFilter || compName(c) === nameFilter))
+    () => !nameFilter ? [] : [...new Set(items
+      .filter(c => (!seasonFilter || c.season === seasonFilter) && compName(c) === nameFilter)
       .map(compSector).filter(Boolean))].sort(),
     [items, seasonFilter, nameFilter]);
   useEffect(() => { if (sectorFilter && !sectorNames.includes(sectorFilter)) setSectorFilter(''); }, [sectorNames, sectorFilter]);
