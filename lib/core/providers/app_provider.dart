@@ -10,7 +10,7 @@ import '../models/follows.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 
-class AppProvider extends ChangeNotifier {
+class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   final _api = ApiService();
 
   // ── Locale ──────────────────────────────────────────────────────────────────
@@ -35,6 +35,8 @@ class AppProvider extends ChangeNotifier {
   String _deviceId = '';
 
   Future<void> init() async {
+    // Observe app lifecycle so news/venues (the config feed) refresh on resume.
+    WidgetsBinding.instance.addObserver(this);
     final prefs = await SharedPreferences.getInstance();
     _locale = prefs.getString('locale') ?? 'ar';
     _isDark = prefs.getBool('isDark') ?? true;
@@ -189,21 +191,45 @@ class AppProvider extends ChangeNotifier {
   bool        get loadingConfig => _loadingConfig;
   String?     get configError   => _configError;
 
-  Future<void> loadConfig() async {
-    _loadingConfig = true;
-    _configError   = null;
-    notifyListeners();
+  /// Loads the config feed (news, venues, app version, latest data URL). A
+  /// `silent` load (e.g. on app resume) keeps the current data on screen — no
+  /// spinner — and a failed fetch leaves it untouched; it just swaps in fresh
+  /// data on success so a newly added/edited news or venue appears.
+  Future<void> loadConfig({bool silent = false}) async {
+    if (!silent) {
+      _loadingConfig = true;
+      _configError   = null;
+      notifyListeners();
+    }
     try {
       _config      = await _api.fetchConfig();
       _configError = null;
       final serverCode = int.tryParse(_config?.appVersion?.versionCode ?? '0') ?? 0;
       _needsUpdate = serverCode > _appBuildNumber;
+      if (silent) notifyListeners();
     } catch (e) {
-      _configError = e.toString();
+      if (!silent) _configError = e.toString();
     } finally {
-      _loadingConfig = false;
-      notifyListeners();
+      if (!silent) {
+        _loadingConfig = false;
+        notifyListeners();
+      }
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Returning to the app: silently refresh news/venues (only once we already
+    // have data, so we never blank the first launch or fight the splash load).
+    if (state == AppLifecycleState.resumed && _config != null) {
+      loadConfig(silent: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   // ── Competition data ─────────────────────────────────────────────────────────
