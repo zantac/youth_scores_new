@@ -37,10 +37,13 @@ def deductions_of(competition_id: int) -> dict[int, int]:
 
 
 def groups_of(competition_id: int) -> list[Group]:
+    # Order by id (creation order), not name: names like «المجموعة 10» sort before
+    # «المجموعة 2» alphabetically. Groups are created in the intended order, and
+    # the competition serializer already lists them by id — so the standings match.
     return (
         Group.query.join(Stage)
         .filter(Stage.competition_id == competition_id)
-        .order_by(Group.name_ar)
+        .order_by(Group.id)
         .all()
     )
 
