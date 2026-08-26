@@ -95,14 +95,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsDark(d => { localStorage.setItem('isDark', String(!d)); return !d; });
   }, []);
 
-  const loadConfigInternal = useCallback(async () => {
-    setCfgL(true); setCfgErr(null);
-    try { setConfig(await fetchConfig()); }
-    catch (e) { setCfgErr(String(e)); }
-    finally { setCfgL(false); }
+  const loadConfigInternal = useCallback(async (silent = false) => {
+    // Silent (background) refresh keeps the current news/venues on screen — no
+    // loading spinner, and a failed fetch leaves the existing data untouched.
+    if (!silent) { setCfgL(true); setCfgErr(null); }
+    try { setConfig(await fetchConfig()); if (silent) setCfgErr(null); }
+    catch (e) { if (!silent) setCfgErr(String(e)); }
+    finally { if (!silent) setCfgL(false); }
   }, []);
 
   useEffect(() => { loadConfigInternal(); }, [loadConfigInternal]);
+
+  // Silently refresh news/venues (the config feed) when the tab regains focus,
+  // so a newly added/edited item appears without a manual page reload. Throttled
+  // so rapid tab switches don't spam the two config requests.
+  const lastCfgAt = useRef(0);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastCfgAt.current < 15000) return;
+      lastCfgAt.current = now;
+      loadConfigInternal(true);
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [loadConfigInternal]);
 
   // If the user already granted push permission on a past visit, silently
   // refresh this device's FCM token/subscription (tokens rotate over time).
