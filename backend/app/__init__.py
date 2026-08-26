@@ -43,11 +43,12 @@ _SHARE_STAT_ORDER = ["overview", "scorers", "assists", "cleansheets", "cards"]
 
 def _competition_share_meta(competition_id: int, tab: str | None,
                             stat: str | None = None) -> dict | None:
-    """Arabic title (name - age - sector) + the tab's description for the card,
-    or None when the competition doesn't exist. On the stats tab, an optional
-    ``stat`` sub-tab (scorers / assists / …) refines the description."""
+    """Arabic title (name - age - sector - season) + the tab's description for the
+    card, or None when the competition doesn't exist. The season is included since
+    every tab (matches / standings / stats) shows that season's data. On the stats
+    tab, an optional ``stat`` sub-tab (scorers / assists / …) refines the description."""
     from app.extensions import db
-    from app.models import AgeGroup, Competition
+    from app.models import AgeGroup, Competition, Season
 
     comp = db.session.get(Competition, competition_id)
     if comp is None:
@@ -59,7 +60,12 @@ def _competition_share_meta(competition_id: int, tab: str | None,
         if ag:
             age = (ag.name_ar or ag.name_en or "").strip()
     sector = (comp.sector_ar or comp.sector_en or "").strip()
-    title = " - ".join(p for p in (name, age, sector) if p) or name
+    season = ""
+    if comp.season_id:
+        s = db.session.get(Season, comp.season_id)
+        if s:
+            season = (s.name_ar or s.name_en or "").strip()
+    title = " - ".join(p for p in (name, age, sector, season) if p) or name
 
     key = (tab or "matches").lower()
     if key.isdigit():
@@ -74,6 +80,45 @@ def _competition_share_meta(competition_id: int, tab: str | None,
             s = _SHARE_STAT_ORDER[i] if 0 <= i < len(_SHARE_STAT_ORDER) else ""
         desc = _SHARE_STAT_AR.get(s, desc)
     return {"title": title, "description": desc}
+
+
+def _competition_team_share_meta(competition_id: int, team_id: int) -> dict | None:
+    """A team viewed inside a competition (…/competition?id=&team=): title is the
+    team's name in that competition + the season, description is the competition +
+    age, image is the club crest. None when either doesn't exist."""
+    from app.extensions import db
+    from app.models import AgeGroup, Club, Competition, CompetitionTeam, Season, Team
+
+    comp = db.session.get(Competition, competition_id)
+    team = db.session.get(Team, team_id)
+    if comp is None or team is None:
+        return None
+    club = db.session.get(Club, team.club_id) if team.club_id else None
+    # The name the team plays under in this competition: its entry's second name
+    # (academy/sponsor branding), else the club's own name.
+    ct = CompetitionTeam.query.filter_by(
+        competition_id=competition_id, team_id=team_id).first()
+    name = ((ct.name_ar or ct.name_en).strip() if ct and (ct.name_ar or ct.name_en) else "")
+    if not name and club:
+        name = (club.name_ar or club.name_en or "").strip()
+    name = name or "فريق"
+
+    season = ""
+    if comp.season_id:
+        s = db.session.get(Season, comp.season_id)
+        if s:
+            season = (s.name_ar or s.name_en or "").strip()
+    comp_name = (comp.name_ar or comp.name_en or "").strip()
+    age = ""
+    if comp.age_group_id:
+        ag = db.session.get(AgeGroup, comp.age_group_id)
+        if ag:
+            age = (ag.name_ar or ag.name_en or "").strip()
+    return {
+        "title": " - ".join(p for p in (name, season) if p) or name,
+        "description": " - ".join(p for p in (comp_name, age) if p),
+        "image": (club.logo_url or "") if club else "",
+    }
 
 
 def _abs_url(base: str, raw: str | None) -> str | None:
@@ -144,15 +189,24 @@ def _render_share_page(index_abs: str, meta: dict | None, og_type: str = "websit
 
 
 def _competition_share_page(index_abs: str):
-    """Competition preview: name + age title, tab description."""
+    """Competition preview: name + age title, tab description. When a team is
+    open (…&team=<id>), preview that team instead — name + season + crest."""
     from flask import request
 
     try:
-        meta = _competition_share_meta(
-            int(request.args.get("id", "")),
-            request.args.get("tab"), request.args.get("stat"))
+        cid = int(request.args.get("id", ""))
     except (TypeError, ValueError):
         return None
+    team = request.args.get("team")
+    if team:
+        try:
+            meta = _competition_team_share_meta(cid, int(team))
+        except (TypeError, ValueError):
+            meta = None
+        if meta is not None:
+            return _render_share_page(index_abs, meta, og_type="profile")
+        # An unknown team id falls back to the competition card below.
+    meta = _competition_share_meta(cid, request.args.get("tab"), request.args.get("stat"))
     return _render_share_page(index_abs, meta)
 
 
