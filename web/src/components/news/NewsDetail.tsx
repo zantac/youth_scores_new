@@ -7,7 +7,9 @@ import type { NewsItem } from '@/lib/types';
 // events cover both touch and mouse; no external dependency. Zoom resets when the
 // photo changes. When not zoomed, a horizontal drag is treated as a swipe and
 // reported via onSwipe(+1 = next, -1 = prev) so the parent can change photo.
-function ZoomableImage({ src, onSwipe }: { src: string; onSwipe?: (dir: number) => void }) {
+// Direction follows reading order: in RTL a right-swipe advances, in LTR a
+// left-swipe advances.
+function ZoomableImage({ src, rtl, onSwipe }: { src: string; rtl?: boolean; onSwipe?: (dir: number) => void }) {
   const [scale, setScale] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [active, setActive] = useState(false);
@@ -64,7 +66,8 @@ function ZoomableImage({ src, onSwipe }: { src: string; onSwipe?: (dir: number) 
         // Not zoomed: a dominant horizontal drag navigates between photos.
         if (start && onSwipe) {
           const dx = e.clientX - start.x, dy = e.clientY - start.y;
-          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) onSwipe(dx < 0 ? 1 : -1);
+          // LTR: swipe left (dx<0) = next. RTL: swipe right (dx>0) = next.
+          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) onSwipe((dx < 0 ? 1 : -1) * (rtl ? -1 : 1));
         }
       }
     }
@@ -165,7 +168,7 @@ export default function NewsDetail({ item, locale, onClose }: { item: NewsItem; 
             <span className="text-white/60 text-[11px]">قرّب بإصبعين أو اضغط مرتين</span>
             {photos.length > 1 && <span className="text-white text-sm">{photoIdx + 1} / {photos.length}</span>}
           </div>
-          <ZoomableImage key={photoIdx} src={photos[photoIdx]} onSwipe={photos.length > 1 ? go : undefined} />
+          <ZoomableImage key={photoIdx} src={photos[photoIdx]} rtl={isAr} onSwipe={photos.length > 1 ? go : undefined} />
           {photos.length > 1 && <>
             {/* Desktop arrows; hidden on touch where swipe is natural. */}
             <button onClick={() => go(-1)} disabled={photoIdx === 0} aria-label="prev"
