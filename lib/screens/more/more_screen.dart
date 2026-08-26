@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/services/review_service.dart';
 import '../admin/admin_login_screen.dart';
 import '../connect/connect_screen.dart';
 import '../favourites/favourites_screen.dart';
@@ -66,6 +67,16 @@ class MoreScreen extends StatelessWidget {
             subtitle: isAr ? 'أرسل النتائج وتواصل معنا' : 'Submit results and reach us',
             onTap: () => Navigator.push(
                 context, MaterialPageRoute(builder: (_) => const ConnectScreen())),
+          ),
+          const SizedBox(height: 10),
+          _MoreTile(
+            icon: Icons.star_rate_rounded,
+            iconColor: const Color(0xFFFFC107),
+            title: isAr ? 'قيّم التطبيق' : 'Rate the app',
+            subtitle: isAr
+                ? 'قيّمنا على متجر جوجل بلاي'
+                : 'Rate us on Google Play',
+            onTap: () => ReviewService.instance.openStoreListing(),
           ),
           const SizedBox(height: 10),
           _MoreTile(
