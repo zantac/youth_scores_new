@@ -37,10 +37,13 @@ def deductions_of(competition_id: int) -> dict[int, int]:
 
 
 def groups_of(competition_id: int) -> list[Group]:
+    # Order by the admin's sort_order (then id) — not name, where «المجموعة 10»
+    # would sort before «المجموعة 2» — so the standings follow the admin's
+    # up/down arrangement, matching the public group lists.
     return (
         Group.query.join(Stage)
         .filter(Stage.competition_id == competition_id)
-        .order_by(Group.name_ar)
+        .order_by(Group.sort_order, Group.id)
         .all()
     )
 

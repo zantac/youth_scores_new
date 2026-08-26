@@ -562,6 +562,7 @@ def _group_dto(g: Group):
     return {
         "id": g.id, "stage_id": g.stage_id,
         "name_ar": g.name_ar, "name_en": g.name_en,
+        "sort_order": g.sort_order,
         "team_count": GroupTeam.query.filter_by(group_id=g.id).count(),
     }
 
@@ -574,7 +575,8 @@ def _stage_dto(s: Stage):
         "carries_points": s.carries_points,
         "match_count": Match.query.filter_by(stage_id=s.id).count(),
         "groups": [_group_dto(g) for g in
-                   Group.query.filter_by(stage_id=s.id).order_by(Group.id).all()],
+                   Group.query.filter_by(stage_id=s.id)
+                   .order_by(Group.sort_order, Group.id).all()],
     }
 
 
@@ -666,10 +668,37 @@ def create_group(sid: int):
     j = request.get_json(silent=True) or {}
     if not (_str(j.get("name_ar")) or _str(j.get("name_en"))):
         return jsonify({"error": "اسم المجموعة مطلوب"}), 400
-    g = Group(stage_id=sid, name_ar=_str(j.get("name_ar")), name_en=_str(j.get("name_en")))
+    # New groups append at the end of the stage's order.
+    last = (db.session.query(sa.func.max(Group.sort_order))
+            .filter_by(stage_id=sid).scalar())
+    g = Group(stage_id=sid, name_ar=_str(j.get("name_ar")), name_en=_str(j.get("name_en")),
+              sort_order=(last + 1) if last is not None else 0)
     db.session.add(g)
     db.session.commit()
     return jsonify({"group": _group_dto(g)}), 201
+
+
+@manage_bp.post("/api/admin/groups/<int:gid>/move")
+@auth.role_required("editor")
+def move_group(gid: int):
+    """Move a group up or down within its stage by swapping order with the
+    adjacent group. Body: {direction: "up"|"down"}. The standings and public
+    group lists follow this order."""
+    g = db.session.get(Group, gid)
+    if g is None:
+        return jsonify({"error": "المجموعة غير موجودة"}), 404
+    direction = ((request.get_json(silent=True) or {}).get("direction") or "").lower()
+    if direction not in ("up", "down"):
+        return jsonify({"error": "direction must be up or down"}), 400
+    siblings = (Group.query.filter_by(stage_id=g.stage_id)
+                .order_by(Group.sort_order, Group.id).all())
+    idx = next((i for i, s in enumerate(siblings) if s.id == gid), -1)
+    swap = idx - 1 if direction == "up" else idx + 1
+    if 0 <= swap < len(siblings):
+        other = siblings[swap]
+        g.sort_order, other.sort_order = other.sort_order, g.sort_order
+        db.session.commit()
+    return jsonify({"group": _group_dto(g)})
 
 
 @manage_bp.patch("/api/admin/groups/<int:gid>")

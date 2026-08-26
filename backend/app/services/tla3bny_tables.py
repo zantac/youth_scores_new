@@ -87,7 +87,8 @@ def groups_of(cage: Tla3bnyCompetitionAge) -> list[Tla3bnyGroup]:
             Tla3bnyStage.competition_age_id == cage.id,
             Tla3bnyStage.type != _KNOCKOUT,
         )
-        .order_by(Tla3bnyGroup.name)
+        # By id (creation order), not name — «المجموعة 10» sorts before «المجموعة 2».
+        .order_by(Tla3bnyGroup.id)
         .all()
     )
 
