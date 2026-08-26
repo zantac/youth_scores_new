@@ -893,7 +893,15 @@ function calcTeamMatchStats(matches: Match[], teamId: string, homeOnly?: boolean
 
 function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, compTitle }: { teamId: string; matches: Match[]; teams: Team[]; locale: string; onClose: () => void; onTeamClick?: (id: string) => void; compTitle?: string }) {
   const router = useRouter();
-  const [tab, setTab] = useState(0);
+  const params = useSearchParams();
+  // The team's active sub-tab lives in the URL (?teamtab=squad) so it's shareable
+  // and reopens exactly. Other params (id, tab, team) are preserved.
+  const tab = teamTabIndexFromParam(params.get('teamtab'));
+  const setTab = (i: number) => {
+    const p = new URLSearchParams(params.toString());
+    p.set('teamtab', TEAM_TAB_SLUGS[i]);
+    router.replace(`/competition?${p.toString()}`, { scroll: false });
+  };
   const [statsSub, setStatsSub] = useState(0);
   const team = teams.find(t => t.id === teamId);
   const isAr = locale === 'ar';
@@ -1235,6 +1243,17 @@ function statIndexFromParam(raw: string | null): number {
   return Number.isInteger(n) && n >= 0 && n < STAT_SLUGS.length ? n : 0;
 }
 
+// The open team's sub-tabs (?teamtab=squad) so a team's Info/Squad/Matches/…
+// view within a competition is itself a shareable URL. Order matches TeamDetail.
+const TEAM_TAB_SLUGS = ['info', 'squad', 'matches', 'scorers', 'assists', 'stats'] as const;
+function teamTabIndexFromParam(raw: string | null): number {
+  if (!raw) return 0;
+  const named = (TEAM_TAB_SLUGS as readonly string[]).indexOf(raw.toLowerCase());
+  if (named >= 0) return named;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n < TEAM_TAB_SLUGS.length ? n : 0;
+}
+
 function CompetitionPageInner() {
   const params = useSearchParams();
   const router  = useRouter();
@@ -1250,7 +1269,11 @@ function CompetitionPageInner() {
       // The stats sub-tab only applies to the stats tab — drop it elsewhere.
       if (TAB_SLUGS[patch.tab] !== 'stats') p.delete('stat');
     }
-    if ('team' in patch) { if (patch.team) p.set('team', patch.team); else p.delete('team'); }
+    if ('team' in patch) {
+      if (patch.team) p.set('team', patch.team); else p.delete('team');
+      // Opening/closing/switching a team resets its own sub-tab.
+      p.delete('teamtab');
+    }
     router.replace(`/competition?${p.toString()}`, { scroll: false });
   };
 
