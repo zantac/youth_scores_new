@@ -43,11 +43,12 @@ _SHARE_STAT_ORDER = ["overview", "scorers", "assists", "cleansheets", "cards"]
 
 def _competition_share_meta(competition_id: int, tab: str | None,
                             stat: str | None = None) -> dict | None:
-    """Arabic title (name - age - sector) + the tab's description for the card,
-    or None when the competition doesn't exist. On the stats tab, an optional
-    ``stat`` sub-tab (scorers / assists / …) refines the description."""
+    """Arabic title (name - age - sector - season) + the tab's description for the
+    card, or None when the competition doesn't exist. The season is included since
+    every tab (matches / standings / stats) shows that season's data. On the stats
+    tab, an optional ``stat`` sub-tab (scorers / assists / …) refines the description."""
     from app.extensions import db
-    from app.models import AgeGroup, Competition
+    from app.models import AgeGroup, Competition, Season
 
     comp = db.session.get(Competition, competition_id)
     if comp is None:
@@ -59,7 +60,12 @@ def _competition_share_meta(competition_id: int, tab: str | None,
         if ag:
             age = (ag.name_ar or ag.name_en or "").strip()
     sector = (comp.sector_ar or comp.sector_en or "").strip()
-    title = " - ".join(p for p in (name, age, sector) if p) or name
+    season = ""
+    if comp.season_id:
+        s = db.session.get(Season, comp.season_id)
+        if s:
+            season = (s.name_ar or s.name_en or "").strip()
+    title = " - ".join(p for p in (name, age, sector, season) if p) or name
 
     key = (tab or "matches").lower()
     if key.isdigit():
