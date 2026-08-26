@@ -9,6 +9,7 @@ import '../models/competition_data_model.dart';
 import '../models/follows.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
+import '../services/review_service.dart';
 
 class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   final _api = ApiService();
@@ -37,6 +38,9 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> init() async {
     // Observe app lifecycle so news/venues (the config feed) refresh on resume.
     WidgetsBinding.instance.addObserver(this);
+    // Count this cold start so the Play in-app review prompt only appears once
+    // the user is genuinely engaged (see ReviewService).
+    ReviewService.instance.registerAppOpen();
     final prefs = await SharedPreferences.getInstance();
     _locale = prefs.getString('locale') ?? 'ar';
     _isDark = prefs.getBool('isDark') ?? true;

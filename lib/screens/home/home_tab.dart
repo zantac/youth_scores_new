@@ -10,6 +10,7 @@ import '../../core/models/follows.dart';
 import '../../core/models/home_match.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/review_service.dart';
 import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
 import '../../widgets/ads/feed_ad_card.dart';
@@ -60,6 +61,10 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _load();
     _startPolling();
+    // Ask an engaged user to rate the app once the home screen has settled.
+    // ReviewService self-gates (launch count + cooldown) and no-ops otherwise.
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => ReviewService.instance.maybePromptForReview());
   }
 
   @override
