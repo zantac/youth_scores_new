@@ -371,6 +371,7 @@ function Competitions() {
   const [editing, setEditing] = useState<MComp | null>(null);
   const [seasonFilter, setSeasonFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('');
   useEffect(() => { if (token) { apiSeasons(token).then(setSeasons); apiAgeGroups(token).then(setAges); } }, [token]);
 
   const compName = (c: MComp) => c.name_ar || c.name_en || '';
@@ -400,10 +401,21 @@ function Competitions() {
   // Drop a name filter that no longer exists in the newly-chosen season.
   useEffect(() => { if (nameFilter && !compNames.includes(nameFilter)) setNameFilter(''); }, [compNames, nameFilter]);
 
-  const shown = useMemo(() => items
-    .filter(c => (!seasonFilter || c.season === seasonFilter) && (!nameFilter || compName(c) === nameFilter))
-    .sort((a, b) => compareCompName(compName(a), compName(b)) || (a.age || '').localeCompare(b.age || '')),
+  // When the chosen competition is split into areas (sectors), offer a sector
+  // filter; the remaining dimension is then the age group.
+  const compSector = (c: MComp) => c.sector_ar || c.sector_en || '';
+  const sectorNames = useMemo(
+    () => [...new Set(items
+      .filter(c => (!seasonFilter || c.season === seasonFilter) && (!nameFilter || compName(c) === nameFilter))
+      .map(compSector).filter(Boolean))].sort(),
     [items, seasonFilter, nameFilter]);
+  useEffect(() => { if (sectorFilter && !sectorNames.includes(sectorFilter)) setSectorFilter(''); }, [sectorNames, sectorFilter]);
+
+  const shown = useMemo(() => items
+    .filter(c => (!seasonFilter || c.season === seasonFilter) && (!nameFilter || compName(c) === nameFilter)
+      && (!sectorFilter || compSector(c) === sectorFilter))
+    .sort((a, b) => compareCompName(compName(a), compName(b)) || (a.age || '').localeCompare(b.age || '')),
+    [items, seasonFilter, nameFilter, sectorFilter]);
 
   const add = async () => {
     setErr(null); setBusy(true);
@@ -442,17 +454,29 @@ function Competitions() {
       {seasonNames.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <Field label="الموسم">
-            <select value={seasonFilter} onChange={e => { setSeasonFilter(e.target.value); setNameFilter(''); }} className={inputCls}>
+            <select value={seasonFilter} onChange={e => { setSeasonFilter(e.target.value); setNameFilter(''); setSectorFilter(''); }} className={inputCls}>
               <option value="">كل المواسم</option>
               {seasonNames.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </Field>
           <Field label="البطولة">
-            <select value={nameFilter} onChange={e => setNameFilter(e.target.value)} className={inputCls}>
+            <select value={nameFilter} onChange={e => { setNameFilter(e.target.value); setSectorFilter(''); }} className={inputCls}>
               <option value="">كل البطولات</option>
               {compNames.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </Field>
+          {/* Only competitions split into areas (sectors) show this filter; the
+              remaining dimension is then the age group. */}
+          {sectorNames.length > 0 && (
+            <div className="col-span-2">
+              <Field label="القطاع">
+                <select value={sectorFilter} onChange={e => setSectorFilter(e.target.value)} className={inputCls}>
+                  <option value="">كل القطاعات</option>
+                  {sectorNames.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+            </div>
+          )}
         </div>
       )}
       <div className="space-y-2">

@@ -29,11 +29,12 @@ export default function CompetitionSelect({
   const selected = useMemo(() => options.find(o => o.id === value) ?? null, [options, value]);
   const [season, setSeason] = useState('');
   const [name, setName] = useState('');
+  const [sector, setSector] = useState('');
 
-  // Keep the two upper levels in step with an externally-set value (e.g. after
-  // an edit reselects the competition).
+  // Keep the upper levels in step with an externally-set value (e.g. after an
+  // edit reselects the competition).
   useEffect(() => {
-    if (selected) { setSeason(selected.season); setName(selected.name); }
+    if (selected) { setSeason(selected.season); setName(selected.name); setSector(selected.sector); }
   }, [selected]);
 
   // Newest season first (season names sort lexically, e.g. 2025-2026 < 2026-2027).
@@ -51,22 +52,36 @@ export default function CompetitionSelect({
     [options, season],
   );
   const variants = useMemo(
-    () => options.filter(o => o.season === season && o.name === name)
-      .sort((a, b) => (a.age || '').localeCompare(b.age || '')),
+    () => options.filter(o => o.season === season && o.name === name),
     [options, season, name],
   );
+  // A competition split into areas (sectors) shows an extra, optional sector
+  // filter; the age group is always the final dimension. No areas → no filter.
+  const sectors = useMemo(
+    () => [...new Set(variants.map(v => v.sector).filter(Boolean))].sort(), [variants]);
+  const hasSectors = sectors.length > 0;
+  const ages = useMemo(
+    () => variants.filter(v => !sector || v.sector === sector)
+      .sort((a, b) => (a.age || '').localeCompare(b.age || '')),
+    [variants, sector],
+  );
+  // Without a sector filter, disambiguate same ages across areas by appending
+  // the sector; once a sector is chosen the label is just the age.
+  const label = (o: CompOption) => sector
+    ? (o.age || o.name)
+    : ([o.age, o.sector].filter(Boolean).join(' · ') || o.name);
 
-  // Skip the third step when a name has a single age/sector.
+  // Skip the last step when there's a single option left.
   useEffect(() => {
-    if (name && variants.length === 1 && variants[0].id !== value) onChange(variants[0].id);
-  }, [variants, name, value, onChange]);
+    if (name && ages.length === 1 && ages[0].id !== value) onChange(ages[0].id);
+  }, [ages, name, value, onChange]);
 
-  const pickSeason = (s: string) => { setSeason(s); setName(''); onChange(null); };
-  const pickName = (n: string) => { setName(n); onChange(null); };
-  const label = (o: CompOption) => [o.age, o.sector].filter(Boolean).join(' · ') || o.name;
+  const pickSeason = (s: string) => { setSeason(s); setName(''); setSector(''); onChange(null); };
+  const pickName = (n: string) => { setName(n); setSector(''); onChange(null); };
+  const pickSector = (s: string) => { setSector(s); onChange(null); };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+    <div className={`grid grid-cols-1 gap-2 ${hasSectors ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
       <select value={season} onChange={e => pickSeason(e.target.value)} className={cls}>
         <option value="">الموسم</option>
         {seasons.map(s => <option key={s} value={s}>{s}</option>)}
@@ -75,10 +90,16 @@ export default function CompetitionSelect({
         <option value="">البطولة</option>
         {names.map(n => <option key={n} value={n}>{n}</option>)}
       </select>
+      {hasSectors && (
+        <select value={sector} onChange={e => pickSector(e.target.value)} disabled={!name} className={cls + ' disabled:opacity-50'}>
+          <option value="">كل القطاعات</option>
+          {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      )}
       <select value={value ?? ''} onChange={e => onChange(e.target.value ? Number(e.target.value) : null)}
         disabled={!name} className={cls + ' disabled:opacity-50'}>
         <option value="">المرحلة</option>
-        {variants.map(o => <option key={o.id} value={o.id}>{label(o)}</option>)}
+        {ages.map(o => <option key={o.id} value={o.id}>{label(o)}</option>)}
       </select>
     </div>
   );
