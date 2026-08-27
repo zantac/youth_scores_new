@@ -38,13 +38,14 @@
             </intent-filter>
             <!-- Android App Links: open shared youthscores.org content links
                  (competition / news / club / team) straight in the app instead of
-                 the browser. Verified against /.well-known/assetlinks.json on both
-                 the apex and www hosts. -->
+                 the browser. Verified against /.well-known/assetlinks.json on the
+                 www host — the only host that serves the app (the apex just
+                 redirects to www and cannot pass App Links verification, which
+                 does not follow redirects). -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="https" android:host="youthscores.org"/>
                 <data android:scheme="https" android:host="www.youthscores.org"/>
                 <data android:pathPrefix="/competition"/>
                 <data android:pathPrefix="/news"/>
