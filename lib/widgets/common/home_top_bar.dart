@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../screens/search/search_overlay.dart';
 
 const _bannerUrl =
@@ -26,7 +27,7 @@ class HomeTopBar extends StatelessWidget {
       children: [
         // ── Banner ─────────────────────────────────────────────────────────
         CachedNetworkImage(
-          imageUrl: _bannerUrl,
+          imageUrl: cloudinaryUrl(_bannerUrl, width: 1200),
           width: double.infinity,
           fit: BoxFit.fitWidth,
           errorWidget: (_, _, _) => const SizedBox.shrink(),

@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/comp_order.dart';
 import 'competition_ages_screen.dart';
 
@@ -86,8 +87,9 @@ class _CompetitionButton extends StatelessWidget {
           child: Row(
             children: [
               CachedNetworkImage(
-                imageUrl:
+                imageUrl: cloudinaryUrl(
                     'https://res.cloudinary.com/debq5s4sn/image/upload/v1783596194/Egyptian-FA-01_ehrgye.png',
+                    width: 128),
                 width: 52,
                 height: 52,
                 fit: BoxFit.contain,

@@ -8,6 +8,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/models/follows.dart';
 import '../../core/models/home_match.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/review_service.dart';
@@ -622,7 +623,7 @@ class _MiniNewsCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               child: thumb != null
                   ? CachedNetworkImage(
-                      imageUrl: thumb,
+                      imageUrl: cloudinaryUrl(thumb, width: 240),
                       width: 72,
                       height: 56,
                       fit: BoxFit.cover,

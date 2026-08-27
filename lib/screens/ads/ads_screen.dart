@@ -7,6 +7,7 @@ import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/safe_launch.dart';
 import '../../widgets/common/loading_widget.dart';
 
@@ -52,7 +53,7 @@ class AdsScreen extends StatelessWidget {
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(12)),
               child: CachedNetworkImage(
-                imageUrl: ad.image!,
+                imageUrl: cloudinaryUrl(ad.image!, width: 1200),
                 width: double.infinity,
                 fit: BoxFit.fitWidth,
                 errorWidget: (_, __, ___) => const SizedBox.shrink(),
