@@ -9,6 +9,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/safe_launch.dart';
 
 class AdInterstitialScreen extends StatefulWidget {
@@ -195,7 +196,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                 : null,
             child: (ad?.image != null && ad!.image!.startsWith('http'))
                 ? CachedNetworkImage(
-                    imageUrl: ad.image!,
+                    imageUrl: cloudinaryUrl(ad.image!, width: 1200),
                     fit: BoxFit.contain,
                     width: double.infinity,
                     height: double.infinity,

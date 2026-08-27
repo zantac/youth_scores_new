@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/date_utils.dart';
 
 class NewsCard extends StatelessWidget {
@@ -98,7 +99,7 @@ class NewsCard extends StatelessWidget {
                 borderRadius:
                     const BorderRadius.vertical(bottom: Radius.circular(12)),
                 child: CachedNetworkImage(
-                  imageUrl: thumb,
+                  imageUrl: cloudinaryUrl(thumb, width: 800),
                   height: 160,
                   fit: BoxFit.cover,
                   errorWidget: (_, _, _) => const SizedBox.shrink(),

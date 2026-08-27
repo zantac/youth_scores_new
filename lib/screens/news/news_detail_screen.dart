@@ -7,6 +7,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/date_utils.dart';
 
 class NewsDetailScreen extends StatelessWidget {
@@ -127,7 +128,7 @@ class _ImageGalleryState extends State<_ImageGallery> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
           child: CachedNetworkImage(
-            imageUrl: images[0],
+            imageUrl: cloudinaryUrl(images[0], width: 1000),
             fit: BoxFit.cover,
             errorWidget: (_, _, _) => const SizedBox.shrink(),
           ),
@@ -148,7 +149,7 @@ class _ImageGalleryState extends State<_ImageGallery> {
               itemBuilder: (_, i) => GestureDetector(
                 onTap: () => widget.onTap(i),
                 child: CachedNetworkImage(
-                  imageUrl: images[i],
+                  imageUrl: cloudinaryUrl(images[i], width: 800),
                   fit: BoxFit.cover,
                   errorWidget: (_, _, _) => Container(
                     color: AppColors.cardBg,
@@ -293,7 +294,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
               maxScale: 4.0,
               child: Center(
                 child: CachedNetworkImage(
-                  imageUrl: widget.urls[i],
+                  imageUrl: cloudinaryUrl(widget.urls[i], width: 1600),
                   fit: BoxFit.contain,
                   errorWidget: (_, _, _) => const Icon(
                     Icons.broken_image,

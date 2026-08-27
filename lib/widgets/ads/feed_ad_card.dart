@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
 import '../../core/services/api_service.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../core/utils/safe_launch.dart';
 
 /// A native sponsored card shown inline in the home feed as a flush 2:1 image,
@@ -64,7 +65,7 @@ class _FeedAdCardState extends State<FeedAdCard> {
               ? AspectRatio(
                   aspectRatio: 2,
                   child: CachedNetworkImage(
-                    imageUrl: ad.image!,
+                    imageUrl: cloudinaryUrl(ad.image!, width: 800),
                     fit: BoxFit.cover,
                     errorWidget: (_, _, _) => const SizedBox.shrink(),
                   ),

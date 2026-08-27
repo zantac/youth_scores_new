@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../core/constants/app_colors.dart';
+import '../../core/utils/cloudinary.dart';
 
 class CachedLogo extends StatelessWidget {
   final String? url;
@@ -29,7 +30,7 @@ class CachedLogo extends StatelessWidget {
     if (!validUrl) return _placeholder();
 
     return CachedNetworkImage(
-      imageUrl: url!,
+      imageUrl: cloudinaryUrl(url!, width: (size * 2).round()),
       width: size,
       height: size,
       fit: fit,

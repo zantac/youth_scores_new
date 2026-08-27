@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/l10n/app_l10n.dart';
 import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/cloudinary.dart';
 import '../../widgets/common/error_retry_widget.dart';
 import '../../widgets/common/loading_widget.dart';
 import '../competition/season_competitions_screen.dart';
@@ -82,7 +83,7 @@ class _SeasonButton extends StatelessWidget {
           child: Row(
             children: [
               CachedNetworkImage(
-                imageUrl: _seasonLogoUrl,
+                imageUrl: cloudinaryUrl(_seasonLogoUrl, width: 128),
                 width: 52,
                 height: 52,
                 fit: BoxFit.contain,
