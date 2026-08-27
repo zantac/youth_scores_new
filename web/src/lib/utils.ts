@@ -438,7 +438,8 @@ export function safeUrl(u: string | null | undefined): string | undefined {
  * plan. A no-op for non-Cloudinary URLs, or ones that already carry these flags,
  * so it is safe to wrap any <img src>.
  */
-export function cloudinaryUrl(src: string, width?: number): string {
+export function cloudinaryUrl(src: string | undefined | null, width?: number): string {
+  if (!src) return '';
   const marker = '/image/upload/';
   const at = src.indexOf(marker);
   if (at === -1 || !src.includes('res.cloudinary.com')) return src;

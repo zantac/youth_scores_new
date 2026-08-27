@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
-import { safeUrl } from '@/lib/utils';
+import { safeUrl, cloudinaryUrl } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
 // Where a feed-card tap goes: the explicit link, else the first contact. Each
@@ -50,7 +50,7 @@ export default function FeedAdCard({ ad }: { ad: AdItem }) {
     >
       {hasImage ? (
         // Purpose-built 2:1 creative, rendered flush like a match card.
-        <img src={ad.image} alt={ad.name} className="w-full aspect-[2/1] object-cover" />
+        <img src={cloudinaryUrl(ad.image, 800)} alt={ad.name} className="w-full aspect-[2/1] object-cover" />
       ) : (
         <p className="px-3 py-4 text-text font-bold text-sm leading-tight line-clamp-2">
           {ad.name}

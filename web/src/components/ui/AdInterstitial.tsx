@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
-import { safeUrl } from '@/lib/utils';
+import { safeUrl, cloudinaryUrl } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
 interface Props {
@@ -43,14 +43,14 @@ export default function AdInterstitial({ ad, onClose }: Props) {
         <a href={link} target="_blank" rel="noopener noreferrer" onClick={click}
           className="absolute inset-0 block">
           {hasImage
-            ? <img src={ad.image} alt={ad.name} className="w-full h-full object-contain" />
+            ? <img src={cloudinaryUrl(ad.image, 1200)} alt={ad.name} className="w-full h-full object-contain" />
             : <div className="w-full h-full bg-darkBg flex flex-col items-center justify-center gap-4 select-none">
                 <span className="text-8xl">📢</span>
                 <p className="text-teal text-base">إعلان · Advertisement</p>
               </div>}
         </a>
       ) : hasImage ? (
-        <img src={ad.image} alt={ad.name} className="absolute inset-0 w-full h-full object-contain" />
+        <img src={cloudinaryUrl(ad.image, 1200)} alt={ad.name} className="absolute inset-0 w-full h-full object-contain" />
       ) : (
         <div className="absolute inset-0 bg-darkBg flex flex-col items-center justify-center gap-4 select-none">
           <span className="text-8xl">📢</span>
