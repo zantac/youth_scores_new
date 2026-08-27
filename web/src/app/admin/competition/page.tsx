@@ -80,6 +80,19 @@ function StageForm({ token, cid, stage, onDone, onCancel }: {
 }
 
 // ── Group teams ───────────────────────────────────────────────────────────────
+// Show the club (original) name and, when it differs, the team's own alternative
+// name too — so admins can tell apart teams that share a club or use a nickname.
+function TeamLabel({ t, className }: { t: MTeam; className?: string }) {
+  const orig = t.club_name || t.name_ar || '';
+  const alt = t.name_ar && t.name_ar !== t.club_name ? t.name_ar : null;
+  return (
+    <span className={`${className ?? ''} text-xs truncate`.trim()}>
+      <span className="text-text">{orig}</span>
+      {alt && <span className="text-hint"> — {alt}</span>}
+    </span>
+  );
+}
+
 function GroupTeams({ token, group, compTeams, onChanged }: {
   token: string; group: MGroup; compTeams: MTeam[]; onChanged: () => void;
 }) {
@@ -121,7 +134,7 @@ function GroupTeams({ token, group, compTeams, onChanged }: {
             {available.map(t => (
               <label key={t.id} className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-aqua/5 rounded">
                 <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
-                <span className="text-text text-xs truncate">{t.name_ar || t.club_name}</span>
+                <TeamLabel t={t} />
               </label>
             ))}
           </div>
@@ -139,7 +152,7 @@ function GroupTeams({ token, group, compTeams, onChanged }: {
           {items.map(t => (
             <div key={t.group_team_id} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-lg px-3 py-1.5">
               {t.logo && <img src={t.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
-              <span className="flex-1 text-text text-xs truncate">{t.name_ar || t.club_name}</span>
+              <TeamLabel t={t} className="flex-1" />
               <button onClick={() => remove(t)} className="text-loss text-[11px] font-bold">إزالة</button>
             </div>
           ))}
