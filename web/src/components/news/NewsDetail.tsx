@@ -1,6 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { formatNewsDate, localize } from '@/lib/utils';
+import { formatNewsDate, localize, cloudinaryUrl } from '@/lib/utils';
 import type { NewsItem } from '@/lib/types';
 
 // Fullscreen image with pinch / double-tap / wheel zoom and drag-to-pan. Pointer
@@ -146,12 +146,12 @@ export default function NewsDetail({ item, locale, onClose }: { item: NewsItem; 
         {photos.length > 0 && (
           <div className="px-4 pb-8 pt-2">
             {photos.length === 1 ? (
-              <img src={photos[0]} alt={title} onClick={() => setPhotoIdx(0)}
+              <img src={cloudinaryUrl(photos[0], 1000)} alt={title} onClick={() => setPhotoIdx(0)}
                 className="mx-auto max-h-56 w-auto max-w-full rounded-2xl object-contain border border-bdr cursor-pointer" />
             ) : (
               <div dir={isAr ? 'rtl' : 'ltr'} className="flex gap-3 overflow-x-auto no-scrollbar py-1">
                 {photos.map((p, i) => (
-                  <img key={i} src={p} alt="" onClick={() => setPhotoIdx(i)}
+                  <img key={i} src={cloudinaryUrl(p, 800)} alt="" onClick={() => setPhotoIdx(i)}
                     className="h-56 w-auto max-w-[90%] rounded-2xl object-contain border border-bdr flex-shrink-0 cursor-pointer" />
                 ))}
               </div>
@@ -168,7 +168,7 @@ export default function NewsDetail({ item, locale, onClose }: { item: NewsItem; 
             <span className="text-white/60 text-[11px]">قرّب بإصبعين أو اضغط مرتين</span>
             {photos.length > 1 && <span className="text-white text-sm">{photoIdx + 1} / {photos.length}</span>}
           </div>
-          <ZoomableImage key={photoIdx} src={photos[photoIdx]} rtl={isAr} onSwipe={photos.length > 1 ? go : undefined} />
+          <ZoomableImage key={photoIdx} src={cloudinaryUrl(photos[photoIdx], 1600)} rtl={isAr} onSwipe={photos.length > 1 ? go : undefined} />
           {photos.length > 1 && <>
             {/* Desktop arrows; hidden on touch where swipe is natural. */}
             <button onClick={() => go(-1)} disabled={photoIdx === 0} aria-label="prev"

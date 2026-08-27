@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import NewsDetail from '@/components/news/NewsDetail';
-import { formatNewsDate, isRecent, localize } from '@/lib/utils';
+import { formatNewsDate, isRecent, localize, cloudinaryUrl } from '@/lib/utils';
 import type { NewsItem } from '@/lib/types';
 
 function NewsPageInner() {
@@ -77,7 +77,7 @@ function NewsPageInner() {
                 </div>
                 {/* Cover at the bottom of the card, shrunk to fit the width. */}
                 {thumb && (
-                  <img src={thumb} alt={localize(item.title, locale)} className="w-full h-40 object-cover" />
+                  <img src={cloudinaryUrl(thumb, 800)} alt={localize(item.title, locale)} className="w-full h-40 object-cover" />
                 )}
               </button>
             );
