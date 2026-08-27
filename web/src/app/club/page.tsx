@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import { fetchClub } from '@/lib/api';
-import { localize, safeUrl } from '@/lib/utils';
+import { localize, safeUrl, cloudinaryUrl } from '@/lib/utils';
 import type { ClubPublic } from '@/lib/types';
 
 export default function ClubPage() {
@@ -51,7 +51,7 @@ function ClubProfile() {
           {/* Hero */}
           <div className="relative overflow-hidden bg-gradient-to-b from-cardBg to-cardBg2 border-b border-bdr p-5 flex items-center gap-4">
             <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.14),transparent_65%)]" />
-            {c.logo ? <img src={c.logo} alt={name} className="relative w-20 h-20 rounded-2xl object-contain" /> : <div className="relative w-20 h-20 rounded-2xl grid place-items-center text-3xl">🛡️</div>}
+            {c.logo ? <img src={cloudinaryUrl(c.logo, 128)} alt={name} className="relative w-20 h-20 rounded-2xl object-contain" /> : <div className="relative w-20 h-20 rounded-2xl grid place-items-center text-3xl">🛡️</div>}
             <div className="relative min-w-0">
               <h1 className="text-xl font-extrabold truncate">{name}</h1>
               {localize(c.city, locale) && <p className="text-hint text-xs flex items-center gap-1 mt-1">📍 {localize(c.city, locale)}</p>}

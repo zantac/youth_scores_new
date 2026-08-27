@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { fetchClubs } from '@/lib/api';
-import { localize } from '@/lib/utils';
+import { localize, cloudinaryUrl } from '@/lib/utils';
 import type { ClubListItem } from '@/lib/types';
 
 export default function ClubsPage() {
@@ -46,7 +46,7 @@ export default function ClubsPage() {
               <button key={c.id} onClick={() => router.push(`/club?id=${c.id}`)}
                 className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                 {c.logo
-                  ? <img src={c.logo} alt="" className="w-10 h-10 object-contain rounded-lg bg-darkBg flex-shrink-0" />
+                  ? <img src={cloudinaryUrl(c.logo, 128)} alt="" className="w-10 h-10 object-contain rounded-lg bg-darkBg flex-shrink-0" />
                   : <div className="w-10 h-10 rounded-lg bg-darkBg grid place-items-center flex-shrink-0">🛡️</div>}
                 <div className="flex-1 min-w-0">
                   <p className="text-text text-sm font-bold truncate">{localize(c.name, locale)}</p>

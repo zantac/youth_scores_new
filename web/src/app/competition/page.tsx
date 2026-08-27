@@ -13,7 +13,7 @@ import type { Match, MatchSub, Team, StandingsBlock } from '@/lib/types';
 import {
   standingsByGroup, topScorers, topAssisters, cleanSheets,
   yellowCards, redCards, teamGoalStats, splitScorers,
-  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition, safeUrl,
+  formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition, safeUrl, cloudinaryUrl,
 } from '@/lib/utils';
 import { competitionDataUrl } from '@/lib/api';
 
@@ -211,7 +211,7 @@ function TeamsTab({ teams, locale, onTeamClick }: { teams: Team[]; locale: strin
           if (!multipleGroups || !g) {
             return ts.map(t => (
               <button key={t.id} onClick={() => onTeamClick(t.id)} className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-4 py-3 text-start">
-                {t.logo && <img src={t.logo} alt={localize(t.name, locale)} className="w-8 h-8 object-contain rounded" />}
+                {t.logo && <img src={cloudinaryUrl(t.logo, 128)} alt={localize(t.name, locale)} className="w-8 h-8 object-contain rounded" />}
                 {(() => { const { primary, alias } = teamNameLines(t, locale); return (
                   <span className="flex-1 min-w-0 flex flex-col leading-tight">
                     <span className="text-text text-sm truncate">{primary}</span>
@@ -235,7 +235,7 @@ function TeamsTab({ teams, locale, onTeamClick }: { teams: Team[]; locale: strin
                 <div className="bg-darkBg divide-y divide-bdr">
                   {ts.map(t => (
                     <button key={t.id} onClick={() => onTeamClick(t.id)} className="w-full flex items-center gap-3 px-4 py-3 text-start active:bg-aqua/5">
-                      {t.logo && <img src={t.logo} alt={localize(t.name, locale)} className="w-7 h-7 object-contain rounded" />}
+                      {t.logo && <img src={cloudinaryUrl(t.logo, 128)} alt={localize(t.name, locale)} className="w-7 h-7 object-contain rounded" />}
                       {(() => { const { primary, alias } = teamNameLines(t, locale); return (
                         <span className="flex-1 min-w-0 flex flex-col leading-tight">
                           <span className="text-text text-sm truncate">{primary}</span>
@@ -665,7 +665,7 @@ function MatchDetail({ match, teams, locale, onClose, onTeamClick }: { match: Ma
         <div className="absolute inset-x-0 top-0 h-24 bg-[radial-gradient(60%_100%_at_50%_0,rgb(var(--accent-rgb)/0.14),transparent_70%)] pointer-events-none" />
         <div className="relative flex items-center gap-3">
           <button className="flex-1 flex flex-col items-center gap-2 active:opacity-70" onClick={() => homeTeam && onTeamClick(homeTeam.id)}>
-            {homeTeam?.logo && <img src={homeTeam.logo} alt={homeName} className="w-14 h-14 object-contain drop-shadow-lg" />}
+            {homeTeam?.logo && <img src={cloudinaryUrl(homeTeam.logo, 128)} alt={homeName} className="w-14 h-14 object-contain drop-shadow-lg" />}
             <p className={`text-xs text-center font-bold ${homeWon ? 'text-gold' : 'text-text'}`}>{homeName}</p>
             <span className="text-hint text-[10px]">{isAr ? 'ديار' : 'Home'}</span>
           </button>
@@ -691,7 +691,7 @@ function MatchDetail({ match, teams, locale, onClose, onTeamClick }: { match: Ma
             <span className="text-hint text-[10px] mt-1">{match.date}</span>
           </div>
           <button className="flex-1 flex flex-col items-center gap-2 active:opacity-70" onClick={() => awayTeam && onTeamClick(awayTeam.id)}>
-            {awayTeam?.logo && <img src={awayTeam.logo} alt={awayName} className="w-14 h-14 object-contain drop-shadow-lg" />}
+            {awayTeam?.logo && <img src={cloudinaryUrl(awayTeam.logo, 128)} alt={awayName} className="w-14 h-14 object-contain drop-shadow-lg" />}
             <p className={`text-xs text-center font-bold ${awayWon ? 'text-gold' : 'text-text'}`}>{awayName}</p>
             <span className="text-hint text-[10px]">{isAr ? 'ضيف' : 'Away'}</span>
           </button>
@@ -956,7 +956,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
         <div className="absolute -right-8 -top-8 w-40 h-40 bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.12),transparent_65%)] pointer-events-none" />
         <button disabled={!team.clubId} onClick={() => team.clubId && router.push(`/club?id=${team.clubId}`)}
           className="relative w-full flex items-center gap-4 text-start disabled:cursor-default">
-          {team.logo && <img src={team.logo} alt={primary} className="w-16 h-16 object-contain rounded-xl drop-shadow-lg" />}
+          {team.logo && <img src={cloudinaryUrl(team.logo, 128)} alt={primary} className="w-16 h-16 object-contain rounded-xl drop-shadow-lg" />}
           <div>
             <p className="text-aqua font-extrabold text-lg">{primary}</p>
             {alias && <p className="text-text text-sm">{alias}</p>}

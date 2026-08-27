@@ -2,7 +2,7 @@
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import type { Match, Team } from '@/lib/types';
-import { formatMatchDate, countdownLabel, localize, teamNameLines } from '@/lib/utils';
+import { formatMatchDate, countdownLabel, localize, teamNameLines, cloudinaryUrl } from '@/lib/utils';
 
 interface Props {
   match: Match;
@@ -14,7 +14,7 @@ interface Props {
 
 function Logo({ url, name }: { url?: string; name: string }) {
   if (!url) return <div className="w-10 h-10 rounded-full bg-bdr flex items-center justify-center text-lg">⚽</div>;
-  return <Image src={url} alt={name} width={40} height={40} className="rounded object-contain" unoptimized />;
+  return <Image src={cloudinaryUrl(url, 128)} alt={name} width={40} height={40} className="rounded object-contain" unoptimized />;
 }
 
 export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick }: Props) {

@@ -5,7 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { fetchTeam } from '@/lib/api';
-import { localize, buildCompTitle } from '@/lib/utils';
+import { localize, buildCompTitle, cloudinaryUrl } from '@/lib/utils';
 import {
   followedCompetitions, unfollowCompetition,
   followedTeams, unfollowTeam,
@@ -135,7 +135,7 @@ export default function FavouritesPage() {
                       leading={
                         t?.logo
                           ? // eslint-disable-next-line @next/next/no-img-element
-                            <img src={t.logo} alt="" className="w-7 h-7 object-contain" />
+                            <img src={cloudinaryUrl(t.logo, 128)} alt="" className="w-7 h-7 object-contain" />
                           : <span className="text-lg">🛡️</span>
                       }
                       label={label}

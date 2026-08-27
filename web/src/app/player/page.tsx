@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchPlayer } from '@/lib/api';
-import { localize } from '@/lib/utils';
+import { localize, cloudinaryUrl } from '@/lib/utils';
 import type { PlayerFull } from '@/lib/types';
 
 export default function PlayerPage() {
@@ -115,7 +115,7 @@ function PlayerJourney() {
                     background so the card's gradient shows through unbroken. */}
                 <div className="relative w-24 flex-shrink-0 grid place-items-center p-2.5">
                   {c.logo
-                    ? <img src={c.logo} alt="" className="w-full h-full object-contain" />
+                    ? <img src={cloudinaryUrl(c.logo, 128)} alt="" className="w-full h-full object-contain" />
                     : <span className="text-3xl">🛡️</span>}
                 </div>
                 <div className="relative flex-1 min-w-0 p-3">
