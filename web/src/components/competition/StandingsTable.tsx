@@ -1,6 +1,6 @@
 'use client';
 import type { Standing, Team, Match } from '@/lib/types';
-import { teamForm, localize, teamNameLines } from '@/lib/utils';
+import { teamForm, localize, teamNameLines, cloudinaryUrl } from '@/lib/utils';
 
 interface Props {
   standings: Standing[];
@@ -57,7 +57,7 @@ export default function StandingsTable({ standings, teams, matches, locale, onTe
                 <td className="py-1.5 px-2">
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-1.5">
-                      {team?.logo && <img src={team.logo} alt={localize(team.name, locale)} className="w-5 h-5 object-contain rounded" />}
+                      {team?.logo && <img src={cloudinaryUrl(team.logo, 128)} alt={localize(team.name, locale)} className="w-5 h-5 object-contain rounded" />}
                       <span className="min-w-0 flex flex-col leading-tight">
                         <span className={`truncate ${isTop ? 'text-gold font-bold' : 'text-text'}`}>{primary}</span>
                         {alias && <span className="truncate text-hint text-[10px]">{alias}</span>}

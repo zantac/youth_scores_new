@@ -427,6 +427,28 @@ export function safeUrl(u: string | null | undefined): string | undefined {
   return undefined;
 }
 
+// ── Cloudinary delivery optimization ────────────────────────────────────────
+
+/**
+ * Rewrite a Cloudinary delivery URL to request an auto-optimized variant by
+ * inserting transformation flags after "/image/upload/": f_auto (best format the
+ * browser supports), q_auto (auto quality) and, when given, a width cap with
+ * c_limit (shrinks large originals, never upscales). Typically cuts delivered
+ * bytes 30–60% — which directly stretches Cloudinary's bandwidth-metered free
+ * plan. A no-op for non-Cloudinary URLs, or ones that already carry these flags,
+ * so it is safe to wrap any <img src>.
+ */
+export function cloudinaryUrl(src: string | undefined | null, width?: number): string {
+  if (!src) return '';
+  const marker = '/image/upload/';
+  const at = src.indexOf(marker);
+  if (at === -1 || !src.includes('res.cloudinary.com')) return src;
+  const firstSeg = src.slice(at + marker.length).split('/')[0];
+  if (/(^|,)(f_auto|q_auto)(,|$)/.test(firstSeg)) return src;  // already optimized
+  const flags = width ? `f_auto,q_auto,w_${width},c_limit` : 'f_auto,q_auto';
+  return `${src.slice(0, at + marker.length)}${flags}/${src.slice(at + marker.length)}`;
+}
+
 /**
  * Whether an ad is still live: no expiry, or a parseable expiry still in the
  * future. An unparseable date is treated as non-expiring (fail open) rather than

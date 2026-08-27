@@ -7,7 +7,7 @@ import FollowButton from '@/components/ui/FollowButton';
 import Spinner from '@/components/ui/Spinner';
 import JerseyNumber from '@/components/ui/JerseyNumber';
 import { fetchTeam } from '@/lib/api';
-import { localize, teamNameLines, groupRosterByPosition } from '@/lib/utils';
+import { localize, teamNameLines, groupRosterByPosition, cloudinaryUrl } from '@/lib/utils';
 import type { TeamPublic } from '@/lib/types';
 
 export default function TeamPage() {
@@ -60,7 +60,7 @@ function TeamProfile() {
           <div className="relative overflow-hidden bg-gradient-to-b from-cardBg to-cardBg2 border-b border-bdr p-5 flex items-center gap-4">
             <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.14),transparent_65%)]" />
             {t.logo
-              ? <img src={t.logo} alt="" className="relative w-16 h-16 rounded-2xl object-contain" />
+              ? <img src={cloudinaryUrl(t.logo, 128)} alt="" className="relative w-16 h-16 rounded-2xl object-contain" />
               : <div className="relative w-16 h-16 rounded-2xl grid place-items-center text-2xl">🛡️</div>}
             <div className="relative min-w-0">
               <h1 onClick={() => router.push(`/club?id=${t.club.id}`)}

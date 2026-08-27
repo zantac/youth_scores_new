@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import MatchesFeed from '@/components/home/MatchesFeed';
 import NewsDetail from '@/components/news/NewsDetail';
-import { getCompName, formatNewsDate, isRecent, localize, groupKey, buildCompTitle } from '@/lib/utils';
+import { getCompName, formatNewsDate, isRecent, localize, groupKey, buildCompTitle, cloudinaryUrl } from '@/lib/utils';
 import type { NewsItem } from '@/lib/types';
 
 const PLAY_STORE = 'https://play.google.com/store/apps/details?id=com.waellotfy.youthscores&pcampaignid=web_share';
@@ -104,7 +104,7 @@ function MiniNewsCard({ item, locale, onClick }: { item: NewsItem; locale: strin
   return (
     <button onClick={onClick} className="w-full bg-cardBg border border-bdr rounded-xl overflow-hidden text-start flex gap-3 p-3 active:opacity-75">
       {thumb
-        ? <img src={thumb} alt={localize(item.title, locale)} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
+        ? <img src={cloudinaryUrl(thumb, 240)} alt={localize(item.title, locale)} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
         : <div className="w-20 h-16 bg-darkBg rounded-lg flex-shrink-0 flex items-center justify-center text-2xl">📰</div>
       }
       <div className="flex-1 min-w-0 flex flex-col justify-between">
