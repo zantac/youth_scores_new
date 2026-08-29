@@ -222,17 +222,34 @@ export interface MatchFull {
   lineup?: MatchLineup | null;
 }
 
-export interface PlayerCareerComp { name: string | Localized; goals: number; assists: number; appearances: number; }
+export interface PlayerCareerComp {
+  name: string | Localized; goals: number; assists: number; appearances: number;
+  yellow_cards?: number; red_cards?: number; clean_sheets?: number;
+}
 export interface PlayerCareer {
   club: string; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
-  goals: number; assists: number; appearances: number;
+  goals: number; assists: number; appearances: number; yellow_cards?: number; red_cards?: number; clean_sheets?: number;
   current: boolean; end_date?: string | null; status: string;
   competitions: PlayerCareerComp[];
+}
+export interface PlayerSeasonStats {
+  season: Localized | null;
+  appearances: number; goals: number; assists: number; yellow_cards: number; red_cards: number; clean_sheets?: number;
+}
+export interface PlayerMatch {
+  id: number; date: string; status: string; competition: Localized;
+  side: 'home' | 'away';
+  home: { name: Localized; logo: string | null };
+  away: { name: Localized; logo: string | null };
+  home_score: number | null; away_score: number | null;
+  goals: number; assists: number; yellow_cards: number; red_cards: number; clean_sheet?: boolean;
 }
 export interface PlayerFull {
   id: number; name: Localized; position: Localized | null; sub_position: Localized | null; birth_year: number;
   nationality: Localized | null; photo: string | null; current_club: string | null;
-  goals: number; assists: number; appearances: number; career: PlayerCareer[];
+  goals: number; assists: number; appearances: number; yellow_cards?: number; red_cards?: number; clean_sheets?: number;
+  is_goalkeeper?: boolean;
+  current_season?: PlayerSeasonStats; career: PlayerCareer[]; matches?: PlayerMatch[];
 }
 
 export interface PlayerStat {
