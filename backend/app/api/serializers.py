@@ -681,6 +681,26 @@ def player_full(p) -> dict:
         .group_by(MatchPlayer.team_id, Stage.competition_id)
         .all()
     )
+    # Clean sheets: appearances where the player's team conceded nothing — the
+    # opponent's score is 0 for the side he played on. Meaningful for keepers.
+    cs_rows = (
+        MatchPlayer.query
+        .join(Match, Match.id == MatchPlayer.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(
+            MatchPlayer.player_id == p.id,
+            MatchPlayer.role != "called",
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+            sa.or_(
+                sa.and_(MatchPlayer.team_id == Match.home_team_id, Match.away_score == 0),
+                sa.and_(MatchPlayer.team_id == Match.away_team_id, Match.home_score == 0),
+            ),
+        )
+        .with_entities(MatchPlayer.team_id, Stage.competition_id, sa.func.count())
+        .group_by(MatchPlayer.team_id, Stage.competition_id)
+        .all()
+    )
     # Cards by (team, competition, type). A plain 'yellow' is a booking; a
     # 'second_yellow' or 'red' is a dismissal, counted as a red.
     card_rows = (
@@ -702,6 +722,7 @@ def player_full(p) -> dict:
     goals_tc:   dict[tuple, int] = {(r[0], r[1]): r[2] for r in goal_rows}
     assists_tc: dict[tuple, int] = {(r[0], r[1]): r[2] for r in assist_rows}
     apps_tc:    dict[tuple, int] = {(r[0], r[1]): r[2] for r in app_rows}
+    cs_tc:      dict[tuple, int] = {(r[0], r[1]): r[2] for r in cs_rows}
     yellows_tc: dict[tuple, int] = defaultdict(int)
     reds_tc:    dict[tuple, int] = defaultdict(int)
     for tid, cid, ctype, n in card_rows:
@@ -712,6 +733,14 @@ def player_full(p) -> dict:
     total_appearances = sum(apps_tc.values())
     total_yellow      = sum(yellows_tc.values())
     total_red         = sum(reds_tc.values())
+    total_clean       = sum(cs_tc.values())
+
+    # A goalkeeper by his profile position (same match the roster grouping uses:
+    # Arabic ى/ي tolerant, else English) — the clients only surface clean sheets
+    # for keepers.
+    _pos_ar = (p.position_ar or "").strip().replace("ى", "ي")
+    _pos_en = (p.position_en or "").strip().lower()
+    is_goalkeeper = _pos_ar == "حارس مرمي" or _pos_en == "goalkeeper"
 
     # Competition names — one query for all IDs seen across the three result sets.
     all_comp_ids = (
@@ -785,6 +814,7 @@ def player_full(p) -> dict:
                     "appearances":  apps_tc.get((tid, cid), 0),
                     "yellow_cards": yellows_tc.get((tid, cid), 0),
                     "red_cards":    reds_tc.get((tid, cid), 0),
+                    "clean_sheets": cs_tc.get((tid, cid), 0),
                 }
                 for cid in cids
             ], key=lambda x: -x["appearances"])
@@ -796,6 +826,7 @@ def player_full(p) -> dict:
                 "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in cids),
                 "yellow_cards": sum(yellows_tc.get((tid, cid), 0) for cid in cids),
                 "red_cards":    sum(reds_tc.get((tid, cid), 0)    for cid in cids),
+                "clean_sheets": sum(cs_tc.get((tid, cid), 0)      for cid in cids),
                 "current":      False,
                 "end_date":     None,
                 "competitions": competitions,
@@ -830,7 +861,7 @@ def player_full(p) -> dict:
     # the player featured in that season (zeros when there's no active season, or
     # he hasn't played in it yet).
     active_season = next((s for s in all_seasons if s.is_active), None)
-    cur_ap = cur_g = cur_a = cur_y = cur_r = 0
+    cur_ap = cur_g = cur_a = cur_y = cur_r = cur_cs = 0
     if active_season is not None:
         for (tid, cid) in pairs:
             cs = comp_season.get(cid)
@@ -840,6 +871,7 @@ def player_full(p) -> dict:
                 cur_a  += assists_tc.get((tid, cid), 0)
                 cur_y  += yellows_tc.get((tid, cid), 0)
                 cur_r  += reds_tc.get((tid, cid), 0)
+                cur_cs += cs_tc.get((tid, cid), 0)
     current_season = {
         "season": (_loc(active_season.name_ar, active_season.name_en)
                    if active_season else None),
@@ -848,6 +880,7 @@ def player_full(p) -> dict:
         "assists":      cur_a,
         "yellow_cards": cur_y,
         "red_cards":    cur_r,
+        "clean_sheets": cur_cs,
     }
 
     return {
@@ -860,14 +893,16 @@ def player_full(p) -> dict:
         "nationality":  _loc(p.nationality_ar, p.nationality_en),
         "photo":        p.profile_pic_url,
         "current_club": current["club"] if current else None,
-        "goals":        total_goals,
-        "assists":      total_assists,
-        "appearances":  total_appearances,
-        "yellow_cards": total_yellow,
-        "red_cards":    total_red,
+        "goals":         total_goals,
+        "assists":       total_assists,
+        "appearances":   total_appearances,
+        "yellow_cards":  total_yellow,
+        "red_cards":     total_red,
+        "clean_sheets":  total_clean,
+        "is_goalkeeper": is_goalkeeper,
         "current_season": current_season,
-        "career":       career,
-        "matches":      _player_matches(p),
+        "career":        career,
+        "matches":       _player_matches(p),
     }
 
 
@@ -914,13 +949,15 @@ def _player_matches(p) -> list[dict]:
     for r in rows:
         m = r.match
         comp = m.stage.competition if m.stage else None
+        home_side = r.team_id == m.home_team_id
+        conceded = m.away_score if home_side else m.home_score
         out.append({
             "id":           m.id,
             "date":         m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
             "status":       STATUS_OUT.get(m.status, "upcoming"),
             "competition":  (_loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""}
                              if comp else {"ar": "", "en": ""}),
-            "side":         "home" if r.team_id == m.home_team_id else "away",
+            "side":         "home" if home_side else "away",
             "home":         {"name": _team_name(m.home_team), "logo": m.home_team.club.logo_url},
             "away":         {"name": _team_name(m.away_team), "logo": m.away_team.club.logo_url},
             "home_score":   m.home_score,
@@ -929,6 +966,7 @@ def _player_matches(p) -> list[dict]:
             "assists":      assists_m.get(m.id, 0),
             "yellow_cards": yellow_m.get(m.id, 0),
             "red_cards":    red_m.get(m.id, 0),
+            "clean_sheet":  conceded == 0,
         })
     out.sort(key=lambda x: x["date"], reverse=True)
     return out
