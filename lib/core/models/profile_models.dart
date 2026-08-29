@@ -17,6 +17,7 @@ class PlayerCareerComp {
   final int appearances;
   final int yellowCards;
   final int redCards;
+  final int cleanSheets;
   const PlayerCareerComp({
     this.name = const {},
     this.goals = 0,
@@ -24,6 +25,7 @@ class PlayerCareerComp {
     this.appearances = 0,
     this.yellowCards = 0,
     this.redCards = 0,
+    this.cleanSheets = 0,
   });
 
   String getName(String locale) => pickLocale(name, locale);
@@ -35,6 +37,7 @@ class PlayerCareerComp {
         appearances: _int(j['appearances']),
         yellowCards: _int(j['yellow_cards']),
         redCards: _int(j['red_cards']),
+        cleanSheets: _int(j['clean_sheets']),
       );
 }
 
@@ -46,6 +49,7 @@ class PlayerSeasonStats {
   final int assists;
   final int yellowCards;
   final int redCards;
+  final int cleanSheets;
   const PlayerSeasonStats({
     this.season,
     this.appearances = 0,
@@ -53,6 +57,7 @@ class PlayerSeasonStats {
     this.assists = 0,
     this.yellowCards = 0,
     this.redCards = 0,
+    this.cleanSheets = 0,
   });
 
   String? seasonName(String locale) {
@@ -61,7 +66,8 @@ class PlayerSeasonStats {
   }
 
   bool get isEmpty =>
-      appearances == 0 && goals == 0 && assists == 0 && yellowCards == 0 && redCards == 0;
+      appearances == 0 && goals == 0 && assists == 0 && yellowCards == 0 &&
+      redCards == 0 && cleanSheets == 0;
 
   factory PlayerSeasonStats.fromJson(Map<String, dynamic> j) => PlayerSeasonStats(
         season: localizedMapOrNull(j['season']),
@@ -70,6 +76,7 @@ class PlayerSeasonStats {
         assists: _int(j['assists']),
         yellowCards: _int(j['yellow_cards']),
         redCards: _int(j['red_cards']),
+        cleanSheets: _int(j['clean_sheets']),
       );
 }
 
@@ -98,6 +105,7 @@ class PlayerMatch {
   final int assists;
   final int yellowCards;
   final int redCards;
+  final bool cleanSheet;
   const PlayerMatch({
     required this.id,
     this.date = '',
@@ -112,6 +120,7 @@ class PlayerMatch {
     this.assists = 0,
     this.yellowCards = 0,
     this.redCards = 0,
+    this.cleanSheet = false,
   });
 
   String competitionName(String locale) => pickLocale(competition, locale);
@@ -132,6 +141,7 @@ class PlayerMatch {
         assists: _int(j['assists']),
         yellowCards: _int(j['yellow_cards']),
         redCards: _int(j['red_cards']),
+        cleanSheet: j['clean_sheet'] == true,
       );
 }
 
@@ -146,6 +156,7 @@ class PlayerCareerEntry {
   final int appearances;
   final int yellowCards;
   final int redCards;
+  final int cleanSheets;
   final bool current;
   final String? endDate;
   final String status;
@@ -161,6 +172,7 @@ class PlayerCareerEntry {
     this.appearances = 0,
     this.yellowCards = 0,
     this.redCards = 0,
+    this.cleanSheets = 0,
     this.current = false,
     this.endDate,
     this.status = '',
@@ -184,6 +196,7 @@ class PlayerCareerEntry {
         appearances: _int(j['appearances']),
         yellowCards: _int(j['yellow_cards']),
         redCards: _int(j['red_cards']),
+        cleanSheets: _int(j['clean_sheets']),
         current: j['current'] == true,
         endDate: j['end_date']?.toString(),
         status: j['status']?.toString() ?? '',
@@ -207,6 +220,8 @@ class PlayerFull {
   final int appearances;
   final int yellowCards;
   final int redCards;
+  final int cleanSheets;
+  final bool isGoalkeeper;
   final PlayerSeasonStats? currentSeason;
   final List<PlayerCareerEntry> career;
   final List<PlayerMatch> matches;
@@ -223,6 +238,8 @@ class PlayerFull {
     this.appearances = 0,
     this.yellowCards = 0,
     this.redCards = 0,
+    this.cleanSheets = 0,
+    this.isGoalkeeper = false,
     this.currentSeason,
     this.career = const [],
     this.matches = const [],
@@ -252,6 +269,8 @@ class PlayerFull {
         appearances: _int(j['appearances']),
         yellowCards: _int(j['yellow_cards']),
         redCards: _int(j['red_cards']),
+        cleanSheets: _int(j['clean_sheets']),
+        isGoalkeeper: j['is_goalkeeper'] == true,
         currentSeason: j['current_season'] is Map<String, dynamic>
             ? PlayerSeasonStats.fromJson(j['current_season'] as Map<String, dynamic>)
             : null,

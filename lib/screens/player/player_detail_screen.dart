@@ -187,21 +187,26 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
         ),
       );
 
-  Widget _statGrid(int apps, int goals, int assists, int yellow, int red, bool isAr) => Row(
+  // Five stats + an optional sixth "clean sheets" cell (goalkeepers only).
+  Widget _statGrid(int apps, int goals, int assists, int yellow, int red, bool isAr,
+          {int? cs}) =>
+      Row(
         children: [
           _statCell(isAr ? 'مباراة' : 'Apps', apps, AppColors.white),
           _statCell(isAr ? 'هدف' : 'Goals', goals, _gold),
           _statCell(isAr ? 'صناعة' : 'Assists', assists, AppColors.aqua),
           _statCell(isAr ? 'صفراء' : 'Yellow', yellow, _amber),
           _statCell(isAr ? 'حمراء' : 'Red', red, AppColors.red),
+          if (cs != null) _statCell(isAr ? 'نظيفة' : 'Clean', cs, AppColors.green),
         ],
       );
 
-  // Non-zero contribution chips (⚽ 🅰️ 🟨 🟥) for competition + match rows.
-  Widget _contrib(int goals, int assists, int yellow, int red) {
+  // Non-zero contribution chips (🧤 ⚽ 🅰️ 🟨 🟥) for competition + match rows.
+  Widget _contrib(int goals, int assists, int yellow, int red, {int clean = 0}) {
     final chips = <Widget>[];
     void add(String text, Color color) => chips.add(Text(text,
         style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)));
+    if (clean > 0) add('🧤 $clean', AppColors.green);
     if (goals > 0) add('⚽ $goals', _gold);
     if (assists > 0) add('🅰️ $assists', AppColors.aqua);
     if (yellow > 0) add('🟨 $yellow', _amber);
@@ -234,7 +239,8 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                 style: TextStyle(color: AppColors.hint, fontSize: 12)),
           ),
         if (cs != null && !cs.isEmpty)
-          _statGrid(cs.appearances, cs.goals, cs.assists, cs.yellowCards, cs.redCards, isAr)
+          _statGrid(cs.appearances, cs.goals, cs.assists, cs.yellowCards, cs.redCards, isAr,
+              cs: p.isGoalkeeper ? cs.cleanSheets : null)
         else
           _empty(isAr ? 'لم يشارك في أي مباراة هذا الموسم' : 'No matches played this season yet'),
       ],
@@ -243,17 +249,19 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
 
   // ── Tab 2: career (totals + by competition) ────────────────────────────────
   Widget _careerTab(PlayerFull p, String locale, bool isAr) {
+    final gk = p.isGoalkeeper;
     final compRows = <Widget>[];
     for (final c in p.career) {
       for (final comp in c.competitions) {
-        compRows.add(_compRow(comp, c, locale, isAr));
+        compRows.add(_compRow(comp, c, locale, isAr, gk));
       }
     }
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
         _sectionTitle(isAr ? 'الإجمالي' : 'Career total'),
-        _statGrid(p.appearances, p.goals, p.assists, p.yellowCards, p.redCards, isAr),
+        _statGrid(p.appearances, p.goals, p.assists, p.yellowCards, p.redCards, isAr,
+            cs: gk ? p.cleanSheets : null),
         const SizedBox(height: 16),
         _sectionTitle(isAr ? 'حسب البطولة' : 'By competition'),
         if (compRows.isEmpty) _empty(isAr ? 'لا توجد بيانات' : 'No data yet') else ...compRows,
@@ -261,7 +269,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
     );
   }
 
-  Widget _compRow(PlayerCareerComp comp, PlayerCareerEntry e, String locale, bool isAr) {
+  Widget _compRow(PlayerCareerComp comp, PlayerCareerEntry e, String locale, bool isAr, bool gk) {
     final subtitle = [e.club, e.ageName(locale), e.seasonName(locale)]
         .where((s) => s != null && s.isNotEmpty)
         .join(' · ');
@@ -310,9 +318,11 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
               ),
             ],
           ),
-          if (comp.goals > 0 || comp.assists > 0 || comp.yellowCards > 0 || comp.redCards > 0) ...[
+          if (comp.goals > 0 || comp.assists > 0 || comp.yellowCards > 0 ||
+              comp.redCards > 0 || (gk && comp.cleanSheets > 0)) ...[
             const SizedBox(height: 6),
-            _contrib(comp.goals, comp.assists, comp.yellowCards, comp.redCards),
+            _contrib(comp.goals, comp.assists, comp.yellowCards, comp.redCards,
+                clean: gk ? comp.cleanSheets : 0),
           ],
         ],
       ),
@@ -327,11 +337,11 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(14),
       itemCount: p.matches.length,
-      itemBuilder: (_, i) => _matchTile(p.matches[i], locale, isAr),
+      itemBuilder: (_, i) => _matchTile(p.matches[i], locale, isAr, p.isGoalkeeper),
     );
   }
 
-  Widget _matchTile(PlayerMatch m, String locale, bool isAr) {
+  Widget _matchTile(PlayerMatch m, String locale, bool isAr, bool gk) {
     final homeSide = m.side == 'home';
     final score = '${m.homeScore ?? '-'} : ${m.awayScore ?? '-'}';
     Text sideName(String name, bool mine) => Text(name,
@@ -397,11 +407,13 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                 ),
               ],
             ),
-            if (m.goals > 0 || m.assists > 0 || m.yellowCards > 0 || m.redCards > 0) ...[
+            if (m.goals > 0 || m.assists > 0 || m.yellowCards > 0 || m.redCards > 0 ||
+                (gk && m.cleanSheet)) ...[
               const SizedBox(height: 8),
               Divider(height: 1, color: AppColors.border),
               const SizedBox(height: 6),
-              _contrib(m.goals, m.assists, m.yellowCards, m.redCards),
+              _contrib(m.goals, m.assists, m.yellowCards, m.redCards,
+                  clean: gk && m.cleanSheet ? 1 : 0),
             ],
           ],
         ),
