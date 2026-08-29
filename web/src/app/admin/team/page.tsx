@@ -67,6 +67,24 @@ const byPositionThenName = (a: MRegistration, b: MRegistration) => {
   if (d !== 0) return d;
   return (a.name_ar || a.name_en || '').localeCompare(b.name_ar || b.name_en || '', 'ar');
 };
+// Arabic-alphabetically by name.
+const byName = (a: MRegistration, b: MRegistration) =>
+  (a.name_ar || a.name_en || '').localeCompare(b.name_ar || b.name_en || '', 'ar');
+// By shirt number ascending; players with no number sort last, then by name — so
+// a gap in the numbers is easy to spot.
+const byShirt = (a: MRegistration, b: MRegistration) => {
+  const sa = a.shirt_number ?? Infinity, sb = b.shirt_number ?? Infinity;
+  return sa !== sb ? sa - sb : byName(a, b);
+};
+
+type RosterSort = 'position' | 'name' | 'shirt';
+const ROSTER_SORTS: { v: RosterSort; l: string }[] = [
+  { v: 'position', l: 'المركز' },
+  { v: 'name',     l: 'الاسم' },
+  { v: 'shirt',    l: 'رقم القميص' },
+];
+const rosterComparator = (m: RosterSort) =>
+  m === 'name' ? byName : m === 'shirt' ? byShirt : byPositionThenName;
 
 // Specific roles offered under each main position. Keyed by the (normalised)
 // main Arabic position; picking a known one fills its English counterpart. The
@@ -543,6 +561,7 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
   const [editing, setEditing] = useState<MRegistration | null>(null);
   const [transferring, setTransferring] = useState<MRegistration | null>(null);
   const [showFormer, setShowFormer] = useState(false);
+  const [sortMode, setSortMode] = useState<RosterSort>('position');
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(() => {
     setLoading(true); setErr(null);
@@ -562,8 +581,9 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
   // Squad = current players of this team's own age; guests = younger players
   // playing up (same club); former = transferred/ended stints kept for history.
   // Current players are shown by position (keeper → attack) then alphabetically.
-  const active = items.filter(r => !r.end_date && !r.is_guest).sort(byPositionThenName);
-  const guests = items.filter(r => !r.end_date && r.is_guest).sort(byPositionThenName);
+  const cmp = rosterComparator(sortMode);
+  const active = items.filter(r => !r.end_date && !r.is_guest).sort(cmp);
+  const guests = items.filter(r => !r.end_date && r.is_guest).sort(cmp);
   const former = items.filter(r => r.end_date);
 
   const renderRow = (r: MRegistration, variant: 'active' | 'guest' | 'former') =>
@@ -607,6 +627,20 @@ function RosterSection({ token, tid, focusPlayer }: { token: string; tid: number
       {adding && <PlayerForm token={token} tid={tid} reg={null} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
       {attaching && <AttachPlayerForm token={token} tid={tid} onDone={() => { setAttaching(false); reload(); }} onCancel={() => setAttaching(false)} />}
       <Err e={err} />
+      {/* Sort the squad — by position (default), name, or shirt number — to make
+          a missing player or a shirt-number gap easy to spot, and to find a
+          player quickly when editing. */}
+      {!loading && (active.length + guests.length) > 0 && (
+        <div className="flex items-center gap-1.5 text-[11px]">
+          <span className="text-hint">ترتيب حسب:</span>
+          {ROSTER_SORTS.map(s => (
+            <button key={s.v} onClick={() => setSortMode(s.v)}
+              className={`px-2.5 py-1 rounded-lg border font-bold transition-colors ${sortMode === s.v ? 'bg-aqua text-on-accent border-aqua' : 'border-bdr text-hint hover:text-aqua'}`}>
+              {s.l}
+            </button>
+          ))}
+        </div>
+      )}
       {loading ? <p className="text-hint text-sm text-center py-4">…</p>
         : items.length === 0 && !adding ? <p className="text-hint text-sm text-center py-4">لا يوجد لاعبون بعد</p>
         : (
