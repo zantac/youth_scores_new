@@ -20,6 +20,8 @@ class CompetitionDataScreen extends StatefulWidget {
   // Which main tab to open on (0=Matches, 1=Standings, 2=Teams, 3=Stats) — set
   // from a shared website link's ?tab=. Defaults to Matches.
   final int initialTab;
+  // Which stats sub-tab to open on (?stat=), used only when initialTab is Stats.
+  final int initialStat;
 
   const CompetitionDataScreen({
     super.key,
@@ -28,6 +30,7 @@ class CompetitionDataScreen extends StatefulWidget {
     required this.seasonName,
     this.initialWeek,
     this.initialTab = 0,
+    this.initialStat = 0,
   });
 
   @override
@@ -150,7 +153,7 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
         MatchesTab(initialWeek: widget.initialWeek),
         const StandingsTab(),
         const TeamsTab(),
-        const StatsTab(),
+        StatsTab(initialStat: widget.initialStat),
       ],
     );
   }
