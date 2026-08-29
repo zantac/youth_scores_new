@@ -4,14 +4,50 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchPlayer } from '@/lib/api';
 import { localize, cloudinaryUrl } from '@/lib/utils';
-import type { PlayerFull } from '@/lib/types';
+import TabStrip from '@/components/ui/TabStrip';
+import type { PlayerFull, PlayerMatch, PlayerSeasonStats } from '@/lib/types';
+
+const Spinner = () => (
+  <div className="min-h-[70vh] grid place-items-center">
+    <div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" />
+  </div>
+);
 
 export default function PlayerPage() {
+  return <Suspense fallback={<Spinner />}><PlayerJourney /></Suspense>;
+}
+
+// One stat cell (big summary grids).
+function StatCard({ v, label, color }: { v: number; label: string; color: string }) {
   return (
-    <Suspense fallback={<div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>}>
-      <PlayerJourney />
-    </Suspense>
+    <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl py-3 px-1 text-center">
+      <p className={`font-extrabold text-xl tnum ${color}`}>{v}</p>
+      <p className="text-hint text-[10px] mt-0.5">{label}</p>
+    </div>
   );
+}
+
+// The five stats the user asked for: participation, goals, assists, yellow, red.
+function StatGrid({ s, isAr }: { s: { appearances: number; goals: number; assists: number; yellow_cards: number; red_cards: number }; isAr: boolean }) {
+  const cells = [
+    { v: s.appearances,  l: isAr ? 'مباراة' : 'Apps',    c: 'text-text' },
+    { v: s.goals,        l: isAr ? 'هدف'    : 'Goals',   c: 'text-gold' },
+    { v: s.assists,      l: isAr ? 'صناعة'  : 'Assists', c: 'text-aqua' },
+    { v: s.yellow_cards, l: isAr ? 'صفراء'  : 'Yellow',  c: 'text-yellow-400' },
+    { v: s.red_cards,    l: isAr ? 'حمراء'  : 'Red',     c: 'text-red-500' },
+  ];
+  return <div className="grid grid-cols-5 gap-2">{cells.map(k => <StatCard key={k.l} v={k.v} label={k.l} color={k.c} />)}</div>;
+}
+
+// Compact non-zero contribution chips for list rows (competitions, matches).
+function Contrib({ goals, assists, yellow, red, isAr }: { goals: number; assists: number; yellow: number; red: number; isAr: boolean }) {
+  const chips: React.ReactNode[] = [];
+  if (goals > 0)   chips.push(<span key="g" className="text-gold font-bold tnum">⚽ {goals}</span>);
+  if (assists > 0) chips.push(<span key="a" className="text-aqua font-bold tnum">🅰️ {assists}</span>);
+  if (yellow > 0)  chips.push(<span key="y" className="tnum">🟨 {yellow}</span>);
+  if (red > 0)     chips.push(<span key="r" className="tnum">🟥 {red}</span>);
+  if (!chips.length) return null;
+  return <div className="flex items-center gap-2.5 text-[11px]">{chips}</div>;
 }
 
 function PlayerJourney() {
@@ -21,6 +57,7 @@ function PlayerJourney() {
   const router = useRouter();
   const [p, setP] = useState<PlayerFull | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState(0);
   const isAr = locale === 'ar';
 
   useEffect(() => {
@@ -29,26 +66,26 @@ function PlayerJourney() {
     fetchPlayer(id).then(setP).finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>;
+  if (loading) return <Spinner />;
   if (!p) return <div className="p-8 text-center text-hint">{isAr ? 'اللاعب غير موجود' : 'Player not found'}</div>;
 
   const name = localize(p.name, locale);
   const monogram = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('');
+  const pos = localize(p.sub_position, locale) || localize(p.position, locale);
 
-  // Goals-per-season chart: one bar per SEASON, summing a player's goals across
-  // every club/competition they played in that season (career rows split per
-  // club/competition, so a single season can span several rows).
-  const goalsBySeason = (() => {
-    const order: string[] = [];
-    const byKey = new Map<string, { season: PlayerFull['career'][number]['season']; goals: number }>();
-    for (const c of p.career) {
-      const key = localize(c.season, 'en') || localize(c.season, 'ar') || '—';
-      if (!byKey.has(key)) { byKey.set(key, { season: c.season, goals: 0 }); order.push(key); }
-      byKey.get(key)!.goals += c.goals;
-    }
-    return order.map(k => byKey.get(k)!);
-  })();
-  const maxGoals = Math.max(1, ...goalsBySeason.map(s => s.goals));
+  // Career tab: flatten every (season, competition) the player featured in into
+  // one list, newest season first (the feed already orders career that way).
+  const careerRows = p.career.flatMap(c =>
+    c.competitions.map(comp => ({ comp, season: c.season, club: c.club, age: c.age, current: c.current })));
+
+  const cs: PlayerSeasonStats | undefined = p.current_season;
+  const matches: PlayerMatch[] = p.matches ?? [];
+
+  const tabs = [
+    { label: isAr ? 'هذا الموسم' : 'This season', icon: '📅' },
+    { label: isAr ? 'المسيرة'    : 'Career',      icon: '📊' },
+    { label: isAr ? 'المباريات'  : 'Matches',     icon: '⚽' },
+  ];
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
@@ -66,17 +103,10 @@ function PlayerJourney() {
             : <div className="w-20 h-20 rounded-2xl grid place-items-center text-2xl font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_10px_26px_-8px_rgb(var(--accent-rgb))]">{monogram}</div>}
           <div>
             <h1 className="text-xl font-extrabold">{name}</h1>
-            {/* Second line: position + birth year. */}
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {(() => {
-                // The specific sub-position takes the profile spot when set;
-                // otherwise the main position is shown.
-                const pos = localize(p.sub_position, locale) || localize(p.position, locale);
-                return pos ? <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span> : null;
-              })()}
+              {pos && <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span>}
               <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5 tnum">{isAr ? 'مواليد' : 'Born'} {p.birth_year}</span>
             </div>
-            {/* Third line: club name on its own row. */}
             {p.current_club && (
               <div className="flex flex-wrap gap-1.5 mt-1.5">
                 <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>
@@ -86,102 +116,100 @@ function PlayerJourney() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-3 gap-3 p-4">
-        {[
-          { v: p.goals, l: isAr ? 'هدف' : 'Goals', c: 'text-gold' },
-          { v: p.assists, l: isAr ? 'صناعة' : 'Assists', c: 'text-aqua' },
-          { v: p.appearances, l: isAr ? 'مباراة' : 'Apps', c: 'text-text' },
-        ].map(k => (
-          <div key={k.l} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 text-center">
-            <p className={`font-extrabold text-2xl tnum ${k.c}`}>{k.v}</p>
-            <p className="text-hint text-[11px] mt-0.5">{k.l}</p>
-          </div>
-        ))}
+      {/* Tabs */}
+      <div className="sticky top-[calc(var(--header-h,0px)+49px)] z-20">
+        <TabStrip tabs={tabs} current={tab} onChange={setTab} />
       </div>
 
-      {/* Career */}
-      <div className="px-4">
-        <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'المسيرة' : 'Career'}</h2>
-        {p.career.length === 0 ? (
-          <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات مسيرة' : 'No career data'}</p>
-        ) : (
-          <div className="space-y-3">
-            {p.career.map((c, i) => (
-              <div key={i}
-                className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${c.current ? 'border-gold/40' : 'border-bdr'}`}>
-                <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--gold-rgb)/0.12),transparent_65%)]" />
-                {/* Club logo — big, spanning the full card height. No own
-                    background so the card's gradient shows through unbroken. */}
-                <div className="relative w-24 flex-shrink-0 grid place-items-center p-2.5">
-                  {c.logo
-                    ? <img src={cloudinaryUrl(c.logo, 128)} alt="" className="w-full h-full object-contain" />
-                    : <span className="text-3xl">🛡️</span>}
-                </div>
-                <div className="relative flex-1 min-w-0 p-3">
-                  {/* Club + tags */}
-                  <div className="flex items-center gap-2">
-                    <p className="text-text text-base font-extrabold truncate flex-1">{c.club}</p>
-                    {c.is_guest && <span className="text-teal text-[9px] font-bold border border-teal/40 rounded px-1.5 py-0.5 flex-shrink-0">{isAr ? 'ضيف صاعد' : 'guest'}</span>}
-                    {c.current && <span className="text-[9px] font-bold text-gold bg-gold/10 border border-gold/30 rounded px-1.5 py-0.5 flex-shrink-0">{isAr ? 'حالي' : 'now'}</span>}
-                  </div>
-                  {localize(c.age, locale) && <p className="text-aqua text-xs font-bold mt-1 truncate">{localize(c.age, locale)}</p>}
-                  {localize(c.season, locale) && <p className="text-hint text-[11px] mt-0.5 tnum truncate">{localize(c.season, locale)}</p>}
-                  {!c.current && c.end_date && <p className="text-hint text-[11px] mt-0.5 tnum truncate">{isAr ? 'غادر' : 'left'} {c.end_date}</p>}
-                  {/* Season totals */}
-                  <div className="flex gap-4 mt-2">
-                    {c.appearances > 0 && (
-                      <div className="text-center">
-                        <p className="text-text font-bold text-sm tnum">{c.appearances}</p>
-                        <p className="text-hint text-[9px]">{isAr ? 'مباراة' : 'apps'}</p>
-                      </div>
-                    )}
-                    {c.assists > 0 && (
-                      <div className="text-center">
-                        <p className="text-aqua font-bold text-sm tnum">{c.assists}</p>
-                        <p className="text-hint text-[9px]">{isAr ? 'صناعة' : 'ast'}</p>
-                      </div>
-                    )}
-                    <div className="text-center">
-                      <p className="text-gold font-extrabold text-lg tnum leading-none">{c.goals}</p>
-                      <p className="text-hint text-[9px] mt-0.5">{isAr ? 'هدف' : 'goals'}</p>
-                    </div>
-                  </div>
-                  {/* Per-competition breakdown */}
-                  {c.competitions.length > 0 && (
-                    <div className="border-t border-bdr/40 mt-2 pt-2 space-y-1">
-                      {c.competitions.map((comp, ci) => (
-                        <div key={ci} className="flex items-center gap-2 text-[11px]">
-                          <span className="flex-1 text-hint truncate">{localize(comp.name, locale)}</span>
-                          {comp.appearances > 0 && <span className="text-hint tnum">{comp.appearances}{isAr ? ' م' : ' ap'}</span>}
-                          {comp.assists > 0   && <span className="text-aqua tnum">{comp.assists}{isAr ? ' ص' : ' a'}</span>}
-                          <span className="text-gold font-bold tnum w-6 text-end">{comp.goals}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── This season ── */}
+      {tab === 0 && (
+        <div className="p-4 space-y-3">
+          {cs && localize(cs.season, locale) && (
+            <p className="text-hint text-xs tnum">{localize(cs.season, locale)}</p>
+          )}
+          {cs && (cs.appearances || cs.goals || cs.assists || cs.yellow_cards || cs.red_cards) ? (
+            <StatGrid s={cs} isAr={isAr} />
+          ) : (
+            <p className="text-hint text-sm text-center py-10">
+              {isAr ? 'لم يشارك في أي مباراة هذا الموسم' : 'No matches played this season yet'}
+            </p>
+          )}
+        </div>
+      )}
 
-      {/* Goals per season bar chart */}
-      {p.career.length > 0 && (
-        <div className="px-4 pt-4">
-          <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الأهداف لكل موسم' : 'Goals per season'}</h2>
-          <div className="space-y-2">
-            {goalsBySeason.map((s, i) => (
-              <div key={i} className="grid grid-cols-[92px_1fr_28px] items-center gap-2.5">
-                <span className="text-hint text-[11px] tnum truncate">{localize(s.season, locale)}</span>
-                <div className="h-2.5 rounded-full bg-cardBg2 overflow-hidden">
-                  <div className="h-full rounded-full bg-gradient-to-l from-gold to-gold/70" style={{ width: `${(s.goals / maxGoals) * 100}%` }} />
-                </div>
-                <span className="text-text font-bold text-sm tnum text-start">{s.goals}</span>
-              </div>
-            ))}
+      {/* ── Career (totals + per competition) ── */}
+      {tab === 1 && (
+        <div className="p-4 space-y-4">
+          <div>
+            <h2 className="text-text font-bold text-sm mb-2">{isAr ? 'الإجمالي' : 'Career total'}</h2>
+            <StatGrid s={{ appearances: p.appearances, goals: p.goals, assists: p.assists, yellow_cards: p.yellow_cards ?? 0, red_cards: p.red_cards ?? 0 }} isAr={isAr} />
           </div>
+
+          <div>
+            <h2 className="text-text font-bold text-sm mb-2">{isAr ? 'حسب البطولة' : 'By competition'}</h2>
+            {careerRows.length === 0 ? (
+              <p className="text-hint text-sm text-center py-6">{isAr ? 'لا توجد بيانات' : 'No data yet'}</p>
+            ) : (
+              <div className="space-y-2">
+                {careerRows.map(({ comp, season, club, age }, i) => (
+                  <div key={i} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-text text-sm font-bold truncate">{localize(comp.name, locale)}</p>
+                        <p className="text-hint text-[11px] tnum truncate">
+                          {[club, localize(age, locale), localize(season, locale)].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <span className="text-text font-bold text-sm tnum flex-shrink-0">{comp.appearances}<span className="text-hint text-[10px]"> {isAr ? 'م' : 'ap'}</span></span>
+                    </div>
+                    <div className="mt-2">
+                      <Contrib goals={comp.goals} assists={comp.assists} yellow={comp.yellow_cards ?? 0} red={comp.red_cards ?? 0} isAr={isAr} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Matches ── */}
+      {tab === 2 && (
+        <div className="p-4">
+          {matches.length === 0 ? (
+            <p className="text-hint text-sm text-center py-10">{isAr ? 'لا توجد مباريات' : 'No matches'}</p>
+          ) : (
+            <div className="space-y-2">
+              {matches.map(m => {
+                const homeSide = m.side === 'home';
+                return (
+                  <button key={m.id} onClick={() => router.push(`/match?id=${m.id}`)}
+                    className="w-full text-start bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 transition-colors hover:border-aqua/30">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-hint text-[10px] tnum truncate">{localize(m.competition, locale)}</span>
+                      <span className="text-hint text-[10px] tnum flex-shrink-0">{m.date}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className={`flex items-center gap-1.5 flex-1 min-w-0 justify-end ${homeSide ? 'font-bold text-text' : 'text-hint'}`}>
+                        <span className="truncate text-sm text-end">{localize(m.home.name, locale)}</span>
+                        {m.home.logo ? <img src={cloudinaryUrl(m.home.logo, 48)} alt="" className="w-6 h-6 object-contain flex-shrink-0" /> : <span className="text-base">🛡️</span>}
+                      </div>
+                      <span className="text-text font-extrabold text-sm tnum flex-shrink-0 px-1">{m.home_score ?? '-'} : {m.away_score ?? '-'}</span>
+                      <div className={`flex items-center gap-1.5 flex-1 min-w-0 ${!homeSide ? 'font-bold text-text' : 'text-hint'}`}>
+                        {m.away.logo ? <img src={cloudinaryUrl(m.away.logo, 48)} alt="" className="w-6 h-6 object-contain flex-shrink-0" /> : <span className="text-base">🛡️</span>}
+                        <span className="truncate text-sm">{localize(m.away.name, locale)}</span>
+                      </div>
+                    </div>
+                    {(m.goals > 0 || m.assists > 0 || m.yellow_cards > 0 || m.red_cards > 0) && (
+                      <div className="mt-2 pt-2 border-t border-bdr/40 flex justify-center">
+                        <Contrib goals={m.goals} assists={m.assists} yellow={m.yellow_cards} red={m.red_cards} isAr={isAr} />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
