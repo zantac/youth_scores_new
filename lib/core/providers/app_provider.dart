@@ -10,6 +10,7 @@ import '../models/follows.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/review_service.dart';
+import '../services/seen_service.dart';
 
 class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   final _api = ApiService();
@@ -195,6 +196,57 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool        get loadingConfig => _loadingConfig;
   String?     get configError   => _configError;
 
+  // ── Bottom-bar "new items" badges (mirrors the website) ──────────────────────
+  int _newNewsCount   = 0;
+  int _newVenuesCount = 0;
+  int get newNewsCount   => _newNewsCount;
+  int get newVenuesCount => _newVenuesCount;
+
+  /// Recompute the News / Venues badge counts against the seen baseline. Runs
+  /// whenever the config feed loads or is silently refreshed; the first run
+  /// seeds the baseline (badges stay 0). Notifies only when a count changes.
+  Future<void> _recomputeBadges() async {
+    final cfg = _config;
+    if (cfg == null) return;
+    final news   = await SeenService.instance
+        .countUnseen('news', cfg.news.map((n) => n.seenKey).toList());
+    final venues = await SeenService.instance
+        .countUnseen('venues', cfg.venues.map((v) => v.id).toList());
+    if (news != _newNewsCount || venues != _newVenuesCount) {
+      _newNewsCount   = news;
+      _newVenuesCount = venues;
+      notifyListeners();
+    }
+  }
+
+  /// Opening the News page marks the whole current feed seen and clears its
+  /// badge. Called from [NewsScreen]; safe to call repeatedly.
+  Future<void> markNewsSeen() async {
+    final cfg = _config;
+    if (cfg != null) {
+      await SeenService.instance
+          .markSeen('news', cfg.news.map((n) => n.seenKey).toList());
+    }
+    if (_newNewsCount != 0) {
+      _newNewsCount = 0;
+      notifyListeners();
+    }
+  }
+
+  /// Opening the Venues page marks the whole current feed seen and clears its
+  /// badge. Called from [VenuesScreen]; safe to call repeatedly.
+  Future<void> markVenuesSeen() async {
+    final cfg = _config;
+    if (cfg != null) {
+      await SeenService.instance
+          .markSeen('venues', cfg.venues.map((v) => v.id).toList());
+    }
+    if (_newVenuesCount != 0) {
+      _newVenuesCount = 0;
+      notifyListeners();
+    }
+  }
+
   /// Loads the config feed (news, venues, app version, latest data URL). A
   /// `silent` load (e.g. on app resume) keeps the current data on screen — no
   /// spinner — and a failed fetch leaves it untouched; it just swaps in fresh
@@ -210,6 +262,7 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
       _configError = null;
       final serverCode = int.tryParse(_config?.appVersion?.versionCode ?? '0') ?? 0;
       _needsUpdate = serverCode > _appBuildNumber;
+      await _recomputeBadges();
       if (silent) notifyListeners();
     } catch (e) {
       if (!silent) _configError = e.toString();
