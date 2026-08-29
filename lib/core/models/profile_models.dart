@@ -15,11 +15,15 @@ class PlayerCareerComp {
   final int goals;
   final int assists;
   final int appearances;
+  final int yellowCards;
+  final int redCards;
   const PlayerCareerComp({
     this.name = const {},
     this.goals = 0,
     this.assists = 0,
     this.appearances = 0,
+    this.yellowCards = 0,
+    this.redCards = 0,
   });
 
   String getName(String locale) => pickLocale(name, locale);
@@ -29,6 +33,105 @@ class PlayerCareerComp {
         goals: _int(j['goals']),
         assists: _int(j['assists']),
         appearances: _int(j['appearances']),
+        yellowCards: _int(j['yellow_cards']),
+        redCards: _int(j['red_cards']),
+      );
+}
+
+/// Aggregate stats for one season (the current-season tab), or any five-stat set.
+class PlayerSeasonStats {
+  final Map<String, String>? season;
+  final int appearances;
+  final int goals;
+  final int assists;
+  final int yellowCards;
+  final int redCards;
+  const PlayerSeasonStats({
+    this.season,
+    this.appearances = 0,
+    this.goals = 0,
+    this.assists = 0,
+    this.yellowCards = 0,
+    this.redCards = 0,
+  });
+
+  String? seasonName(String locale) {
+    final s = pickLocale(season, locale);
+    return s.isEmpty ? null : s;
+  }
+
+  bool get isEmpty =>
+      appearances == 0 && goals == 0 && assists == 0 && yellowCards == 0 && redCards == 0;
+
+  factory PlayerSeasonStats.fromJson(Map<String, dynamic> j) => PlayerSeasonStats(
+        season: localizedMapOrNull(j['season']),
+        appearances: _int(j['appearances']),
+        goals: _int(j['goals']),
+        assists: _int(j['assists']),
+        yellowCards: _int(j['yellow_cards']),
+        redCards: _int(j['red_cards']),
+      );
+}
+
+/// One side (home/away) of a player's match row.
+class PlayerMatchSide {
+  final Map<String, String> name;
+  final String? logo;
+  const PlayerMatchSide({this.name = const {}, this.logo});
+  String getName(String locale) => pickLocale(name, locale);
+  factory PlayerMatchSide.fromJson(Map<String, dynamic> j) =>
+      PlayerMatchSide(name: localizedMap(j['name']), logo: j['logo']?.toString());
+}
+
+/// A match the player featured in, with his own contribution and the result.
+class PlayerMatch {
+  final int id;
+  final String date;
+  final String status;
+  final Map<String, String> competition;
+  final String side; // 'home' | 'away'
+  final PlayerMatchSide home;
+  final PlayerMatchSide away;
+  final int? homeScore;
+  final int? awayScore;
+  final int goals;
+  final int assists;
+  final int yellowCards;
+  final int redCards;
+  const PlayerMatch({
+    required this.id,
+    this.date = '',
+    this.status = '',
+    this.competition = const {},
+    this.side = 'home',
+    this.home = const PlayerMatchSide(),
+    this.away = const PlayerMatchSide(),
+    this.homeScore,
+    this.awayScore,
+    this.goals = 0,
+    this.assists = 0,
+    this.yellowCards = 0,
+    this.redCards = 0,
+  });
+
+  String competitionName(String locale) => pickLocale(competition, locale);
+
+  factory PlayerMatch.fromJson(Map<String, dynamic> j) => PlayerMatch(
+        id: _int(j['id']),
+        date: j['date']?.toString() ?? '',
+        status: j['status']?.toString() ?? '',
+        competition: localizedMap(j['competition']),
+        side: j['side']?.toString() ?? 'home',
+        home: PlayerMatchSide.fromJson(
+            (j['home'] as Map<String, dynamic>?) ?? const {}),
+        away: PlayerMatchSide.fromJson(
+            (j['away'] as Map<String, dynamic>?) ?? const {}),
+        homeScore: _intN(j['home_score']),
+        awayScore: _intN(j['away_score']),
+        goals: _int(j['goals']),
+        assists: _int(j['assists']),
+        yellowCards: _int(j['yellow_cards']),
+        redCards: _int(j['red_cards']),
       );
 }
 
@@ -41,6 +144,8 @@ class PlayerCareerEntry {
   final int goals;
   final int assists;
   final int appearances;
+  final int yellowCards;
+  final int redCards;
   final bool current;
   final String? endDate;
   final String status;
@@ -54,6 +159,8 @@ class PlayerCareerEntry {
     this.goals = 0,
     this.assists = 0,
     this.appearances = 0,
+    this.yellowCards = 0,
+    this.redCards = 0,
     this.current = false,
     this.endDate,
     this.status = '',
@@ -75,6 +182,8 @@ class PlayerCareerEntry {
         goals: _int(j['goals']),
         assists: _int(j['assists']),
         appearances: _int(j['appearances']),
+        yellowCards: _int(j['yellow_cards']),
+        redCards: _int(j['red_cards']),
         current: j['current'] == true,
         endDate: j['end_date']?.toString(),
         status: j['status']?.toString() ?? '',
@@ -96,7 +205,11 @@ class PlayerFull {
   final int goals;
   final int assists;
   final int appearances;
+  final int yellowCards;
+  final int redCards;
+  final PlayerSeasonStats? currentSeason;
   final List<PlayerCareerEntry> career;
+  final List<PlayerMatch> matches;
   const PlayerFull({
     required this.id,
     required this.name,
@@ -108,7 +221,11 @@ class PlayerFull {
     this.goals = 0,
     this.assists = 0,
     this.appearances = 0,
+    this.yellowCards = 0,
+    this.redCards = 0,
+    this.currentSeason,
     this.career = const [],
+    this.matches = const [],
   });
 
   String getName(String locale) => pickLocale(name, locale);
@@ -133,9 +250,18 @@ class PlayerFull {
         goals: _int(j['goals']),
         assists: _int(j['assists']),
         appearances: _int(j['appearances']),
+        yellowCards: _int(j['yellow_cards']),
+        redCards: _int(j['red_cards']),
+        currentSeason: j['current_season'] is Map<String, dynamic>
+            ? PlayerSeasonStats.fromJson(j['current_season'] as Map<String, dynamic>)
+            : null,
         career: (j['career'] as List? ?? [])
             .whereType<Map<String, dynamic>>()
             .map(PlayerCareerEntry.fromJson)
+            .toList(),
+        matches: (j['matches'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(PlayerMatch.fromJson)
             .toList(),
       );
 }

@@ -5,9 +5,13 @@ import '../../core/models/profile_models.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
 import '../../widgets/common/cached_logo.dart';
+import '../match/match_detail_screen.dart';
 
 // Career highlights (goals / current club) use a warm gold, matching the site.
-const _gold = Color(0xFFF5C542);
+const _gold  = Color(0xFFF5C542);
+// A readable amber for yellow-card counts (the theme's bright yellow washes out
+// on the light background).
+const _amber = Color(0xFFF5A623);
 
 class PlayerDetailScreen extends StatefulWidget {
   final int playerId;
@@ -17,22 +21,21 @@ class PlayerDetailScreen extends StatefulWidget {
   State<PlayerDetailScreen> createState() => _PlayerDetailScreenState();
 }
 
-class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
+class _PlayerDetailScreenState extends State<PlayerDetailScreen>
+    with SingleTickerProviderStateMixin {
   late Future<PlayerFull> _future;
-  // Own controller so the list never attaches to the app-wide
-  // PrimaryScrollController and can't restore a stale offset (which otherwise
-  // sometimes opened the screen scrolled down); keepScrollOffset:false = top.
-  final ScrollController _scroll = ScrollController(keepScrollOffset: false);
+  late final TabController _tabs;
 
   @override
   void initState() {
     super.initState();
     _future = ApiService().fetchPlayer(widget.playerId);
+    _tabs = TabController(length: 3, vsync: this);
   }
 
   @override
   void dispose() {
-    _scroll.dispose();
+    _tabs.dispose();
     super.dispose();
   }
 
@@ -56,21 +59,34 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
             );
           }
           final p = snap.data!;
-          return ListView(
-            controller: _scroll,
-            padding: const EdgeInsets.all(14),
+          return Column(
             children: [
-              _header(p, locale, isAr),
-              const SizedBox(height: 14),
-              _statsRow(p, isAr),
-              if (p.career.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                _sectionTitle(isAr ? 'المسيرة' : 'Career'),
-                ...p.career.map((c) => _careerTile(c, locale, isAr)),
-                const SizedBox(height: 8),
-                _sectionTitle(isAr ? 'الأهداف لكل موسم' : 'Goals per season'),
-                _goalsPerSeason(p.career, locale, isAr),
-              ],
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                child: _header(p, locale, isAr),
+              ),
+              TabBar(
+                controller: _tabs,
+                labelColor: AppColors.aqua,
+                unselectedLabelColor: AppColors.hint,
+                indicatorColor: AppColors.aqua,
+                labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                tabs: [
+                  Tab(text: isAr ? 'هذا الموسم' : 'Season'),
+                  Tab(text: isAr ? 'المسيرة' : 'Career'),
+                  Tab(text: isAr ? 'المباريات' : 'Matches'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabs,
+                  children: [
+                    _currentSeasonTab(p, locale, isAr),
+                    _careerTab(p, locale, isAr),
+                    _matchesTab(p, locale, isAr),
+                  ],
+                ),
+              ),
             ],
           );
         },
@@ -78,9 +94,8 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
     );
   }
 
+  // ── Hero ───────────────────────────────────────────────────────────────────
   Widget _header(PlayerFull p, String locale, bool isAr) {
-    // Mirrors the site hero: line 2 is position + birth year as pill chips
-    // (teal on a bordered fill); line 3 is the club as a gold pill.
     final position = p.getPosition(locale);
     final hasClub = p.currentClub != null && p.currentClub!.isNotEmpty;
     return Container(
@@ -111,7 +126,6 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                     style: TextStyle(
                         color: AppColors.aqua, fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 6),
-                // Line 2: position · birth year pills.
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
@@ -121,7 +135,6 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                       _chip('${isAr ? 'مواليد' : 'Born'} ${p.birthYear}'),
                   ],
                 ),
-                // Line 3: club name in a gold pill.
                 if (hasClub) ...[
                   const SizedBox(height: 6),
                   _chip('◆ ${p.currentClub!}',
@@ -137,8 +150,6 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
     );
   }
 
-  // A rounded pill label matching the site's chips. Defaults to the teal
-  // "position / birth year" look; pass gold colours for the club chip.
   Widget _chip(String text, {Color? textColor, Color? bgColor, Color? borderColor}) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         decoration: BoxDecoration(
@@ -153,269 +164,247 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> {
                 fontWeight: FontWeight.w600)),
       );
 
-  Widget _statsRow(PlayerFull p, bool isAr) {
-    Widget cell(String label, int value, Color color) => Expanded(
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            decoration: BoxDecoration(
-              color: AppColors.cardBg,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              children: [
-                Text('$value',
-                    style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(label, style: TextStyle(color: AppColors.hint, fontSize: 11)),
-              ],
-            ),
+  // ── Shared: the five-stat grid + contribution chips ────────────────────────
+  Widget _statCell(String label, int value, Color color) => Expanded(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 2),
+          decoration: BoxDecoration(
+            color: AppColors.cardBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
           ),
-        );
-    return Row(
-      children: [
-        cell(isAr ? 'أهداف' : 'Goals', p.goals, AppColors.green),
-        cell(isAr ? 'صناعة' : 'Assists', p.assists, AppColors.aqua),
-        cell(isAr ? 'مباريات' : 'Apps', p.appearances, AppColors.white),
-      ],
-    );
+          child: Column(
+            children: [
+              Text('$value',
+                  style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 3),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.hint, fontSize: 9)),
+            ],
+          ),
+        ),
+      );
+
+  Widget _statGrid(int apps, int goals, int assists, int yellow, int red, bool isAr) => Row(
+        children: [
+          _statCell(isAr ? 'مباراة' : 'Apps', apps, AppColors.white),
+          _statCell(isAr ? 'هدف' : 'Goals', goals, _gold),
+          _statCell(isAr ? 'صناعة' : 'Assists', assists, AppColors.aqua),
+          _statCell(isAr ? 'صفراء' : 'Yellow', yellow, _amber),
+          _statCell(isAr ? 'حمراء' : 'Red', red, AppColors.red),
+        ],
+      );
+
+  // Non-zero contribution chips (⚽ 🅰️ 🟨 🟥) for competition + match rows.
+  Widget _contrib(int goals, int assists, int yellow, int red) {
+    final chips = <Widget>[];
+    void add(String text, Color color) => chips.add(Text(text,
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)));
+    if (goals > 0) add('⚽ $goals', _gold);
+    if (assists > 0) add('🅰️ $assists', AppColors.aqua);
+    if (yellow > 0) add('🟨 $yellow', _amber);
+    if (red > 0) add('🟥 $red', AppColors.red);
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Wrap(spacing: 12, runSpacing: 4, children: chips);
   }
 
   Widget _sectionTitle(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8, top: 4, right: 4, left: 4),
+        padding: const EdgeInsets.only(bottom: 8, top: 4),
         child: Text(text,
             style: TextStyle(color: AppColors.aqua, fontSize: 14, fontWeight: FontWeight.bold)),
       );
 
-  // A career card mirroring the website: full-height club logo, club + guest/now
-  // tags, age, season, a "left" date for past clubs, the season's app/assist/goal
-  // totals, and a per-competition breakdown.
-  Widget _careerTile(PlayerCareerEntry c, String locale, bool isAr) {
-    final age    = c.ageName(locale);
-    final season = c.seasonName(locale);
+  Widget _empty(String text) => Padding(
+        padding: const EdgeInsets.only(top: 48),
+        child: Center(child: Text(text, style: TextStyle(color: AppColors.hint, fontSize: 13))),
+      );
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-            color: c.current ? _gold.withValues(alpha: 0.5) : AppColors.border),
-        gradient: LinearGradient(
-          colors: [AppColors.cardBg, AppColors.cardGradientEnd],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Big club logo, spanning the full card height. No own background
-            // so the card's gradient shows through unbroken (matches the site).
-            Container(
-              width: 84,
-              padding: const EdgeInsets.all(10),
-              child: Center(child: CachedLogo(url: c.logo, size: 62)),
-            ),
-            // Details
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Club + tags
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(c.club,
-                              style: TextStyle(
-                                  color: AppColors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                        if (c.isGuest) _tag(isAr ? 'ضيف صاعد' : 'guest', AppColors.teal),
-                        if (c.current) ...[
-                          const SizedBox(width: 6),
-                          _tag(isAr ? 'حالي' : 'now', _gold),
-                        ],
-                      ],
-                    ),
-                    if (age != null) ...[
-                      const SizedBox(height: 4),
-                      Text(age,
-                          style: TextStyle(
-                              color: AppColors.aqua,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold)),
-                    ],
-                    if (season.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(season, style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                    ],
-                    if (!c.current && c.endDate != null && c.endDate!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text('${isAr ? 'غادر' : 'left'} ${c.endDate}',
-                          style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                    ],
-                    // Season totals
-                    const SizedBox(height: 10),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (c.appearances > 0)
-                          _total('${c.appearances}', isAr ? 'مباراة' : 'apps', AppColors.white),
-                        if (c.assists > 0)
-                          _total('${c.assists}', isAr ? 'صناعة' : 'ast', AppColors.aqua),
-                        _total('${c.goals}', isAr ? 'هدف' : 'goals', _gold, big: true),
-                      ],
-                    ),
-                    // Per-competition breakdown
-                    if (c.competitions.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Divider(height: 1, color: AppColors.border),
-                      const SizedBox(height: 8),
-                      ...c.competitions.map((comp) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(comp.getName(locale),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                                ),
-                                if (comp.appearances > 0) ...[
-                                  Text('${comp.appearances}${isAr ? ' م' : ' ap'}',
-                                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
-                                  const SizedBox(width: 8),
-                                ],
-                                if (comp.assists > 0) ...[
-                                  Text('${comp.assists}${isAr ? ' ص' : ' a'}',
-                                      style: TextStyle(color: AppColors.aqua, fontSize: 11)),
-                                  const SizedBox(width: 8),
-                                ],
-                                SizedBox(
-                                  width: 22,
-                                  child: Text('${comp.goals}',
-                                      textAlign: TextAlign.end,
-                                      style: TextStyle(
-                                          color: _gold,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold)),
-                                ),
-                              ],
-                            ),
-                          )),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+  // ── Tab 1: current season ──────────────────────────────────────────────────
+  Widget _currentSeasonTab(PlayerFull p, String locale, bool isAr) {
+    final cs = p.currentSeason;
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        if (cs?.seasonName(locale) != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(cs!.seasonName(locale)!,
+                style: TextStyle(color: AppColors.hint, fontSize: 12)),
+          ),
+        if (cs != null && !cs.isEmpty)
+          _statGrid(cs.appearances, cs.goals, cs.assists, cs.yellowCards, cs.redCards, isAr)
+        else
+          _empty(isAr ? 'لم يشارك في أي مباراة هذا الموسم' : 'No matches played this season yet'),
+      ],
     );
   }
 
-  // One app/assist/goal total in a career card.
-  Widget _total(String value, String label, Color color, {bool big = false}) => Padding(
-        padding: const EdgeInsetsDirectional.only(end: 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(value,
-                style: TextStyle(
-                    color: color,
-                    fontSize: big ? 18 : 14,
-                    fontWeight: FontWeight.bold,
-                    height: 1.1)),
-            Text(label, style: TextStyle(color: AppColors.hint, fontSize: 9)),
-          ],
-        ),
-      );
-
-  // A small pill tag ("guest" / "now").
-  Widget _tag(String text, Color color) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: color.withValues(alpha: 0.4)),
-        ),
-        child: Text(text,
-            style: TextStyle(color: color, fontSize: 9, fontWeight: FontWeight.bold)),
-      );
-
-  // Horizontal bars of goals per SEASON: sum a player's goals across every
-  // club/competition they played in that season (career rows split per
-  // club/competition), one bar per season, labelled with the season only.
-  Widget _goalsPerSeason(List<PlayerCareerEntry> career, String locale, bool isAr) {
-    final order = <String>[];
-    final goalsByKey = <String, int>{};
-    final sampleByKey = <String, PlayerCareerEntry>{};
-    for (final c in career) {
-      final key = (c.season['en']?.isNotEmpty ?? false)
-          ? c.season['en']!
-          : (c.season['ar'] ?? c.seasonName(locale));
-      if (!goalsByKey.containsKey(key)) {
-        order.add(key);
-        goalsByKey[key] = 0;
-        sampleByKey[key] = c;
+  // ── Tab 2: career (totals + by competition) ────────────────────────────────
+  Widget _careerTab(PlayerFull p, String locale, bool isAr) {
+    final compRows = <Widget>[];
+    for (final c in p.career) {
+      for (final comp in c.competitions) {
+        compRows.add(_compRow(comp, c, locale, isAr));
       }
-      goalsByKey[key] = goalsByKey[key]! + c.goals;
     }
-    final maxGoals = goalsByKey.values.fold<int>(1, (m, g) => g > m ? g : m);
+    return ListView(
+      padding: const EdgeInsets.all(14),
+      children: [
+        _sectionTitle(isAr ? 'الإجمالي' : 'Career total'),
+        _statGrid(p.appearances, p.goals, p.assists, p.yellowCards, p.redCards, isAr),
+        const SizedBox(height: 16),
+        _sectionTitle(isAr ? 'حسب البطولة' : 'By competition'),
+        if (compRows.isEmpty) _empty(isAr ? 'لا توجد بيانات' : 'No data yet') else ...compRows,
+      ],
+    );
+  }
+
+  Widget _compRow(PlayerCareerComp comp, PlayerCareerEntry e, String locale, bool isAr) {
+    final subtitle = [e.club, e.ageName(locale), e.seasonName(locale)]
+        .where((s) => s != null && s.isNotEmpty)
+        .join(' · ');
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.border),
       ),
       child: Column(
-        children: order.map((key) {
-          final goals = goalsByKey[key]!;
-          final label = sampleByKey[key]!.seasonName(locale);
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(comp.getName(locale),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: AppColors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                    if (subtitle.isNotEmpty)
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              RichText(
+                text: TextSpan(children: [
+                  TextSpan(
+                      text: '${comp.appearances}',
+                      style: TextStyle(
+                          color: AppColors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                  TextSpan(
+                      text: isAr ? ' م' : ' ap',
+                      style: TextStyle(color: AppColors.hint, fontSize: 10)),
+                ]),
+              ),
+            ],
+          ),
+          if (comp.goals > 0 || comp.assists > 0 || comp.yellowCards > 0 || comp.redCards > 0) ...[
+            const SizedBox(height: 6),
+            _contrib(comp.goals, comp.assists, comp.yellowCards, comp.redCards),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Tab 3: matches ─────────────────────────────────────────────────────────
+  Widget _matchesTab(PlayerFull p, String locale, bool isAr) {
+    if (p.matches.isEmpty) {
+      return _empty(isAr ? 'لا توجد مباريات' : 'No matches');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(14),
+      itemCount: p.matches.length,
+      itemBuilder: (_, i) => _matchTile(p.matches[i], locale, isAr),
+    );
+  }
+
+  Widget _matchTile(PlayerMatch m, String locale, bool isAr) {
+    final homeSide = m.side == 'home';
+    final score = '${m.homeScore ?? '-'} : ${m.awayScore ?? '-'}';
+    Text sideName(String name, bool mine) => Text(name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+            color: mine ? AppColors.white : AppColors.hint,
+            fontSize: 13,
+            fontWeight: mine ? FontWeight.bold : FontWeight.normal));
+
+    return InkWell(
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: '${m.id}'))),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            Row(
               children: [
-                SizedBox(
-                  width: 96,
-                  child: Text(label,
+                Expanded(
+                  child: Text(m.competitionName(locale),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                      style: TextStyle(color: AppColors.hint, fontSize: 10)),
                 ),
-                const SizedBox(width: 8),
+                Text(m.date, style: TextStyle(color: AppColors.hint, fontSize: 10)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
                 Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: goals / maxGoals,
-                      minHeight: 8,
-                      backgroundColor: AppColors.darkBg,
-                      valueColor: const AlwaysStoppedAnimation<Color>(_gold),
-                    ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Flexible(child: sideName(m.home.getName(locale), homeSide)),
+                      const SizedBox(width: 6),
+                      CachedLogo(url: m.home.logo, size: 24),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 24,
-                  child: Text('$goals',
-                      textAlign: TextAlign.end,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(score,
                       style: TextStyle(
-                          color: AppColors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold)),
+                          color: AppColors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                ),
+                Expanded(
+                  child: Row(
+                    children: [
+                      CachedLogo(url: m.away.logo, size: 24),
+                      const SizedBox(width: 6),
+                      Flexible(child: sideName(m.away.getName(locale), !homeSide)),
+                    ],
+                  ),
                 ),
               ],
             ),
-          );
-        }).toList(),
+            if (m.goals > 0 || m.assists > 0 || m.yellowCards > 0 || m.redCards > 0) ...[
+              const SizedBox(height: 8),
+              Divider(height: 1, color: AppColors.border),
+              const SizedBox(height: 6),
+              _contrib(m.goals, m.assists, m.yellowCards, m.redCards),
+            ],
+          ],
+        ),
       ),
     );
   }
