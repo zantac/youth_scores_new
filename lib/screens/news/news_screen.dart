@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -25,12 +26,18 @@ class _NewsScreenState extends State<NewsScreen> {
   // Articles this user has opened; a card's "NEW" tag shows only while unread.
   Set<String> _readIds = {};
 
+  Timer? _pollTimer;
+  static const _kPollInterval = Duration(seconds: 30);
+
   @override
   void initState() {
     super.initState();
     // Deferred to after the first frame so the mark-seen notifyListeners() (and
     // the read-set load) don't fire during the parent's build.
     WidgetsBinding.instance.addPostFrameCallback((_) => _initSeen());
+    // Keep the open list current: silently re-fetch the feed every 30s so an
+    // edited/added article appears without a manual pull.
+    _pollTimer = Timer.periodic(_kPollInterval, (_) => _refreshFeed());
   }
 
   Future<void> _initSeen() async {
@@ -47,6 +54,18 @@ class _NewsScreenState extends State<NewsScreen> {
     }
     final read = await SeenService.instance.getReadNews();
     if (mounted) setState(() => _readIds = read);
+    // Pull a fresh copy on open too, in case the feed changed since last load.
+    _refreshFeed();
+  }
+
+  // Silent feed refresh for the poll / on open: pulls fresh news+venues and
+  // re-marks the feed seen so this tab's badge stays cleared while it's open.
+  Future<void> _refreshFeed() async {
+    if (!mounted) return;
+    final provider = context.read<AppProvider>();
+    await provider.loadConfig(silent: true);
+    if (!mounted) return;
+    await provider.markNewsSeen();
   }
 
   Future<void> _openNews(NewsItem item) async {
@@ -61,6 +80,7 @@ class _NewsScreenState extends State<NewsScreen> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
