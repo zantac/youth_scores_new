@@ -54,6 +54,15 @@ function Contrib({ goals, assists, yellow, red, clean }: { goals: number; assist
   return <div className="flex items-center gap-2.5 text-[11px]">{chips}</div>;
 }
 
+// Tab lives in the URL (?tab=season|career|matches) so a view is shareable,
+// survives a refresh, and works with the browser back button — like the
+// competition page.
+const TAB_SLUGS = ['season', 'career', 'matches'] as const;
+const tabIndexFromParam = (raw: string | null): number => {
+  const i = (TAB_SLUGS as readonly string[]).indexOf((raw ?? '').toLowerCase());
+  return i < 0 ? 0 : i;
+};
+
 function PlayerJourney() {
   const params = useSearchParams();
   const id = params.get('id') ?? '';
@@ -61,7 +70,12 @@ function PlayerJourney() {
   const router = useRouter();
   const [p, setP] = useState<PlayerFull | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState(0);
+  const tab = tabIndexFromParam(params.get('tab'));
+  const setTab = (i: number) => {
+    const q = new URLSearchParams(params.toString());
+    q.set('tab', TAB_SLUGS[i]);
+    router.replace(`/player?${q.toString()}`, { scroll: false });
+  };
   const isAr = locale === 'ar';
 
   useEffect(() => {
