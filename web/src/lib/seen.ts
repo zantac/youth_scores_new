@@ -31,3 +31,34 @@ export function countUnseen(section: SeenSection, ids: string[]): number {
 export function markSeen(section: SeenSection, ids: string[]) {
   write(section, ids);
 }
+
+// Individual news articles the user has actually opened. Drives the per-card
+// "NEW" tag: once an article is read its tag clears, independent of the tab's
+// unseen-count baseline above (which clears for the whole feed on page open).
+const READ_NEWS_KEY = 'readNewsIds';
+
+export function getReadNews(): Set<string> {
+  try {
+    const raw = localStorage.getItem(READ_NEWS_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch { return new Set(); }
+}
+
+export function markNewsRead(id: string) {
+  try {
+    const ids = getReadNews();
+    if (ids.has(id)) return;
+    ids.add(id);
+    localStorage.setItem(READ_NEWS_KEY, JSON.stringify([...ids]));
+  } catch { /* quota / private mode */ }
+}
+
+// On the very first run (no stored read-set) treat the whole current feed as
+// already read, so "NEW" only tags articles that arrive *after* this point
+// rather than lighting up the entire back-catalogue. No-op once a set exists.
+export function seedReadNewsIfFirstRun(ids: string[]) {
+  try {
+    if (localStorage.getItem(READ_NEWS_KEY) != null) return;
+    localStorage.setItem(READ_NEWS_KEY, JSON.stringify(ids));
+  } catch { /* quota / private mode */ }
+}
