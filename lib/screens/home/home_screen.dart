@@ -93,6 +93,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
+  /// Overlay a small count badge on a bottom-nav icon (mirrors the website's
+  /// News / Venues tab badges). No badge when the count is zero; "99+" past 99.
+  Widget _badged(Widget child, int count) {
+    if (count <= 0) return child;
+    return Badge(
+      label: Text(count > 99 ? '99+' : '$count'),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
@@ -156,11 +166,13 @@ class _HomeScreenState extends State<HomeScreen> {
             label: l10n.clubs,
           ),
           BottomNavigationBarItem(
-            icon: const Text('📰', style: TextStyle(fontSize: 20)),
+            icon: _badged(const Text('📰', style: TextStyle(fontSize: 20)),
+                provider.newNewsCount),
             label: l10n.news,
           ),
           BottomNavigationBarItem(
-            icon: const Text('🏟️', style: TextStyle(fontSize: 20)),
+            icon: _badged(const Text('🏟️', style: TextStyle(fontSize: 20)),
+                provider.newVenuesCount),
             label: l10n.venues,
           ),
           BottomNavigationBarItem(

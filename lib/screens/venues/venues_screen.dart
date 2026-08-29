@@ -20,6 +20,16 @@ class _VenuesScreenState extends State<VenuesScreen> {
   String _query = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Opening the Venues tab clears its bottom-bar badge. Deferred past the first
+    // frame so notifyListeners() doesn't fire during the parent's build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().markVenuesSeen();
+    });
+  }
+
+  @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();

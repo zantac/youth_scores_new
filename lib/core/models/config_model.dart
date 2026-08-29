@@ -252,6 +252,12 @@ class NewsItem {
   String getTitle(String locale) =>
       title[locale] ?? title['ar'] ?? title['en'] ?? '';
 
+  /// Stable per-article key for seen/read tracking, matching the website's
+  /// scheme: a DB id when present, else date+title so an id-less row still
+  /// tracks. See [SeenService].
+  String get seenKey =>
+      id != null ? 'n$id' : 'd$date|${title['ar'] ?? ''}';
+
   String? getDetails(String locale) {
     if (details == null) return null;
     final val = details![locale] ?? details!['ar'] ?? details!['en'];
