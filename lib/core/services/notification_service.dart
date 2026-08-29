@@ -233,6 +233,8 @@ class NotificationService {
         seasonName: '',
         initialWeek: (week != null && week.isNotEmpty) ? week : null,
         initialTab: _tabIndex(uri.queryParameters['tab']),
+        // Stats sub-tab (?stat=), applied when ?tab=stats.
+        initialStat: _statTabIndex(uri.queryParameters['stat']),
       ),
     ));
   }
@@ -256,6 +258,17 @@ class NotificationService {
     final named = slugs.indexOf(tab.toLowerCase());
     if (named >= 0) return named;
     final n = int.tryParse(tab);
+    return (n != null && n >= 0 && n < slugs.length) ? n : 0;
+  }
+
+  // The competition Stats sub-tabs, matching StatsTab's order and the website's
+  // ?stat= slugs.
+  static int _statTabIndex(String? stat) {
+    if (stat == null || stat.isEmpty) return 0;
+    const slugs = ['overview', 'scorers', 'assists', 'cleansheets', 'cards'];
+    final named = slugs.indexOf(stat.toLowerCase());
+    if (named >= 0) return named;
+    final n = int.tryParse(stat);
     return (n != null && n >= 0 && n < slugs.length) ? n : 0;
   }
 

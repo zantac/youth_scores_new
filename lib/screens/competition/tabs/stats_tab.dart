@@ -20,7 +20,10 @@ import '../../../widgets/stats/player_stat_item.dart';
 // ── Main tab ──────────────────────────────────────────────────────────────────
 
 class StatsTab extends StatefulWidget {
-  const StatsTab({super.key});
+  // Which sub-tab to open on (0=overview, 1=scorers, 2=assists, 3=cleansheets,
+  // 4=cards) — set from a shared website link's ?stat=. Defaults to overview.
+  final int initialStat;
+  const StatsTab({super.key, this.initialStat = 0});
 
   @override
   State<StatsTab> createState() => _StatsTabState();
@@ -30,9 +33,16 @@ class _StatsTabState extends State<StatsTab> with AutomaticKeepAliveClientMixin 
   @override
   bool get wantKeepAlive => true;
 
-  final _pageCtrl = PageController();
-  int _page = 0;
+  late final PageController _pageCtrl;
+  late int _page;
   String? _selectedGroup;
+
+  @override
+  void initState() {
+    super.initState();
+    _page = widget.initialStat.clamp(0, 4);
+    _pageCtrl = PageController(initialPage: _page);
+  }
 
   bool _sharingStats = false;
 
