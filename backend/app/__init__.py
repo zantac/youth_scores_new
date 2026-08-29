@@ -121,6 +121,65 @@ def _competition_team_share_meta(competition_id: int, team_id: int) -> dict | No
     }
 
 
+def _match_share_meta(match_id: int) -> dict | None:
+    """A shared match link (…/match?id=): title is the two teams (with the score
+    once it's played), description is the competition + age (+ round), image is the
+    home club crest. None when the match doesn't exist."""
+    from app.extensions import db
+    from app.models import AgeGroup, Club, CompetitionTeam, Match, Team, codes
+
+    m = db.session.get(Match, match_id)
+    if m is None or m.deleted_at is not None:
+        return None
+    comp = m.stage.competition if m.stage else None
+
+    def _team_name(team_id: int) -> str:
+        # The name the team plays under in this competition (academy/sponsor
+        # second name), else the club's own name — mirrors the fixtures list.
+        if comp is not None:
+            ct = CompetitionTeam.query.filter_by(
+                competition_id=comp.id, team_id=team_id).first()
+            if ct and (ct.name_ar or ct.name_en):
+                return (ct.name_ar or ct.name_en).strip()
+        t = db.session.get(Team, team_id)
+        club = db.session.get(Club, t.club_id) if t and t.club_id else None
+        return (club.name_ar or club.name_en or "فريق").strip() if club else "فريق"
+
+    home = _team_name(m.home_team_id)
+    away = _team_name(m.away_team_id)
+    played = (m.status == codes.MATCH_STATUS_COMPLETED
+              and m.home_score is not None and m.away_score is not None)
+    title = (f"{home} {m.home_score} - {m.away_score} {away}"
+             if played else f"{home} × {away}")
+
+    comp_name = (comp.name_ar or comp.name_en or "").strip() if comp else ""
+    age = ""
+    if comp and comp.age_group_id:
+        ag = db.session.get(AgeGroup, comp.age_group_id)
+        if ag:
+            age = (ag.name_ar or ag.name_en or "").strip()
+    week = (m.week or "").strip()
+    round_lbl = f"الجولة {week}" if week else ""
+    description = " - ".join(p for p in (comp_name, age, round_lbl) if p)
+
+    home_team = db.session.get(Team, m.home_team_id)
+    home_club = db.session.get(Club, home_team.club_id) if home_team and home_team.club_id else None
+    image = (home_club.logo_url or "") if home_club else ""
+
+    return {"title": title, "description": description, "image": image}
+
+
+def _match_share_page(index_abs: str):
+    """Match preview: the two teams (+ score once played), competition + age."""
+    from flask import request
+
+    try:
+        meta = _match_share_meta(int(request.args.get("id", "")))
+    except (TypeError, ValueError):
+        return None
+    return _render_share_page(index_abs, meta)
+
+
 def _abs_url(base: str, raw: str | None) -> str | None:
     """Absolutize an image URL for OG tags: pass http(s) through, prefix a
     same-origin ``/uploads/…`` path with the request base, else give up (None)."""
@@ -682,6 +741,7 @@ def create_app(config_name: str | None = None) -> Flask:
             # falls through to the plain file below.
             _share_builders = {
                 "competition": _competition_share_page,
+                "match": _match_share_page,
                 "news": _news_share_page,
                 "club": _club_share_page,
                 "team": _team_share_page,
