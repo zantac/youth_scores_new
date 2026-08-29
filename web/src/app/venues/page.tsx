@@ -1,14 +1,18 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { localize, safeUrl } from '@/lib/utils';
 
 export default function VenuesPage() {
-  const { config, configLoading, locale } = useApp();
+  const { config, configLoading, locale, markVenuesSeen } = useApp();
   const [q, setQ] = useState('');
   const isAr = locale === 'ar';
+
+  // Opening the Venues page clears its bottom-bar badge (and keeps it cleared
+  // while viewing, even across a background feed refresh).
+  useEffect(() => { markVenuesSeen(); }, [markVenuesSeen]);
 
   const venues = (config?.venues ?? []).filter(v =>
     !q || localize(v.name, locale).toLowerCase().includes(q.toLowerCase())
