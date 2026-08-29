@@ -332,6 +332,8 @@ def _player_share_page(index_abs: str):
 def _coach_share_meta(coach_id: int) -> dict | None:
     """Title (coach name) + role + photo for a shared coach profile, or None when
     the coach doesn't exist."""
+    from datetime import date
+
     from app.extensions import db
     from app.models import Coach
 
@@ -339,12 +341,19 @@ def _coach_share_meta(coach_id: int) -> dict | None:
     if c is None:
         return None
     name = (c.full_name_ar or c.full_name_en or "مدرّب").strip()
-    # The most recent team role's label, else a generic "مدرّب".
-    role = ""
-    for tc in sorted(c.team_roles, key=lambda r: r.id, reverse=True):
-        role = (tc.role_ar or tc.role_en or "").strip()
-        if role:
-            break
+    # The person's actual current post — a team-coaching stint or a club
+    # youth-sector role, current (open end_date) first then newest — so a
+    # doctor or an administrator isn't labelled a generic "مدرّب".
+    stints = []
+    for tc in c.team_roles:
+        stints.append((tc.end_date is None, tc.start_date or date.min,
+                       (tc.role_ar or tc.role_en or "").strip()))
+    for cs in c.club_roles:
+        stints.append((cs.end_date is None, cs.start_date or date.min,
+                       (cs.role_ar or cs.role_en or "").strip()))
+    stints = [s for s in stints if s[2]]
+    stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
+    role = stints[0][2] if stints else ""
     return {"title": name, "description": role or "مدرّب",
             "image": c.profile_pic_url or ""}
 
