@@ -31,6 +31,7 @@ interface AppContextValue {
   refreshCompetition: () => Promise<void>;
   refreshCompetitionSilent: () => Promise<void>;
   refreshConfig: () => Promise<void>;
+  refreshConfigSilent: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
   newNewsCount: number;
@@ -111,11 +112,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsDark(d => { localStorage.setItem('isDark', String(!d)); return !d; });
   }, []);
 
-  const loadConfigInternal = useCallback(async (silent = false) => {
+  const loadConfigInternal = useCallback(async (silent = false, fresh = false) => {
     // Silent (background) refresh keeps the current news/venues on screen — no
     // loading spinner, and a failed fetch leaves the existing data untouched.
+    // `fresh` bypasses the HTTP cache so an edit isn't hidden by the cache TTL.
     if (!silent) { setCfgL(true); setCfgErr(null); }
-    try { setConfig(await fetchConfig()); if (silent) setCfgErr(null); }
+    try { setConfig(await fetchConfig({ fresh })); if (silent) setCfgErr(null); }
     catch (e) { if (!silent) setCfgErr(String(e)); }
     finally { if (!silent) setCfgL(false); }
   }, []);
@@ -132,7 +134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const now = Date.now();
       if (now - lastCfgAt.current < 15000) return;
       lastCfgAt.current = now;
-      loadConfigInternal(true);
+      loadConfigInternal(true, true); // fresh: don't let the cache hide an edit
     };
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
@@ -189,6 +191,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [compUrl]);
 
   const refreshConfig = useCallback(() => loadConfigInternal(), [loadConfigInternal]);
+  // Silent + fresh config refresh for the news page's in-page poll: no spinner,
+  // cache-bypassing, so an edit shows even while the page stays open.
+  const refreshConfigSilent = useCallback(() => loadConfigInternal(true, true), [loadConfigInternal]);
 
   // Recompute the bottom-bar "new items" badges whenever the config feed loads
   // or is silently refreshed. First run seeds the baseline (badge stays 0).
@@ -210,7 +215,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [config]);
 
   return (
-    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, refreshConfig, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
+    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, refreshConfig, refreshConfigSilent, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
       {children}
     </Ctx.Provider>
   );

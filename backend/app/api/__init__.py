@@ -10,9 +10,10 @@ api_bp = Blueprint("api", __name__)
 
 # Live feeds — match scores/statuses and the per-competition data blob — carry a
 # much shorter TTL so an edit during a live round reaches clients within seconds.
-# The rest of the public feed (config, clubs, teams, players) keeps the longer
-# cache since it changes rarely.
 _LIVE_PATH_PREFIXES = ("/api/matches", "/api/competitions")
+# The config feed (news + venues + season/competition list) is edited from admin
+# and should surface promptly too, just not as aggressively as live scores.
+_FEED_PATHS = ("/api/config", "/api/data")
 
 
 @api_bp.after_request
@@ -28,6 +29,8 @@ def _public_cache(response):
     if request.method == "GET" and response.status_code == 200:
         if request.path.startswith(_LIVE_PATH_PREFIXES):
             cache = "public, max-age=15, stale-while-revalidate=30"
+        elif request.path in _FEED_PATHS:
+            cache = "public, max-age=20, stale-while-revalidate=60"
         else:
             cache = "public, max-age=60, stale-while-revalidate=300"
         response.headers.setdefault("Cache-Control", cache)
