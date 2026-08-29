@@ -630,7 +630,7 @@ def _team_competitions(t) -> list[dict]:
 # ── player profile / journey ─────────────────────────────────────────────────
 
 def player_full(p) -> dict:
-    from app.models import MatchGoal, MatchPlayer, PlayerTeam
+    from app.models import MatchCard, MatchGoal, MatchPlayer, PlayerTeam
 
     # Aggregate goals/assists/appearances by (team_id, competition_id) in three
     # queries rather than loading every event row.  Own goals are excluded from
@@ -681,21 +681,73 @@ def player_full(p) -> dict:
         .group_by(MatchPlayer.team_id, Stage.competition_id)
         .all()
     )
+    # Clean sheets: appearances where the player's team conceded nothing — the
+    # opponent's score is 0 for the side he played on. Meaningful for keepers.
+    cs_rows = (
+        MatchPlayer.query
+        .join(Match, Match.id == MatchPlayer.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(
+            MatchPlayer.player_id == p.id,
+            MatchPlayer.role != "called",
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+            sa.or_(
+                sa.and_(MatchPlayer.team_id == Match.home_team_id, Match.away_score == 0),
+                sa.and_(MatchPlayer.team_id == Match.away_team_id, Match.home_score == 0),
+            ),
+        )
+        .with_entities(MatchPlayer.team_id, Stage.competition_id, sa.func.count())
+        .group_by(MatchPlayer.team_id, Stage.competition_id)
+        .all()
+    )
+    # Cards by (team, competition, type). A plain 'yellow' is a booking; a
+    # 'second_yellow' or 'red' is a dismissal, counted as a red.
+    card_rows = (
+        MatchCard.query
+        .join(Match, Match.id == MatchCard.match_id)
+        .join(Stage, Stage.id == Match.stage_id)
+        .filter(
+            MatchCard.player_id == p.id,
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
+        .with_entities(MatchCard.team_id, Stage.competition_id,
+                       MatchCard.card_type, sa.func.count())
+        .group_by(MatchCard.team_id, Stage.competition_id, MatchCard.card_type)
+        .all()
+    )
 
     # Flatten to lookup dicts keyed by (team_id, competition_id).
     goals_tc:   dict[tuple, int] = {(r[0], r[1]): r[2] for r in goal_rows}
     assists_tc: dict[tuple, int] = {(r[0], r[1]): r[2] for r in assist_rows}
     apps_tc:    dict[tuple, int] = {(r[0], r[1]): r[2] for r in app_rows}
+    cs_tc:      dict[tuple, int] = {(r[0], r[1]): r[2] for r in cs_rows}
+    yellows_tc: dict[tuple, int] = defaultdict(int)
+    reds_tc:    dict[tuple, int] = defaultdict(int)
+    for tid, cid, ctype, n in card_rows:
+        (yellows_tc if ctype == "yellow" else reds_tc)[(tid, cid)] += n
 
     total_goals       = sum(goals_tc.values())
     total_assists     = sum(assists_tc.values())
     total_appearances = sum(apps_tc.values())
+    total_yellow      = sum(yellows_tc.values())
+    total_red         = sum(reds_tc.values())
+    total_clean       = sum(cs_tc.values())
+
+    # A goalkeeper by his profile position (same match the roster grouping uses:
+    # Arabic ى/ي tolerant, else English) — the clients only surface clean sheets
+    # for keepers.
+    _pos_ar = (p.position_ar or "").strip().replace("ى", "ي")
+    _pos_en = (p.position_en or "").strip().lower()
+    is_goalkeeper = _pos_ar == "حارس مرمي" or _pos_en == "goalkeeper"
 
     # Competition names — one query for all IDs seen across the three result sets.
     all_comp_ids = (
         {r[1] for r in goal_rows}
         | {r[1] for r in assist_rows}
         | {r[1] for r in app_rows}
+        | {r[1] for r in card_rows}
     )
     # Competition names + the season each one belongs to, so a team's tally can
     # be split by season rather than lumped together.
@@ -724,7 +776,8 @@ def player_full(p) -> dict:
     for r in regs:
         regs_by_team[r.team_id].append(r)
 
-    pairs = set(goals_tc) | set(assists_tc) | set(apps_tc)   # (team_id, comp_id)
+    pairs = (set(goals_tc) | set(assists_tc) | set(apps_tc)
+             | set(yellows_tc) | set(reds_tc))               # (team_id, comp_id)
     cards: list[tuple] = []   # (sort_key, team_id, card)
     for tid, tregs in regs_by_team.items():
         t = tregs[0].team
@@ -755,19 +808,25 @@ def player_full(p) -> dict:
         for s, cids in by_season.items():
             competitions = sorted([
                 {
-                    "name":        comp_name.get(cid, {"ar": "", "en": ""}),
-                    "goals":       goals_tc.get((tid, cid), 0),
-                    "assists":     assists_tc.get((tid, cid), 0),
-                    "appearances": apps_tc.get((tid, cid), 0),
+                    "name":         comp_name.get(cid, {"ar": "", "en": ""}),
+                    "goals":        goals_tc.get((tid, cid), 0),
+                    "assists":      assists_tc.get((tid, cid), 0),
+                    "appearances":  apps_tc.get((tid, cid), 0),
+                    "yellow_cards": yellows_tc.get((tid, cid), 0),
+                    "red_cards":    reds_tc.get((tid, cid), 0),
+                    "clean_sheets": cs_tc.get((tid, cid), 0),
                 }
                 for cid in cids
             ], key=lambda x: -x["appearances"])
             cards.append((s.start_date.isoformat() if s else "", tid, {
                 **base,
                 "season":       _loc(s.name_ar, s.name_en) or {"ar": "", "en": ""} if s else {"ar": "", "en": ""},
-                "goals":        sum(goals_tc.get((tid, cid), 0)  for cid in cids),
+                "goals":        sum(goals_tc.get((tid, cid), 0)   for cid in cids),
                 "assists":      sum(assists_tc.get((tid, cid), 0) for cid in cids),
-                "appearances":  sum(apps_tc.get((tid, cid), 0)   for cid in cids),
+                "appearances":  sum(apps_tc.get((tid, cid), 0)    for cid in cids),
+                "yellow_cards": sum(yellows_tc.get((tid, cid), 0) for cid in cids),
+                "red_cards":    sum(reds_tc.get((tid, cid), 0)    for cid in cids),
+                "clean_sheets": sum(cs_tc.get((tid, cid), 0)      for cid in cids),
                 "current":      False,
                 "end_date":     None,
                 "competitions": competitions,
@@ -797,6 +856,33 @@ def player_full(p) -> dict:
         or next((c for c in career if not c["is_guest"]), None)
         or (career[0] if career else None)
     )
+
+    # Current-season block: the active season's totals across every competition
+    # the player featured in that season (zeros when there's no active season, or
+    # he hasn't played in it yet).
+    active_season = next((s for s in all_seasons if s.is_active), None)
+    cur_ap = cur_g = cur_a = cur_y = cur_r = cur_cs = 0
+    if active_season is not None:
+        for (tid, cid) in pairs:
+            cs = comp_season.get(cid)
+            if cs is not None and cs.id == active_season.id:
+                cur_ap += apps_tc.get((tid, cid), 0)
+                cur_g  += goals_tc.get((tid, cid), 0)
+                cur_a  += assists_tc.get((tid, cid), 0)
+                cur_y  += yellows_tc.get((tid, cid), 0)
+                cur_r  += reds_tc.get((tid, cid), 0)
+                cur_cs += cs_tc.get((tid, cid), 0)
+    current_season = {
+        "season": (_loc(active_season.name_ar, active_season.name_en)
+                   if active_season else None),
+        "appearances":  cur_ap,
+        "goals":        cur_g,
+        "assists":      cur_a,
+        "yellow_cards": cur_y,
+        "red_cards":    cur_r,
+        "clean_sheets": cur_cs,
+    }
+
     return {
         "id":           p.id,
         "name":         _loc(p.full_name_ar, p.full_name_en) or {"ar": "", "en": ""},
@@ -807,11 +893,83 @@ def player_full(p) -> dict:
         "nationality":  _loc(p.nationality_ar, p.nationality_en),
         "photo":        p.profile_pic_url,
         "current_club": current["club"] if current else None,
-        "goals":        total_goals,
-        "assists":      total_assists,
-        "appearances":  total_appearances,
-        "career":       career,
+        "goals":         total_goals,
+        "assists":       total_assists,
+        "appearances":   total_appearances,
+        "yellow_cards":  total_yellow,
+        "red_cards":     total_red,
+        "clean_sheets":  total_clean,
+        "is_goalkeeper": is_goalkeeper,
+        "current_season": current_season,
+        "career":        career,
+        "matches":       _player_matches(p),
     }
+
+
+def _player_matches(p) -> list[dict]:
+    """Every completed match the player actually played in, newest first, with his
+    own goals / assists / cards in that match and the result."""
+    from app.models import MatchCard, MatchGoal, MatchPlayer
+
+    rows = (
+        MatchPlayer.query
+        .join(Match, Match.id == MatchPlayer.match_id)
+        .filter(
+            MatchPlayer.player_id == p.id,
+            MatchPlayer.role != "called",   # called-up-only players didn't play
+            Match.deleted_at.is_(None),
+            Match.status == codes.MATCH_STATUS_COMPLETED,
+        )
+        .all()
+    )
+    if not rows:
+        return []
+
+    # The player's per-match contributions, bucketed from the event tables. Rows
+    # for matches he didn't play (or that were deleted) are simply never read.
+    goals_m:   dict[int, int] = defaultdict(int)
+    assists_m: dict[int, int] = defaultdict(int)
+    yellow_m:  dict[int, int] = defaultdict(int)
+    red_m:     dict[int, int] = defaultdict(int)
+    for (mid,) in (MatchGoal.query
+                   .filter(MatchGoal.scorer_id == p.id,
+                           MatchGoal.is_own_goal == False)   # noqa: E712
+                   .with_entities(MatchGoal.match_id)):
+        goals_m[mid] += 1
+    for (mid,) in (MatchGoal.query
+                   .filter(MatchGoal.assist_id == p.id)
+                   .with_entities(MatchGoal.match_id)):
+        assists_m[mid] += 1
+    for (mid, ctype) in (MatchCard.query
+                         .filter(MatchCard.player_id == p.id)
+                         .with_entities(MatchCard.match_id, MatchCard.card_type)):
+        (yellow_m if ctype == "yellow" else red_m)[mid] += 1
+
+    out = []
+    for r in rows:
+        m = r.match
+        comp = m.stage.competition if m.stage else None
+        home_side = r.team_id == m.home_team_id
+        conceded = m.away_score if home_side else m.home_score
+        out.append({
+            "id":           m.id,
+            "date":         m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
+            "status":       STATUS_OUT.get(m.status, "upcoming"),
+            "competition":  (_loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""}
+                             if comp else {"ar": "", "en": ""}),
+            "side":         "home" if home_side else "away",
+            "home":         {"name": _team_name(m.home_team), "logo": m.home_team.club.logo_url},
+            "away":         {"name": _team_name(m.away_team), "logo": m.away_team.club.logo_url},
+            "home_score":   m.home_score,
+            "away_score":   m.away_score,
+            "goals":        goals_m.get(m.id, 0),
+            "assists":      assists_m.get(m.id, 0),
+            "yellow_cards": yellow_m.get(m.id, 0),
+            "red_cards":    red_m.get(m.id, 0),
+            "clean_sheet":  conceded == 0,
+        })
+    out.sort(key=lambda x: x["date"], reverse=True)
+    return out
 
 
 # ── coach / manager profile ──────────────────────────────────────────────────
