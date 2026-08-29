@@ -6,7 +6,7 @@ import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import NewsDetail from '@/components/news/NewsDetail';
 import { formatNewsDate, localize, cloudinaryUrl } from '@/lib/utils';
-import { getReadNews, markNewsRead } from '@/lib/seen';
+import { getReadNews, markNewsRead, seedReadNewsIfFirstRun } from '@/lib/seen';
 import type { NewsItem } from '@/lib/types';
 
 // Stable per-article key, matching the scheme AppContext uses for the tab badge:
@@ -26,7 +26,14 @@ function NewsPageInner() {
   const isAr = locale === 'ar';
   const idParam = params.get('id');
 
-  useEffect(() => { setReadIds(getReadNews()); }, []);
+  // Seed the read-set on first run (whole current feed counts as read, so only
+  // later arrivals show "NEW"), then load it. Re-runs on refresh so newly-added
+  // articles — absent from the seeded set — surface as NEW.
+  useEffect(() => {
+    if (!config) return;
+    seedReadNewsIfFirstRun((config.news ?? []).map(newsKey));
+    setReadIds(getReadNews());
+  }, [config]);
 
   const markRead = useCallback((item: NewsItem) => {
     const key = newsKey(item);

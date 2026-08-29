@@ -52,3 +52,13 @@ export function markNewsRead(id: string) {
     localStorage.setItem(READ_NEWS_KEY, JSON.stringify([...ids]));
   } catch { /* quota / private mode */ }
 }
+
+// On the very first run (no stored read-set) treat the whole current feed as
+// already read, so "NEW" only tags articles that arrive *after* this point
+// rather than lighting up the entire back-catalogue. No-op once a set exists.
+export function seedReadNewsIfFirstRun(ids: string[]) {
+  try {
+    if (localStorage.getItem(READ_NEWS_KEY) != null) return;
+    localStorage.setItem(READ_NEWS_KEY, JSON.stringify(ids));
+  } catch { /* quota / private mode */ }
+}
