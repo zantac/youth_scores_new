@@ -37,7 +37,7 @@ function GroupFilter({ groups, selected, onChange, locale, stickyTop }: { groups
 
 // ── Matches Tab ───────────────────────────────────────────────────────────────
 
-function MatchesTab({ matches, teams, locale, onMatchClick, stickyTop }: { matches: Match[]; teams: Team[]; locale: string; onMatchClick: (id: string) => void; stickyTop?: number }) {
+function MatchesTab({ matches, teams, locale, onMatchClick, stickyTop, initialWeek }: { matches: Match[]; teams: Team[]; locale: string; onMatchClick: (id: string) => void; stickyTop?: number; initialWeek?: string }) {
   const [selectedGroup, setGroup] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [anchorKey, setAnchorKey] = useState<string | null>(null);
@@ -71,7 +71,11 @@ function MatchesTab({ matches, teams, locale, onMatchClick, stickyTop }: { match
 
     const today = todayStr();
     let target: string | undefined;
-    for (const [k, v] of byRound) { if (v[0].date === today) { target = k; break; } }
+    // A round-results notification deep-links with ?week= — open that round.
+    if (initialWeek) {
+      for (const [k, v] of byRound) { if (v[0].week === initialWeek) { target = k; break; } }
+    }
+    if (!target) for (const [k, v] of byRound) { if (v[0].date === today) { target = k; break; } }
     if (!target) for (const [k, v] of byRound) { if (v[0].date > today) { target = k; break; } }
     if (!target) target = [...byRound.keys()].at(-1);
 
@@ -79,7 +83,7 @@ function MatchesTab({ matches, teams, locale, onMatchClick, stickyTop }: { match
     for (const k of byRound.keys()) init[k] = k === target;
     setExpanded(init);
     setAnchorKey(target ?? null);
-  }, [byRound]);
+  }, [byRound, initialWeek]);
 
   // Scroll to the expanded round once, after it renders.
   useEffect(() => {
@@ -1393,7 +1397,7 @@ function CompetitionPageInner() {
         }} />
       </div>
 
-      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} />}
+      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} initialWeek={params.get('week') ?? undefined} />}
       {mainTab === 1 && <StandingsTab matches={matches} teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} serverStandings={competition.standings} />}
       {mainTab === 2 && <TeamsTab teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} />}
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}
