@@ -15,7 +15,7 @@ const newsKey = (n: NewsItem): string =>
   n.id != null ? `n${n.id}` : `d${n.date}|${typeof n.title === 'string' ? n.title : n.title.ar}`;
 
 function NewsPageInner() {
-  const { config, configLoading, configError, refreshConfig, locale, markNewsSeen } = useApp();
+  const { config, configLoading, configError, refreshConfig, refreshConfigSilent, locale, markNewsSeen } = useApp();
   const params = useSearchParams();
   const router = useRouter();
   const [q, setQ] = useState('');
@@ -45,6 +45,19 @@ function NewsPageInner() {
   // identity when the feed refreshes, so items added while viewing are marked
   // seen too — the badge only returns after the user has left the page.
   useEffect(() => { markNewsSeen(); }, [markNewsSeen]);
+
+  // Keep the open News page current: silently (cache-bypassing) re-fetch the
+  // feed every 30s and whenever the tab regains focus, so an edited or new
+  // article appears without a manual reload.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshConfigSilent(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const id = setInterval(() => { if (document.visibilityState === 'visible') refreshConfigSilent(); }, 30000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(id);
+    };
+  }, [refreshConfigSilent]);
 
   // A news-notification deep-links to /news?id=<id>. Once the feed is loaded,
   // open that item automatically. Also keeps the URL shareable.

@@ -1257,7 +1257,7 @@ function teamTabIndexFromParam(raw: string | null): number {
 function CompetitionPageInner() {
   const params = useSearchParams();
   const router  = useRouter();
-  const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, locale } = useApp();
+  const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, locale } = useApp();
   // The tab and the open team live in the URL, so a competition view can be
   // shared and reopened exactly (e.g. ?url=...&tab=2&team=t001).
   const mainTab = tabIndexFromParam(params.get('tab'));
@@ -1325,6 +1325,27 @@ function CompetitionPageInner() {
   useEffect(() => {
     if (url) loadCompetition(url, rawTitle);
   }, [url, rawTitle, loadCompetition]);
+
+  // Live auto-refresh (mirrors the home feed): while a fixture in this
+  // competition is today-and-unfinished, silently re-fetch every 45s so scores
+  // and standings update without leaving the page; also refresh on tab focus.
+  const hasLiveToday = useMemo(() => {
+    const today = todayStr();
+    return (competition?.matches ?? []).some(
+      m => m.date === today && m.status.toLowerCase() !== 'completed');
+  }, [competition]);
+  useEffect(() => {
+    if (!url) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshCompetitionSilent(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refreshCompetitionSilent);
+    const id = hasLiveToday ? setInterval(refreshCompetitionSilent, 45000) : undefined;
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refreshCompetitionSilent);
+      if (id) clearInterval(id);
+    };
+  }, [url, hasLiveToday, refreshCompetitionSilent]);
 
   const isAr = locale === 'ar';
 
