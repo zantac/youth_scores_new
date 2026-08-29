@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/l10n/app_l10n.dart';
@@ -34,8 +35,11 @@ class CompetitionDataScreen extends StatefulWidget {
 }
 
 class _CompetitionDataScreenState extends State<CompetitionDataScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabs;
+
+  Timer? _pollTimer;
+  static const _kPollInterval = Duration(seconds: 45);
 
   @override
   void initState() {
@@ -45,18 +49,60 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
       vsync: this,
       initialIndex: widget.initialTab.clamp(0, 3),
     );
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final p = context.read<AppProvider>();
       p.setCompetitionMeta(widget.title, widget.seasonName);
       p.loadCompetition(widget.dataUrl);
     });
+    _startPolling();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pollTimer?.cancel();
     _tabs.dispose();
     context.read<AppProvider>().clearCompetition();
     super.dispose();
+  }
+
+  // Live scores/standings: while a fixture in this competition is today-and-
+  // unfinished, quietly re-fetch every 45s — no spinner — so the page stays
+  // current without a manual pull. Pauses in the background, resumes (with an
+  // immediate refresh) on return to the foreground. Mirrors the home tab.
+  void _startPolling() {
+    _pollTimer ??= Timer.periodic(_kPollInterval, (_) {
+      if (!mounted) return;
+      if (_hasUnfinishedTodayMatch) {
+        context.read<AppProvider>().refreshCompetitionSilent();
+      }
+    });
+  }
+
+  String get _today {
+    final d = DateTime.now();
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
+  bool get _hasUnfinishedTodayMatch {
+    final matches = context.read<AppProvider>().competition?.matches ?? const [];
+    final today = _today;
+    return matches.any(
+        (m) => m.date == today && m.status.toLowerCase() != 'completed');
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startPolling();
+      context.read<AppProvider>().refreshCompetitionSilent();
+    } else if (state == AppLifecycleState.paused) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    }
   }
 
   @override

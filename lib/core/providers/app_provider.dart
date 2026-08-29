@@ -426,6 +426,13 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _fetchAndSave(url);
   }
 
+  /// Background refresh for the competition live-poll: refetch the current
+  /// competition with no loading indicator, keeping the current data on failure.
+  Future<void> refreshCompetitionSilent() async {
+    final url = _compUrl;
+    if (url != null) await _silentRefresh(url);
+  }
+
   Future<void> refreshConfig() async {
     _config = null;
     await loadConfig();
