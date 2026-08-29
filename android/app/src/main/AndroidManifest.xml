@@ -51,6 +51,7 @@
                 <data android:pathPrefix="/news"/>
                 <data android:pathPrefix="/club"/>
                 <data android:pathPrefix="/team"/>
+                <data android:pathPrefix="/player"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

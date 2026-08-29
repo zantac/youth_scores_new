@@ -9,6 +9,7 @@ import '../providers/app_provider.dart';
 import '../../screens/competition/competition_data_screen.dart';
 import '../../screens/club/club_detail_screen.dart';
 import '../../screens/news/news_detail_screen.dart';
+import '../../screens/player/player_detail_screen.dart';
 import '../../screens/team/team_profile_screen.dart';
 
 /// Global navigator so a notification tap can push a screen from anywhere.
@@ -206,6 +207,21 @@ class NotificationService {
       return;
     }
 
+    // Player profile. A website link may carry ?tab= to land on
+    // season/career/matches; defaults to the season tab.
+    if (target.startsWith('player')) {
+      final playerId = int.tryParse(id);
+      if (playerId != null) {
+        nav.push(MaterialPageRoute(
+          builder: (_) => PlayerDetailScreen(
+            playerId: playerId,
+            initialTab: _playerTabIndex(uri.queryParameters['tab']),
+          ),
+        ));
+      }
+      return;
+    }
+
     // Competition. A round-results digest carries the round (?week=): open that
     // round's matches, not today's. A website link may carry ?tab= to land on
     // standings/teams/stats; both default sensibly when absent.
@@ -226,6 +242,17 @@ class NotificationService {
   static int _tabIndex(String? tab) {
     if (tab == null || tab.isEmpty) return 0;
     const slugs = ['matches', 'standings', 'teams', 'stats'];
+    final named = slugs.indexOf(tab.toLowerCase());
+    if (named >= 0) return named;
+    final n = int.tryParse(tab);
+    return (n != null && n >= 0 && n < slugs.length) ? n : 0;
+  }
+
+  // The player profile's tabs, matching PlayerDetailScreen's order and the
+  // website's slugs (?tab=season|career|matches).
+  static int _playerTabIndex(String? tab) {
+    if (tab == null || tab.isEmpty) return 0;
+    const slugs = ['season', 'career', 'matches'];
     final named = slugs.indexOf(tab.toLowerCase());
     if (named >= 0) return named;
     final n = int.tryParse(tab);
