@@ -27,8 +27,9 @@ function StatCard({ v, label, color }: { v: number; label: string; color: string
   );
 }
 
-// The five stats the user asked for: participation, goals, assists, yellow, red.
-function StatGrid({ s, isAr }: { s: { appearances: number; goals: number; assists: number; yellow_cards: number; red_cards: number }; isAr: boolean }) {
+// The stats the user asked for: participation, goals, assists, yellow, red — plus
+// clean sheets (passed via `cs`) for goalkeepers.
+function StatGrid({ s, cs, isAr }: { s: { appearances: number; goals: number; assists: number; yellow_cards: number; red_cards: number }; cs?: number; isAr: boolean }) {
   const cells = [
     { v: s.appearances,  l: isAr ? 'مباراة' : 'Apps',    c: 'text-text' },
     { v: s.goals,        l: isAr ? 'هدف'    : 'Goals',   c: 'text-gold' },
@@ -36,12 +37,15 @@ function StatGrid({ s, isAr }: { s: { appearances: number; goals: number; assist
     { v: s.yellow_cards, l: isAr ? 'صفراء'  : 'Yellow',  c: 'text-yellow-400' },
     { v: s.red_cards,    l: isAr ? 'حمراء'  : 'Red',     c: 'text-red-500' },
   ];
-  return <div className="grid grid-cols-5 gap-2">{cells.map(k => <StatCard key={k.l} v={k.v} label={k.l} color={k.c} />)}</div>;
+  if (cs !== undefined) cells.push({ v: cs, l: isAr ? 'نظيفة' : 'Clean', c: 'text-green-400' });
+  return <div className={`grid ${cells.length === 6 ? 'grid-cols-6' : 'grid-cols-5'} gap-2`}>{cells.map(k => <StatCard key={k.l} v={k.v} label={k.l} color={k.c} />)}</div>;
 }
 
 // Compact non-zero contribution chips for list rows (competitions, matches).
-function Contrib({ goals, assists, yellow, red, isAr }: { goals: number; assists: number; yellow: number; red: number; isAr: boolean }) {
+// `clean` shows a 🧤 count (goalkeeper clean sheets).
+function Contrib({ goals, assists, yellow, red, clean }: { goals: number; assists: number; yellow: number; red: number; clean?: number }) {
   const chips: React.ReactNode[] = [];
+  if (clean && clean > 0) chips.push(<span key="cs" className="text-green-400 font-bold tnum">🧤 {clean}</span>);
   if (goals > 0)   chips.push(<span key="g" className="text-gold font-bold tnum">⚽ {goals}</span>);
   if (assists > 0) chips.push(<span key="a" className="text-aqua font-bold tnum">🅰️ {assists}</span>);
   if (yellow > 0)  chips.push(<span key="y" className="tnum">🟨 {yellow}</span>);
@@ -72,6 +76,7 @@ function PlayerJourney() {
   const name = localize(p.name, locale);
   const monogram = name.split(/\s+/).map(w => w[0]).slice(0, 2).join('');
   const pos = localize(p.sub_position, locale) || localize(p.position, locale);
+  const gk = p.is_goalkeeper ?? false;   // clean sheets shown only for keepers
 
   // Career tab: flatten every (season, competition) the player featured in into
   // one list, newest season first (the feed already orders career that way).
@@ -127,8 +132,8 @@ function PlayerJourney() {
           {cs && localize(cs.season, locale) && (
             <p className="text-hint text-xs tnum">{localize(cs.season, locale)}</p>
           )}
-          {cs && (cs.appearances || cs.goals || cs.assists || cs.yellow_cards || cs.red_cards) ? (
-            <StatGrid s={cs} isAr={isAr} />
+          {cs && (cs.appearances || cs.goals || cs.assists || cs.yellow_cards || cs.red_cards || cs.clean_sheets) ? (
+            <StatGrid s={cs} cs={gk ? (cs.clean_sheets ?? 0) : undefined} isAr={isAr} />
           ) : (
             <p className="text-hint text-sm text-center py-10">
               {isAr ? 'لم يشارك في أي مباراة هذا الموسم' : 'No matches played this season yet'}
@@ -142,7 +147,7 @@ function PlayerJourney() {
         <div className="p-4 space-y-4">
           <div>
             <h2 className="text-text font-bold text-sm mb-2">{isAr ? 'الإجمالي' : 'Career total'}</h2>
-            <StatGrid s={{ appearances: p.appearances, goals: p.goals, assists: p.assists, yellow_cards: p.yellow_cards ?? 0, red_cards: p.red_cards ?? 0 }} isAr={isAr} />
+            <StatGrid s={{ appearances: p.appearances, goals: p.goals, assists: p.assists, yellow_cards: p.yellow_cards ?? 0, red_cards: p.red_cards ?? 0 }} cs={gk ? (p.clean_sheets ?? 0) : undefined} isAr={isAr} />
           </div>
 
           <div>
@@ -163,7 +168,7 @@ function PlayerJourney() {
                       <span className="text-text font-bold text-sm tnum flex-shrink-0">{comp.appearances}<span className="text-hint text-[10px]"> {isAr ? 'م' : 'ap'}</span></span>
                     </div>
                     <div className="mt-2">
-                      <Contrib goals={comp.goals} assists={comp.assists} yellow={comp.yellow_cards ?? 0} red={comp.red_cards ?? 0} isAr={isAr} />
+                      <Contrib goals={comp.goals} assists={comp.assists} yellow={comp.yellow_cards ?? 0} red={comp.red_cards ?? 0} clean={gk ? (comp.clean_sheets ?? 0) : 0} />
                     </div>
                   </div>
                 ))}
@@ -200,9 +205,9 @@ function PlayerJourney() {
                         <span className="truncate text-sm">{localize(m.away.name, locale)}</span>
                       </div>
                     </div>
-                    {(m.goals > 0 || m.assists > 0 || m.yellow_cards > 0 || m.red_cards > 0) && (
+                    {(m.goals > 0 || m.assists > 0 || m.yellow_cards > 0 || m.red_cards > 0 || (gk && m.clean_sheet)) && (
                       <div className="mt-2 pt-2 border-t border-bdr/40 flex justify-center">
-                        <Contrib goals={m.goals} assists={m.assists} yellow={m.yellow_cards} red={m.red_cards} isAr={isAr} />
+                        <Contrib goals={m.goals} assists={m.assists} yellow={m.yellow_cards} red={m.red_cards} clean={gk && m.clean_sheet ? 1 : 0} />
                       </div>
                     )}
                   </button>
