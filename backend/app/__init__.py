@@ -329,9 +329,39 @@ def _player_share_page(index_abs: str):
     return _render_share_page(index_abs, meta, og_type="profile")
 
 
+def _join_place(*parts: str) -> str:
+    """Join the non-empty pieces of a place with " - " (e.g. club + age group)."""
+    return " - ".join(p for p in (p.strip() for p in parts if p) if p)
+
+
+def _coach_post_label(stints) -> str:
+    """The coach's current post, formatted for the share card, from ``stints`` —
+    each ``(is_current, start_date, role, place)``.
+
+    Picks the actual current post (open end_date) first, else the most recent and
+    marks it "(سابقًا)". Formats as "role — place" (either alone if the other is
+    missing). Empty string when there's nothing to show."""
+    def _post(role: str, place: str) -> str:
+        role, place = role.strip(), place.strip()
+        return f"{role} — {place}" if role and place else (role or place)
+
+    posts = [(cur, start, _post(role, place)) for cur, start, role, place in stints]
+    posts = [p for p in posts if p[2]]
+    posts.sort(key=lambda p: (p[0], p[1]), reverse=True)
+    if not posts:
+        return ""
+    is_current, _, post = posts[0]
+    return post if is_current else f"{post} (سابقًا)"
+
+
 def _coach_share_meta(coach_id: int) -> dict | None:
-    """Title (coach name) + role + photo for a shared coach profile, or None when
-    the coach doesn't exist."""
+    """Title (coach name) + current post + photo for a shared coach/staff profile,
+    or None when the coach doesn't exist.
+
+    The post names *where*, not just the role: a team-coaching stint reads
+    "role — club - age", a club youth-sector role reads "role — club". A doctor or
+    administrator thus isn't mislabelled a generic "مدرّب". See _coach_post_label
+    for the current-first / "(سابقًا)" selection."""
     from datetime import date
 
     from app.extensions import db
@@ -341,20 +371,22 @@ def _coach_share_meta(coach_id: int) -> dict | None:
     if c is None:
         return None
     name = (c.full_name_ar or c.full_name_en or "مدرّب").strip()
-    # The person's actual current post — a team-coaching stint or a club
-    # youth-sector role, current (open end_date) first then newest — so a
-    # doctor or an administrator isn't labelled a generic "مدرّب".
+
+    # Every stint as (is_current, start_date, role, place). Team stints name the
+    # club and age group; club youth-sector roles name the club.
     stints = []
     for tc in c.team_roles:
+        t = tc.team
+        club = (t.club.name_ar or t.club.name_en or "") if t and t.club else ""
+        age = (t.age_group.name_ar or t.age_group.name_en or "") if t and t.age_group else ""
         stints.append((tc.end_date is None, tc.start_date or date.min,
-                       (tc.role_ar or tc.role_en or "").strip()))
+                       tc.role_ar or tc.role_en or "", _join_place(club, age)))
     for cs in c.club_roles:
+        club = (cs.club.name_ar or cs.club.name_en or "") if cs.club else ""
         stints.append((cs.end_date is None, cs.start_date or date.min,
-                       (cs.role_ar or cs.role_en or "").strip()))
-    stints = [s for s in stints if s[2]]
-    stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
-    role = stints[0][2] if stints else ""
-    return {"title": name, "description": role or "مدرّب",
+                       cs.role_ar or cs.role_en or "", club))
+
+    return {"title": name, "description": _coach_post_label(stints) or "مدرّب",
             "image": c.profile_pic_url or ""}
 
 
