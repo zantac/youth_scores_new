@@ -8,6 +8,13 @@ from app.extensions import limiter
 api_bp = Blueprint("api", __name__)
 
 
+# Live feeds — match scores/statuses and the per-competition data blob — carry a
+# much shorter TTL so an edit during a live round reaches clients within seconds.
+# The rest of the public feed (config, clubs, teams, players) keeps the longer
+# cache since it changes rarely.
+_LIVE_PATH_PREFIXES = ("/api/matches", "/api/competitions")
+
+
 @api_bp.after_request
 def _public_cache(response):
     """Let browsers and any CDN in front of Railway cache the public read feed.
@@ -15,13 +22,15 @@ def _public_cache(response):
     Everything under this blueprint is public, unauthenticated read data (the
     config/data feed, matches, clubs, teams, players). A short max-age with a
     longer stale-while-revalidate means repeat visits and CDN hits are served
-    without re-running the queries, while updates still appear within a minute.
-    Only successful GETs are cached; writes never reach this blueprint.
+    without re-running the queries, while updates still appear promptly. Only
+    successful GETs are cached; writes never reach this blueprint.
     """
     if request.method == "GET" and response.status_code == 200:
-        response.headers.setdefault(
-            "Cache-Control", "public, max-age=60, stale-while-revalidate=300"
-        )
+        if request.path.startswith(_LIVE_PATH_PREFIXES):
+            cache = "public, max-age=15, stale-while-revalidate=30"
+        else:
+            cache = "public, max-age=60, stale-while-revalidate=300"
+        response.headers.setdefault("Cache-Control", cache)
     return response
 
 

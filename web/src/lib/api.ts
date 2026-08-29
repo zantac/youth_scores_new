@@ -419,8 +419,10 @@ function parseStandings(raw: unknown): CompetitionData['standings'] {
     }));
 }
 
-export async function fetchCompetition(url: string): Promise<CompetitionData> {
-  const res = await fetch(url, { next: { revalidate: 120 } });
+// `fresh` bypasses the browser HTTP cache — used by the competition page's live
+// poll so a score edit shows within the poll interval, not after the cache TTL.
+export async function fetchCompetition(url: string, opts?: { fresh?: boolean }): Promise<CompetitionData> {
+  const res = await fetch(url, opts?.fresh ? { cache: 'no-store' } : { next: { revalidate: 120 } });
   const j = await res.json();
   const meta = j.competition as { id?: number; title?: Localized } | undefined;
   return {

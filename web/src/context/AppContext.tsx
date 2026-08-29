@@ -29,6 +29,7 @@ interface AppContextValue {
   compTitle: string;
   loadCompetition: (url: string, title: string) => Promise<void>;
   refreshCompetition: () => Promise<void>;
+  refreshCompetitionSilent: () => Promise<void>;
   refreshConfig: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
@@ -176,6 +177,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     finally { setCompL(false); }
   }, [compUrl]);
 
+  // Background refresh for the competition live-poll: a fresh (cache-bypassing)
+  // fetch with no spinner; a failed fetch leaves the current data on screen.
+  const refreshCompetitionSilent = useCallback(async () => {
+    if (!compUrl) return;
+    try {
+      const d = await fetchCompetition(compUrl, { fresh: true });
+      cache.current.set(compUrl, d);
+      setComp(d);
+    } catch { /* keep showing what we have */ }
+  }, [compUrl]);
+
   const refreshConfig = useCallback(() => loadConfigInternal(), [loadConfigInternal]);
 
   // Recompute the bottom-bar "new items" badges whenever the config feed loads
@@ -198,7 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [config]);
 
   return (
-    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshConfig, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
+    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, refreshConfig, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
       {children}
     </Ctx.Provider>
   );
