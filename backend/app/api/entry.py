@@ -16,7 +16,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 
 import sqlalchemy as sa
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db
 from app.models import (
@@ -314,6 +314,71 @@ def competition_match_venues(cid: int):
     return jsonify({"venues": sorted(rep.values())})
 
 
+# A match in one of these statuses may still gain or change its result, so while
+# any remain in a round the digest waits. A ``scheduled`` match hasn't been
+# played; a ``live`` one is in progress and its score can still move. Everything
+# else (completed / postponed / cancelled) is final for this round.
+_ROUND_BLOCKING_STATUSES = ("scheduled", "live")
+
+
+def _round_settles_now(other_statuses, old_status: str, new_status: str) -> bool:
+    """Whether changing one match from ``old_status`` to ``new_status`` is the
+    save that makes its round "settled" for the first time.
+
+    Settled = no match still ``scheduled``/``live`` and at least one ``completed``
+    (an all-postponed/cancelled round settles nothing). Returns True only on the
+    not-settled → settled transition, so re-saving an already-finished round is a
+    no-op. ``other_statuses`` are the statuses of every *other* match in the round.
+    """
+    COMPLETED = codes.MATCH_STATUS_COMPLETED
+    blocking_others = sum(1 for s in other_statuses if s in _ROUND_BLOCKING_STATUSES)
+    comp_others = sum(1 for s in other_statuses if s == COMPLETED)
+
+    def settled(status: str) -> bool:
+        blocking = blocking_others + (1 if status in _ROUND_BLOCKING_STATUSES else 0)
+        completed = comp_others + (1 if status == COMPLETED else 0)
+        return blocking == 0 and completed >= 1
+
+    return settled(new_status) and not settled(old_status)
+
+
+def _auto_notify_round_if_settled(m: Match, old_status: str) -> None:
+    """Auto-send the round-results digest the moment a round becomes settled —
+    i.e. saving this match left NO match in the round still ``scheduled`` or
+    ``live`` and at least one match completed. A scheduled (not-yet-played) or
+    live (result may still change) match holds the digest back; completed /
+    postponed / cancelled are all final.
+
+    Fires exactly once, on the transition into that settled state, so later score
+    corrections on an already-finished round don't re-notify. Sends the same two
+    pushes as the manual /notify-round action (the league digest plus a per-team
+    result for each fixture). Best-effort: a failure here never breaks the save.
+    """
+    week = (m.week or "").strip()
+    if not week:
+        return  # a match with no round/week isn't part of a digest
+    try:
+        comp = m.stage.competition if m.stage else None
+        if comp is None:
+            return
+        stage_ids = [s.id for s in Stage.query.filter_by(competition_id=comp.id).all()]
+        round_matches = Match.query.filter(
+            Match.stage_id.in_(stage_ids), Match.week == week,
+            Match.deleted_at.is_(None),
+        ).all()
+
+        # Statuses of every match in the round *except* this one; m's own change
+        # (old_status → m.status) is what may tip the round into "settled".
+        other_statuses = [rm.status for rm in round_matches if rm.id != m.id]
+        if _round_settles_now(other_statuses, old_status, m.status):
+            completed = [rm for rm in round_matches
+                         if rm.status == codes.MATCH_STATUS_COMPLETED]
+            notifications.notify_round_results(comp, week, completed)
+            notifications.notify_round_results_to_teams(comp, completed)
+    except Exception:  # noqa: BLE001 - notifying must never break result entry
+        current_app.logger.exception("auto round-notify failed for match %s", m.id)
+
+
 @entry_bp.post("/api/admin/competitions/<int:cid>/notify-round")
 @auth.role_required("editor")
 def notify_round(cid: int):
@@ -516,6 +581,8 @@ def update_match(mid: int):
         return jsonify({"error": "المباراة غير موجودة"}), 404
     j = request.get_json(silent=True) or {}
 
+    old_status = m.status  # captured for the auto round-notify transition check
+
     if "status" in j and j["status"] in codes.MATCH_STATUS:
         m.status = j["status"]
     if "home_score" in j:
@@ -590,6 +657,10 @@ def update_match(mid: int):
         m.away_team_id = new_away
 
     db.session.commit()
+    # When this save completes the round, fan out the results digest automatically
+    # (in addition to the manual notify-round button). No-op unless it was the
+    # last match still awaiting a result.
+    _auto_notify_round_if_settled(m, old_status)
     return jsonify(_match_detail(m))
 
 
