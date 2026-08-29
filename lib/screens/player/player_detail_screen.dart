@@ -15,7 +15,10 @@ const _amber = Color(0xFFF5A623);
 
 class PlayerDetailScreen extends StatefulWidget {
   final int playerId;
-  const PlayerDetailScreen({super.key, required this.playerId});
+  // Which tab to open on (0=season, 1=career, 2=matches) — set from a shared
+  // website link's ?tab=. Defaults to the season tab.
+  final int initialTab;
+  const PlayerDetailScreen({super.key, required this.playerId, this.initialTab = 0});
 
   @override
   State<PlayerDetailScreen> createState() => _PlayerDetailScreenState();
@@ -30,7 +33,8 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
   void initState() {
     super.initState();
     _future = ApiService().fetchPlayer(widget.playerId);
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(
+        length: 3, vsync: this, initialIndex: widget.initialTab.clamp(0, 2));
   }
 
   @override
