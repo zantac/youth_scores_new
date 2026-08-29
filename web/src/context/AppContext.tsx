@@ -4,6 +4,15 @@ import type { ConfigData, CompetitionData, AdItem } from '@/lib/types';
 import { fetchConfig, fetchCompetition } from '@/lib/api';
 import { initNotifications } from '@/lib/notifications';
 import { adNotExpired } from '@/lib/utils';
+import { countUnseen, markSeen } from '@/lib/seen';
+
+// Stable per-item ids for the "new items" badges. News rows carry a DB id; fall
+// back to date+title so an id-less row still tracks. Venues carry a venue_id.
+const newsIds = (cfg: ConfigData): string[] =>
+  (cfg.news ?? []).map(n =>
+    n.id != null ? `n${n.id}` : `d${n.date}|${typeof n.title === 'string' ? n.title : n.title.ar}`);
+const venueIds = (cfg: ConfigData): string[] =>
+  (cfg.venues ?? []).map(v => String(v.venue_id));
 
 interface AppContextValue {
   locale: 'ar' | 'en';
@@ -23,6 +32,10 @@ interface AppContextValue {
   refreshConfig: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
+  newNewsCount: number;
+  newVenuesCount: number;
+  markNewsSeen: () => void;
+  markVenuesSeen: () => void;
 }
 
 const Ctx = createContext<AppContextValue | null>(null);
@@ -45,6 +58,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [compUrl, setCompUrl]     = useState<string | null>(null);
   const [compTitle, setCompTitle] = useState('');
   const [pendingAd, setPendingAd] = useState<AdItem | null>(null);
+  const [newNewsCount, setNewNewsCount]     = useState(0);
+  const [newVenuesCount, setNewVenuesCount] = useState(0);
   const cache      = useRef(new Map<string, CompetitionData>());
   const shownAds   = useRef(new Set<string>());
 
@@ -163,8 +178,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const refreshConfig = useCallback(() => loadConfigInternal(), [loadConfigInternal]);
 
+  // Recompute the bottom-bar "new items" badges whenever the config feed loads
+  // or is silently refreshed. First run seeds the baseline (badge stays 0).
+  useEffect(() => {
+    if (!config) return;
+    setNewNewsCount(countUnseen('news', newsIds(config)));
+    setNewVenuesCount(countUnseen('venues', venueIds(config)));
+  }, [config]);
+
+  // Called when the user opens the News / Venues page: everything currently in
+  // the feed becomes "seen", clearing the badge until something new arrives.
+  const markNewsSeen = useCallback(() => {
+    if (config) markSeen('news', newsIds(config));
+    setNewNewsCount(0);
+  }, [config]);
+  const markVenuesSeen = useCallback(() => {
+    if (config) markSeen('venues', venueIds(config));
+    setNewVenuesCount(0);
+  }, [config]);
+
   return (
-    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshConfig, pendingAd, clearAd }}>
+    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshConfig, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
       {children}
     </Ctx.Provider>
   );

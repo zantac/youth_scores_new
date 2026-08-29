@@ -9,13 +9,18 @@ import { formatNewsDate, isRecent, localize, cloudinaryUrl } from '@/lib/utils';
 import type { NewsItem } from '@/lib/types';
 
 function NewsPageInner() {
-  const { config, configLoading, configError, refreshConfig, locale } = useApp();
+  const { config, configLoading, configError, refreshConfig, locale, markNewsSeen } = useApp();
   const params = useSearchParams();
   const router = useRouter();
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<NewsItem | null>(null);
   const isAr = locale === 'ar';
   const idParam = params.get('id');
+
+  // Opening the News page clears its bottom-bar badge. markNewsSeen changes
+  // identity when the feed refreshes, so items added while viewing are marked
+  // seen too — the badge only returns after the user has left the page.
+  useEffect(() => { markNewsSeen(); }, [markNewsSeen]);
 
   // A news-notification deep-links to /news?id=<id>. Once the feed is loaded,
   // open that item automatically. Also keeps the URL shareable.
