@@ -1,12 +1,18 @@
 'use client';
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import NewsDetail from '@/components/news/NewsDetail';
 import { formatNewsDate, isRecent, localize, cloudinaryUrl } from '@/lib/utils';
+import { getReadNews, markNewsRead } from '@/lib/seen';
 import type { NewsItem } from '@/lib/types';
+
+// Stable per-article key, matching the scheme AppContext uses for the tab badge:
+// a DB id when present, else date+title so an id-less row still tracks.
+const newsKey = (n: NewsItem): string =>
+  n.id != null ? `n${n.id}` : `d${n.date}|${typeof n.title === 'string' ? n.title : n.title.ar}`;
 
 function NewsPageInner() {
   const { config, configLoading, configError, refreshConfig, locale, markNewsSeen } = useApp();
@@ -14,8 +20,19 @@ function NewsPageInner() {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<NewsItem | null>(null);
+  // Articles this user has opened; the per-card "NEW" tag hides once read. Loaded
+  // from localStorage after mount (not during render — it's client-only storage).
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const isAr = locale === 'ar';
   const idParam = params.get('id');
+
+  useEffect(() => { setReadIds(getReadNews()); }, []);
+
+  const markRead = useCallback((item: NewsItem) => {
+    const key = newsKey(item);
+    markNewsRead(key);
+    setReadIds(prev => prev.has(key) ? prev : new Set(prev).add(key));
+  }, []);
 
   // Opening the News page clears its bottom-bar badge. markNewsSeen changes
   // identity when the feed refreshes, so items added while viewing are marked
@@ -27,11 +44,12 @@ function NewsPageInner() {
   useEffect(() => {
     if (!idParam || !config?.news) return;
     const found = config.news.find(n => String(n.id) === idParam);
-    if (found) setSelected(found);
-  }, [idParam, config]);
+    if (found) { setSelected(found); markRead(found); }
+  }, [idParam, config, markRead]);
 
   const openItem = (item: NewsItem) => {
     setSelected(item);
+    markRead(item);
     if (item.id != null) router.replace(`/news?id=${item.id}`, { scroll: false });
   };
   const closeItem = () => {
@@ -63,7 +81,9 @@ function NewsPageInner() {
 
         <div className="space-y-3">
           {news.map((item, i) => {
-            const recent = isRecent(item.date);
+            // "NEW" = recently published *and* not yet opened by this user, so
+            // the tag clears once they've read the article (not just after 48h).
+            const recent = isRecent(item.date) && !readIds.has(newsKey(item));
             const thumb  = item.images?.[0] ?? (item.image?.startsWith('http') ? item.image : null);
             return (
               <button key={i} onClick={() => openItem(item)} className="w-full bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl overflow-hidden text-start transition-all hover:border-aqua/30 hover:shadow-[0_14px_34px_-20px_rgba(0,0,0,0.7)] active:opacity-80">
