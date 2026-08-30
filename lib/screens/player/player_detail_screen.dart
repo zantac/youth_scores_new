@@ -141,10 +141,13 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                 ),
                 if (hasClub) ...[
                   const SizedBox(height: 6),
-                  _chip('◆ ${p.currentClub!}',
-                      textColor: _gold,
-                      bgColor: _gold.withValues(alpha: 0.1),
-                      borderColor: _gold.withValues(alpha: 0.3)),
+                  Builder(builder: (_) {
+                    final alt = p.currentAltName(locale);
+                    return _chip('◆ ${p.currentClub!}${alt != null ? ' · $alt' : ''}',
+                        textColor: _gold,
+                        bgColor: _gold.withValues(alpha: 0.1),
+                        borderColor: _gold.withValues(alpha: 0.3));
+                  }),
                 ],
               ],
             ),
@@ -274,7 +277,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
   }
 
   Widget _compRow(PlayerCareerComp comp, PlayerCareerEntry e, String locale, bool isAr, bool gk) {
-    final subtitle = [e.club, e.ageName(locale), e.seasonName(locale)]
+    final subtitle = [e.club, e.altName(locale), e.ageName(locale), e.seasonName(locale)]
         .where((s) => s != null && s.isNotEmpty)
         .join(' · ');
     return Container(
@@ -348,13 +351,30 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
   Widget _matchTile(PlayerMatch m, String locale, bool isAr, bool gk) {
     final homeSide = m.side == 'home';
     final score = '${m.homeScore ?? '-'} : ${m.awayScore ?? '-'}';
-    Text sideName(String name, bool mine) => Text(name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-            color: mine ? AppColors.white : AppColors.hint,
-            fontSize: 13,
-            fontWeight: mine ? FontWeight.bold : FontWeight.normal));
+    // A side's club name with its academy/sponsor alias in a smaller line beneath.
+    Widget sideCol(PlayerMatchSide s, bool mine, bool end) {
+      final alt = s.altName(locale);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: end ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Text(s.getName(locale),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: end ? TextAlign.end : TextAlign.start,
+              style: TextStyle(
+                  color: mine ? AppColors.white : AppColors.hint,
+                  fontSize: 13,
+                  fontWeight: mine ? FontWeight.bold : FontWeight.normal)),
+          if (alt != null)
+            Text(alt,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: end ? TextAlign.end : TextAlign.start,
+                style: TextStyle(color: AppColors.hint, fontSize: 10)),
+        ],
+      );
+    }
 
     return InkWell(
       onTap: () => Navigator.push(context,
@@ -388,7 +408,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Flexible(child: sideName(m.home.getName(locale), homeSide)),
+                      Flexible(child: sideCol(m.home, homeSide, true)),
                       const SizedBox(width: 6),
                       CachedLogo(url: m.home.logo, size: 24),
                     ],
@@ -405,7 +425,7 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                     children: [
                       CachedLogo(url: m.away.logo, size: 24),
                       const SizedBox(width: 6),
-                      Flexible(child: sideName(m.away.getName(locale), !homeSide)),
+                      Flexible(child: sideCol(m.away, !homeSide, false)),
                     ],
                   ),
                 ),

@@ -82,12 +82,21 @@ class PlayerSeasonStats {
 
 /// One side (home/away) of a player's match row.
 class PlayerMatchSide {
-  final Map<String, String> name;
+  final Map<String, String> name;        // club (original) name
+  final Map<String, String>? alt;        // academy/sponsor alias, or null
   final String? logo;
-  const PlayerMatchSide({this.name = const {}, this.logo});
+  const PlayerMatchSide({this.name = const {}, this.alt, this.logo});
   String getName(String locale) => pickLocale(name, locale);
-  factory PlayerMatchSide.fromJson(Map<String, dynamic> j) =>
-      PlayerMatchSide(name: localizedMap(j['name']), logo: j['logo']?.toString());
+  String? altName(String locale) {
+    final a = pickLocale(alt, locale);
+    return a.isEmpty ? null : a;
+  }
+
+  factory PlayerMatchSide.fromJson(Map<String, dynamic> j) => PlayerMatchSide(
+        name: localizedMap(j['name']),
+        alt: localizedMapOrNull(j['alt']),
+        logo: j['logo']?.toString(),
+      );
 }
 
 /// A match the player featured in, with his own contribution and the result.
@@ -147,6 +156,7 @@ class PlayerMatch {
 
 class PlayerCareerEntry {
   final String club;
+  final Map<String, String>? alt;   // academy/sponsor alias, or null
   final String? logo;
   final Map<String, String>? age;
   final Map<String, String> season;
@@ -163,6 +173,7 @@ class PlayerCareerEntry {
   final List<PlayerCareerComp> competitions;
   const PlayerCareerEntry({
     required this.club,
+    this.alt,
     this.logo,
     this.age,
     this.season = const {},
@@ -185,8 +196,14 @@ class PlayerCareerEntry {
     return a.isEmpty ? null : a;
   }
 
+  String? altName(String locale) {
+    final a = pickLocale(alt, locale);
+    return a.isEmpty ? null : a;
+  }
+
   factory PlayerCareerEntry.fromJson(Map<String, dynamic> j) => PlayerCareerEntry(
         club: j['club']?.toString() ?? '',
+        alt: localizedMapOrNull(j['alt_name']),
         logo: j['logo']?.toString(),
         age: localizedMapOrNull(j['age']),
         season: localizedMap(j['season']),
@@ -215,6 +232,7 @@ class PlayerFull {
   final Map<String, String>? nationality;
   final String? photo;
   final String? currentClub;
+  final Map<String, String>? currentAlt;   // current squad's academy/sponsor alias
   final int goals;
   final int assists;
   final int appearances;
@@ -233,6 +251,7 @@ class PlayerFull {
     this.nationality,
     this.photo,
     this.currentClub,
+    this.currentAlt,
     this.goals = 0,
     this.assists = 0,
     this.appearances = 0,
@@ -256,6 +275,11 @@ class PlayerFull {
     return n.isEmpty ? null : n;
   }
 
+  String? currentAltName(String locale) {
+    final a = pickLocale(currentAlt, locale);
+    return a.isEmpty ? null : a;
+  }
+
   factory PlayerFull.fromJson(Map<String, dynamic> j) => PlayerFull(
         id: _int(j['id']),
         name: localizedMap(j['name']),
@@ -264,6 +288,7 @@ class PlayerFull {
         nationality: localizedMapOrNull(j['nationality']),
         photo: j['photo']?.toString(),
         currentClub: j['current_club']?.toString(),
+        currentAlt: localizedMapOrNull(j['current_alt']),
         goals: _int(j['goals']),
         assists: _int(j['assists']),
         appearances: _int(j['appearances']),
