@@ -246,7 +246,7 @@ export interface PlayerMatch {
 }
 export interface PlayerFull {
   id: number; name: Localized; position: Localized | null; sub_position: Localized | null; birth_year: number;
-  nationality: Localized | null; photo: string | null; current_club: string | null;
+  nationality: Localized | null; photo: string | null; current_club: string | null; current_alt?: Localized | null;
   goals: number; assists: number; appearances: number; yellow_cards?: number; red_cards?: number; clean_sheets?: number;
   is_goalkeeper?: boolean;
   current_season?: PlayerSeasonStats; career: PlayerCareer[]; matches?: PlayerMatch[];

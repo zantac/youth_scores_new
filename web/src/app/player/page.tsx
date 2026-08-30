@@ -126,11 +126,16 @@ function PlayerJourney() {
               {pos && <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5">{pos}</span>}
               <span className="text-[11px] text-teal bg-cardBg2 border border-bdr rounded-full px-2.5 py-0.5 tnum">{isAr ? 'مواليد' : 'Born'} {p.birth_year}</span>
             </div>
-            {p.current_club && (
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">◆ {p.current_club}</span>
-              </div>
-            )}
+            {p.current_club && (() => {
+              const alt = localize(p.current_alt, locale);
+              return (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <span className="text-[11px] text-gold bg-gold/10 border border-gold/30 rounded-full px-2.5 py-0.5">
+                    ◆ {p.current_club}{alt ? ` · ${alt}` : ''}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
