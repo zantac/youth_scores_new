@@ -263,6 +263,7 @@ export interface PlayerStat {
 export interface CoachCareer {
   type: 'coach' | 'manager';
   club: string | null;
+  alt_name?: Localized | null;
   logo: string | null;
   season: Localized | null;
   age: Localized | null;
