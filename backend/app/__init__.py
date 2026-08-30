@@ -324,11 +324,13 @@ def _club_share_page(index_abs: str):
 
 
 def _team_share_meta(team_id: int) -> dict | None:
-    """Title (club name + age) + the club's logo for a shared team link. A team
-    is a club's squad for one age group, so the club owns the name and crest.
-    None when the team doesn't exist."""
+    """Title (club name + age) + the academy/sponsor alias (description) + the
+    club's logo for a shared team link. A team is a club's squad for one age
+    group, so the club owns the name and crest; the alias it plays under shows
+    beneath. None when the team doesn't exist."""
     from app.extensions import db
     from app.models import AgeGroup, Club, Team
+    from app.api.serializers import _squad_second_name
 
     t = db.session.get(Team, team_id)
     if t is None:
@@ -342,7 +344,13 @@ def _team_share_meta(team_id: int) -> dict | None:
         if ag:
             age = (ag.name_ar or ag.name_en or "").strip()
     title = " - ".join(p for p in (name, age) if p) or name
-    return {"title": title, "image": logo}
+    # The academy/sponsor alias this squad plays under; dropped when it just
+    # repeats the club name. Empty description means no card blurb (see
+    # _inject_share_meta), so the old name-only card is unchanged for teams
+    # without an alias.
+    na, ne = _squad_second_name(t)
+    alt = (na or ne or "").strip()
+    return {"title": title, "description": ("" if alt == name else alt), "image": logo}
 
 
 def _team_share_page(index_abs: str):
