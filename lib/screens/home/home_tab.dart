@@ -11,10 +11,10 @@ import '../../core/models/home_match.dart';
 import '../../core/utils/cloudinary.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/api_service.dart';
-import '../../core/services/review_service.dart';
 import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
 import '../../widgets/ads/feed_ad_card.dart';
+import '../../widgets/common/rate_prompt.dart';
 import '../../widgets/match/match_card.dart';
 import '../ads/ad_interstitial_screen.dart';
 import '../competition/competition_data_screen.dart';
@@ -63,9 +63,13 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     _load();
     _startPolling();
     // Ask an engaged user to rate the app once the home screen has settled.
-    // ReviewService self-gates (launch count + cooldown) and no-ops otherwise.
-    WidgetsBinding.instance.addPostFrameCallback(
-        (_) => ReviewService.instance.maybePromptForReview());
+    // The custom prompt self-gates (launch count + cooldown) and no-ops
+    // otherwise; on accept it opens the Play listing (reliable, unlike Google's
+    // quota-limited native card).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      maybeShowRatePrompt(context, isAr: context.read<AppProvider>().locale == 'ar');
+    });
   }
 
   @override

@@ -1,25 +1,28 @@
 import 'package:in_app_review/in_app_review.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Wraps Google Play's In-App Review API (via the `in_app_review` package).
+/// App-rating prompts, wrapping Google Play's In-App Review API (`in_app_review`).
 ///
-/// Two entry points:
-///  * [maybePromptForReview] — the *automatic* prompt. It shows Play's native
-///    in-app rating card at a natural moment (after the user has opened the app
-///    a few times), but only rarely: Google itself quota-limits how often the
-///    card can appear, and on top of that we gate on launch count + a long
-///    cooldown so we never nag.
-///  * [openStoreListing] — the *manual* path behind a "Rate the app" button.
-///    A user who taps it expects something to happen, so we go straight to the
-///    Play Store listing rather than the quota-limited in-app card.
+/// Entry points:
+///  * [shouldShowCustomPrompt] — gate for our own "enjoying the app?" dialog,
+///    the *reliable* automatic ask. Google's native card ([maybePromptForReview])
+///    is quota-limited and frequently never appears (and only on Play-installed
+///    builds), so we ask ourselves and, on accept, open the Play listing.
+///  * [maybePromptForReview] — best-effort attempt at Play's native card. Kept
+///    for completeness; may show nothing.
+///  * [openStoreListing] — go straight to the Play Store listing (the manual
+///    "Rate the app" button and the custom prompt's "Rate now").
 class ReviewService {
   ReviewService._();
   static final ReviewService instance = ReviewService._();
 
   final InAppReview _inAppReview = InAppReview.instance;
 
-  static const _kOpenCount    = 'review_open_count';
-  static const _kLastPromptMs = 'review_last_prompt_ms';
+  static const _kOpenCount     = 'review_open_count';
+  static const _kLastPromptMs  = 'review_last_prompt_ms';
+  // The custom "enjoying the app?" prompt keeps its own state.
+  static const _kCustomLastMs  = 'rate_prompt_last_ms';
+  static const _kCustomDone    = 'rate_prompt_done';   // rated or dismissed for good
 
   // Don't ask before the user has opened the app this many times…
   static const _kMinOpens = 3;
@@ -29,6 +32,7 @@ class ReviewService {
   // Guard so a single app session prompts at most once even if the trigger
   // (e.g. the home tab rebuilding) fires again.
   bool _promptedThisSession = false;
+  bool _customShownThisSession = false;
 
   /// Call once per cold start (from AppProvider.init) to count engagement.
   Future<void> registerAppOpen() async {
@@ -61,7 +65,40 @@ class ReviewService {
     }
   }
 
-  /// Open the Play Store listing directly (manual "Rate the app" button).
+  /// Whether to show the custom "enjoying the app?" prompt now. Same engagement
+  /// gate as the native card (>= min opens), but reliable: it's our own dialog,
+  /// and accepting opens the Play listing. Once per session, not if already
+  /// handled, and outside the cooldown. Records the show time so "Later" (or a
+  /// dismiss) means don't-ask-again for the cooldown window.
+  Future<bool> shouldShowCustomPrompt() async {
+    if (_customShownThisSession) return false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kCustomDone) ?? false) return false;
+      if ((prefs.getInt(_kOpenCount) ?? 0) < _kMinOpens) return false;
+      final lastMs = prefs.getInt(_kCustomLastMs) ?? 0;
+      if (lastMs > 0 &&
+          DateTime.now().millisecondsSinceEpoch - lastMs < _kCooldown.inMilliseconds) {
+        return false;
+      }
+      _customShownThisSession = true;
+      await prefs.setInt(_kCustomLastMs, DateTime.now().millisecondsSinceEpoch);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The user tapped "Rate now" — they've handled it, so never prompt again.
+  Future<void> markRatePromptDone() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kCustomDone, true);
+    } catch (_) {}
+  }
+
+  /// Open the Play Store listing directly (manual "Rate the app" button and the
+  /// custom prompt's "Rate now"). Always works, unlike the quota-limited card.
   Future<void> openStoreListing() async {
     try {
       await _inAppReview.openStoreListing();
