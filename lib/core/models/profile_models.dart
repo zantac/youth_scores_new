@@ -314,6 +314,7 @@ class PlayerFull {
 class CoachCareerEntry {
   final String type; // 'coach' | 'manager'
   final String club;
+  final Map<String, String>? alt;   // team academy/sponsor alias, or null
   final String? logo;
   final Map<String, String>? season;
   final Map<String, String>? age;
@@ -323,6 +324,7 @@ class CoachCareerEntry {
   const CoachCareerEntry({
     required this.type,
     required this.club,
+    this.alt,
     this.logo,
     this.season,
     this.age,
@@ -341,11 +343,17 @@ class CoachCareerEntry {
     return a.isEmpty ? null : a;
   }
 
+  String? altName(String locale) {
+    final a = pickLocale(alt, locale);
+    return a.isEmpty ? null : a;
+  }
+
   String roleName(String locale) => pickLocale(role, locale);
 
   factory CoachCareerEntry.fromJson(Map<String, dynamic> j) => CoachCareerEntry(
         type: j['type']?.toString() ?? 'coach',
         club: j['club']?.toString() ?? '',
+        alt: localizedMapOrNull(j['alt_name']),
         logo: j['logo']?.toString(),
         season: localizedMapOrNull(j['season']),
         age: localizedMapOrNull(j['age']),
