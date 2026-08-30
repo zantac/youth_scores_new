@@ -142,6 +142,7 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
     // Age and season sit on separate lines, mirroring the website.
     final age    = e.ageName(locale);
     final season = e.seasonName(locale);
+    final alt    = e.altName(locale);   // team academy/sponsor alias, beneath the club
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -177,6 +178,12 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
                       ),
                   ],
                 ),
+                if (alt != null && alt.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(alt,
+                        style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                  ),
                 const SizedBox(height: 2),
                 Text(
                   [e.roleName(locale), typeLabel].where((s) => s.isNotEmpty).join(' · '),
