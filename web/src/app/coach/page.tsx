@@ -86,6 +86,7 @@ function CoachProfile() {
                       </span>
                     )}
                   </div>
+                  {localize(r.alt_name, locale) && <p className="text-hint text-[11px] mt-0.5 truncate">{localize(r.alt_name, locale)}</p>}
                   <p className="text-teal text-xs mt-1 truncate">{localize(r.role, locale)}</p>
                   {localize(r.age, locale) && <p className="text-hint text-[11px] mt-1 truncate">{localize(r.age, locale)}</p>}
                   {localize(r.season, locale) && <p className="text-hint text-[11px] mt-0.5 truncate">{localize(r.season, locale)}</p>}
