@@ -232,6 +232,7 @@ class PlayerFull {
   final Map<String, String>? nationality;
   final String? photo;
   final String? currentClub;
+  final Map<String, String>? currentAlt;   // current squad's academy/sponsor alias
   final int goals;
   final int assists;
   final int appearances;
@@ -250,6 +251,7 @@ class PlayerFull {
     this.nationality,
     this.photo,
     this.currentClub,
+    this.currentAlt,
     this.goals = 0,
     this.assists = 0,
     this.appearances = 0,
@@ -273,6 +275,11 @@ class PlayerFull {
     return n.isEmpty ? null : n;
   }
 
+  String? currentAltName(String locale) {
+    final a = pickLocale(currentAlt, locale);
+    return a.isEmpty ? null : a;
+  }
+
   factory PlayerFull.fromJson(Map<String, dynamic> j) => PlayerFull(
         id: _int(j['id']),
         name: localizedMap(j['name']),
@@ -281,6 +288,7 @@ class PlayerFull {
         nationality: localizedMapOrNull(j['nationality']),
         photo: j['photo']?.toString(),
         currentClub: j['current_club']?.toString(),
+        currentAlt: localizedMapOrNull(j['current_alt']),
         goals: _int(j['goals']),
         assists: _int(j['assists']),
         appearances: _int(j['appearances']),

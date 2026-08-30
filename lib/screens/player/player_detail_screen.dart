@@ -141,10 +141,13 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen>
                 ),
                 if (hasClub) ...[
                   const SizedBox(height: 6),
-                  _chip('◆ ${p.currentClub!}',
-                      textColor: _gold,
-                      bgColor: _gold.withValues(alpha: 0.1),
-                      borderColor: _gold.withValues(alpha: 0.3)),
+                  Builder(builder: (_) {
+                    final alt = p.currentAltName(locale);
+                    return _chip('◆ ${p.currentClub!}${alt != null ? ' · $alt' : ''}',
+                        textColor: _gold,
+                        bgColor: _gold.withValues(alpha: 0.1),
+                        borderColor: _gold.withValues(alpha: 0.3));
+                  }),
                 ],
               ],
             ),
