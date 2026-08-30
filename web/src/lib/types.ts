@@ -227,7 +227,7 @@ export interface PlayerCareerComp {
   yellow_cards?: number; red_cards?: number; clean_sheets?: number;
 }
 export interface PlayerCareer {
-  club: string; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
+  club: string; alt_name?: Localized | null; logo: string | null; age: Localized | null; is_guest?: boolean; season: string | { ar: string; en: string };
   goals: number; assists: number; appearances: number; yellow_cards?: number; red_cards?: number; clean_sheets?: number;
   current: boolean; end_date?: string | null; status: string;
   competitions: PlayerCareerComp[];
@@ -239,8 +239,8 @@ export interface PlayerSeasonStats {
 export interface PlayerMatch {
   id: number; date: string; status: string; competition: Localized;
   side: 'home' | 'away';
-  home: { name: Localized; logo: string | null };
-  away: { name: Localized; logo: string | null };
+  home: { name: Localized; alt?: Localized | null; logo: string | null };
+  away: { name: Localized; alt?: Localized | null; logo: string | null };
   home_score: number | null; away_score: number | null;
   goals: number; assists: number; yellow_cards: number; red_cards: number; clean_sheet?: boolean;
 }

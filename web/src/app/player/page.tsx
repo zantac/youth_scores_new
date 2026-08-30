@@ -95,7 +95,7 @@ function PlayerJourney() {
   // Career tab: flatten every (season, competition) the player featured in into
   // one list, newest season first (the feed already orders career that way).
   const careerRows = p.career.flatMap(c =>
-    c.competitions.map(comp => ({ comp, season: c.season, club: c.club, age: c.age, current: c.current })));
+    c.competitions.map(comp => ({ comp, season: c.season, club: c.club, alt: c.alt_name, age: c.age, current: c.current })));
 
   const cs: PlayerSeasonStats | undefined = p.current_season;
   const matches: PlayerMatch[] = p.matches ?? [];
@@ -170,13 +170,13 @@ function PlayerJourney() {
               <p className="text-hint text-sm text-center py-6">{isAr ? 'لا توجد بيانات' : 'No data yet'}</p>
             ) : (
               <div className="space-y-2">
-                {careerRows.map(({ comp, season, club, age }, i) => (
+                {careerRows.map(({ comp, season, club, alt, age }, i) => (
                   <div key={i} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="text-text text-sm font-bold truncate">{localize(comp.name, locale)}</p>
                         <p className="text-hint text-[11px] tnum truncate">
-                          {[club, localize(age, locale), localize(season, locale)].filter(Boolean).join(' · ')}
+                          {[club, localize(alt, locale), localize(age, locale), localize(season, locale)].filter(Boolean).join(' · ')}
                         </p>
                       </div>
                       <span className="text-text font-bold text-sm tnum flex-shrink-0">{comp.appearances}<span className="text-hint text-[10px]"> {isAr ? 'م' : 'ap'}</span></span>
@@ -210,13 +210,19 @@ function PlayerJourney() {
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       <div className={`flex items-center gap-1.5 flex-1 min-w-0 justify-end ${homeSide ? 'font-bold text-text' : 'text-hint'}`}>
-                        <span className="truncate text-sm text-end">{localize(m.home.name, locale)}</span>
+                        <div className="flex flex-col min-w-0 items-end">
+                          <span className="truncate text-sm text-end w-full">{localize(m.home.name, locale)}</span>
+                          {m.home.alt && <span className="truncate text-[10px] text-hint text-end w-full font-normal">{localize(m.home.alt, locale)}</span>}
+                        </div>
                         {m.home.logo ? <img src={cloudinaryUrl(m.home.logo, 48)} alt="" className="w-6 h-6 object-contain flex-shrink-0" /> : <span className="text-base">🛡️</span>}
                       </div>
                       <span className="text-text font-extrabold text-sm tnum flex-shrink-0 px-1">{m.home_score ?? '-'} : {m.away_score ?? '-'}</span>
                       <div className={`flex items-center gap-1.5 flex-1 min-w-0 ${!homeSide ? 'font-bold text-text' : 'text-hint'}`}>
                         {m.away.logo ? <img src={cloudinaryUrl(m.away.logo, 48)} alt="" className="w-6 h-6 object-contain flex-shrink-0" /> : <span className="text-base">🛡️</span>}
-                        <span className="truncate text-sm">{localize(m.away.name, locale)}</span>
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate text-sm w-full">{localize(m.away.name, locale)}</span>
+                          {m.away.alt && <span className="truncate text-[10px] text-hint w-full font-normal">{localize(m.away.alt, locale)}</span>}
+                        </div>
                       </div>
                     </div>
                     {(m.goals > 0 || m.assists > 0 || m.yellow_cards > 0 || m.red_cards > 0 || (gk && m.clean_sheet)) && (
