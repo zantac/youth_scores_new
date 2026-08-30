@@ -568,6 +568,18 @@ def _team_name(t):
     return _loc(na or t.club.name_ar, ne or t.club.name_en) or {"ar": "", "en": ""}
 
 
+def _team_name_lines(t):
+    """(club name, alternative/second name or None) — both bilingual — so a view
+    can show the club as the identity with its academy/sponsor alias beneath,
+    instead of only one of the two. The alias is dropped when it just repeats the
+    club name."""
+    club = _loc(t.club.name_ar, t.club.name_en) or {"ar": "", "en": ""}
+    alt = _loc(*_squad_second_name(t))
+    if alt and alt["ar"] == club["ar"] and alt["en"] == club["en"]:
+        alt = None
+    return club, alt
+
+
 def _season_on(d):
     """The season a date falls inside, bilingual, or None.
 
@@ -784,6 +796,9 @@ def player_full(p) -> dict:
         ag = t.age_group
         base = {
             "club":     t.club.name_ar or t.club.name_en,
+            # The academy/sponsor alias this squad plays under, shown beneath the
+            # club name (None when it has none or it just repeats the club).
+            "alt_name": _team_name_lines(t)[1],
             "logo":     t.club.logo_url,
             # The team's age group — so two stints at the same club in different
             # ages (a player who plays up) are told apart, not just by season.
@@ -906,6 +921,13 @@ def player_full(p) -> dict:
     }
 
 
+def _match_side(team) -> dict:
+    """A match side for the player match list: club name, its academy/sponsor
+    alias (or None), and the crest — so both names show, not just one."""
+    club, alt = _team_name_lines(team)
+    return {"name": club, "alt": alt, "logo": team.club.logo_url}
+
+
 def _player_matches(p) -> list[dict]:
     """Every completed match the player actually played in, newest first, with his
     own goals / assists / cards in that match and the result."""
@@ -958,8 +980,8 @@ def _player_matches(p) -> list[dict]:
             "competition":  (_loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""}
                              if comp else {"ar": "", "en": ""}),
             "side":         "home" if home_side else "away",
-            "home":         {"name": _team_name(m.home_team), "logo": m.home_team.club.logo_url},
-            "away":         {"name": _team_name(m.away_team), "logo": m.away_team.club.logo_url},
+            "home":         _match_side(m.home_team),
+            "away":         _match_side(m.away_team),
             "home_score":   m.home_score,
             "away_score":   m.away_score,
             "goals":        goals_m.get(m.id, 0),
