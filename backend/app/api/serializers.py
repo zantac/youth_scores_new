@@ -908,6 +908,9 @@ def player_full(p) -> dict:
         "nationality":  _loc(p.nationality_ar, p.nationality_en),
         "photo":        p.profile_pic_url,
         "current_club": current["club"] if current else None,
+        # The current squad's academy/sponsor alias, so the hero can show it
+        # beneath the club name (None when it has none).
+        "current_alt":  current["alt_name"] if current else None,
         "goals":         total_goals,
         "assists":       total_assists,
         "appearances":   total_appearances,
