@@ -1010,6 +1010,8 @@ def coach_full(c: Coach) -> dict:
         career.append({
             "type": "coach",
             "club": t.club.name_ar or t.club.name_en,
+            # The academy/sponsor alias this squad plays under (None when none).
+            "alt_name": _team_name_lines(t)[1],
             "logo": t.club.logo_url,
             "season": _season_on(tc.start_date),
             "age": _loc(ag.name_ar, ag.name_en) if ag else None,
@@ -1022,6 +1024,8 @@ def coach_full(c: Coach) -> dict:
         career.append({
             "type": "manager",
             "club": cs.club.name_ar or cs.club.name_en,
+            # A club youth-sector role isn't tied to a squad, so no team alias.
+            "alt_name": None,
             "logo": cs.club.logo_url,
             "season": None,
             "age": None,
