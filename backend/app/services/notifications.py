@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import requests
@@ -25,6 +26,12 @@ IID_TOPIC_URL = "https://iid.googleapis.com/iid/v1/{token}/rel/topics/{topic}"
 # FCM topic names are restricted to this charset; validating before use keeps a
 # malformed value from altering the IID request path or the /topics/ body.
 _TOPIC_RE = re.compile(r"^[a-zA-Z0-9\-_.~%]+$")
+
+# Round-result fan-out is dozens of blocking FCM round-trips; run it off the
+# request thread so an admin's match save returns immediately instead of risking
+# the gunicorn request timeout. Threads spawn lazily on first submit (after
+# gunicorn forks under --preload), so creating this at import is fork-safe.
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fcm")
 IID_BATCH_REMOVE_URL = "https://iid.googleapis.com/iid/v1:batchRemove"
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
@@ -396,6 +403,36 @@ def notify_round_results_to_teams(competition, matches) -> list[dict]:
     topics with no subscribers are a harmless no-op.
     """
     return [notify_match_result(competition, m) for m in matches]
+
+
+def dispatch_round_results(competition_id: int, week: str, match_ids: list[int]):
+    """Send a round's digest (league followers + per-team) on a background thread.
+
+    The request's DB session is gone by the time the worker runs, so the caller
+    must pass ids — the worker re-loads the competition/matches inside its own app
+    context, never touching a detached instance. Best-effort: failures are logged,
+    never raised. Returns the Future (used by tests; callers may ignore it).
+    """
+    app = current_app._get_current_object()
+
+    def _run():
+        with app.app_context():
+            try:
+                from app.extensions import db
+                from app.models import Competition, Match
+
+                comp = db.session.get(Competition, competition_id)
+                if comp is None:
+                    return
+                matches = (
+                    Match.query.filter(Match.id.in_(match_ids)).all() if match_ids else []
+                )
+                notify_round_results(comp, week, matches)
+                notify_round_results_to_teams(comp, matches)
+            except Exception:  # noqa: BLE001 - a background send must never crash a thread
+                current_app.logger.exception("background round-notify failed")
+
+    return _executor.submit(_run)
 
 
 def notify_tla3bny_round_results(competition, round_label, matches, age_label=None) -> dict:
