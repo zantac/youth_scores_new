@@ -1,9 +1,11 @@
 # Keeps dependencies (and the digest-pinned base images, which don't auto-patch)
 # from silently rotting. Minor+patch are grouped weekly to keep noise low.
-# MAJOR bumps are deliberately NOT grouped — they arrive as individual PRs so a
-# breaking major (e.g. Next 15->16, Tailwind 3->4, TS 5->7) can't ride in
-# unnoticed inside a batch. The CI `npm run build` step is the backstop that
-# fails such a PR before it can be merged.
+#
+# MAJOR updates are IGNORED here on purpose: a batch of majors (Next 15->16,
+# Tailwind 3->4, TS 5->7) broke deploys once already. Majors are breaking by
+# definition and must be deliberate, hand-done migrations — not auto-PRs. Note
+# this ignores only version-update majors; Dependabot SECURITY updates still come
+# through regardless, and the CI `npm run build` step gates whatever does land.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -14,6 +16,9 @@ updates:
       python:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /web
@@ -23,6 +28,9 @@ updates:
       npm:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /web-tla3bny
@@ -32,11 +40,17 @@ updates:
       npm:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
