@@ -18,6 +18,10 @@ FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb836
 WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
+# Cache-buster: bump this value to force the COPY + build below to re-run when a
+# newly-generated export file (e.g. robots.txt / sitemap.xml) must appear but the
+# builder is reusing a stale web/out layer. Leaves the slow npm install cached.
+ARG CACHEBUST=2026-08-31a
 COPY web/ ./
 # No NEXT_PUBLIC_CONFIG_URL: the app defaults to a same-origin (relative) API,
 # so it works on whatever host serves it (Railway temp domain, youthscores.org).
