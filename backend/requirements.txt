@@ -3,7 +3,7 @@ Flask-Limiter==4.1.1
 # Gzip API/JSON and static responses — cuts Railway egress on the large feed
 # payloads (JSON compresses ~80-90%).
 Flask-Compress==1.24
-boto3==1.43.82
+boto3==1.43.83
 sentry-sdk[flask]==2.68.1
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.1.0
