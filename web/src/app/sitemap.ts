@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 
-const SITE = 'https://youthscores.org';
+// Canonical host (apex youthscores.org 301-redirects to www).
+const SITE = 'https://www.youthscores.org';
 
 // Emitted as a static /sitemap.xml at build time (output: 'export').
 export const dynamic = 'force-static';

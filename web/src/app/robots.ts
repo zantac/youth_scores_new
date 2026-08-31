@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next';
 
-// The public site (gh-pages CNAME). Change here if the canonical host changes.
-const SITE = 'https://youthscores.org';
+// Canonical host: the apex youthscores.org 301-redirects here, so list www
+// directly to avoid a redirect hop on every sitemap URL.
+const SITE = 'https://www.youthscores.org';
 
 // Emitted as a static /robots.txt at build time (output: 'export').
 export const dynamic = 'force-static';
