@@ -1,24 +1,30 @@
-"""The /match/<id> path route: Flask serves the sentinel shell (static export
-can't prebuild every match id) and 301s the legacy /match?id= form to it. OG
-injection with real match data is covered by the frontend pilot + manual checks;
-here we pin the routing (no DB match -> the plain shell is served)."""
+"""Path-route entity pages: Flask serves the per-entity sentinel shell (static
+export can't prebuild every id) and 301s the legacy /<entity>?id= form to it. OG
+injection with real data is covered by the frontend pilot + manual checks; here we
+pin the routing (no DB row -> the plain shell is served) for each migrated entity."""
 
 import os
 import tempfile
+
+import pytest
 
 os.environ.setdefault("FLASK_ENV", "development")
 
 from app import create_app
 from app.extensions import db
 
-SHELL_HTML = "<html><head><title>مباراة | Youth Scores</title></head><body>shell</body></html>"
+# Entities that have a /<entity>/<id> path route + sentinel shell.
+ENTITIES = ["match", "club"]
+
+SHELL = "<html><head><title>{e} | Youth Scores</title></head><body>{e} shell</body></html>"
 
 
 def _app():
     fe = tempfile.mkdtemp()
-    os.makedirs(os.path.join(fe, "match", "_"), exist_ok=True)
-    with open(os.path.join(fe, "match", "_", "index.html"), "w", encoding="utf-8") as f:
-        f.write(SHELL_HTML)
+    for e in ENTITIES:
+        os.makedirs(os.path.join(fe, e, "_"), exist_ok=True)
+        with open(os.path.join(fe, e, "_", "index.html"), "w", encoding="utf-8") as f:
+            f.write(SHELL.format(e=e))
     with open(os.path.join(fe, "index.html"), "w", encoding="utf-8") as f:
         f.write("<html><head><title>home</title></head><body>home</body></html>")
     tmpdb = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -30,25 +36,28 @@ def _app():
     return app
 
 
-def test_legacy_query_form_301s_to_path():
-    r = _app().test_client().get("/match?id=5")
+@pytest.mark.parametrize("entity", ENTITIES)
+def test_legacy_query_form_301s_to_path(entity):
+    r = _app().test_client().get(f"/{entity}?id=5")
     assert r.status_code == 301
-    assert r.headers["Location"].rstrip("/").endswith("/match/5")
+    assert r.headers["Location"].rstrip("/").endswith(f"/{entity}/5")
 
 
-def test_non_numeric_id_does_not_redirect():
-    # /match?id=abc must not 301 (only digit ids); falls through to the shim shell.
-    r = _app().test_client().get("/match?id=abc")
+@pytest.mark.parametrize("entity", ENTITIES)
+def test_non_numeric_id_does_not_redirect(entity):
+    r = _app().test_client().get(f"/{entity}?id=abc")
     assert r.status_code != 301
 
 
-def test_path_form_serves_sentinel_shell():
-    r = _app().test_client().get("/match/5/")
+@pytest.mark.parametrize("entity", ENTITIES)
+def test_path_form_serves_sentinel_shell(entity):
+    r = _app().test_client().get(f"/{entity}/5/")
     assert r.status_code == 200
-    assert b"Youth Scores" in r.data  # no DB match -> plain sentinel shell
+    assert b"shell" in r.data  # no DB row -> plain sentinel shell
 
 
-def test_path_form_without_trailing_slash():
-    r = _app().test_client().get("/match/5")
+@pytest.mark.parametrize("entity", ENTITIES)
+def test_path_form_without_trailing_slash(entity):
+    r = _app().test_client().get(f"/{entity}/5")
     assert r.status_code == 200
     assert b"shell" in r.data

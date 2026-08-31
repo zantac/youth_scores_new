@@ -317,12 +317,15 @@ def _club_share_meta(club_id: int) -> dict | None:
     return {"title": name, "image": club.logo_url or ""}
 
 
-def _club_share_page(index_abs: str):
-    """Club preview: club name title, club logo (no description)."""
+def _club_share_page(index_abs: str, item_id: int | None = None):
+    """Club preview: club name title, club logo (no description).
+
+    ``item_id`` serves the /club/<id> path form; falls back to ?id=."""
     from flask import request
 
     try:
-        meta = _club_share_meta(int(request.args.get("id", "")))
+        cid = item_id if item_id is not None else int(request.args.get("id", ""))
+        meta = _club_share_meta(cid)
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta)
@@ -758,24 +761,33 @@ def create_app(config_name: str | None = None) -> Flask:
             else:
                 resp.headers.setdefault("Cache-Control", "public, max-age=3600")
             return resp
-        # Path-route match pages (youthscores host only; tla3bny app lives at its
-        # own root). Static export can't prebuild every match id, so /match/<id> is
-        # served from the sentinel shell (match/_/index.html) with fresh per-match
-        # OG injected here; the legacy /match?id=<id> permanently redirects to it.
+        # Path-route entity pages (youthscores host only; tla3bny app lives at its
+        # own root). Static export can't prebuild every id, so /<entity>/<id> is
+        # served from the entity's sentinel shell (<entity>/_/index.html) with fresh
+        # per-item OG injected here; the legacy /<entity>?id=<id> permanently
+        # redirects. Add an entity by mapping it to its share builder (which must
+        # accept an explicit item_id) and shipping the matching web [id] route.
+        _path_route_builders = {
+            "match": _match_share_page,
+            "club": _club_share_page,
+        }
         if not _is_tla3bny_host():
-            if path == "match" and request.args.get("id", "").isdigit():
-                return redirect(f"/match/{request.args['id']}/", code=301)
-            mm = re.fullmatch(r"match/(\d+)", path.rstrip("/"))
-            if mm:
-                shell = os.path.join(root, "match", "_", "index.html")
-                if os.path.isfile(shell):
-                    shared = _match_share_page(shell, item_id=int(mm.group(1)))
-                    if shared is None:
-                        with open(shell, encoding="utf-8") as fh:
-                            shared = fh.read()
-                    resp = app.response_class(shared, mimetype="text/html")
-                    resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
-                    return resp
+            head = path.split("/", 1)[0]
+            builder = _path_route_builders.get(head)
+            if builder is not None:
+                if path == head and request.args.get("id", "").isdigit():
+                    return redirect(f"/{head}/{request.args['id']}/", code=301)
+                mm = re.fullmatch(rf"{head}/(\d+)", path.rstrip("/"))
+                if mm:
+                    shell = os.path.join(root, head, "_", "index.html")
+                    if os.path.isfile(shell):
+                        shared = builder(shell, item_id=int(mm.group(1)))
+                        if shared is None:
+                            with open(shell, encoding="utf-8") as fh:
+                                shared = fh.read()
+                        resp = app.response_class(shared, mimetype="text/html")
+                        resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+                        return resp
         index = os.path.join(path, "index.html") if path else "index.html"
         if os.path.isfile(os.path.join(root, index)):
             # A shared /competition, /news or /club link (…?id=…) gets per-item

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchSearch } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize } from '@/lib/utils';
 import type { SearchResults } from '@/lib/types';
 
@@ -61,7 +62,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       key: 'clubs',
       label: isAr ? 'الفرق' : 'Teams',
       rows: res.clubs.map(c => ({
-        id: c.id, path: `/club?id=${c.id}`, img: c.logo, round: false,
+        id: c.id, path: hrefFor('club', c.id), img: c.logo, round: false,
         name: localize(c.name, locale), sub: c.city ? localize(c.city, locale) : '',
       })),
     },

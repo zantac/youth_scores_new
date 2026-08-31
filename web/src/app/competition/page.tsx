@@ -959,7 +959,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
 
       <div className="relative bg-gradient-to-b from-cardBg to-cardBg2 border-b border-bdr p-4 overflow-hidden">
         <div className="absolute -right-8 -top-8 w-40 h-40 bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.12),transparent_65%)] pointer-events-none" />
-        <button disabled={!team.clubId} onClick={() => team.clubId && router.push(`/club?id=${team.clubId}`)}
+        <button disabled={!team.clubId} onClick={() => team.clubId && router.push(hrefFor('club', team.clubId))}
           className="relative w-full flex items-center gap-4 text-start disabled:cursor-default">
           {team.logo && <img src={cloudinaryUrl(team.logo, 128)} alt={primary} className="w-16 h-16 object-contain rounded-xl drop-shadow-lg" />}
           <div>
