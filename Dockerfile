@@ -14,7 +14,7 @@
 # then update the @sha256:… below and keep the human-readable tag alongside it.
 
 # ── 1) build the youthscores web export ──────────────────────────────────────
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web
+FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
@@ -28,7 +28,7 @@ COPY web/ ./
 RUN npm run build
 
 # ── 2) build the tla3bny subdomain export ────────────────────────────────────
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web-tla3bny
+FROM node:26-alpine@sha256:2d984a15c9b54fd0aeb608b8e0d0d83529eb34d2966db27a1fb4f1edc3d298a3 AS web-tla3bny
 WORKDIR /app
 COPY web-tla3bny/package.json web-tla3bny/package-lock.json* ./
 RUN npm install --no-audit --no-fund
