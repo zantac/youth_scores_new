@@ -4,9 +4,17 @@
 #   youthscores.org        → web/out
 #   tla3bny.youthscores.org → web-tla3bny/out
 # Attach BOTH custom domains to this one Railway service.
+#
+# Base images are pinned by digest for reproducible, supply-chain-safe builds.
+# Trade-off: a pinned base does NOT auto-receive upstream security patches, so
+# refresh these digests periodically (e.g. monthly). To get the current digest
+# for a tag (Docker installed):
+#   docker buildx imagetools inspect node:20-alpine --format '{{.Manifest.Digest}}'
+#   docker buildx imagetools inspect python:3.12-slim --format '{{.Manifest.Digest}}'
+# then update the @sha256:… below and keep the human-readable tag alongside it.
 
 # ── 1) build the youthscores web export ──────────────────────────────────────
-FROM node:20-alpine AS web
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
 RUN npm install --no-audit --no-fund
@@ -16,7 +24,7 @@ COPY web/ ./
 RUN npm run build
 
 # ── 2) build the tla3bny subdomain export ────────────────────────────────────
-FROM node:20-alpine AS web-tla3bny
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS web-tla3bny
 WORKDIR /app
 COPY web-tla3bny/package.json web-tla3bny/package-lock.json* ./
 RUN npm install --no-audit --no-fund
@@ -25,7 +33,7 @@ COPY web-tla3bny/ ./
 RUN npm run build
 
 # ── 3) Python runtime ────────────────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217 AS runtime
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
