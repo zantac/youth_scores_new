@@ -1,0 +1,1 @@
+(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[8280],{3065:(e,s,n)=>{"use strict";n.r(s),n.d(s,{default:()=>i});var r=n(5155),t=n(800),u=n(6417);function i(){return(0,r.jsx)(t.A,{title:"إدخال المباريات",children:(0,r.jsx)(u.A,{})})}},5354:(e,s,n)=>{Promise.resolve().then(n.bind(n,3065))}},e=>{e.O(0,[176,1860,1870,800,6417,8441,1255,7358],()=>e(e.s=5354)),_N_E=e.O()}]);

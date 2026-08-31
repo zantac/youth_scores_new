@@ -1,0 +1,7 @@
+User-Agent: *
+Allow: /
+Disallow: /admin
+Disallow: /admin/
+
+Host: https://www.youthscores.org
+Sitemap: https://www.youthscores.org/sitemap.xml
