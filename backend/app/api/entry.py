@@ -371,10 +371,13 @@ def _auto_notify_round_if_settled(m: Match, old_status: str) -> None:
         # (old_status → m.status) is what may tip the round into "settled".
         other_statuses = [rm.status for rm in round_matches if rm.id != m.id]
         if _round_settles_now(other_statuses, old_status, m.status):
-            completed = [rm for rm in round_matches
-                         if rm.status == codes.MATCH_STATUS_COMPLETED]
-            notifications.notify_round_results(comp, week, completed)
-            notifications.notify_round_results_to_teams(comp, completed)
+            completed_ids = [rm.id for rm in round_matches
+                             if rm.status == codes.MATCH_STATUS_COMPLETED]
+            # Off the request thread: a round can be a dozen fixtures × 2 teams of
+            # blocking FCM calls, which could otherwise exceed the request timeout
+            # and fail the admin's match save. The manual /notify-round button stays
+            # synchronous so it can report the send counts.
+            notifications.dispatch_round_results(comp.id, week, completed_ids)
     except Exception:  # noqa: BLE001 - notifying must never break result entry
         current_app.logger.exception("auto round-notify failed for match %s", m.id)
 
