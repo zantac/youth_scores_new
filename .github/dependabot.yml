@@ -1,5 +1,9 @@
 # Keeps dependencies (and the digest-pinned base images, which don't auto-patch)
-# from silently rotting. Grouped, weekly, so the noise stays low.
+# from silently rotting. Minor+patch are grouped weekly to keep noise low.
+# MAJOR bumps are deliberately NOT grouped — they arrive as individual PRs so a
+# breaking major (e.g. Next 15->16, Tailwind 3->4, TS 5->7) can't ride in
+# unnoticed inside a batch. The CI `npm run build` step is the backstop that
+# fails such a PR before it can be merged.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -9,6 +13,7 @@ updates:
     groups:
       python:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /web
@@ -17,6 +22,7 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /web-tla3bny
@@ -25,6 +31,7 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
     directory: /

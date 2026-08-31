@@ -33,7 +33,7 @@ jobs:
           PYTHONPATH: .
 
   web:
-    name: Web (tsc)
+    name: Web (build)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -53,6 +53,12 @@ jobs:
       # fail non-interactively. tsc --noEmit is the real correctness gate here.
       - name: Type-check
         run: npx tsc --noEmit
+        working-directory: ${{ matrix.app }}
+      # Run the actual export build — this is what deploys, and it catches breaks
+      # tsc can't (e.g. a Next major flipping to Turbopack, a Tailwind v4 config
+      # change, or a next-pwa/webpack incompatibility from a dependency bump).
+      - name: Build
+        run: npm run build
         working-directory: ${{ matrix.app }}
 
   flutter:
