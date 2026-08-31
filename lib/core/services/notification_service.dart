@@ -160,6 +160,20 @@ class NotificationService {
     );
   }
 
+  // (entity, id) parsed from a deep-link/notification URL. Accepts BOTH the legacy
+  // query form (/match?id=5) and the new path form (/match/5): the entity is the
+  // first path segment; the id is ?id=, falling back to the second path segment.
+  // Static + public so it can be unit-tested without the navigator/FCM plumbing.
+  static ({String target, String? id}) parseDeepLink(Uri uri) {
+    final id = uri.queryParameters['id'] ??
+        (uri.pathSegments.length > 1 ? uri.pathSegments[1] : null);
+    final target = (uri.pathSegments.isNotEmpty
+            ? uri.pathSegments.first
+            : uri.path.replaceAll('/', ''))
+        .toLowerCase();
+    return (target: target, id: id);
+  }
+
   // Deep-link a tapped notification by its target path. The server sends paths
   // like /news?id=<id>, /competition?id=<id>&week=<w>, /venues — each must open
   // its own screen; previously every push opened a competition, so a news push
@@ -185,11 +199,7 @@ class NotificationService {
     final nav = await _waitFor(() => navigatorKey.currentState);
     if (nav == null) return;
 
-    final id = uri.queryParameters['id'];
-    final target = (uri.pathSegments.isNotEmpty
-            ? uri.pathSegments.first
-            : uri.path.replaceAll('/', ''))
-        .toLowerCase();
+    final (:target, :id) = parseDeepLink(uri);
 
     if (target.startsWith('news')) {
       await _openNews(nav, id);
