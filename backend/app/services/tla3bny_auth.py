@@ -32,9 +32,43 @@ from app.models import Tla3bnyCompetitionAdmin, Tla3bnyTeam, Tla3bnyUser
 TOKEN_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 _SALT = "tla3bny-auth-v1"
 
+# One-off links that let a browser load a private registration document (birth
+# certificates, national IDs, health certs) without attaching the login token —
+# the signature *is* the authorisation, exactly like an S3 pre-signed URL. A
+# separate salt keeps these tokens from being interchangeable with login tokens,
+# and the short lifetime bounds the damage if a link ever leaks.
+_FILE_SALT = "tla3bny-player-file-v1"
+FILE_URL_MAX_AGE = 30 * 60  # 30 minutes
+
 
 def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt=_SALT)
+
+
+def _file_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt=_FILE_SALT)
+
+
+def sign_file_id(file_id: int) -> str:
+    """A short-lived, tamper-proof token authorising a read of one player file."""
+    return _file_serializer().dumps(file_id)
+
+
+def verify_file_sig(sig: str, file_id: int) -> bool:
+    """True when ``sig`` is a valid, unexpired token minted for exactly ``file_id``."""
+    try:
+        return int(_file_serializer().loads(sig, max_age=FILE_URL_MAX_AGE)) == file_id
+    except (BadSignature, SignatureExpired, ValueError, TypeError):
+        return False
+
+
+def player_file_url(file_id: int) -> str:
+    """A relative URL a browser can GET to view a private player file for ~30 min.
+
+    Handed out only inside an authorised ``with_files=True`` serialization, so an
+    unauthorised caller never receives a working link in the first place.
+    """
+    return f"/api/tla3bny/player-files/{file_id}?sig={sign_file_id(file_id)}"
 
 
 def generate_token(user: Tla3bnyUser) -> str:

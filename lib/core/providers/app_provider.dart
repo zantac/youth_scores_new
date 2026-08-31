@@ -405,7 +405,10 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
   // Simple numeric hash keeps the key short and avoids forbidden characters.
   String _diskKey(String url) => 'comp_${url.hashCode}';
 
-  void clearCompetition() {
+  // `notify` is false when called from a widget's dispose(): the subtree is being
+  // torn down, so notifying listeners mid-teardown can throw "notify during
+  // dispose" in navigation races. Clear the state silently in that case.
+  void clearCompetition({bool notify = true}) {
     if (_compUrl != null) _memCache.remove(_compUrl);
     _competition      = null;
     _compUrl          = null;
@@ -413,7 +416,7 @@ class AppProvider extends ChangeNotifier with WidgetsBindingObserver {
     _seasonName       = '';
     _teamIndex        = {};
     _matchIndex       = {};
-    notifyListeners();
+    if (notify) notifyListeners();
   }
 
   Future<void> refreshCompetition() async {

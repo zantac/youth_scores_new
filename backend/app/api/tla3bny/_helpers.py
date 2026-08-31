@@ -141,13 +141,17 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     return out, ext
 
 
-def save_upload(file_storage, kind: str = "image") -> str | None:
+def save_upload(file_storage, kind: str = "image", private: bool = False) -> str | None:
     """Save an uploaded file and return its URL or local path.
 
     When AWS_S3_BUCKET is configured, the file is sent to S3 and a full
     HTTPS URL is returned — the frontend's mediaUrl() handles it transparently.
     Otherwise the file is saved to UPLOAD_FOLDER and ``uploads/<name>`` is
     returned (served by the Flask /uploads/ static route).
+
+    ``private=True`` (registration documents) stores the file under a ``private/``
+    subdir whose public ``/uploads/`` route is blocked, so it is reachable only
+    through the signed serve route — the raw path never grants access.
 
     Images are automatically resized / recompressed to fit within 500 KB.
     kind: "image", "pdf" or "document" (image or pdf). Returns None when no
@@ -195,13 +199,19 @@ def save_upload(file_storage, kind: str = "image") -> str | None:
     filename = secure_filename(f"{uuid.uuid4().hex}.{final_ext}")
 
     if storage.s3_enabled():
+        # NOTE: S3 mode stores documents as public objects. This deployment uses
+        # local disk for uploads (where private=True segregates documents into a
+        # blocked subdir); if S3 is ever adopted for registration papers, switch
+        # them to private objects + server-side/pre-signed reads.
         return storage.s3_upload(data, filename, final_ext)
 
     folder = current_app.config["UPLOAD_FOLDER"]
+    if private:
+        folder = os.path.join(folder, "private")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, filename), "wb") as fh:
         fh.write(data)
-    return f"uploads/{filename}"
+    return f"uploads/private/{filename}" if private else f"uploads/{filename}"
 
 
 def _read_payload():
@@ -237,7 +247,7 @@ def _save_documents(player, data, files, competition_player=None) -> None:
     for i, f in enumerate(uploaded):
         if f is None or f.filename == "":
             continue
-        path = save_upload(f, kind="document")
+        path = save_upload(f, kind="document", private=True)
         if not path:
             continue
         label = (labels[i] if i < len(labels) else None) or None

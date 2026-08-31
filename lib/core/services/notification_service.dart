@@ -173,6 +173,15 @@ class NotificationService {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
 
+    // Defense-in-depth: an App Link / custom-scheme URL can be fired by any app.
+    // Our own notification payloads are relative paths (no host); an external
+    // link that names some *other* host is not ours, so refuse to route it.
+    if (uri.hasAuthority &&
+        !const {'youthscores.org', 'www.youthscores.org'}
+            .contains(uri.host.toLowerCase())) {
+      return;
+    }
+
     final nav = await _waitFor(() => navigatorKey.currentState);
     if (nav == null) return;
 

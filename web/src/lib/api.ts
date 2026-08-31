@@ -235,9 +235,11 @@ function parseCompetition(j: Record<string, unknown>): Competition {
 export async function fetchConfig(opts?: { fresh?: boolean }): Promise<ConfigData> {
   const init: RequestInit = opts?.fresh ? { cache: 'no-store' } : { next: { revalidate: 300 } } as RequestInit;
   const cfgRes = await fetch(CONFIG_URL, init);
+  if (!cfgRes.ok) throw new Error(`config fetch failed: ${cfgRes.status}`);
   const cfgJson = await cfgRes.json();
   const dataUrl: string = cfgJson.latestDataUrl;
   const dataRes = await fetch(dataUrl, init);
+  if (!dataRes.ok) throw new Error(`data fetch failed: ${dataRes.status}`);
   const data = await dataRes.json();
 
   return {
@@ -345,6 +347,7 @@ export async function fetchAllMatches(query: MatchQuery = {}): Promise<HomeMatch
   if (query.order) p.set('order', query.order);
   p.set('limit', String(query.limit ?? 300));
   const res = await fetch(`${API_ORIGIN}/api/matches?${p.toString()}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`matches fetch failed: ${res.status}`);
   const j = await res.json();
   return (Array.isArray(j.matches) ? j.matches : [])
     .filter((m: unknown): m is Record<string, unknown> => typeof m === 'object' && m !== null)
@@ -426,6 +429,7 @@ function parseStandings(raw: unknown): CompetitionData['standings'] {
 // poll so a score edit shows within the poll interval, not after the cache TTL.
 export async function fetchCompetition(url: string, opts?: { fresh?: boolean }): Promise<CompetitionData> {
   const res = await fetch(url, opts?.fresh ? { cache: 'no-store' } : { next: { revalidate: 120 } });
+  if (!res.ok) throw new Error(`competition fetch failed: ${res.status}`);
   const j = await res.json();
   const meta = j.competition as { id?: number; title?: Localized } | undefined;
   return {

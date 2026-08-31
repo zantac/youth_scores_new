@@ -64,13 +64,13 @@ export default function AdInterstitial({ ad, onClose }: Props) {
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-10 pt-16">
         <div className="flex flex-wrap gap-2">
           {ad.whatsapp_number && (
-            <a href={`https://wa.me/${ad.whatsapp_number}`} target="_blank" rel="noopener noreferrer" onClick={click}
+            <a href={`https://wa.me/${String(ad.whatsapp_number).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#25D366]/60 bg-[#25D366]/20 text-[#25D366] text-xs font-semibold">
               💬 WhatsApp
             </a>
           )}
           {ad.mobile_number && (
-            <a href={`tel:${ad.mobile_number}`} onClick={click}
+            <a href={`tel:${String(ad.mobile_number).replace(/[^\d+]/g, '')}`} onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-teal/60 bg-teal/20 text-teal text-xs font-semibold">
               📞 اتصال
             </a>

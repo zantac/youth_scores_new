@@ -549,9 +549,15 @@ def create_app(config_name: str | None = None) -> Flask:
     # request.host_url reflects the real https://<domain> — the config feed
     # embeds absolute data URLs built from it, and an http URL would be blocked
     # as mixed content on the https site.
+    #
+    # x_for=1 trusts exactly ONE proxy hop for X-Forwarded-For, so the rate
+    # limiter and audit log key on the real client IP (not the shared proxy IP)
+    # while a client still can't forge it by prepending fake entries. The app
+    # MUST always sit behind exactly one trusted proxy (Railway) — never expose
+    # it directly, or clients could spoof X-Forwarded-For.
     from werkzeug.middleware.proxy_fix import ProxyFix
 
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     # Make INFO logs (e.g. notification dry-run lines) visible in development;
     # `flask run` otherwise leaves the app logger at WARNING.
@@ -619,7 +625,9 @@ def create_app(config_name: str | None = None) -> Flask:
         if _origin_set:
             if origin in _origin_set:
                 response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Vary"] = "Origin"
+                # Append, don't overwrite: Flask-Compress sets Vary: Accept-Encoding,
+                # and clobbering it would break cache correctness for compressed bodies.
+                response.vary.add("Origin")
         elif app.config.get("DEBUG"):
             # Development-only fallback (production requires ALLOWED_ORIGINS).
             response.headers["Access-Control-Allow-Origin"] = "*"
@@ -647,6 +655,11 @@ def create_app(config_name: str | None = None) -> Flask:
 
     @app.get("/uploads/<path:filename>")
     def uploaded_file(filename):
+        # Private registration documents live under uploads/private/ and must only
+        # be reached through the signed /api/tla3bny/player-files/<id> route (which
+        # checks a short-lived token) — never this public, permanently-cached path.
+        if filename.startswith(("private/", "private\\")):
+            abort(404)
         # Uploads are stored under a random uuid name and never rewritten, so the
         # bytes for a given URL never change — cache them hard to keep repeat
         # image loads off Railway. (When S3/R2 is configured, files are served

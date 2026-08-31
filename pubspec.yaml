@@ -1,7 +1,7 @@
 name: youthscores
 description: Youth Scores - Egyptian youth football tournament tracker.
 publish_to: 'none'
-version: 15.0.0+22
+version: 18.0.1+26
 
 environment:
   sdk: ^3.12.1

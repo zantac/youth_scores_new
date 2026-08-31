@@ -43,6 +43,13 @@ ENV FLASK_APP=wsgi.py \
     FRONTEND_DIR=/app/web/out \
     TLA3BNY_FRONTEND_DIR=/app/web-tla3bny/out
 
+# Drop root: run as an unprivileged user so a code-exec/path-traversal bug in the
+# app can't act as root inside the container. Own /app so the app can still write
+# its instance/ dir and any local upload staging.
+RUN adduser --system --no-create-home --group app \
+    && chown -R app:app /app
+USER app
+
 WORKDIR /app/backend
 # Run pending migrations, then serve. Railway provides $PORT.
 # --preload loads the app once before forking so the 2 workers share code memory

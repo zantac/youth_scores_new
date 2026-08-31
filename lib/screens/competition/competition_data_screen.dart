@@ -66,7 +66,7 @@ class _CompetitionDataScreenState extends State<CompetitionDataScreen>
     WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _tabs.dispose();
-    context.read<AppProvider>().clearCompetition();
+    context.read<AppProvider>().clearCompetition(notify: false);
     super.dispose();
   }
 

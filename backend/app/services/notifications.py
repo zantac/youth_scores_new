@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
+from urllib.parse import quote
 
 import requests
 from flask import current_app
 
 FCM_SEND_URL = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 IID_TOPIC_URL = "https://iid.googleapis.com/iid/v1/{token}/rel/topics/{topic}"
+
+# FCM topic names are restricted to this charset; validating before use keeps a
+# malformed value from altering the IID request path or the /topics/ body.
+_TOPIC_RE = re.compile(r"^[a-zA-Z0-9\-_.~%]+$")
 IID_BATCH_REMOVE_URL = "https://iid.googleapis.com/iid/v1:batchRemove"
 SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 
@@ -201,13 +207,15 @@ def subscribe_token_to_topic(token: str, topic: str) -> dict:
     Android subscribes to topics itself via the FCM SDK. Web has no client-side
     topic API, so the browser sends its token here and the server subscribes it.
     """
+    if not _TOPIC_RE.match(topic or ""):
+        return {"status": "error", "error": "invalid topic"}
     if not is_configured():
         current_app.logger.info("[notifications:dry-run] subscribe token->%s", topic)
         return {"status": "dry_run", "topic": topic}
     try:
         access_token, _ = _access_token()
         resp = requests.post(
-            IID_TOPIC_URL.format(token=token, topic=topic),
+            IID_TOPIC_URL.format(token=quote(token, safe=""), topic=quote(topic, safe="")),
             headers={"Authorization": f"Bearer {access_token}", "access_token_auth": "true"},
             timeout=10,
         )
@@ -223,6 +231,8 @@ def subscribe_token_to_topic(token: str, topic: str) -> dict:
 def unsubscribe_token_from_topic(token: str, topic: str) -> dict:
     """Unsubscribe one registration token from a topic (used when a web client
     unfollows a competition). Mirrors subscribe_token_to_topic via the IID API."""
+    if not _TOPIC_RE.match(topic or ""):
+        return {"status": "error", "error": "invalid topic"}
     if not is_configured():
         current_app.logger.info("[notifications:dry-run] unsubscribe token->%s", topic)
         return {"status": "dry_run", "topic": topic}

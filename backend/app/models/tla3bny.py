@@ -542,7 +542,9 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
             "jersey_number": cur.jersey_number if cur else None,
         }
         if with_files:
-            data["papers_path"] = self.papers_path
+            # papers_path (a legacy raw path) is intentionally not emitted: it now
+            # points into the private upload dir and is superseded by files[], each
+            # of which carries its own signed URL.
             data["files"] = [f.to_dict() for f in self.files]
             data["file_count"] = len(self.files)
         return data
@@ -576,11 +578,16 @@ class Tla3bnyPlayerFile(TimestampMixin, db.Model):
     player: Mapped["Tla3bnyPlayer"] = relationship(back_populates="files")
 
     def to_dict(self) -> dict:
+        # A short-lived signed URL, never the raw storage path: the document lives
+        # under a private upload dir reachable only through the signed serve route,
+        # so a leaked link expires instead of granting permanent public access.
+        from app.services.tla3bny_auth import player_file_url
+
         return {
             "id": self.id,
             "player_id": self.player_id,
             "competition_player_id": self.competition_player_id,
-            "file_path": self.file_path,
+            "file_path": player_file_url(self.id),
             "original_name": self.original_name,
             "label": self.label,
         }

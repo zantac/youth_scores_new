@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import datetime  # noqa: F401 — kept for type annotations in this file
 
-from flask import jsonify, request
+from flask import Response, jsonify, request
 import sqlalchemy as sa
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,7 @@ from app.models import (
 )
 
 _FINISHED = ("finished", "completed")
+from app.services import storage
 from app.services import tla3bny_auth as auth
 
 from . import tla3bny_bp
@@ -75,6 +76,32 @@ def get_player(player_id: int):
     allowed to see them (owning academy/team, or a competition admin)."""
     player = Tla3bnyPlayer.query.get_or_404(player_id)
     return jsonify(player.to_dict(with_files=_can_view_player_files(player)))
+
+
+@tla3bny_bp.get("/player-files/<int:file_id>")
+def serve_player_file(file_id: int):
+    """Stream a private registration document behind a short-lived signed link.
+
+    No login decorator on purpose: the ``sig`` query param IS the authorisation —
+    a signed, ~30-minute token that is only ever minted inside an authorised
+    ``with_files=True`` serialization (see ``_can_view_player_files``). This lets
+    a plain <img>/download tag load the file, which a Bearer-token header cannot,
+    while an unauthorised caller never receives a working link.
+    """
+    if not auth.verify_file_sig(request.args.get("sig", ""), file_id):
+        return _err("رابط غير صالح أو منتهي الصلاحية", 403)
+    pf = Tla3bnyPlayerFile.query.get_or_404(file_id)
+    try:
+        data = storage.read_bytes(pf.file_path)
+    except (FileNotFoundError, OSError):
+        return _err("الملف غير موجود", 404)
+    ext = pf.file_path.rsplit(".", 1)[-1] if "." in pf.file_path else ""
+    resp = Response(data, mimetype=storage.content_type_for(ext))
+    # A private document on a short-lived link: never let a shared/CDN cache keep
+    # it, and the signature expires regardless.
+    resp.headers["Cache-Control"] = "private, no-store"
+    resp.headers["Content-Disposition"] = "inline"
+    return resp
 
 
 @tla3bny_bp.get("/players/<int:player_id>/registrations")
