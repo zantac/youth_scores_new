@@ -41,6 +41,12 @@ FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
+# gosu lets the root entrypoint drop to the non-root `app` user after fixing the
+# mounted-volume ownership (see docker-entrypoint.sh).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
@@ -55,12 +61,15 @@ ENV FLASK_APP=wsgi.py \
     FRONTEND_DIR=/app/web/out \
     TLA3BNY_FRONTEND_DIR=/app/web-tla3bny/out
 
-# Drop root: run as an unprivileged user so a code-exec/path-traversal bug in the
-# app can't act as root inside the container. Own /app so the app can still write
-# its instance/ dir and any local upload staging.
+# Unprivileged runtime: the entrypoint starts as root ONLY to chown the mounted
+# upload volume, then drops to this `app` user via gosu for the actual server — so
+# a code-exec/path-traversal bug in the app can't act as root. Own /app for the
+# app code + instance dir.
 RUN adduser --system --no-create-home --group app \
     && chown -R app:app /app
-USER app
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 WORKDIR /app/backend
 # Run pending migrations, then serve. Railway provides $PORT.
