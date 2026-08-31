@@ -8,6 +8,7 @@ is per-connection and wouldn't be visible to the worker thread's own connection)
 
 import os
 import tempfile
+from datetime import date
 
 os.environ.setdefault("FLASK_ENV", "development")
 
@@ -28,9 +29,16 @@ def test_dispatch_backgrounds_reloads_and_calls_both(monkeypatch):
     app = _app()
     with app.app_context():
         db.create_all()
-        from app.models import Competition
+        from app.models import Competition, Season
 
-        comp = Competition(season_id=1, name_ar="بطولة")
+        # A valid parent Season: the CI runner enforces SQLite foreign keys (local
+        # SQLite has them off), so Competition.season_id must reference a real row.
+        season = Season(
+            name_ar="موسم", start_date=date(2025, 1, 1), end_date=date(2025, 12, 31)
+        )
+        db.session.add(season)
+        db.session.flush()
+        comp = Competition(season_id=season.id, name_ar="بطولة")
         db.session.add(comp)
         db.session.commit()
         cid = comp.id
