@@ -16,6 +16,7 @@ import {
   formatMatchDate, todayStr, localize, groupKey, teamNameLines, groupRosterByPosition, safeUrl, cloudinaryUrl,
 } from '@/lib/utils';
 import { competitionDataUrl } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1067,7 +1068,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
                   <MatchCard key={m.id} match={m}
                     homeTeam={teams.find(t => t.id === m.homeTeamId)}
                     awayTeam={teams.find(t => t.id === m.awayTeamId)}
-                    locale={locale} onClick={() => router.push(`/match?id=${m.id}`)} />
+                    locale={locale} onClick={() => router.push(hrefFor('match', m.id))} />
                 ))}
           </div>
         )}
@@ -1397,7 +1398,7 @@ function CompetitionPageInner() {
         }} />
       </div>
 
-      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(`/match?id=${id}`)} stickyTop={headH} initialWeek={params.get('week') ?? undefined} />}
+      {mainTab === 0 && <MatchesTab matches={matches} teams={teams} locale={locale} onMatchClick={id => router.push(hrefFor('match', id))} stickyTop={headH} initialWeek={params.get('week') ?? undefined} />}
       {mainTab === 1 && <StandingsTab matches={matches} teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} serverStandings={competition.standings} />}
       {mainTab === 2 && <TeamsTab teams={teams} locale={locale} onTeamClick={t => setView({ team: t })} />}
       {mainTab === 3 && <StatsTab matches={matches} teams={teams} locale={locale} stickyTop={headH} />}

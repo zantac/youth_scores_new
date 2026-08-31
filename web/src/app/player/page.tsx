@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchPlayer } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize, cloudinaryUrl } from '@/lib/utils';
 import TabStrip from '@/components/ui/TabStrip';
 import type { PlayerFull, PlayerMatch, PlayerSeasonStats } from '@/lib/types';
@@ -207,7 +208,7 @@ function PlayerJourney() {
               {matches.map(m => {
                 const homeSide = m.side === 'home';
                 return (
-                  <button key={m.id} onClick={() => router.push(`/match?id=${m.id}`)}
+                  <button key={m.id} onClick={() => router.push(hrefFor('match', m.id))}
                     className="w-full text-start bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 transition-colors hover:border-aqua/30">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-hint text-[10px] tnum truncate">{localize(m.competition, locale)}</span>

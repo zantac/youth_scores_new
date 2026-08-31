@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAllMatches } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { formatMatchDate, todayStr, localize, adNotExpired } from '@/lib/utils';
 import MatchCard from '@/components/competition/MatchCard';
 import FeedAdCard from '@/components/ui/FeedAdCard';
@@ -245,7 +246,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
                 </button>
                 {cg.matches.map(m => (
                   <Fragment key={m.id}>
-                    <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} onClick={() => router.push(`/match?id=${m.id}`)} />
+                    <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} onClick={() => router.push(hrefFor('match', m.id))} />
                     {feedAd && adAfterMatchIds.has(m.id) && <FeedAdCard ad={feedAd} />}
                   </Fragment>
                 ))}

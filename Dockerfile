@@ -21,7 +21,7 @@ RUN npm install --no-audit --no-fund
 # Cache-buster: bump this value to force the COPY + build below to re-run when a
 # newly-generated export file (e.g. robots.txt / sitemap.xml) must appear but the
 # builder is reusing a stale web/out layer. Leaves the slow npm install cached.
-ARG CACHEBUST=2026-08-31b
+ARG CACHEBUST=2026-08-31c
 COPY web/ ./
 # No NEXT_PUBLIC_CONFIG_URL: the app defaults to a same-origin (relative) API,
 # so it works on whatever host serves it (Railway temp domain, youthscores.org).
