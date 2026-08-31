@@ -1,0 +1,5 @@
+# Test/dev-only dependencies — NOT installed in the production image (the
+# Dockerfile installs requirements.txt only). CI uses this file so pytest is
+# available without shipping it to prod.
+-r requirements.txt
+pytest>=8.0,<9.0
