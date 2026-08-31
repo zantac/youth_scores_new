@@ -1,9 +1,10 @@
 import logging
 import os
+import re
 
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
-from flask import Flask, abort, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, redirect, request, send_from_directory
 from flask_compress import Compress
 
 from app.config import CONFIGS
@@ -169,12 +170,16 @@ def _match_share_meta(match_id: int) -> dict | None:
     return {"title": title, "description": description, "image": image}
 
 
-def _match_share_page(index_abs: str):
-    """Match preview: the two teams (+ score once played), competition + age."""
+def _match_share_page(index_abs: str, item_id: int | None = None):
+    """Match preview: the two teams (+ score once played), competition + age.
+
+    ``item_id`` serves the /match/<id> path form; falls back to ?id= for the
+    legacy query form."""
     from flask import request
 
     try:
-        meta = _match_share_meta(int(request.args.get("id", "")))
+        mid = item_id if item_id is not None else int(request.args.get("id", ""))
+        meta = _match_share_meta(mid)
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta)
@@ -753,6 +758,24 @@ def create_app(config_name: str | None = None) -> Flask:
             else:
                 resp.headers.setdefault("Cache-Control", "public, max-age=3600")
             return resp
+        # Path-route match pages (youthscores host only; tla3bny app lives at its
+        # own root). Static export can't prebuild every match id, so /match/<id> is
+        # served from the sentinel shell (match/_/index.html) with fresh per-match
+        # OG injected here; the legacy /match?id=<id> permanently redirects to it.
+        if not _is_tla3bny_host():
+            if path == "match" and request.args.get("id", "").isdigit():
+                return redirect(f"/match/{request.args['id']}/", code=301)
+            mm = re.fullmatch(r"match/(\d+)", path.rstrip("/"))
+            if mm:
+                shell = os.path.join(root, "match", "_", "index.html")
+                if os.path.isfile(shell):
+                    shared = _match_share_page(shell, item_id=int(mm.group(1)))
+                    if shared is None:
+                        with open(shell, encoding="utf-8") as fh:
+                            shared = fh.read()
+                    resp = app.response_class(shared, mimetype="text/html")
+                    resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
+                    return resp
         index = os.path.join(path, "index.html") if path else "index.html"
         if os.path.isfile(os.path.join(root, index)):
             # A shared /competition, /news or /club link (…?id=…) gets per-item
