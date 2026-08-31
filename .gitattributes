@@ -1,0 +1,3 @@
+# Shell scripts must stay LF — a CRLF shebang breaks the container
+# ("/bin/sh^M: bad interpreter"), which would take the whole service down.
+*.sh text eol=lf
