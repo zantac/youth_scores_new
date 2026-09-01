@@ -2,7 +2,8 @@
 
 Reuses the youthscores standings engine (`services.standings`) unchanged — the
 algorithm and its unusual head-to-head tiebreak are identical — passing tla3bny's
-own match vocabulary ("finished" / "knockout"). Each (competition, age) pair is
+own match vocabulary (a result is "completed" or "finished"; knockouts are
+"knockout"). Each (competition, age) pair is
 the tla3bny equivalent of one youthscores competition instance, so stages and
 groups are scoped to a ``Tla3bnyCompetitionAge``.
 """
@@ -22,7 +23,11 @@ from app.models import (
 )
 from app.services.standings import Standing, calculate, team_form
 
-_FINISHED = "completed"
+# A tla3bny result can be stored under either status — enter_result writes
+# "completed", but matches edited/imported with the legacy "finished" value are
+# just as done. Both must count, exactly as the stats/scorers/awards paths treat
+# them; counting only one made the table drop "finished" matches it should show.
+_FINISHED = ("completed", "finished")
 _KNOCKOUT = "knockout"
 
 

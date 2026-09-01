@@ -10,6 +10,7 @@ The tiebreak rule is deliberately unusual — see `break_tie`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import combinations
@@ -52,7 +53,7 @@ def is_eligible(
     m: Match,
     stage_filter: int | set[int] | None = None,
     *,
-    completed_status: str = codes.MATCH_STATUS_COMPLETED,
+    completed_status: str | Iterable[str] = codes.MATCH_STATUS_COMPLETED,
     knockout_type: str = codes.STAGE_TYPE_KNOCKOUT,
 ) -> bool:
     """Only completed, non-knockout matches with a scoreline count.
@@ -61,8 +62,9 @@ def is_eligible(
     stages a table accumulates over (see `tables.counted_stage_ids`).
 
     `completed_status` / `knockout_type` are the vocabulary of the match's
-    subsystem: the defaults are youthscores', and the tla3bny subsystem passes
-    its own ("finished" / "knockout") so this engine can be reused unchanged.
+    subsystem: the default is youthscores' single "completed", and the tla3bny
+    subsystem passes its own set (both "completed" and "finished" mean a result
+    is in) so this engine can be reused unchanged. Accepts one status or several.
     """
     if m.stage is not None and m.stage.type == knockout_type:
         return False
@@ -70,7 +72,8 @@ def is_eligible(
         allowed = stage_filter if isinstance(stage_filter, set) else {stage_filter}
         if m.stage_id not in allowed:
             return False
-    if m.status != completed_status:
+    done = {completed_status} if isinstance(completed_status, str) else set(completed_status)
+    if m.status not in done:
         return False
     return m.home_score is not None and m.away_score is not None
 
@@ -237,14 +240,19 @@ def team_form(
     matches: list[Match],
     limit: int = 5,
     *,
-    completed_status: str = codes.MATCH_STATUS_COMPLETED,
+    completed_status: str | Iterable[str] = codes.MATCH_STATUS_COMPLETED,
 ) -> list[str]:
-    """Most recent results first, as W/D/L. Includes knockout matches."""
+    """Most recent results first, as W/D/L. Includes knockout matches.
+
+    `completed_status` accepts one status or several (tla3bny counts both
+    "completed" and "finished"), matching `is_eligible`.
+    """
+    done = {completed_status} if isinstance(completed_status, str) else set(completed_status)
     played = [
         m
         for m in matches
         if team_id in (m.home_team_id, m.away_team_id)
-        and m.status == completed_status
+        and m.status in done
         and m.home_score is not None
         and m.away_score is not None
     ]
