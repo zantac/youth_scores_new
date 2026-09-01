@@ -152,7 +152,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: json.encode({
               'platform': _platform,
-              if (placement != null) 'placement': placement,
+              'placement': ?placement,
             }),
           )
           .timeout(const Duration(seconds: 8));

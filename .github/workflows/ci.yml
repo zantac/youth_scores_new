@@ -70,7 +70,6 @@ jobs:
         with:
           channel: stable
       - run: flutter pub get
-      # Gate on real errors only: the app carries pre-existing info/warning lints
-      # (deprecations, style) tracked as separate cleanup. Tighten to
-      # --fatal-warnings once those are cleared.
-      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      # Fully strict now that the lint debt is cleared: analyze fails on any
+      # info/warning/error, so new deprecations or style regressions can't creep in.
+      - run: flutter analyze

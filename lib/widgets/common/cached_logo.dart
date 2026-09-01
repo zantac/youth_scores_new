@@ -34,7 +34,7 @@ class CachedLogo extends StatelessWidget {
       width: size,
       height: size,
       fit: fit,
-      placeholder: (_, __) => Shimmer.fromColors(
+      placeholder: (_, _) => Shimmer.fromColors(
         baseColor: AppColors.cardBg,
         highlightColor: AppColors.border,
         child: Container(
@@ -46,7 +46,7 @@ class CachedLogo extends StatelessWidget {
           ),
         ),
       ),
-      errorWidget: (_, __, ___) => _placeholder(),
+      errorWidget: (_, _, _) => _placeholder(),
     );
   }
 

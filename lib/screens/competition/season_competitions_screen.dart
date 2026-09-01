@@ -93,7 +93,7 @@ class _CompetitionButton extends StatelessWidget {
                 width: 52,
                 height: 52,
                 fit: BoxFit.contain,
-                errorWidget: (_, __, ___) =>
+                errorWidget: (_, _, _) =>
                     Icon(Icons.sports_soccer, color: AppColors.aqua, size: 32),
               ),
               const SizedBox(width: 16),
