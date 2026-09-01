@@ -252,13 +252,15 @@ def _render_share_page(index_abs: str, meta: dict | None, og_type: str = "websit
         return None
 
 
-def _competition_share_page(index_abs: str):
+def _competition_share_page(index_abs: str, item_id: int | None = None):
     """Competition preview: name + age title, tab description. When a team is
-    open (…&team=<id>), preview that team instead — name + season + crest."""
+    open (…&team=<id>), preview that team instead — name + season + crest.
+
+    ``item_id`` serves the /competition/<id> path form; falls back to ?id=."""
     from flask import request
 
     try:
-        cid = int(request.args.get("id", ""))
+        cid = item_id if item_id is not None else int(request.args.get("id", ""))
     except (TypeError, ValueError):
         return None
     team = request.args.get("team")
@@ -770,13 +772,24 @@ def create_app(config_name: str | None = None) -> Flask:
         _path_route_builders = {
             "match": _match_share_page,
             "club": _club_share_page,
+            "competition": _competition_share_page,
         }
         if not _is_tla3bny_host():
             head = path.split("/", 1)[0]
             builder = _path_route_builders.get(head)
             if builder is not None:
                 if path == head and request.args.get("id", "").isdigit():
-                    return redirect(f"/{head}/{request.args['id']}/", code=301)
+                    # Preserve any other query params (e.g. competition's tab/team)
+                    # on the redirect to the canonical path form.
+                    from urllib.parse import urlencode
+
+                    rest = urlencode(
+                        [(k, v) for k, v in request.args.items(multi=True) if k != "id"]
+                    )
+                    target = f"/{head}/{request.args['id']}/"
+                    if rest:
+                        target += f"?{rest}"
+                    return redirect(target, code=301)
                 mm = re.fullmatch(rf"{head}/(\d+)", path.rstrip("/"))
                 if mm:
                     shell = os.path.join(root, head, "_", "index.html")

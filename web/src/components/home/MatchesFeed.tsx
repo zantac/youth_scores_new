@@ -177,7 +177,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
   }, [past]);
 
   const openCompetition = (comp: HomeMatch['competition']) => {
-    router.push(`/competition?id=${comp.id}`);
+    router.push(hrefFor('competition', comp.id));
   };
 
   const loadOlder = () => { pendingOlder.current = document.body.scrollHeight; setPastLimit(l => l + STEP); };

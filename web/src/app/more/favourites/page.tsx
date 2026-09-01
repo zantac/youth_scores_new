@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { fetchTeam } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize, buildCompTitle, cloudinaryUrl } from '@/lib/utils';
 import {
   followedCompetitions, unfollowCompetition,
@@ -107,7 +108,7 @@ export default function FavouritesPage() {
                   return (
                     <FavRow
                       key={id}
-                      href={`/competition?id=${id}`}
+                      href={hrefFor('competition', id)}
                       leading={<span className="text-lg">🏆</span>}
                       label={label}
                       isAr={isAr}
