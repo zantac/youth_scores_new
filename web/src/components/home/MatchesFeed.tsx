@@ -83,6 +83,10 @@ export default function MatchesFeed({ locale }: { locale: string }) {
   const [error, setError]     = useState(false);
   const [pastLimit, setPastLimit]     = useState(STEP);
   const [futureLimit, setFutureLimit] = useState(STEP);
+  // Bumped by Retry to force a re-fetch even when the limits are unchanged
+  // (React bails out of a same-value state set, so the fetch effect wouldn't
+  // otherwise re-run after an error).
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     if (!today) return;
@@ -96,7 +100,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
       .catch(() => { if (alive) setError(true); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [today, pastLimit, futureLimit]);
+  }, [today, pastLimit, futureLimit, reloadNonce]);
 
   // Live auto-refresh: while a today fixture is unfinished, quietly re-fetch
   // every 45s (no spinner, no scroll jump) so scores stay current without a
@@ -198,7 +202,7 @@ export default function MatchesFeed({ locale }: { locale: string }) {
     return (
       <div className="bg-cardBg border border-bdr rounded-2xl p-6 text-center space-y-3">
         <p className="text-red-400 text-sm">{isAr ? 'تعذر تحميل المباريات' : 'Could not load matches'}</p>
-        <button onClick={() => { setPastLimit(l => l); setFutureLimit(l => l); }} className="bg-aqua text-on-accent font-bold px-6 py-2 rounded-xl text-sm">
+        <button onClick={() => setReloadNonce(n => n + 1)} className="bg-aqua text-on-accent font-bold px-6 py-2 rounded-xl text-sm">
           {isAr ? 'إعادة المحاولة' : 'Retry'}
         </button>
       </div>
