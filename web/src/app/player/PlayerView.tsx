@@ -123,7 +123,7 @@ export default function PlayerView({ id }: { id: string }) {
         <div className="absolute -left-10 -top-10 w-44 h-44 rounded-full bg-[radial-gradient(circle,rgb(var(--gold-rgb)/0.16),transparent_65%)]" />
         <div className="relative flex items-center gap-4">
           {p.photo
-            ? <img src={p.photo} alt={name} className="w-20 h-20 rounded-2xl object-cover" />
+            ? <img src={cloudinaryUrl(p.photo, 160)} alt={name} className="w-20 h-20 rounded-2xl object-cover" />
             : <div className="w-20 h-20 rounded-2xl grid place-items-center text-2xl font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_10px_26px_-8px_rgb(var(--accent-rgb))]">{monogram}</div>}
           <div>
             <h1 className="text-xl font-extrabold">{name}</h1>

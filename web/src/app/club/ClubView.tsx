@@ -69,7 +69,7 @@ export default function ClubView({ id }: { id: string }) {
                 {(c.managers ?? []).map(m => (
                   <button key={`${m.id}-${m.role?.ar ?? ''}`} onClick={() => router.push(hrefFor('coach', m.id))}
                     className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
-                    {m.photo ? <img src={m.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
+                    {m.photo ? <img src={cloudinaryUrl(m.photo, 80)} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                     <div className="flex-1 min-w-0">
                       <p className="text-text font-bold text-sm truncate">{localize(m.name, locale)}</p>
                       <p className="text-teal text-[11px] truncate">{localize(m.role, locale) || '—'}</p>

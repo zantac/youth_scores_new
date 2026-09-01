@@ -118,7 +118,7 @@ export default function TeamView({ id }: { id: string }) {
                   <button key={`${s.id}-${s.role?.ar ?? ''}`} onClick={() => router.push(hrefFor('coach', s.id))}
                     className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                     {s.photo
-                      ? <img src={s.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+                      ? <img src={cloudinaryUrl(s.photo, 80)} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
                       : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                     <div className="flex-1 min-w-0">
                       <p className="text-text font-bold text-sm truncate">{localize(s.name, locale)}</p>
@@ -154,7 +154,7 @@ export default function TeamView({ id }: { id: string }) {
                           <button key={p.id} onClick={() => router.push(hrefFor('player', p.id))}
                             className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                             {p.photo
-                              ? <img src={p.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
+                              ? <img src={cloudinaryUrl(p.photo, 80)} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />
                               : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                             <div className="flex-1 min-w-0">
                               <p className="text-text text-sm font-bold truncate">{localize(p.name, locale)}</p>

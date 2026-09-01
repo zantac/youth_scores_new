@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchSearch } from '@/lib/api';
 import { hrefFor } from '@/lib/links';
-import { localize } from '@/lib/utils';
+import { localize, cloudinaryUrl } from '@/lib/utils';
 import type { SearchResults } from '@/lib/types';
 
 const EMPTY: SearchResults = { clubs: [], players: [], coaches: [] };
@@ -142,7 +142,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
                         className={`w-full flex items-center gap-3 px-3 py-2.5 text-start active:bg-aqua/5 hover:bg-aqua/[0.04] transition-colors ${i > 0 ? 'border-t border-bdr/40' : ''}`}
                       >
                         {r.img
-                          ? <img src={r.img} alt="" className={`w-9 h-9 bg-darkBg flex-shrink-0 ${r.round ? 'rounded-full object-cover' : 'rounded-lg object-contain'}`} />
+                          ? <img src={cloudinaryUrl(r.img, 80)} alt="" className={`w-9 h-9 bg-darkBg flex-shrink-0 ${r.round ? 'rounded-full object-cover' : 'rounded-lg object-contain'}`} />
                           : <span className={`w-9 h-9 grid place-items-center bg-darkBg text-hint text-sm flex-shrink-0 ${r.round ? 'rounded-full' : 'rounded-lg'}`}>{s.key === 'clubs' ? '🛡️' : '👤'}</span>}
                         <span className="min-w-0 flex-1">
                           <span className="block text-text text-sm font-bold truncate">{r.name || '—'}</span>
