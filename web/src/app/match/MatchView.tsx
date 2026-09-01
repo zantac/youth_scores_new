@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchMatchFull } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize, formatMatchDate } from '@/lib/utils';
 import type { MatchFull } from '@/lib/types';
 
@@ -230,8 +231,8 @@ export default function MatchView({ id }: { id: string }) {
                   <div className={`flex items-center gap-2 bg-cardBg border border-bdr rounded-xl px-3 py-2 ${e.side === 'home' ? 'flex-row-reverse text-start' : ''}`}>
                     <span className={`w-6 h-6 rounded-lg grid place-items-center text-xs flex-shrink-0 ${e.cls}`}>{e.icon}</span>
                     <div className="min-w-0">
-                      {e.playerId
-                        ? <button onClick={() => router.push(`/player?id=${e.playerId}`)} className="text-text text-xs font-bold truncate hover:text-aqua transition-colors block">{e.main}</button>
+                      {e.playerId != null
+                        ? <button onClick={() => router.push(hrefFor('player', e.playerId!))} className="text-text text-xs font-bold truncate hover:text-aqua transition-colors block">{e.main}</button>
                         : <p className="text-text text-xs font-bold truncate">{e.main}</p>}
                       {e.sub && <p className="text-hint text-[10px] truncate">{e.sub}</p>}
                     </div>

@@ -132,7 +132,7 @@ export default function FavouritesPage() {
                   return (
                     <FavRow
                       key={id}
-                      href={`/team?id=${id}`}
+                      href={hrefFor('team', id)}
                       leading={
                         t?.logo
                           ? // eslint-disable-next-line @next/next/no-img-element
