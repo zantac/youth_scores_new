@@ -19,6 +19,7 @@ from ._helpers import (
     _err,
     _forbid,
     _int,
+    _safe_photo_path,
     _validate_password,
     save_upload,
     _read_payload,
@@ -178,7 +179,7 @@ def _photos_field(data):
         raw = data.get("photos") or []
         if not isinstance(raw, list):
             raw = [raw]
-    return [str(p).strip() for p in raw if str(p).strip()][:3]
+    return [p for p in (_safe_photo_path(x) for x in raw) if p][:3]
 
 
 # ── academy managers ─────────────────────────────────────────────────────────
@@ -204,7 +205,7 @@ def add_manager(academy_id: int):
         name=name,
         role=(data.get("role") or "").strip() or None,
         phone=(data.get("phone") or "").strip() or None,
-        photo_path=(data.get("photo_path") or "").strip() or None,
+        photo_path=_safe_photo_path(data.get("photo_path")),
         sort_order=_int(data.get("sort_order"), 0),
     )
     db.session.add(m)
@@ -229,7 +230,7 @@ def update_manager(academy_id: int, manager_id: int):
     if "phone" in data:
         m.phone = (data.get("phone") or "").strip() or None
     if "photo_path" in data:
-        m.photo_path = (data.get("photo_path") or "").strip() or None
+        m.photo_path = _safe_photo_path(data.get("photo_path"))
     if "sort_order" in data:
         m.sort_order = _int(data.get("sort_order"), m.sort_order)
     db.session.commit()

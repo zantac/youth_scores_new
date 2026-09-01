@@ -30,6 +30,7 @@ from ._helpers import (
     _parse_date,
     _parse_date_or_error,
     _read_payload,
+    _safe_photo_path,
     _validate_password,
     save_upload,
 )
@@ -64,7 +65,7 @@ def create_team(academy_id: int):
         class_label=(data.get("class_label") or "").strip() or None,
         name=(data.get("name") or "").strip() or None,
         name_en=(data.get("name_en") or "").strip() or None,
-        photo_path=(data.get("photo_path") or "").strip() or None,
+        photo_path=_safe_photo_path(data.get("photo_path")),
         description=(data.get("description") or "").strip()[:500] or None,
     )
     db.session.add(team)
@@ -86,7 +87,7 @@ def update_team(team_id: int):
     if "name_en" in data:
         team.name_en = (data.get("name_en") or "").strip() or None
     if "photo_path" in data:
-        team.photo_path = (data.get("photo_path") or "").strip() or None
+        team.photo_path = _safe_photo_path(data.get("photo_path"))
     if "description" in data:
         team.description = (data.get("description") or "").strip()[:500] or None
     if "age_category_id" in data and _int(data.get("age_category_id")):
