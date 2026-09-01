@@ -371,8 +371,9 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     # Guests: players from younger teams at the same academy.
     # A team is "younger" if its age category's oldest_birth_year >= the match's
     # oldest_birth_year (higher birth year = more recently born = younger).
-    # Individual DOB is used as a secondary check when the team's category is
-    # older or unknown — this handles mixed-age squads.
+    # A team's category is only a hint, though: players are added to teams without
+    # an age check, so a "younger" team can still carry a provably over-age member.
+    # The individual DOB check below is therefore applied to everyone.
     academy_teams = Tla3bnyTeam.query.filter(
         Tla3bnyTeam.academy_id == academy_id,
         Tla3bnyTeam.id != team_id,
@@ -394,12 +395,16 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
             p = mem.player
             if not p or p.id in seen:
                 continue
-            # Eligibility: team category qualifies, OR individual DOB qualifies.
-            if not team_is_younger:
-                if oldest_birth_year is None:
-                    pass  # no restriction
-                elif not p.dob or p.dob.year < oldest_birth_year:
-                    continue  # too old
+            # Older players can never play down: reject anyone whose known birth
+            # year is earlier than the age category allows — even from a team whose
+            # own category is younger, since a squad can be mixed-age.
+            if oldest_birth_year is not None and p.dob and p.dob.year < oldest_birth_year:
+                continue
+            # A sibling team that isn't itself younger can't be taken on trust: a
+            # guest from it also needs a *known* DOB (an unknown age is not assumed
+            # young enough). Genuinely younger teams still contribute unknown-DOB members.
+            if not team_is_younger and not p.dob:
+                continue
             seen.add(p.id)
             result.append({
                 "player_id": p.id,
