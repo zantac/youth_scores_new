@@ -336,20 +336,25 @@ def _squad_second_name_in_season(
     return (ct.name_ar, ct.name_en) if ct else (None, None)
 
 
-def _squad_names_map() -> dict[int, tuple[str | None, str | None]]:
-    """team_id -> its most recent entry's second name, resolved in one query."""
+def _squad_names_by_season_map() -> dict[tuple[int, int], tuple[str | None, str | None]]:
+    """(team_id, season_id) -> that season's second name, resolved in one query.
+
+    A squad's academy/sponsor alias lives on its competition entry and can change
+    from one season to the next, so the match feed must show the alias in force
+    the season each match was played — not the newest across all seasons. Keying
+    by (team, season) keeps each season's alias separate.
+    """
     rows = (CompetitionTeam.query
             .join(Competition, Competition.id == CompetitionTeam.competition_id)
-            .join(Season, Season.id == Competition.season_id)
             .filter(sa.or_(CompetitionTeam.name_ar.isnot(None),
                            CompetitionTeam.name_en.isnot(None)))
-            .order_by(Season.start_date.asc(), CompetitionTeam.id.asc())
-            .with_entities(CompetitionTeam.team_id, CompetitionTeam.name_ar,
-                           CompetitionTeam.name_en)
+            .order_by(CompetitionTeam.id.asc())
+            .with_entities(CompetitionTeam.team_id, Competition.season_id,
+                           CompetitionTeam.name_ar, CompetitionTeam.name_en)
             .all())
-    out: dict[int, tuple[str | None, str | None]] = {}
-    for team_id, na, ne in rows:  # ascending order, so the newest entry wins
-        out[team_id] = (na, ne)
+    out: dict[tuple[int, int], tuple[str | None, str | None]] = {}
+    for team_id, season_id, na, ne in rows:  # ascending id, so the newest wins per season
+        out[(team_id, season_id)] = (na, ne)
     return out
 
 
@@ -1324,11 +1329,17 @@ def all_matches(
     """
     ages = {a.id: a for a in AgeGroup.query.all()}
     stage_comp = {s.id: s.competition_id for s in Stage.query.all()}
+    # competition_id -> season_id, so a match's season (hence its squad alias) is
+    # a couple of dict hops from its stage.
+    comp_season = dict(
+        Competition.query.with_entities(Competition.id, Competition.season_id).all()
+    )
     teams = {
         t.id: t for t in Team.query.options(joinedload(Team.club)).all()
     }
-    # One query for every squad's second name, rather than one per match side.
-    squad_names = _squad_names_map()
+    # One query for every squad's per-season second name, rather than one per match
+    # side — scoped by season so an old match keeps the alias it played under then.
+    squad_names = _squad_names_by_season_map()
 
     comp_dto: dict[int, dict] = {}
 
@@ -1350,11 +1361,11 @@ def all_matches(
             }
         return comp_dto[cid]
 
-    def team(tid: int) -> dict | None:
+    def team(tid: int, season_id: int | None) -> dict | None:
         t = teams.get(tid)
         if not t:
             return None
-        na, ne = squad_names.get(tid, (None, None))
+        na, ne = squad_names.get((tid, season_id), (None, None))
         return {
             "id": str(tid),
             "name": _loc(na or t.club.name_ar, ne or t.club.name_en) or "",
@@ -1379,6 +1390,7 @@ def all_matches(
         cid = stage_comp.get(m.stage_id)
         if cid is None:
             continue
+        season_id = comp_season.get(cid)
         out.append({
             "id": str(m.id),
             "date": m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
@@ -1392,8 +1404,8 @@ def all_matches(
             "home_penalty": m.home_penalty_score,
             "away_penalty": m.away_penalty_score,
             "competition": competition(cid),
-            "home_team": team(m.home_team_id),
-            "away_team": team(m.away_team_id),
+            "home_team": team(m.home_team_id, season_id),
+            "away_team": team(m.away_team_id, season_id),
         })
     return {"matches": out}
 
