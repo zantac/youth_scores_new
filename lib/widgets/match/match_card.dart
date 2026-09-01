@@ -137,7 +137,7 @@ class MatchCard extends StatelessWidget {
                     color: AppColors.hint,
                     fontSize: 16,
                     fontWeight: FontWeight.bold)),
-          if (pens != null) pens,
+          ?pens,
           const SizedBox(height: 2),
           _statusChip(locale == 'ar' ? 'انتهت' : 'FT', AppColors.green),
           const SizedBox(height: 2),
@@ -171,7 +171,7 @@ class MatchCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (pens != null) pens,
+            ?pens,
           ] else
             Text(
               match.time.isNotEmpty ? match.time : '--:--',

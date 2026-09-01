@@ -67,7 +67,9 @@ class StandingsCalculator {
     int i = 0;
     while (i < all.length) {
       int j = i + 1;
-      while (j < all.length && all[j].points == all[i].points) j++;
+      while (j < all.length && all[j].points == all[i].points) {
+        j++;
+      }
       final group = all.sublist(i, j);
       result.addAll(group.length == 1 ? group : _breakTie(group, eligible));
       i = j;

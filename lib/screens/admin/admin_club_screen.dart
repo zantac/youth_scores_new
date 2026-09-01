@@ -722,7 +722,7 @@ class _AttachStaffSheetState extends State<_AttachStaffSheet> {
     final body = <String, dynamic>{
       'coach_id': _sel!.id,
       if (_roleAr.text.trim().isNotEmpty) 'role_ar': _roleAr.text.trim(),
-      if (roleEn != null) 'role_en': roleEn,
+      'role_en': ?roleEn,
       if (_start.text.trim().isNotEmpty) 'start_date': _start.text.trim(),
     };
     try {

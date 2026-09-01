@@ -56,7 +56,7 @@ class AdsScreen extends StatelessWidget {
                 imageUrl: cloudinaryUrl(ad.image!, width: 1200),
                 width: double.infinity,
                 fit: BoxFit.fitWidth,
-                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                errorWidget: (_, _, _) => const SizedBox.shrink(),
               ),
             ),
           Padding(
@@ -143,9 +143,9 @@ class AdsScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.4)),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

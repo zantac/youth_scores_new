@@ -87,7 +87,7 @@ class _SeasonButton extends StatelessWidget {
                 width: 52,
                 height: 52,
                 fit: BoxFit.contain,
-                errorWidget: (_, __, ___) =>
+                errorWidget: (_, _, _) =>
                     Icon(Icons.emoji_events, color: AppColors.aqua, size: 36),
               ),
               const SizedBox(width: 16),

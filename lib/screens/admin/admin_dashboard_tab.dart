@@ -50,7 +50,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
         final match = s.filterSeasons.where((f) => f.name == s.activeSeason).toList();
         if (match.isNotEmpty) {
           setState(() => _seasonId = match.first.id);
-          return _load();
+          return await _load();
         }
       }
       _defaulted = true;

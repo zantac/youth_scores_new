@@ -200,7 +200,7 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                     fit: BoxFit.contain,
                     width: double.infinity,
                     height: double.infinity,
-                    errorWidget: (_, __, ___) => const _Placeholder(),
+                    errorWidget: (_, _, _) => const _Placeholder(),
                   )
                 : const _Placeholder(),
           ),
@@ -396,7 +396,7 @@ class _CountdownBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: pulse,
-      builder: (_, __) {
+      builder: (_, _) {
         final scale = 1.0 + pulse.value * 0.08;
         return Transform.scale(
           scale: scale,
