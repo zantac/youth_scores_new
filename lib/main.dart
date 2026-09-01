@@ -5,14 +5,47 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'core/providers/app_provider.dart';
 import 'core/providers/admin_auth.dart';
 import 'core/services/notification_service.dart';
 import 'core/theme/app_theme.dart';
 import 'screens/splash_screen.dart';
 
-void main() async {
+// Crash/error reporting DSN, supplied at build time:
+//   flutter build appbundle --dart-define=SENTRY_DSN=https://...@sentry.io/...
+// Empty by default → Sentry is never initialised and the launch path below is
+// byte-for-byte the current one (zero risk to the working cold-start).
+const _sentryDsn = String.fromEnvironment('SENTRY_DSN');
+
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_sentryDsn.isEmpty) {
+    _bootstrap();
+    return;
+  }
+  // With a DSN: run the app inside Sentry so uncaught errors (incl. during
+  // startup) are reported. init() is local/fast — it does NOT await a network
+  // token the way FCM does, so it's safe before runApp (unlike the FCM hang we
+  // hit before). Reporting must never break launch, so fall back on any failure.
+  SentryFlutter.init(
+    (options) {
+      options.dsn = _sentryDsn;
+      options.environment = const String.fromEnvironment(
+        'SENTRY_ENV', defaultValue: 'production',
+      );
+      // Errors only by default; opt into perf tracing via
+      // --dart-define=SENTRY_TRACES=0.2 (there is no double.fromEnvironment).
+      options.tracesSampleRate = double.tryParse(
+        const String.fromEnvironment('SENTRY_TRACES', defaultValue: '0'),
+      ) ?? 0.0;
+    },
+    appRunner: _bootstrap,
+  ).catchError((_) => _bootstrap());
+}
+
+/// The actual app boot — identical whether or not Sentry wraps it.
+Future<void> _bootstrap() async {
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
