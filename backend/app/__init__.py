@@ -856,6 +856,42 @@ def create_app(config_name: str | None = None) -> Flask:
             return send_from_directory(root, "404.html"), 404
         abort(404)
 
+    # ── Dynamic sitemaps (youthscores host only) ────────────────────────────────
+    # Generated from the DB at request time — the static export can't enumerate
+    # entity ids. These specific rules win over the /<path:path> catch-all, so they
+    # shadow any stale out/sitemap*.xml. tla3bny gets the plain static file (if any).
+    def _sitemap_base() -> str:
+        return request.url_root.rstrip("/")
+
+    def _xml(body: str):
+        resp = app.response_class(body, mimetype="application/xml")
+        resp.headers["Cache-Control"] = "public, max-age=3600"
+        return resp
+
+    @app.get("/sitemap.xml")
+    def _sitemap_index():
+        if _is_tla3bny_host():
+            return _serve_frontend("sitemap.xml")
+        from app.services import sitemap
+        return _xml(sitemap.index_xml(_sitemap_base()))
+
+    @app.get("/sitemap-pages.xml")
+    def _sitemap_pages():
+        if _is_tla3bny_host():
+            abort(404)
+        from app.services import sitemap
+        return _xml(sitemap.pages_xml(_sitemap_base()))
+
+    @app.get("/sitemap-<slug>-<int:page>.xml")
+    def _sitemap_entity(slug, page):
+        if _is_tla3bny_host():
+            abort(404)
+        from app.services import sitemap
+        body = sitemap.entity_xml(slug, page, _sitemap_base())
+        if body is None:
+            abort(404)
+        return _xml(body)
+
     @app.get("/")
     def _frontend_index():
         return _serve_frontend("")
