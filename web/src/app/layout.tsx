@@ -4,6 +4,7 @@ import { AppProvider } from '@/context/AppContext';
 import BottomNav from '@/components/ui/BottomNav';
 import StickyHeader from '@/components/ui/StickyHeader';
 import AdOverlay from '@/components/ui/AdOverlay';
+import SentryInit from '@/components/SentryInit';
 
 export const metadata: Metadata = {
   title: 'بطولات الناشئين | Youth Scores',
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" className="dark" suppressHydrationWarning>
       <body className="bg-dark font-arabic antialiased" suppressHydrationWarning>
+        <SentryInit />
         <AppProvider>
           <div className="flex flex-col min-h-dvh">
             {/* Banner + search/theme/language row. Pinned together on the home
