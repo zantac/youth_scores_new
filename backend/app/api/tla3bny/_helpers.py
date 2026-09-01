@@ -78,13 +78,31 @@ def _compress_image(raw: bytes, ext: str) -> tuple[bytes, str]:
     2. For JPEG / WebP: reduce quality in steps (85 → 75 → 65 → 55 → 45).
     3. For PNG: run PIL's lossless optimiser; if still too large, convert to JPEG
        and apply the same quality ladder — final extension changes to "jpg".
-    4. GIF: returned as-is (frame-by-frame recompression is out of scope).
+    4. GIF: re-encoded from its decoded frames (animation preserved) to strip any
+       polyglot payload, but not otherwise size-reduced.
 
     Returns (final_bytes, final_ext). ``final_ext`` may differ from ``ext`` only
     when a PNG is converted to JPEG.
     """
     if ext == "gif":
-        return raw, ext
+        # Don't store the uploaded GIF verbatim: a GIF can be built as a polyglot
+        # — a valid GIF header with HTML/JS hidden in comment/extension blocks or
+        # after the trailer — that a browser may execute if it ever treats the
+        # file as HTML (the /uploads route sets no nosniff header, and an S3/CDN
+        # origin's headers aren't ours to guarantee). Re-encoding through PIL
+        # rewrites the file from the decoded frames, dropping every non-image
+        # byte while keeping any animation. The global Image.MAX_IMAGE_PIXELS cap
+        # makes the decode below raise on a decompression bomb.
+        try:
+            img = Image.open(io.BytesIO(raw))
+            buf = io.BytesIO()
+            if getattr(img, "is_animated", False):
+                img.save(buf, format="GIF", save_all=True)
+            else:
+                img.save(buf, format="GIF")
+        except Exception:
+            raise ValueError("File content is not a readable image")
+        return buf.getvalue(), ext
 
     try:
         img = Image.open(io.BytesIO(raw))
