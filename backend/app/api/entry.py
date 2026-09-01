@@ -1179,7 +1179,10 @@ def search_players():
         # a player is at, not just their name and birth year.
         reg = next((r for r in p.registrations if r.end_date is None), None)
         if reg is None and p.registrations:
-            reg = max(p.registrations, key=lambda r: r.start_date)
+            # start_date is nullable=False, but a legacy/imported row can still be
+            # null; guard so max() never compares None with a date (matches the
+            # public serializer's player_club).
+            reg = max(p.registrations, key=lambda r: r.start_date or datetime.min.date())
         club = reg.team.club if reg and reg.team else None
         return (club.name_ar or club.name_en) if club else None
 
