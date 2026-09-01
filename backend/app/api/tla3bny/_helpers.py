@@ -321,6 +321,30 @@ def _clean_url(value):
     return "https://" + v
 
 
+def _safe_photo_path(value):
+    """Validate a client-supplied media reference before storing it. Accepts an
+    http(s) URL (S3 / Cloudinary) or a relative ``uploads/…`` path produced by
+    save_upload; rejects any other scheme (``javascript:``/``data:``/``file:``/…)
+    and path traversal (``..``) — otherwise the value becomes a stored-XSS or
+    file-escape vector when the frontend renders it as an <img src>. Returns the
+    cleaned value, or None when empty/unsafe. Unlike _clean_url it must not
+    https-prefix a bare relative path, which is a legitimate upload path."""
+    if not value:
+        return None
+    v = str(value).strip()
+    if not v or ".." in v:
+        return None
+    if v.lower().startswith(("http://", "https://")):
+        return v
+    # Reject any other explicit scheme (javascript:, data:, file:, …).
+    if ":" in v.split("/", 1)[0]:
+        return None
+    # The only valid relative form is the upload dir the platform serves.
+    if v.lstrip("/").startswith("uploads/"):
+        return v
+    return None
+
+
 def _clip(value, maxlen: int):
     """Trim a user string to ``maxlen`` chars — protects String(n) columns from
     500s and caps otherwise-unbounded Text fields. Returns None for empty."""
