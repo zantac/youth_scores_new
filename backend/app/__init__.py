@@ -182,7 +182,7 @@ def _match_share_page(index_abs: str, item_id: int | None = None):
         meta = _match_share_meta(mid)
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta)
+    return _render_share_page(index_abs, meta, schema_type="SportsEvent")
 
 
 def _abs_url(base: str, raw: str | None) -> str | None:
@@ -198,10 +198,38 @@ def _abs_url(base: str, raw: str | None) -> str | None:
     return None
 
 
-def _inject_share_meta(html_text: str, meta: dict, url: str, image: str, og_type: str = "website") -> str:
+# JSON-LD structured data gives crawlers real machine-readable content (rich-result
+# eligible) that a client-rendered shell otherwise lacks — the payoff-amplifier for
+# the path-route sitemap. Each _*_share_page passes its schema.org @type (SportsEvent
+# for match/competition, SportsTeam, SportsOrganization, Person, NewsArticle).
+def _jsonld_script(schema_type: str, meta: dict, url: str, image: str) -> str:
+    """A schema.org JSON-LD <script> for this item. Minimal but valid: name, url,
+    and (when present) image + description. json.dumps handles string escaping;
+    the </ -> <\\/ pass prevents a `</script>` breakout from any field value."""
+    import json
+
+    obj = {
+        "@context": "https://schema.org",
+        "@type": schema_type,
+        "name": meta["title"],
+        "url": url,
+    }
+    if image:
+        obj["image"] = image
+    if meta.get("description"):
+        obj["description"] = meta["description"]
+    raw = json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+    return f'<script type="application/ld+json">{raw}</script>'
+
+
+def _inject_share_meta(
+    html_text: str, meta: dict, url: str, image: str,
+    og_type: str = "website", schema_type: str | None = None,
+) -> str:
     """Point the served card at this item: rewrite the generic <title>/description
-    (for the browser tab + plain scrapers) and add the OG + Twitter tags the
-    social crawlers actually read."""
+    (for the browser tab + plain scrapers), add the OG + Twitter tags the social
+    crawlers read, and — when schema_type is given — a JSON-LD structured-data
+    block so search engines get real content from the client-rendered shell."""
     import html as _h
     import re
 
@@ -224,6 +252,8 @@ def _inject_share_meta(html_text: str, meta: dict, url: str, image: str, og_type
     if d:
         tags.append(f'<meta property="og:description" content="{d}"/>')
         tags.append(f'<meta name="twitter:description" content="{d}"/>')
+    if schema_type:
+        tags.append(_jsonld_script(schema_type, meta, url, image))
     html_text = re.sub(r"<title>.*?</title>", f"<title>{t}</title>", html_text, count=1, flags=re.S)
     html_text = re.sub(
         r'<meta\s+name="description"[^>]*/?>',
@@ -233,9 +263,13 @@ def _inject_share_meta(html_text: str, meta: dict, url: str, image: str, og_type
     return html_text.replace("</head>", "".join(tags) + "</head>", 1)
 
 
-def _render_share_page(index_abs: str, meta: dict | None, og_type: str = "website"):
+def _render_share_page(
+    index_abs: str, meta: dict | None, og_type: str = "website",
+    schema_type: str | None = None,
+):
     """Serve a static-export page with per-item preview tags injected from `meta`
     (title / description / optional image), or None to fall back to the plain file.
+    ``schema_type`` (a schema.org type) additionally emits JSON-LD structured data.
     A preview tweak must never break page serving, so any error yields None."""
     from flask import request
 
@@ -247,7 +281,9 @@ def _render_share_page(index_abs: str, meta: dict | None, og_type: str = "websit
         base = f"{request.scheme}://{request.host}"
         url = base + request.full_path.rstrip("?")
         image = _abs_url(base, meta.get("image")) or (base + "/icons/icon-512.png")
-        return _inject_share_meta(html_text, meta, url, image, og_type=og_type)
+        return _inject_share_meta(
+            html_text, meta, url, image, og_type=og_type, schema_type=schema_type,
+        )
     except Exception:  # noqa: BLE001
         return None
 
@@ -270,10 +306,12 @@ def _competition_share_page(index_abs: str, item_id: int | None = None):
         except (TypeError, ValueError):
             meta = None
         if meta is not None:
-            return _render_share_page(index_abs, meta, og_type="profile")
+            return _render_share_page(
+                index_abs, meta, og_type="profile", schema_type="SportsTeam",
+            )
         # An unknown team id falls back to the competition card below.
     meta = _competition_share_meta(cid, request.args.get("tab"), request.args.get("stat"))
-    return _render_share_page(index_abs, meta)
+    return _render_share_page(index_abs, meta, schema_type="SportsEvent")
 
 
 def _news_share_meta(news_id: int) -> dict | None:
@@ -303,7 +341,7 @@ def _news_share_page(index_abs: str):
         meta = _news_share_meta(int(request.args.get("id", "")))
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta, og_type="article")
+    return _render_share_page(index_abs, meta, og_type="article", schema_type="NewsArticle")
 
 
 def _club_share_meta(club_id: int) -> dict | None:
@@ -330,7 +368,7 @@ def _club_share_page(index_abs: str, item_id: int | None = None):
         meta = _club_share_meta(cid)
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta)
+    return _render_share_page(index_abs, meta, schema_type="SportsOrganization")
 
 
 def _team_share_meta(team_id: int) -> dict | None:
@@ -374,7 +412,7 @@ def _team_share_page(index_abs: str, item_id: int | None = None):
         meta = _team_share_meta(tid)
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta)
+    return _render_share_page(index_abs, meta, schema_type="SportsTeam")
 
 
 def _player_share_meta(player_id: int) -> dict | None:
@@ -409,7 +447,7 @@ def _player_share_page(index_abs: str, item_id: int | None = None):
         meta = _player_share_meta(pid)
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta, og_type="profile")
+    return _render_share_page(index_abs, meta, og_type="profile", schema_type="Person")
 
 
 def _join_place(*parts: str) -> str:
@@ -484,7 +522,7 @@ def _coach_share_page(index_abs: str, item_id: int | None = None):
         meta = _coach_share_meta(cid)
     except (TypeError, ValueError):
         return None
-    return _render_share_page(index_abs, meta, og_type="profile")
+    return _render_share_page(index_abs, meta, og_type="profile", schema_type="Person")
 
 
 # Static pages (no id) that still deserve their own card instead of the one
