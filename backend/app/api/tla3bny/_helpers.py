@@ -337,6 +337,16 @@ def _int(value, default=None):
         return default
 
 
+def _clamp_int(value, lo: int, hi: int):
+    """Parse and clamp an int into [lo, hi]; None (or unparseable) stays None.
+    Keeps a stray negative/huge score or minute from corrupting the standings
+    and stats these feed — mirrors youthscores' _clamp_int in entry.py."""
+    n = _int(value)
+    if n is None:
+        return None
+    return max(lo, min(hi, n))
+
+
 def _bool(value, default=False):
     """A checkbox from either body shape: JSON sends a real bool, a multipart
     form sends the string "true"/"1"/"on"."""
