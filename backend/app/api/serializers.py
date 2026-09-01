@@ -312,6 +312,30 @@ def _squad_second_name(t: Team) -> tuple[str | None, str | None]:
     return (ct.name_ar, ct.name_en) if ct else (None, None)
 
 
+def _squad_second_name_in_season(
+    t: Team, season: Season | None
+) -> tuple[str | None, str | None]:
+    """The squad's second name *for one season* — the most recent aliased entry
+    whose competition belongs to that season.
+
+    A career row (a coaching or playing stint) sits in a single season, so it
+    must show the alias the squad actually used then, not the newest alias across
+    all seasons that _squad_second_name returns. Without this scoping a name
+    adopted in a later season leaks back onto earlier stints.
+    """
+    if season is None:
+        return (None, None)
+    ct = (CompetitionTeam.query
+          .join(Competition, Competition.id == CompetitionTeam.competition_id)
+          .filter(CompetitionTeam.team_id == t.id,
+                  Competition.season_id == season.id,
+                  sa.or_(CompetitionTeam.name_ar.isnot(None),
+                         CompetitionTeam.name_en.isnot(None)))
+          .order_by(CompetitionTeam.id.desc())
+          .first())
+    return (ct.name_ar, ct.name_en) if ct else (None, None)
+
+
 def _squad_names_map() -> dict[int, tuple[str | None, str | None]]:
     """team_id -> its most recent entry's second name, resolved in one query."""
     rows = (CompetitionTeam.query
@@ -580,19 +604,15 @@ def _team_name_lines(t):
     return club, alt
 
 
-def _season_on(d):
-    """The season a date falls inside, bilingual, or None.
-
-    A team is no longer tied to a season, so a career row's season comes from
-    when the spell started rather than from the squad it was with. Seasons are
-    few, so they are read and scanned rather than filtered in SQL.
-    """
-    if d is None:
-        return None
-    for s in Season.query.order_by(Season.start_date.desc()).all():
-        if s.start_date <= d <= s.end_date:
-            return _loc(s.name_ar, s.name_en)
-    return None
+def _team_name_lines_in_season(t, season):
+    """(club name, that season's alternative name or None) — like
+    _team_name_lines but scoped to one season, for career rows that belong to a
+    single season and must not borrow an alias adopted in a different one."""
+    club = _loc(t.club.name_ar, t.club.name_en) or {"ar": "", "en": ""}
+    alt = _loc(*_squad_second_name_in_season(t, season))
+    if alt and alt["ar"] == club["ar"] and alt["en"] == club["en"]:
+        alt = None
+    return club, alt
 
 
 def _team_seasons(t) -> list[dict]:
@@ -796,9 +816,8 @@ def player_full(p) -> dict:
         ag = t.age_group
         base = {
             "club":     t.club.name_ar or t.club.name_en,
-            # The academy/sponsor alias this squad plays under, shown beneath the
-            # club name (None when it has none or it just repeats the club).
-            "alt_name": _team_name_lines(t)[1],
+            # NB: the academy/sponsor alias is NOT here — it varies by season, so
+            # it is resolved per season card below rather than shared across them.
             "logo":     t.club.logo_url,
             # The team's age group — so two stints at the same club in different
             # ages (a player who plays up) are told apart, not just by season.
@@ -835,6 +854,9 @@ def player_full(p) -> dict:
             ], key=lambda x: -x["appearances"])
             cards.append((s.start_date.isoformat() if s else "", tid, {
                 **base,
+                # The academy/sponsor alias the squad played under *this* season
+                # (None when it had none then), shown beneath the club name.
+                "alt_name":     _team_name_lines_in_season(t, s)[1],
                 "season":       _loc(s.name_ar, s.name_en) or {"ar": "", "en": ""} if s else {"ar": "", "en": ""},
                 "goals":        sum(goals_tc.get((tid, cid), 0)   for cid in cids),
                 "assists":      sum(assists_tc.get((tid, cid), 0) for cid in cids),
@@ -924,10 +946,12 @@ def player_full(p) -> dict:
     }
 
 
-def _match_side(team) -> dict:
+def _match_side(team, season=None) -> dict:
     """A match side for the player match list: club name, its academy/sponsor
-    alias (or None), and the crest — so both names show, not just one."""
-    club, alt = _team_name_lines(team)
+    alias (or None), and the crest — so both names show, not just one. The alias
+    is scoped to the match's season so an old match doesn't show a name the squad
+    only adopted later."""
+    club, alt = _team_name_lines_in_season(team, season)
     return {"name": club, "alt": alt, "logo": team.club.logo_url}
 
 
@@ -974,6 +998,7 @@ def _player_matches(p) -> list[dict]:
     for r in rows:
         m = r.match
         comp = m.stage.competition if m.stage else None
+        season = comp.season if comp else None
         home_side = r.team_id == m.home_team_id
         conceded = m.away_score if home_side else m.home_score
         out.append({
@@ -983,8 +1008,8 @@ def _player_matches(p) -> list[dict]:
             "competition":  (_loc(comp.name_ar, comp.name_en) or {"ar": "", "en": ""}
                              if comp else {"ar": "", "en": ""}),
             "side":         "home" if home_side else "away",
-            "home":         _match_side(m.home_team),
-            "away":         _match_side(m.away_team),
+            "home":         _match_side(m.home_team, season),
+            "away":         _match_side(m.away_team, season),
             "home_score":   m.home_score,
             "away_score":   m.away_score,
             "goals":        goals_m.get(m.id, 0),
@@ -1004,16 +1029,27 @@ def coach_full(c: Coach) -> dict:
     (TeamCoach) and their club youth-sector roles (ClubStaff)."""
     career = []
 
+    # Resolve the season a stint's start date falls in once, so both the season
+    # label and the (season-scoped) squad alias come from the same season.
+    all_seasons = Season.query.order_by(Season.start_date.desc()).all()
+
+    def _season_obj_on(d):
+        if d is None:
+            return None
+        return next((s for s in all_seasons if s.start_date <= d <= s.end_date), None)
+
     for tc in TeamCoach.query.filter_by(coach_id=c.id).join(Team).all():
         t = tc.team
         ag = t.age_group
+        season = _season_obj_on(tc.start_date)
         career.append({
             "type": "coach",
             "club": t.club.name_ar or t.club.name_en,
-            # The academy/sponsor alias this squad plays under (None when none).
-            "alt_name": _team_name_lines(t)[1],
+            # The academy/sponsor alias this squad played under *that season* —
+            # not a name it only adopted later (see _team_name_lines_in_season).
+            "alt_name": _team_name_lines_in_season(t, season)[1],
             "logo": t.club.logo_url,
-            "season": _season_on(tc.start_date),
+            "season": _loc(season.name_ar, season.name_en) if season else None,
             "age": _loc(ag.name_ar, ag.name_en) if ag else None,
             "role": _loc(tc.role_ar, tc.role_en) or {"ar": "مدرّب", "en": "Coach"},
             "current": tc.end_date is None,
