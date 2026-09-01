@@ -620,6 +620,31 @@ def _team_name_lines_in_season(t, season):
     return club, alt
 
 
+def _season_for_date(seasons, d):
+    """The season a date falls in. Seasons are ordered ranges but nothing stops
+    them having a gap between them (a summer break) or, rarely, overlapping — so
+    plain containment would return None for a date that lands in a gap and leave
+    the career stint with a blank season. Fall back to the nearest season by
+    distance to its range instead; an overlap prefers the newer season.
+
+    `seasons` must be newest-first (start_date desc) so ties resolve to the newer
+    one. Returns None only for a null date or an empty season list."""
+    if d is None or not seasons:
+        return None
+    hit = next((s for s in seasons if s.start_date <= d <= s.end_date), None)
+    if hit is not None:
+        return hit
+
+    def _gap(s):
+        if d < s.start_date:
+            return (s.start_date - d).days
+        if d > s.end_date:
+            return (d - s.end_date).days
+        return 0
+
+    return min(seasons, key=_gap)
+
+
 def _team_seasons(t) -> list[dict]:
     """Every season the team played, newest first, from its competitions."""
     seasons = (Season.query.join(Competition, Competition.season_id == Season.id)
@@ -797,11 +822,6 @@ def player_full(p) -> dict:
 
     all_seasons = Season.query.order_by(Season.start_date.desc()).all()
 
-    def _season_for_date(d):
-        if d is None:
-            return None
-        return next((s for s in all_seasons if s.start_date <= d <= s.end_date), None)
-
     # A career card is one (team, season): a player who stays with a team across
     # seasons gets a card per season, so each season's goals/assists/appearances
     # stand on their own instead of being summed into the starting season.
@@ -842,7 +862,7 @@ def player_full(p) -> dict:
         # No games played yet: still show the stint on the season it started in.
         if not by_season:
             start = max((r.start_date for r in tregs if r.start_date), default=None)
-            by_season[_season_for_date(start)] = []
+            by_season[_season_for_date(all_seasons, start)] = []
 
         for s, cids in by_season.items():
             competitions = sorted([
