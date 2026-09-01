@@ -3,9 +3,18 @@ from datetime import date
 from flask import Blueprint, current_app, jsonify, request
 
 from app.api import serializers
+from app.services import cache
 from app.extensions import limiter
 
 api_bp = Blueprint("api", __name__)
+
+
+def _fresh_requested() -> bool:
+    """True when the client asked to bypass caches (an admin's live refresh sends
+    fetch(cache:'no-store')). Server-side cache must honour it or an edit wouldn't
+    appear on a deliberate refresh."""
+    cc = request.cache_control
+    return bool(cc.no_cache or cc.no_store)
 
 
 # Live feeds — match scores/statuses and the per-competition data blob — carry a
@@ -52,7 +61,13 @@ def config():
 
 @api_bp.get("/api/data")
 def data():
-    return jsonify(serializers.config_blob(_base_url()))
+    base = _base_url()
+    build = lambda: serializers.config_blob(base)  # noqa: E731
+    # 20s TTL == the endpoint's HTTP max-age, so no extra staleness; bypassed on a
+    # no-store refresh. Keyed by base so a proxy/host variant can't cross-serve.
+    if _fresh_requested():
+        return jsonify(build())
+    return jsonify(cache.get_or_compute(f"data:{base}", 20, build))
 
 
 def _parse_date(value: str | None):
@@ -156,7 +171,15 @@ def club_detail(club_id: int):
 
 @api_bp.get("/api/competitions/<int:competition_id>/data")
 def competition_data(competition_id: int):
-    payload = serializers.competition_data(competition_id)
+    build = lambda: serializers.competition_data(competition_id)  # noqa: E731
+    # 15s TTL == the endpoint's HTTP max-age; bypassed on a no-store live refresh.
+    # None (not found) is not cached, so a newly-created competition appears at once.
+    if _fresh_requested():
+        payload = build()
+    else:
+        payload = cache.get_or_compute(f"comp:{competition_id}", 15, build)
+        if payload is None:
+            payload = build()
     if payload is None:
         return jsonify({"error": "competition not found"}), 404
     return jsonify(payload)
