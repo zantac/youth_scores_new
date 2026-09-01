@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
+import { hrefFor } from '@/lib/links';
 import FollowButton from '@/components/ui/FollowButton';
 import Spinner from '@/components/ui/Spinner';
 import JerseyNumber from '@/components/ui/JerseyNumber';
@@ -63,7 +64,7 @@ function TeamProfile() {
               ? <img src={cloudinaryUrl(t.logo, 128)} alt="" className="relative w-16 h-16 rounded-2xl object-contain" />
               : <div className="relative w-16 h-16 rounded-2xl grid place-items-center text-2xl">🛡️</div>}
             <div className="relative min-w-0">
-              <h1 onClick={() => router.push(`/club?id=${t.club.id}`)}
+              <h1 onClick={() => router.push(hrefFor('club', t.club.id))}
                 className="text-lg font-extrabold truncate cursor-pointer hover:text-aqua transition-colors">
                 {lines!.primary} <span className="text-aqua text-xs align-middle">›</span>
               </h1>

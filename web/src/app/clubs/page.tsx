@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import Spinner from '@/components/ui/Spinner';
 import { fetchClubs } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize, cloudinaryUrl } from '@/lib/utils';
 import type { ClubListItem } from '@/lib/types';
 
@@ -43,7 +44,7 @@ export default function ClubsPage() {
           <p className="text-hint text-xs mb-2">{filtered.length} {isAr ? 'نادٍ' : 'clubs'}</p>
           <div className="space-y-2">
             {filtered.map(c => (
-              <button key={c.id} onClick={() => router.push(`/club?id=${c.id}`)}
+              <button key={c.id} onClick={() => router.push(hrefFor('club', c.id))}
                 className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                 {c.logo
                   ? <img src={cloudinaryUrl(c.logo, 128)} alt="" className="w-10 h-10 object-contain rounded-lg bg-darkBg flex-shrink-0" />
