@@ -10,7 +10,11 @@ export function todayStr(): string {
 export function formatMatchDate(dateStr: string, locale: string): string {
   if (!dateStr) return locale === 'ar' ? 'غير محدد' : 'TBD';
   try {
-    const dt = new Date(dateStr);
+    // Build a *local* date from the Y-M-D parts. `new Date('2026-09-01')` parses
+    // as UTC midnight, but toLocaleDateString below renders in the local zone —
+    // so for users behind UTC the printed weekday/day would land one day early.
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, (mo || 1) - 1, d || 1);
     const today = todayStr();
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     const tomStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
