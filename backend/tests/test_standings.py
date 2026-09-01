@@ -180,3 +180,31 @@ class TestForm:
 
     def test_ignores_unplayed(self):
         assert team_form(1, [m(1, 2, None, None, status="scheduled")]) == []
+
+
+class TestCompletedStatusVocabulary:
+    # tla3bny stores a played result under either "completed" or "finished"; the
+    # table must count both. Passing a single status must still exclude the other,
+    # which is exactly the bug this guards: the tla3bny engine passed only
+    # "completed", so "finished" matches were silently dropped from the table.
+    BOTH = ("completed", "finished")
+
+    def test_single_status_excludes_the_other(self):
+        s = calculate([m(1, 2, 3, 0, status="finished")], teams(1, 2))
+        # Default counts only "completed", so a "finished" result doesn't register.
+        assert all(x.played == 0 for x in s)
+
+    def test_both_statuses_count_when_passed(self):
+        ms = [m(1, 2, 3, 0, status="finished"), m(1, 2, 1, 1, status="completed")]
+        s = calculate(ms, teams(1, 2), completed_status=self.BOTH)
+        one = next(x for x in s if x.team_id == 1)
+        assert one.played == 2 and one.points == 4  # a win + a draw
+
+    def test_team_form_counts_both_statuses(self):
+        ms = [
+            m(1, 2, 1, 0, status="finished",  match_date=datetime(2025, 9, 1)),
+            m(2, 1, 2, 0, status="completed", match_date=datetime(2025, 9, 8)),
+        ]
+        assert team_form(1, ms, completed_status=self.BOTH) == ["L", "W"]
+        # With the default single status, the "finished" leg drops out.
+        assert team_form(1, ms) == ["L"]
