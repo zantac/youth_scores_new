@@ -14,12 +14,12 @@ const teamLabel = (t?: { name?: Loc | null; club_name?: Loc | null }) => {
   const name = loc(t?.name), club = loc(t?.club_name);
   return club && club !== name ? `${club} — ${name}` : name;
 };
-// "باي" (bye) in a scanned fixture means the team rests that round — it is not a
-// real match, so such rows are dropped from the import.
+// "باي" (bye), or its Latin transliteration "by"/"bye", in a scanned fixture means
+// the team rests that round — it is not a real match, so such rows are dropped.
 const isBye = (s?: string) => {
   const n = (s || '').replace(/[ً-ْـ]/g, '')  // harakat + tatweel
     .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').trim();
-  return n === 'باي';
+  return n === 'باي' || /^bye?$/i.test(n);
 };
 // "م.ش" (and spacing/dot variants) is the common abbreviation of «مركز شباب»
 // (youth centre) — expand it so the scanned name matches the club record.

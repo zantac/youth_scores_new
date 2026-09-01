@@ -157,8 +157,17 @@ export function reconstructFixtures(words: OcrWord[], imageWidth: number): Recon
   if (clean.length === 0) return { fixtures: [], warnings: ['No text detected'], orientation: 'logical', columns: {} };
 
   const rows = clusterRows(clean);
-  const header = rows[0];
-  const { centres: detected, orientation } = detectColumns(header);
+  // The header isn't always the first cluster — some layouts print a faint group
+  // title (e.g. «المجموعة الثانية») on its own line above it. Pick, among the first
+  // few rows, the one whose cells hit the most column keywords, and read the data
+  // rows below it so the title line is skipped.
+  let headerIdx = 0, bestHits = -1, detected: Record<string, number> = {};
+  let orientation: 'logical' | 'visual' = 'logical';
+  for (let i = 0; i < Math.min(4, rows.length); i++) {
+    const c = detectColumns(rows[i]);
+    const hits = Object.keys(c.centres).length;
+    if (hits > bestHits) { bestHits = hits; headerIdx = i; detected = c.centres; orientation = c.orientation; }
+  }
 
   let centres = detected;
   if (centres.date == null || centres.teams == null) {
@@ -169,24 +178,35 @@ export function reconstructFixtures(words: OcrWord[], imageWidth: number): Recon
   const dateCentre = centres.date ?? imageWidth * 0.71;
   const venueCentre = centres.venue ?? imageWidth * 0.29;
   const teamsCentre = centres.teams ?? imageWidth * 0.52;
+  const timeCentre = centres.time ?? imageWidth * 0.15;
   // A name belongs to the venue column if its cluster sits left of here.
   const venueBoundary = (venueCentre + teamsCentre) / 2;
+  // Names live strictly right of here. This drops the columns some layouts print
+  // LEFT of the venue — the time column (cells like «١٠ص» carry an Arabic letter,
+  // so a letter test alone wouldn't exclude them) and an empty result column —
+  // which would otherwise be read as the leftmost cluster and mistaken for a venue.
+  const nameLeftBound = (timeCentre + venueCentre) / 2;
   // Gaps wider than this separate columns / the × ; narrower ones are the spaces
   // between words of one name.
   const gapThreshold = imageWidth * 0.07;
 
   const fixtures: RawFixture[] = [];
 
-  for (const row of rows.slice(1)) {
+  for (const row of rows.slice(headerIdx + 1)) {
     // Date/time by CONTENT, not position — so team words that sit close to the
     // date column aren't stolen by it (the bug that dropped home-team words).
     const date = parseDate(row);
     const time = parseTime(row);
 
-    // The team + venue names are the Arabic tokens left of the date column
-    // (day names and the numeric round/match columns sit to its right).
+    // The team + venue names are the tokens bearing an Arabic LETTER (ء-ي,
+    // so pure date/time digit cells like «٤:٠٠» or «٢٠٢٦/٩/٧» are skipped) that sit
+    // between the time column and the date column. Day names, the numeric
+    // round/match columns to the right, and the time/result columns to the left
+    // are all excluded.
     const nameToks = row.filter(w =>
-      /[؀-ۿ]/.test(w.text) && !DAY_NAMES.has(foldAr(w.text)) && w.cx < dateCentre - 30);
+      (/[ء-ي]/.test(w.text) || /^bye?$/i.test(w.text.trim())) &&  // Arabic name, or a Latin "by"/"bye" bye-marker
+      !DAY_NAMES.has(foldAr(w.text)) &&
+      w.cx > nameLeftBound && w.cx < dateCentre - 30);
 
     // Cluster the names on real gaps, then place clusters by position: the
     // leftmost (near the venue column) is the venue, the rest are home (rightmost,
