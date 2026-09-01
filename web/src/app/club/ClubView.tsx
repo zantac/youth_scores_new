@@ -62,11 +62,11 @@ export default function ClubView({ id }: { id: string }) {
           {/* Youth-sector managers */}
           <div className="px-4 pt-5">
             <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'مسؤولو قطاع الناشئين' : 'Youth Sector Staff'}</h2>
-            {c.managers.length === 0 ? (
+            {(c.managers ?? []).length === 0 ? (
               <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات' : 'No data'}</p>
             ) : (
               <div className="space-y-2">
-                {c.managers.map(m => (
+                {(c.managers ?? []).map(m => (
                   <button key={`${m.id}-${m.role?.ar ?? ''}`} onClick={() => router.push(hrefFor('coach', m.id))}
                     className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                     {m.photo ? <img src={m.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
@@ -84,11 +84,11 @@ export default function ClubView({ id }: { id: string }) {
           {/* Teams by age / season */}
           <div className="px-4 pt-5">
             <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'الفرق' : 'Teams'}</h2>
-            {c.teams.length === 0 ? (
+            {(c.teams ?? []).length === 0 ? (
               <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد فرق' : 'No teams'}</p>
             ) : (
               <div className="grid grid-cols-2 gap-2">
-                {c.teams.map(t => (
+                {(c.teams ?? []).map(t => (
                   <button key={t.id} onClick={() => router.push(hrefFor('team', t.id))}
                     className="bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                     <p className="text-text text-sm font-bold truncate">{localize(t.age, locale) || localize(t.name, locale)}</p>

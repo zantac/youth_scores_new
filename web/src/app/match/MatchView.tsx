@@ -52,7 +52,9 @@ export default function MatchView({ id }: { id: string }) {
   }, [id, isLive]);
 
   if (loading) return <div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>;
-  if (!m) return <div className="p-8 text-center text-hint">{isAr ? 'المباراة غير موجودة' : 'Match not found'}</div>;
+  // A match without both sides is unrenderable — treat it as missing rather than
+  // crashing on m.home.name below (the error boundary would otherwise catch it).
+  if (!m || !m.home || !m.away) return <div className="p-8 text-center text-hint">{isAr ? 'المباراة غير موجودة' : 'Match not found'}</div>;
 
   const homeName = localize(m.home.name, locale);
   const awayName = localize(m.away.name, locale);
@@ -76,7 +78,7 @@ export default function MatchView({ id }: { id: string }) {
 
   type Ev = { minute: number | null; side: 'home' | 'away'; main: string; sub?: string; icon: string; cls: string; playerId?: number | null };
   const events: Ev[] = [
-    ...m.goals.map(g => ({
+    ...(m.goals ?? []).map(g => ({
       minute: g.minute, side: g.side, main: g.scorer || '—', playerId: g.scorer_id,
       sub: [
         g.assist && `🅰️ ${g.assist}`,
@@ -85,12 +87,12 @@ export default function MatchView({ id }: { id: string }) {
       ].filter(Boolean).join(' · ') || undefined,
       icon: '⚽', cls: 'bg-gold/15 text-gold',
     })),
-    ...m.cards.map(c => ({
+    ...(m.cards ?? []).map(c => ({
       minute: c.minute, side: c.side, main: c.player || '—',
       sub: c.type === 'second_yellow' ? (isAr ? 'صفراء ثانية' : '2nd yellow') : undefined,
       icon: CARD_ICON[c.type]?.icon ?? '🟨', cls: CARD_ICON[c.type]?.cls ?? 'bg-gold/15 text-gold',
     })),
-    ...m.subs.map(s => ({
+    ...(m.subs ?? []).map(s => ({
       minute: s.minute, side: s.side, main: s.in || '—',
       sub: s.out ? `🔻 ${s.out}` : undefined,
       icon: '🔁', cls: 'bg-win/15 text-win',
@@ -100,7 +102,7 @@ export default function MatchView({ id }: { id: string }) {
   const hasEvents = events.length > 0;
 
   const lu = m.lineup;
-  const hasLineup = !!lu && [lu.home, lu.away].some(s => s.starters.length + s.bench.length > 0);
+  const hasLineup = !!lu && [lu.home, lu.away].some(s => (s?.starters?.length ?? 0) + (s?.bench?.length ?? 0) > 0);
   const tabs = [
     hasLineup ? { key: 'lineup' as const, label: isAr ? 'التشكيلة' : 'Lineup' } : null,
     hasEvents ? { key: 'events' as const, label: isAr ? 'الأحداث' : 'Events' } : null,
@@ -267,7 +269,7 @@ function ShareSheet({ m, homeName, awayName, compName, locale, onClose }: {
   const url = typeof window !== 'undefined' ? window.location.href : '';
   const wa = `https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}`;
   const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
-  const scorers = m.goals.filter(g => g.scorer);
+  const scorers = (m.goals ?? []).filter(g => g.scorer);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-end" onClick={onClose}>

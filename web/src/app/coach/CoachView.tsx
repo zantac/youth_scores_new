@@ -54,11 +54,11 @@ export default function CoachView({ id }: { id: string }) {
       {/* Career */}
       <div className="px-4 pt-4">
         <h2 className="text-text font-bold text-sm mb-3">{isAr ? 'المسيرة' : 'Career'}</h2>
-        {c.career.length === 0 ? (
+        {(c.career ?? []).length === 0 ? (
           <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات مسيرة' : 'No career data'}</p>
         ) : (
           <div className="space-y-3">
-            {c.career.map((r, i) => (
+            {(c.career ?? []).map((r, i) => (
               <div key={i}
                 className={`relative flex items-stretch overflow-hidden rounded-2xl border bg-gradient-to-b from-cardBg to-cardBg2 ${r.current ? 'border-gold/40' : 'border-bdr'}`}>
                 <div className="absolute -left-8 -top-8 w-32 h-32 rounded-full bg-[radial-gradient(circle,rgb(var(--accent-rgb)/0.12),transparent_65%)]" />

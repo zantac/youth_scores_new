@@ -99,8 +99,8 @@ export default function PlayerView({ id }: { id: string }) {
 
   // Career tab: flatten every (season, competition) the player featured in into
   // one list, newest season first (the feed already orders career that way).
-  const careerRows = p.career.flatMap(c =>
-    c.competitions.map(comp => ({ comp, season: c.season, club: c.club, alt: c.alt_name, age: c.age, current: c.current })));
+  const careerRows = (p.career ?? []).flatMap(c =>
+    (c.competitions ?? []).map(comp => ({ comp, season: c.season, club: c.club, alt: c.alt_name, age: c.age, current: c.current })));
 
   const cs: PlayerSeasonStats | undefined = p.current_season;
   const matches: PlayerMatch[] = p.matches ?? [];

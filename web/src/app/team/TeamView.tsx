@@ -39,8 +39,14 @@ export default function TeamView({ id }: { id: string }) {
 
   // The club is the identity; a second name (academy/sponsor) sits beneath it,
   // exactly as the standings and match cards show it.
-  const lines = t ? teamNameLines({ name: t.name, clubName: t.club.name }, locale) : null;
+  const lines = t ? teamNameLines({ name: t.name, clubName: t.club?.name }, locale) : null;
   const title = lines ? lines.primary : (isAr ? 'الفريق' : 'Team');
+
+  // Default the list fields so a partial payload renders as empty sections rather
+  // than throwing on .length/.map (the error boundary is the backstop for the rest).
+  const competitions = t?.competitions ?? [];
+  const staff = t?.staff ?? [];
+  const roster = t?.roster ?? [];
 
   return (
     <>
@@ -56,7 +62,7 @@ export default function TeamView({ id }: { id: string }) {
               ? <img src={cloudinaryUrl(t.logo, 128)} alt="" className="relative w-16 h-16 rounded-2xl object-contain" />
               : <div className="relative w-16 h-16 rounded-2xl grid place-items-center text-2xl">🛡️</div>}
             <div className="relative min-w-0">
-              <h1 onClick={() => router.push(hrefFor('club', t.club.id))}
+              <h1 onClick={() => router.push(hrefFor('club', t.club?.id))}
                 className="text-lg font-extrabold truncate cursor-pointer hover:text-aqua transition-colors">
                 {lines!.primary} <span className="text-aqua text-xs align-middle">›</span>
               </h1>
@@ -68,18 +74,18 @@ export default function TeamView({ id }: { id: string }) {
           </div>
 
           {/* Seasons — each opens that season's competition (this team's view). */}
-          {t.competitions.length > 0 && (
+          {competitions.length > 0 && (
             <div className="px-4 pt-5">
               <button onClick={() => toggle('seasons')} className="w-full flex items-center justify-between gap-2 mb-3">
                 <h2 className="text-text font-bold text-sm">
                   {isAr ? 'المواسم' : 'Seasons'}
-                  <span className="text-hint text-xs font-normal"> ({t.competitions.length})</span>
+                  <span className="text-hint text-xs font-normal"> ({competitions.length})</span>
                 </h2>
                 <span className={`text-hint transition-transform ${open.seasons ? 'rotate-90' : ''}`}>›</span>
               </button>
               {open.seasons && (
                 <div className="space-y-2">
-                  {t.competitions.map(c => (
+                  {competitions.map(c => (
                     <button key={c.competition_id} onClick={() => openCompetition(c)}
                       className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                       <span className="text-lg flex-shrink-0">🏆</span>
@@ -100,15 +106,15 @@ export default function TeamView({ id }: { id: string }) {
             <button onClick={() => toggle('staff')} className="w-full flex items-center justify-between gap-2 mb-3">
               <h2 className="text-text font-bold text-sm">
                 {isAr ? 'الجهاز الفني' : 'Technical Staff'}
-                {t.staff.length > 0 && <span className="text-hint text-xs font-normal"> ({t.staff.length})</span>}
+                {staff.length > 0 && <span className="text-hint text-xs font-normal"> ({staff.length})</span>}
               </h2>
               <span className={`text-hint transition-transform ${open.staff ? 'rotate-90' : ''}`}>›</span>
             </button>
-            {open.staff && (t.staff.length === 0 ? (
+            {open.staff && (staff.length === 0 ? (
               <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد بيانات' : 'No data'}</p>
             ) : (
               <div className="space-y-2">
-                {t.staff.map(s => (
+                {staff.map(s => (
                   <button key={`${s.id}-${s.role?.ar ?? ''}`} onClick={() => router.push(hrefFor('coach', s.id))}
                     className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                     {s.photo
@@ -130,15 +136,15 @@ export default function TeamView({ id }: { id: string }) {
             <button onClick={() => toggle('players')} className="w-full flex items-center justify-between gap-2 mb-3">
               <h2 className="text-text font-bold text-sm">
                 {isAr ? 'اللاعبون' : 'Players'}
-                {t.roster.length > 0 && <span className="text-hint text-xs font-normal"> ({t.roster.length})</span>}
+                {roster.length > 0 && <span className="text-hint text-xs font-normal"> ({roster.length})</span>}
               </h2>
               <span className={`text-hint transition-transform ${open.players ? 'rotate-90' : ''}`}>›</span>
             </button>
-            {open.players && (t.roster.length === 0 ? (
+            {open.players && (roster.length === 0 ? (
               <p className="text-hint text-sm text-center py-4">{isAr ? 'لا توجد قائمة' : 'No squad'}</p>
             ) : (
               <div className="space-y-5">
-                {groupRosterByPosition(t.roster, locale).map(sec => (
+                {groupRosterByPosition(roster, locale).map(sec => (
                     <div key={sec.label}>
                       <p className="text-teal text-[11px] font-bold mb-2">
                         {sec.label} <span className="text-hint font-normal">({sec.players.length})</span>
