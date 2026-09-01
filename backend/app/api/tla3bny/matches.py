@@ -28,7 +28,15 @@ from app.services import tla3bny_tables as tables
 
 from . import tla3bny_bp
 from .audit import _log
-from ._helpers import _err, _forbid, _int, _parse_date, _parse_date_or_error, _utcnow
+from ._helpers import (
+    _clamp_int,
+    _err,
+    _forbid,
+    _int,
+    _parse_date,
+    _parse_date_or_error,
+    _utcnow,
+)
 
 # Both status values used for "a result has been entered".
 _FINISHED = ("finished", "completed")
@@ -232,19 +240,19 @@ def enter_result(match_id: int):
                 400,
             )
 
-    match.home_score = _int(data.get("home_score"))
-    match.away_score = _int(data.get("away_score"))
+    match.home_score = _clamp_int(data.get("home_score"), 0, 99)
+    match.away_score = _clamp_int(data.get("away_score"), 0, 99)
     # Extra time — key present means ET was played; absent means it wasn't.
     if "home_score_et" in data:
-        match.home_score_et = _int(data.get("home_score_et"))
-        match.away_score_et = _int(data.get("away_score_et"))
+        match.home_score_et = _clamp_int(data.get("home_score_et"), 0, 99)
+        match.away_score_et = _clamp_int(data.get("away_score_et"), 0, 99)
     else:
         match.home_score_et = None
         match.away_score_et = None
     # Penalty shootout — same convention.
     if "home_score_pen" in data:
-        match.home_score_pen = _int(data.get("home_score_pen"))
-        match.away_score_pen = _int(data.get("away_score_pen"))
+        match.home_score_pen = _clamp_int(data.get("home_score_pen"), 0, 99)
+        match.away_score_pen = _clamp_int(data.get("away_score_pen"), 0, 99)
     else:
         match.home_score_pen = None
         match.away_score_pen = None
@@ -271,7 +279,7 @@ def enter_result(match_id: int):
                 player_id=_int(ev.get("player_id")),
                 team_id=_int(ev.get("team_id")),
                 event_type=etype,
-                minute=_int(ev.get("minute")),
+                minute=_clamp_int(ev.get("minute"), 0, 130),
                 is_extra_time=bool(ev.get("is_extra_time", False)),
                 is_own_goal=bool(ev.get("is_own_goal", False)),
                 is_penalty=bool(ev.get("is_penalty", False)),
@@ -290,7 +298,7 @@ def enter_result(match_id: int):
                     player_id=_int(ev.get("player_id")),
                     team_id=_int(ev.get("team_id")),
                     event_type="assist",
-                    minute=_int(ev.get("minute")),
+                    minute=_clamp_int(ev.get("minute"), 0, 130),
                     related_event_id=temp_map.get(ev.get("related_temp_id")),
                     is_extra_time=bool(ev.get("is_extra_time", False)),
                 )
