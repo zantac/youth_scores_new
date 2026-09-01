@@ -70,7 +70,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       key: 'players',
       label: isAr ? 'اللاعبون' : 'Players',
       rows: res.players.map(p => ({
-        id: p.id, path: `/player?id=${p.id}`, img: p.photo, round: true,
+        id: p.id, path: hrefFor('player', p.id), img: p.photo, round: true,
         name: localize(p.name, locale),
         sub: [p.club ? localize(p.club, locale) : '', p.position ? localize(p.position, locale) : '', p.birth_year ? born(p.birth_year) : '']
           .filter(Boolean).join(' · '),
@@ -80,7 +80,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       key: 'coaches',
       label: isAr ? 'المدربون' : 'Coaches',
       rows: res.coaches.map(c => ({
-        id: c.id, path: `/coach?id=${c.id}`, img: c.photo, round: true,
+        id: c.id, path: hrefFor('coach', c.id), img: c.photo, round: true,
         name: localize(c.name, locale),
         sub: [c.role ? localize(c.role, locale) : (isAr ? 'مدرب' : 'Coach'), c.club ? localize(c.club, locale) : '']
           .filter(Boolean).join(' · '),

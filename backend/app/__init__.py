@@ -363,12 +363,15 @@ def _team_share_meta(team_id: int) -> dict | None:
     return {"title": title, "description": ("" if alt == name else alt), "image": logo}
 
 
-def _team_share_page(index_abs: str):
-    """Team preview: club name + age title, club logo (no description)."""
+def _team_share_page(index_abs: str, item_id: int | None = None):
+    """Team preview: club name + age title, club logo (no description).
+
+    ``item_id`` serves the /team/<id> path form; falls back to ?id=."""
     from flask import request
 
     try:
-        meta = _team_share_meta(int(request.args.get("id", "")))
+        tid = item_id if item_id is not None else int(request.args.get("id", ""))
+        meta = _team_share_meta(tid)
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta)
@@ -395,12 +398,15 @@ def _player_share_meta(player_id: int) -> dict | None:
             "image": p.profile_pic_url or ""}
 
 
-def _player_share_page(index_abs: str):
-    """Player preview: name title, position + birth year, photo."""
+def _player_share_page(index_abs: str, item_id: int | None = None):
+    """Player preview: name title, position + birth year, photo.
+
+    ``item_id`` serves the /player/<id> path form; falls back to ?id=."""
     from flask import request
 
     try:
-        meta = _player_share_meta(int(request.args.get("id", "")))
+        pid = item_id if item_id is not None else int(request.args.get("id", ""))
+        meta = _player_share_meta(pid)
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta, og_type="profile")
@@ -467,12 +473,15 @@ def _coach_share_meta(coach_id: int) -> dict | None:
             "image": c.profile_pic_url or ""}
 
 
-def _coach_share_page(index_abs: str):
-    """Coach preview: name title, role, photo."""
+def _coach_share_page(index_abs: str, item_id: int | None = None):
+    """Coach preview: name title, role, photo.
+
+    ``item_id`` serves the /coach/<id> path form; falls back to ?id=."""
     from flask import request
 
     try:
-        meta = _coach_share_meta(int(request.args.get("id", "")))
+        cid = item_id if item_id is not None else int(request.args.get("id", ""))
+        meta = _coach_share_meta(cid)
     except (TypeError, ValueError):
         return None
     return _render_share_page(index_abs, meta, og_type="profile")
@@ -773,6 +782,9 @@ def create_app(config_name: str | None = None) -> Flask:
             "match": _match_share_page,
             "club": _club_share_page,
             "competition": _competition_share_page,
+            "team": _team_share_page,
+            "player": _player_share_page,
+            "coach": _coach_share_page,
         }
         if not _is_tla3bny_host():
             head = path.split("/", 1)[0]

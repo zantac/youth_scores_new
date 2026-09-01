@@ -14,7 +14,7 @@ from app import create_app
 from app.extensions import db
 
 # Entities that have a /<entity>/<id> path route + sentinel shell.
-ENTITIES = ["match", "club", "competition"]
+ENTITIES = ["match", "club", "competition", "team", "player", "coach"]
 
 SHELL = "<html><head><title>{e} | Youth Scores</title></head><body>{e} shell</body></html>"
 

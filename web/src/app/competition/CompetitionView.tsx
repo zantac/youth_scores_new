@@ -989,7 +989,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
               <div className="bg-cardBg border border-bdr rounded-xl p-4 space-y-2">
                 <p className="text-aqua font-bold text-xs">👔 {isAr ? 'الجهاز الفني' : 'Coaching Staff'}</p>
                 {team.staff.map(s => (
-                  <button key={s.id} onClick={() => router.push(`/coach?id=${s.id}`)}
+                  <button key={s.id} onClick={() => router.push(hrefFor('coach', s.id))}
                     className="w-full flex items-center gap-2 text-start active:opacity-70">
                     <span className="text-aqua text-xs">›</span>
                     <span className="flex-1 text-text text-sm truncate">{localize(s.name, locale)}</span>
@@ -1039,7 +1039,7 @@ function TeamDetail({ teamId, matches, teams, locale, onClose, onTeamClick, comp
                   </p>
                   <div className="space-y-2">
                     {sec.players.map(r => (
-                      <button key={r.id} onClick={() => router.push(`/player?id=${r.id}`)}
+                      <button key={r.id} onClick={() => router.push(hrefFor('player', r.id))}
                         className="w-full flex items-center gap-3 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                         {r.photo
                           ? <img src={r.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" />

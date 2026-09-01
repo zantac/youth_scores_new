@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import { fetchClub } from '@/lib/api';
+import { hrefFor } from '@/lib/links';
 import { localize, safeUrl, cloudinaryUrl } from '@/lib/utils';
 import type { ClubPublic } from '@/lib/types';
 
@@ -66,7 +67,7 @@ export default function ClubView({ id }: { id: string }) {
             ) : (
               <div className="space-y-2">
                 {c.managers.map(m => (
-                  <button key={`${m.id}-${m.role?.ar ?? ''}`} onClick={() => router.push(`/coach?id=${m.id}`)}
+                  <button key={`${m.id}-${m.role?.ar ?? ''}`} onClick={() => router.push(hrefFor('coach', m.id))}
                     className="w-full flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-3 text-start hover:border-aqua/40 transition-colors">
                     {m.photo ? <img src={m.photo} alt="" className="w-10 h-10 rounded-full object-cover bg-darkBg flex-shrink-0" /> : <div className="w-10 h-10 rounded-full bg-darkBg grid place-items-center flex-shrink-0">👤</div>}
                     <div className="flex-1 min-w-0">
@@ -88,7 +89,7 @@ export default function ClubView({ id }: { id: string }) {
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {c.teams.map(t => (
-                  <button key={t.id} onClick={() => router.push(`/team?id=${t.id}`)}
+                  <button key={t.id} onClick={() => router.push(hrefFor('team', t.id))}
                     className="bg-cardBg border border-bdr rounded-xl px-3 py-2.5 text-start hover:border-aqua/40 transition-colors">
                     <p className="text-text text-sm font-bold truncate">{localize(t.age, locale) || localize(t.name, locale)}</p>
                   </button>
