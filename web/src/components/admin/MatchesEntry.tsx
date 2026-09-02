@@ -7,7 +7,7 @@ import ImportFromPhoto from './ImportFromPhoto';
 import { useGroupTeamIds } from '@/lib/useGroupTeamIds';
 import {
   apiCompetitions, apiCompetitionTeams, apiCompetitionMatches, apiTeamPlayers, apiMatchVenues,
-  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiDeleteMatch, apiRestoreMatch,
+  apiCreateMatch, apiGetMatch, apiUpdateMatch, apiBulkUpdateMatches, apiDeleteMatch, apiRestoreMatch,
   apiAddGoal, apiUpdateGoal, apiDeleteGoal,
   apiAddCard, apiUpdateCard, apiDeleteCard, apiSetLineup, apiSquadNewsDraft, apiAddSub, apiUpdateSub, apiDeleteSub,
   apiAddShootoutKick, apiUpdateShootoutKick, apiDeleteShootoutKick,
@@ -63,6 +63,23 @@ export default function MatchesEntry() {
   const [fGroup, setFGroup] = useState('');
   const [fDate, setFDate] = useState('');
   const [venues, setVenues] = useState<string[]>([]);
+
+  // Bulk edit: select several matches (e.g. a whole round or a team's fixtures)
+  // and change their date/time/venue in one step instead of opening each.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bDate, setBDate] = useState('');
+  const [bTime, setBTime] = useState('');
+  const [bVenue, setBVenue] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
+  const toggleSel = (id: number) =>
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const exitBulk = () => {
+    setBulkMode(false); setSelected(new Set());
+    setBDate(''); setBTime(''); setBVenue(''); setBulkMsg(null); setBulkErr(null);
+  };
 
   useEffect(() => { if (token) apiCompetitions(token).then(setComps).catch(e => setErr(e.message)); }, [token]);
   // Venue suggestions are scoped to the chosen competition, so the list is the
@@ -130,6 +147,33 @@ export default function MatchesEntry() {
 
   const filtering = Boolean(fTeam || fWeek || fGroup || fDate);
   const clear = () => { setFTeam(''); setFWeek(''); setFGroup(''); setFDate(''); };
+
+  // Bulk selection works on the currently-shown (filtered) matches: filter to a
+  // round or a team, tick them, then change date/time/venue together.
+  const allShownSelected = shown.length > 0 && shown.every(m => selected.has(m.id));
+  const toggleSelectAllShown = () =>
+    setSelected(prev => {
+      const s = new Set(prev);
+      if (allShownSelected) shown.forEach(m => s.delete(m.id));
+      else shown.forEach(m => s.add(m.id));
+      return s;
+    });
+
+  const applyBulk = async () => {
+    if (!token || selected.size === 0) return;
+    setBulkErr(null); setBulkMsg(null); setBulkBusy(true);
+    try {
+      const patch: { date?: string; time?: string; venue?: string } = {};
+      if (bDate) patch.date = bDate;
+      if (bTime) patch.time = bTime;
+      if (bVenue.trim()) patch.venue = bVenue.trim();
+      const r = await apiBulkUpdateMatches(token, [...selected], patch);
+      setBulkMsg(`✓ تم تحديث ${r.updated} مباراة`);
+      setSelected(new Set()); setBDate(''); setBTime(''); setBVenue('');
+      refreshMatches(); refreshVenues();
+    } catch (e) { setBulkErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setBulkBusy(false); }
+  };
 
   const restoreFromList = async (mid: number) => {
     if (!token) return;
@@ -221,11 +265,61 @@ export default function MatchesEntry() {
             onCreated={() => { refreshMatches(); refreshVenues(); }}
             onCancel={() => setShowImport(false)} />}
 
+          {/* Bulk edit: reschedule a whole round or move a team's fixtures in one
+              step. Filter to the matches, tick them, then set date/time/venue. */}
+          {active.length > 0 && (
+            <button onClick={() => (bulkMode ? exitBulk() : setBulkMode(true))}
+              className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+                bulkMode
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
+              {bulkMode ? '✕ إنهاء التحديد الجماعي' : '✎ تعديل جماعي (تاريخ/وقت/ملعب)'}
+            </button>
+          )}
+
+          {bulkMode && (
+            <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
+                  <input type="checkbox" checked={allShownSelected} onChange={toggleSelectAllShown} />
+                  تحديد كل الظاهر ({shown.length})
+                </label>
+                <span className="text-hint text-[11px] font-bold">{selected.size} محددة</span>
+              </div>
+              <p className="text-hint text-[11px] leading-relaxed">
+                اترك الحقل فارغًا لعدم تغييره. تغيير الوقت وحده يُبقي تاريخ كل مباراة كما هو.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {field('التاريخ', <input type="date" value={bDate} onChange={e => setBDate(e.target.value)} className={inputCls} />)}
+                {field('الوقت', <input type="time" value={bTime} onChange={e => setBTime(e.target.value)} className={inputCls} />)}
+              </div>
+              {field('الملعب', <input value={bVenue} onChange={e => setBVenue(e.target.value)} list={VENUES_LIST_ID} placeholder="اسم الملعب" className={inputCls} />)}
+              <VenuesDatalist venues={venues} />
+              {bulkErr && <p className="text-loss text-xs">{bulkErr}</p>}
+              {bulkMsg && <p className="text-win text-[11px] bg-win/10 border border-win/30 rounded-lg px-3 py-2">{bulkMsg}</p>}
+              <button onClick={applyBulk}
+                disabled={bulkBusy || selected.size === 0 || (!bDate && !bTime && !bVenue.trim())}
+                className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+                {bulkBusy ? 'جارٍ التطبيق…' : `تطبيق على ${selected.size} مباراة`}
+              </button>
+            </div>
+          )}
+
           <div className="space-y-2">
-            {shown.map(m => (
-              <button key={m.id} onClick={() => openMatch(m.id)}
-                className="w-full bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 text-start hover:border-aqua/40 transition-colors">
+            {shown.map(m => {
+              const sel = selected.has(m.id);
+              return (
+              <button key={m.id} onClick={() => (bulkMode ? toggleSel(m.id) : openMatch(m.id))}
+                className={`w-full bg-gradient-to-b from-cardBg to-cardBg2 border rounded-xl p-3 text-start transition-colors ${
+                  bulkMode && sel ? 'border-aqua bg-aqua/5' : 'border-bdr hover:border-aqua/40'
+                }`}>
                 <div className="flex items-center gap-2">
+                  {bulkMode && (
+                    <span className={`w-5 h-5 rounded-md border grid place-items-center text-[11px] flex-shrink-0 ${
+                      sel ? 'bg-aqua border-aqua text-on-accent' : 'border-bdr text-transparent'
+                    }`}>✓</span>
+                  )}
                   <div className="flex-1 text-sm font-medium truncate text-end">{teamLabel(m.home)}</div>
                   <div className="flex flex-col items-center min-w-[64px]">
                     {m.home_score != null
@@ -240,7 +334,8 @@ export default function MatchesEntry() {
                   {[m.week && `الجولة ${m.week}`, m.date || 'غير محدد'].filter(Boolean).join(' · ')}
                 </p>
               </button>
-            ))}
+              );
+            })}
             {active.length === 0 && <p className="text-hint text-sm text-center py-6">لا توجد مباريات — أضف واحدة</p>}
             {active.length > 0 && shown.length === 0 && (
               <p className="text-hint text-sm text-center py-6">لا نتائج مطابقة للفلاتر</p>

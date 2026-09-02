@@ -706,6 +706,58 @@ def update_match(mid: int):
     return jsonify(_match_detail(m))
 
 
+@entry_bp.patch("/api/admin/matches/bulk")
+@auth.login_required
+def bulk_update_matches():
+    """Apply date/time and/or venue to several matches at once — reschedule a
+    whole round, or move a team's fixtures to a new ground, without opening each
+    match one by one.
+
+    Only these logistics fields; scores/status are left alone (so this never
+    triggers the round auto-notify), and the date is only *set*, never cleared —
+    a blank field means "leave it". `time` without `date` re-times each match on
+    its own day; a TBD match (no date yet) with only a new time is skipped.
+    """
+    j = request.get_json(silent=True) or {}
+    raw_ids = j.get("match_ids")
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({"error": "اختر مباريات"}), 400
+    ids = [i for i in (_as_int(x) for x in raw_ids) if i is not None]
+
+    date_s = (j.get("date") or "").strip()
+    time_s = (j.get("time") or "").strip()
+    has_venue = "venue" in j
+    venue = (j.get("venue") or "").strip() or None
+    if not (date_s or time_s or has_venue):
+        return jsonify({"error": "لا توجد تغييرات لتطبيقها"}), 400
+
+    matches = Match.query.filter(
+        Match.id.in_(ids), Match.deleted_at.is_(None)
+    ).all()
+    if not matches:
+        return jsonify({"error": "لا توجد مباريات"}), 404
+
+    updated = 0
+    for m in matches:
+        changed = False
+        if has_venue:
+            m.venue_ar = venue
+            changed = True
+        if date_s or time_s:
+            cur = m.match_date
+            d = date_s or (cur.strftime("%Y-%m-%d") if cur else "")
+            t = time_s or (cur.strftime("%H:%M") if cur else "00:00")
+            if d:  # skip a still-TBD match that got only a new time, no date
+                dt = _parse_dt(d, t)
+                if dt:
+                    m.match_date = dt
+                    changed = True
+        if changed:
+            updated += 1
+    db.session.commit()
+    return jsonify({"updated": updated})
+
+
 @entry_bp.delete("/api/admin/matches/<int:mid>")
 @auth.login_required
 def delete_match(mid: int):
