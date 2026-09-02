@@ -229,7 +229,12 @@ def grant_award(comp_id: int):
     if atype == "player_of_round" and not round_:
         return _err("round is required for player of the round")
 
-    # Validate the recipient belongs to this competition.
+    # Validate the recipient belongs to this competition. Without this an admin
+    # could pin a player award (top scorer, best player, player of the round/
+    # match) onto ANY player in the database, and it would surface on that
+    # player's public achievements — the same cross-competition pollution
+    # enter_result guards against for events. (_approved_in_competition is
+    # defined below; resolved at call time.)
     if is_team:
         in_comp = Tla3bnyCompetitionTeam.query.filter_by(
             competition_id=comp_id, team_id=team_id
@@ -238,6 +243,8 @@ def grant_award(comp_id: int):
             return _err("هذا الفريق غير مشارك في البطولة", 409)
     else:
         Tla3bnyPlayer.query.get_or_404(player_id)
+        if not _approved_in_competition(player_id, comp_id):
+            return _err("هذا اللاعب غير مسجّل في هذه البطولة", 409)
 
     # Replace the previous holder of the same singular scope.
     q = Tla3bnyAward.query.filter_by(competition_id=comp_id, award_type=atype)
@@ -287,6 +294,11 @@ def set_player_of_match(match_id: int):
     if not _admin(match.competition_id):
         return _forbid()
     player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
+    # A set (non-clearing) pick must be a real participant of this competition —
+    # otherwise any player id could be pinned as player of the match and shown on
+    # that player's public achievements.
+    if player_id and not _approved_in_competition(player_id, match.competition_id):
+        return _err("هذا اللاعب غير مسجّل في هذه البطولة", 409)
     prev = Tla3bnyAward.query.filter_by(
         match_id=match_id, award_type="player_of_match"
     ).first()
