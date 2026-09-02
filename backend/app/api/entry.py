@@ -322,28 +322,44 @@ def competition_match_venues(cid: int):
 _ROUND_BLOCKING_STATUSES = ("scheduled", "live")
 
 
-def _round_settles_now(other_statuses, old_status: str, new_status: str) -> bool:
-    """Whether changing one match from ``old_status`` to ``new_status`` is the
-    save that makes its round "settled" for the first time.
+def _round_state_from(status: str, scored: bool) -> str:
+    """How a match counts toward its round being "settled":
+      'scored'   — completed WITH both scores (a real result);
+      'blocking' — still scheduled/live, OR completed but missing a score, so a
+                   result is still pending and it holds the round back;
+      'final'    — postponed/cancelled (settles nothing, but doesn't block).
 
-    Settled = no match still ``scheduled``/``live`` and at least one ``completed``
-    (an all-postponed/cancelled round settles nothing). Returns True only on the
-    not-settled → settled transition, so re-saving an already-finished round is a
-    no-op. ``other_statuses`` are the statuses of every *other* match in the round.
+    Treating a completed-but-unscored match as blocking is the point: a match's
+    status can be set to completed independently of its scores, and without this
+    the round would "settle" and auto-notify while a fixture has no scoreline.
     """
-    COMPLETED = codes.MATCH_STATUS_COMPLETED
-    blocking_others = sum(1 for s in other_statuses if s in _ROUND_BLOCKING_STATUSES)
-    comp_others = sum(1 for s in other_statuses if s == COMPLETED)
-
-    def settled(status: str) -> bool:
-        blocking = blocking_others + (1 if status in _ROUND_BLOCKING_STATUSES else 0)
-        completed = comp_others + (1 if status == COMPLETED else 0)
-        return blocking == 0 and completed >= 1
-
-    return settled(new_status) and not settled(old_status)
+    if status == codes.MATCH_STATUS_COMPLETED:
+        return "scored" if scored else "blocking"
+    if status in _ROUND_BLOCKING_STATUSES:
+        return "blocking"
+    return "final"
 
 
-def _auto_notify_round_if_settled(m: Match, old_status: str) -> None:
+def _round_settles_now(other_states, old_state: str, new_state: str) -> bool:
+    """Whether this save is the one that makes its round "settled" for the first
+    time. Settled = no ``blocking`` match left and at least one ``scored`` — so a
+    round with a completed-but-unscored fixture is NOT settled, and an
+    all-postponed/cancelled round settles nothing. Returns True only on the
+    not-settled → settled transition, so re-saving a finished round is a no-op.
+    ``other_states`` are the round-states of every *other* match in the round.
+    """
+    blocking_others = sum(1 for s in other_states if s == "blocking")
+    scored_others = sum(1 for s in other_states if s == "scored")
+
+    def settled(state: str) -> bool:
+        blocking = blocking_others + (1 if state == "blocking" else 0)
+        scored = scored_others + (1 if state == "scored" else 0)
+        return blocking == 0 and scored >= 1
+
+    return settled(new_state) and not settled(old_state)
+
+
+def _auto_notify_round_if_settled(m: Match, old_status: str, old_scored: bool) -> None:
     """Auto-send the round-results digest the moment a round becomes settled —
     i.e. saving this match left NO match in the round still ``scheduled`` or
     ``live`` and at least one match completed. A scheduled (not-yet-played) or
@@ -368,12 +384,19 @@ def _auto_notify_round_if_settled(m: Match, old_status: str) -> None:
             Match.deleted_at.is_(None),
         ).all()
 
-        # Statuses of every match in the round *except* this one; m's own change
-        # (old_status → m.status) is what may tip the round into "settled".
-        other_statuses = [rm.status for rm in round_matches if rm.id != m.id]
-        if _round_settles_now(other_statuses, old_status, m.status):
+        def _scored(rm) -> bool:
+            return rm.home_score is not None and rm.away_score is not None
+
+        # Round-state of every match *except* this one; m's own change
+        # (old_status/old_scored → m.status/scores) is what may tip the round into
+        # "settled". A completed-but-unscored fixture counts as blocking.
+        other_states = [_round_state_from(rm.status, _scored(rm))
+                        for rm in round_matches if rm.id != m.id]
+        old_state = _round_state_from(old_status, old_scored)
+        new_state = _round_state_from(m.status, _scored(m))
+        if _round_settles_now(other_states, old_state, new_state):
             completed_ids = [rm.id for rm in round_matches
-                             if rm.status == codes.MATCH_STATUS_COMPLETED]
+                             if rm.status == codes.MATCH_STATUS_COMPLETED and _scored(rm)]
             # Off the request thread: a round can be a dozen fixtures × 2 teams of
             # blocking FCM calls, which could otherwise exceed the request timeout
             # and fail the admin's match save. The manual /notify-round button stays
@@ -600,6 +623,7 @@ def update_match(mid: int):
     j = request.get_json(silent=True) or {}
 
     old_status = m.status  # captured for the auto round-notify transition check
+    old_scored = m.home_score is not None and m.away_score is not None
 
     if "status" in j and j["status"] in codes.MATCH_STATUS:
         m.status = j["status"]
@@ -678,7 +702,7 @@ def update_match(mid: int):
     # When this save completes the round, fan out the results digest automatically
     # (in addition to the manual notify-round button). No-op unless it was the
     # last match still awaiting a result.
-    _auto_notify_round_if_settled(m, old_status)
+    _auto_notify_round_if_settled(m, old_status, old_scored)
     return jsonify(_match_detail(m))
 
 
