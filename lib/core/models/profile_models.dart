@@ -141,9 +141,9 @@ class PlayerMatch {
         competition: localizedMap(j['competition']),
         side: j['side']?.toString() ?? 'home',
         home: PlayerMatchSide.fromJson(
-            (j['home'] as Map<String, dynamic>?) ?? const {}),
+            j['home'] is Map<String, dynamic> ? j['home'] as Map<String, dynamic> : const {}),
         away: PlayerMatchSide.fromJson(
-            (j['away'] as Map<String, dynamic>?) ?? const {}),
+            j['away'] is Map<String, dynamic> ? j['away'] as Map<String, dynamic> : const {}),
         homeScore: _intN(j['home_score']),
         awayScore: _intN(j['away_score']),
         goals: _int(j['goals']),
@@ -549,7 +549,7 @@ class TeamPublic {
   }
 
   factory TeamPublic.fromJson(Map<String, dynamic> j) {
-    final club = j['club'] as Map<String, dynamic>?;
+    final club = j['club'] is Map<String, dynamic> ? j['club'] as Map<String, dynamic> : null;
     return TeamPublic(
       id: _int(j['id']),
       name: localizedMap(j['name']),
