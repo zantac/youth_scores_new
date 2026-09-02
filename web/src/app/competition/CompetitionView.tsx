@@ -1302,7 +1302,7 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
       p.set('tab', canonical);
       router.replace(competitionHref(p.toString()), { scroll: false });
     }
-  }, [params, router]);
+  }, [params, router, idProp]);
 
   // The sticky header (title bar + main tabs) can grow with the safe-area inset
   // and font, so its height is measured rather than assumed — the per-tab second

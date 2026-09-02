@@ -63,7 +63,7 @@ function NewsPageInner() {
   // open that item automatically. Also keeps the URL shareable.
   useEffect(() => {
     if (!idParam || !config?.news) return;
-    const found = config.news.find(n => String(n.id) === idParam);
+    const found = config.news.find(n => n.id != null && String(n.id) === idParam);
     if (found) { setSelected(found); markRead(found); }
   }, [idParam, config, markRead]);
 
