@@ -135,7 +135,10 @@ class _HomeScreenState extends State<HomeScreen> {
               isAr:       l10n.isAr,
             ),
             // ── Tab content ─────────────────────────────────────────────────
-            Expanded(child: screens[_tab]),
+            // _tab only ever indexes a real screen (the trailing "More" nav item
+            // pushes a route instead of switching tabs); clamp defensively so a
+            // stray index can never throw.
+            Expanded(child: screens[_tab.clamp(0, screens.length - 1)]),
           ],
         ),
       ),
@@ -143,7 +146,10 @@ class _HomeScreenState extends State<HomeScreen> {
         currentIndex: _tab,
         type: BottomNavigationBarType.fixed,
         onTap: (i) {
-          if (i == 5) {
+          // "More" is the trailing nav item with no tab of its own — it pushes a
+          // route. Keyed off screens.length (not a hard-coded index) so adding or
+          // reordering a tab can't desync it from the screens list.
+          if (i >= screens.length) {
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const MoreScreen()),
