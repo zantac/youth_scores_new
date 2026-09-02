@@ -695,6 +695,7 @@ function RoundNotify({ token, cid, matches }: {
   token: string; cid: number; matches: EntryMatchRow[];
 }) {
   const [week, setWeek] = useState('');
+  const [group, setGroup] = useState('');   // '' = the whole round (all groups)
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -705,7 +706,22 @@ function RoundNotify({ token, cid, matches }: {
     return seen.sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || a.localeCompare(b));
   }, [matches]);
 
-  const inWeek = useMemo(() => matches.filter(m => m.week === week), [matches, week]);
+  // Groups that have matches — the digest can be scoped to one, so a grouped
+  // competition can send a group's round without waiting for the others. Hidden
+  // for a flat competition.
+  const groups = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const m of matches) {
+      if (m.group_id != null && !seen.has(m.group_id))
+        seen.set(m.group_id, m.group_name || `#${m.group_id}`);
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [matches]);
+
+  const inWeek = useMemo(
+    () => matches.filter(m => m.week === week && (!group || String(m.group_id) === group)),
+    [matches, week, group]);
   const done = inWeek.filter(m => m.status === 'completed').length;
   const total = inWeek.length;
   const allDone = total > 0 && done === total;
@@ -713,7 +729,7 @@ function RoundNotify({ token, cid, matches }: {
   const send = async () => {
     setErr(null); setMsg(null); setBusy(true);
     try {
-      const r = await apiNotifyRound(token, cid, week);
+      const r = await apiNotifyRound(token, cid, week, group ? Number(group) : undefined);
       const dry = r.notification?.status === 'dry_run';
       setMsg(dry
         ? `✓ جُهّز الإشعار (وضع التجربة) — ${r.count} مباراة. يُرسل فعليًا بعد ربط Firebase.`
@@ -733,6 +749,12 @@ function RoundNotify({ token, cid, matches }: {
         <option value="">— اختر الجولة —</option>
         {weeks.map(w => <option key={w} value={w}>الجولة {w}</option>)}
       </select>
+      {groups.length > 0 && (
+        <select value={group} onChange={e => { setGroup(e.target.value); setMsg(null); setConfirm(false); }} className={inputCls}>
+          <option value="">كل المجموعات</option>
+          {groups.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+        </select>
+      )}
       {week && (
         <p className={`text-[11px] font-bold ${allDone ? 'text-win' : 'text-gold'}`}>
           {allDone ? '✅' : '⏳'} {done}/{total} مباراة لها نتيجة
