@@ -602,6 +602,23 @@ def move_player(player_id: int):
     # victim's membership and deleting their roster entries. Super admin passes both.
     if cur and not auth.can_manage_team(user, cur.team_id):
         return _forbid()
+
+    # Reject moving a provably over-age player into a younger team. The guest
+    # age rule only gates lineups, so without this an over-age player could be
+    # made a permanent (non-guest) roster member of a younger squad and field
+    # freely. A player is too old when born before the category's oldest allowed
+    # birth year; fall back to the numeric age label when the year isn't set
+    # (same fallback as teams_by_age), so year-less brackets aren't a loophole.
+    ac = dest.age_category
+    dest_oldest = ac.oldest_birth_year if ac else None
+    if dest_oldest is None and ac and ac.label:
+        try:
+            dest_oldest = int(ac.label)
+        except (TypeError, ValueError):
+            dest_oldest = None
+    if player.dob and dest_oldest is not None and player.dob.year < dest_oldest:
+        return _err("اللاعب أكبر من الفئة السنية للفريق الوجهة", 409)
+
     if cur:
         if cur.team_id == dest_team_id:
             return _err("Player is already on that team")
