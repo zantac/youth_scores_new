@@ -402,18 +402,32 @@ def notify_round(cid: int):
         return jsonify({"error": "اختر الجولة"}), 400
 
     stage_ids = [s.id for s in Stage.query.filter_by(competition_id=cid).all()]
-    completed = (
-        Match.query.filter(
-            Match.stage_id.in_(stage_ids), Match.week == week,
-            Match.deleted_at.is_(None),
-            Match.status == codes.MATCH_STATUS_COMPLETED,
-        ).all()
-        if stage_ids else []
+
+    # Optional group scope: for a competition split into groups, an admin can send
+    # one group's round without waiting for the others. Absent → the whole round.
+    group = None
+    gid = j.get("group_id")
+    if gid not in (None, ""):
+        try:
+            gid = int(gid)
+        except (TypeError, ValueError):
+            return jsonify({"error": "المجموعة غير صحيحة"}), 400
+        group = db.session.get(Group, gid)
+        if group is None or group.stage_id not in set(stage_ids):
+            return jsonify({"error": "المجموعة غير صحيحة"}), 400
+
+    mq = Match.query.filter(
+        Match.stage_id.in_(stage_ids), Match.week == week,
+        Match.deleted_at.is_(None),
+        Match.status == codes.MATCH_STATUS_COMPLETED,
     )
+    if group is not None:
+        mq = mq.filter(Match.group_id == group.id)
+    completed = mq.all() if stage_ids else []
     if not completed:
         return jsonify({"error": "لا توجد مباريات مكتملة في هذه الجولة"}), 400
 
-    result = notifications.notify_round_results(comp, week, completed)
+    result = notifications.notify_round_results(comp, week, completed, group=group)
     # Also notify followers of each team that played — the digest above only
     # reaches people who follow the whole competition.
     team_results = notifications.notify_round_results_to_teams(comp, completed)

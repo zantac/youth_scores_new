@@ -283,7 +283,8 @@ def notify_new_venue(venue) -> dict:
     )
 
 
-def notify_round_results(competition, week: str, matches, headline: str | None = None) -> dict:
+def notify_round_results(competition, week: str, matches, headline: str | None = None,
+                         group=None) -> dict:
     """One digest for a whole round's results — the entry workflow enters a
     round at a time, so a single push per round beats one per match. Sent to the
     competition's own topic and deep-links to that round's results.
@@ -304,7 +305,13 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
         if ag:
             age = (ag.name_ar or ag.name_en or "").strip()
     sector = (competition.sector_ar or competition.sector_en or "").strip()
+    # When the round is scoped to one group, name it so followers can tell which
+    # group's results these are (the digest still reaches every competition
+    # follower — following is per-competition, not per-group).
+    group_name = (getattr(group, "name_ar", None) or getattr(group, "name_en", None) or "").strip() if group else ""
     label = " - ".join(p for p in (name, age, sector) if p)
+    if group_name:
+        label = f"{label} — {group_name}"
 
     week = (str(week) or "").strip()
     title = f"نتائج الجولة {week} — {label}" if week else f"النتائج — {label}"
@@ -328,6 +335,8 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
         "week": week,
         "url": f"/competition?id={competition.id}&week={week}",
     }
+    if group is not None:
+        data["group_id"] = group.id
     result = send_to_topic(competition_topic(competition.id), title, body, data=data)
     send_to_topic(TOPIC_RESULTS, title, body, data=data)
     return result

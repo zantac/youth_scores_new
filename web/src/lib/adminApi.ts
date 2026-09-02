@@ -141,8 +141,10 @@ export const apiMatchVenues = (t: string, cid: number) => get<{ venues: string[]
 
 // Send one round-results digest notification to the competition's followers.
 // Runs in dry-run (logs the payload) until Firebase credentials are configured.
-export const apiNotifyRound = (t: string, cid: number, week: string) =>
-  send<{ notification: { status: string; topic?: string }; count: number }>(t, 'POST', `/api/admin/competitions/${cid}/notify-round`, { week });
+export const apiNotifyRound = (t: string, cid: number, week: string, groupId?: number) =>
+  send<{ notification: { status: string; topic?: string }; count: number }>(
+    t, 'POST', `/api/admin/competitions/${cid}/notify-round`,
+    groupId != null ? { week, group_id: groupId } : { week });
 export const apiCompetitionMatches = (t: string, cid: number) => get<{ matches: EntryMatchRow[] }>(t, `/api/admin/competitions/${cid}/matches`).then(d => d.matches);
 export const apiCreateMatch = (t: string, cid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/competitions/${cid}/matches`, body);
 export const apiGetMatch = (t: string, mid: number) => get<EntryMatch>(t, `/api/admin/matches/${mid}`);
