@@ -1279,6 +1279,13 @@ def search_all(q: str, limit: int = 12) -> dict:
     players = (
         Player.query
         .filter(sa.or_(Player.full_name_ar.ilike(like), Player.full_name_en.ilike(like)))
+        # Eager-load the club chain player_club() walks, so N hits cost a few
+        # queries instead of one per registration/team/club (N+1).
+        .options(
+            selectinload(Player.registrations)
+            .selectinload(PlayerTeam.team)
+            .selectinload(Team.club)
+        )
         .order_by(Player.full_name_ar, Player.full_name_en)
         .limit(limit)
         .all()
@@ -1286,6 +1293,14 @@ def search_all(q: str, limit: int = 12) -> dict:
     coaches = (
         Coach.query
         .filter(sa.or_(Coach.full_name_ar.ilike(like), Coach.full_name_en.ilike(like)))
+        # Eager-load the role/club chains coach_role_and_club() walks.
+        .options(
+            selectinload(Coach.team_roles)
+            .selectinload(TeamCoach.team)
+            .selectinload(Team.club),
+            selectinload(Coach.club_roles)
+            .selectinload(ClubStaff.club),
+        )
         .order_by(Coach.full_name_ar, Coach.full_name_en)
         .limit(limit)
         .all()

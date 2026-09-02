@@ -159,3 +159,24 @@ def test_competition_data_roster_is_season_scoped():
         ids = {p["id"] for p in home["roster"]}
         assert current.id in ids     # active during the season
         assert left.id not in ids    # left before the season began
+
+
+def test_search_all_resolves_player_club():
+    """A player hit carries their club — exercises the eager-loaded
+    registration → team → club chain search_all walks."""
+    app, cid, home_id, away_id = _app_with_league()  # home club = الأهلي
+    with app.app_context():
+        from app.models import Player, PlayerTeam
+        from app.api import serializers
+
+        p = Player(full_name_ar="لاعب البحث", birth_year=2009)
+        db.session.add(p)
+        db.session.flush()
+        db.session.add(PlayerTeam(player_id=p.id, team_id=home_id,
+                                  start_date=date(2026, 2, 1), end_date=None))
+        db.session.commit()
+
+        res = serializers.search_all("البحث")
+        hit = next((pl for pl in res["players"] if pl["id"] == p.id), None)
+        assert hit is not None
+        assert hit["club"] and hit["club"]["ar"] == "الأهلي"
