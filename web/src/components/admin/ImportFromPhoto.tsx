@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { apiCreateMatch, type EntryTeam, type MStage, type EntryMatchRow } from '@/lib/adminApi';
+import { useGroupTeamIds } from '@/lib/useGroupTeamIds';
 import { runOcr, imageToPixels } from '@/lib/ocr/ocrEngine';
 import { reconstructFixtures } from '@/lib/ocr/gridReconstruct';
 import { matchFixtures } from '@/lib/ocr/matchFixtures';
@@ -102,17 +103,26 @@ export default function ImportFromPhoto({
   const planTotal = plan.reduce((s, p) => s + (Number(p.count) || 0), 0);
   const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId)) && planTotal > 0;
 
+  // Scope both the OCR matcher and the manual dropdowns to the chosen group — a
+  // group's fixtures photo only contains that group's teams, so matching against
+  // the whole competition risks a wrong same-named pick. Falls back to all teams
+  // for a flat (group-less) stage.
+  const groupTeamIds = useGroupTeamIds(token, groupId);
+  const scopedTeams = useMemo(
+    () => (groupTeamIds ? teams.filter(t => groupTeamIds.has(t.id)) : teams),
+    [teams, groupTeamIds]);
+
   const teamOpts = useMemo(
-    () => [...teams].sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'ar')), [teams]);
+    () => [...scopedTeams].sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'ar')), [scopedTeams]);
   // Match against the club's own name AND any competition alternative name: the
   // printed fixtures tables use the official club name, while the alternative is
   // extra branding the admin added — so a team keyed only by its alias would go
   // unrecognised.
   const teamCandidates = useMemo(
-    () => teams.map(t => ({
+    () => scopedTeams.map(t => ({
       id: t.id,
       names: [t.name?.ar, t.name?.en, t.club_name?.ar, t.club_name?.en].filter(Boolean) as string[],
-    })), [teams]);
+    })), [scopedTeams]);
 
   const setRow = (i: number, patch: Partial<ReviewRow>) =>
     setRows(rs => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
