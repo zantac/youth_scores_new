@@ -413,8 +413,12 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
   // Scope the team pickers to the chosen group: a grouped stage only plays teams
   // in that group, so a group match must pick from its own teams, not the whole
   // competition. Falls back to all teams for a flat stage (no group).
-  const groupTeamIds = useGroupTeamIds(token, f.group_id);
-  const teamChoices = groupTeamIds ? teams.filter(t => groupTeamIds.has(t.id)) : teams;
+  const { ids: groupTeamIds, loading: groupTeamsLoading } = useGroupTeamIds(token, f.group_id);
+  // Filtered to the group once loaded; empty (not all-teams) while the group's
+  // set is in flight, so an out-of-group team can't be picked in that window.
+  const teamChoices = groupTeamIds
+    ? teams.filter(t => groupTeamIds.has(t.id))
+    : (groupTeamsLoading ? [] : teams);
   const teamOpts = <>{teamChoices.map(t => <option key={t.id} value={t.id}>{teamLabel(t)}</option>)}</>;
   return (
     <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
