@@ -8,6 +8,8 @@ import 'api_service.dart';
 import '../providers/app_provider.dart';
 import '../../screens/competition/competition_data_screen.dart';
 import '../../screens/club/club_detail_screen.dart';
+import '../../screens/coach/coach_detail_screen.dart';
+import '../../screens/match/match_detail_screen.dart';
 import '../../screens/news/news_detail_screen.dart';
 import '../../screens/player/player_detail_screen.dart';
 import '../../screens/team/team_profile_screen.dart';
@@ -238,6 +240,23 @@ class NotificationService {
           ),
         ));
       }
+      return;
+    }
+
+    if (target.startsWith('coach')) {
+      final coachId = int.tryParse(id);
+      if (coachId != null) {
+        nav.push(MaterialPageRoute(builder: (_) => CoachDetailScreen(coachId: coachId)));
+      }
+      return;
+    }
+
+    // Match detail. matchId is a string on this screen, so the (non-empty) id is
+    // passed straight through. Without this a shared /match/<id> App Link fell
+    // through to the competition screen and 404'd on the match id.
+    if (target.startsWith('match')) {
+      final matchId = id;
+      nav.push(MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: matchId)));
       return;
     }
 
