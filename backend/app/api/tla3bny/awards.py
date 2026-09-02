@@ -524,9 +524,35 @@ def team_honours(team_id: int):
     }
     player_awards = []
     if squad_ids:
-        player_awards = Tla3bnyAward.query.filter(
-            Tla3bnyAward.player_id.in_(squad_ids)
-        ).order_by(Tla3bnyAward.competition_id.desc()).all()
+        # Only awards a squad member won *while registered under this team* are
+        # this team's honours — a player who won elsewhere before transferring in
+        # shouldn't pad this team's trophy list. Individual awards carry no
+        # team_id (only titles do), so scope by the competition the player was in
+        # this team for: the (player, competition) pairs where the player has an
+        # approved registration under this team.
+        team_regs = {
+            (pid, cid)
+            for pid, cid in db.session.query(
+                Tla3bnyCompetitionPlayer.player_id,
+                Tla3bnyCompetitionTeam.competition_id,
+            ).join(
+                Tla3bnyCompetitionTeam,
+                Tla3bnyCompetitionPlayer.competition_team_id
+                == Tla3bnyCompetitionTeam.id,
+            ).filter(
+                Tla3bnyCompetitionTeam.team_id == team_id,
+                Tla3bnyCompetitionPlayer.player_id.in_(squad_ids),
+                Tla3bnyCompetitionPlayer.status == "approved",
+            ).all()
+        }
+        if team_regs:
+            candidates = Tla3bnyAward.query.filter(
+                Tla3bnyAward.player_id.in_(squad_ids)
+            ).order_by(Tla3bnyAward.competition_id.desc()).all()
+            player_awards = [
+                a for a in candidates
+                if (a.player_id, a.competition_id) in team_regs
+            ]
     return jsonify({
         "titles": [a.to_dict() for a in titles],
         "player_awards": [a.to_dict() for a in player_awards],
