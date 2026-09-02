@@ -32,6 +32,11 @@ void main() {
       expect(r.target, 'match');
       expect(r.id, '5');
     });
+    test('/coach/8', () {
+      final r = parse('/coach/8');
+      expect(r.target, 'coach');
+      expect(r.id, '8');
+    });
     test('/competition/12 with trailing sub-params still resolves id', () {
       final r = parse('/competition/12?week=3');
       expect(r.target, 'competition');
