@@ -101,16 +101,21 @@ export default function ImportFromPhoto({
   const groups = stage?.groups ?? [];
   const isGroupStage = stage?.type === 'group';
   const planTotal = plan.reduce((s, p) => s + (Number(p.count) || 0), 0);
-  const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId)) && planTotal > 0;
 
   // Scope both the OCR matcher and the manual dropdowns to the chosen group — a
   // group's fixtures photo only contains that group's teams, so matching against
   // the whole competition risks a wrong same-named pick. Falls back to all teams
-  // for a flat (group-less) stage.
-  const groupTeamIds = useGroupTeamIds(token, groupId);
+  // for a flat (group-less) stage, but shows NO teams while the group's set is
+  // loading so OCR can't match an out-of-group team in that window.
+  const { ids: groupTeamIds, loading: groupTeamsLoading } = useGroupTeamIds(token, groupId);
   const scopedTeams = useMemo(
-    () => (groupTeamIds ? teams.filter(t => groupTeamIds.has(t.id)) : teams),
-    [teams, groupTeamIds]);
+    () => (groupTeamIds ? teams.filter(t => groupTeamIds.has(t.id)) : (groupTeamsLoading ? [] : teams)),
+    [teams, groupTeamIds, groupTeamsLoading]);
+
+  // Don't let the photo run through OCR until the group's team set has arrived —
+  // otherwise the matcher would see zero (or the wrong) candidates.
+  const ready = Boolean(stageId) && (!isGroupStage || Boolean(groupId)) && planTotal > 0
+    && !groupTeamsLoading;
 
   const teamOpts = useMemo(
     () => [...scopedTeams].sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'ar')), [scopedTeams]);
