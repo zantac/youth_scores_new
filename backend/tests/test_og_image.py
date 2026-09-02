@@ -7,7 +7,7 @@ white background and forced to an opaque, bounded format.
 
 from urllib.parse import quote
 
-from app import _card_logo, _og_image_url
+from app import _card_logo, _og_image_url, _og_sig
 
 CLOUD = "https://res.cloudinary.com/demo/image/upload/v1/logos/ahly.png"
 
@@ -50,19 +50,26 @@ def test_og_url_cloudinary_passthrough():
 
 
 def test_og_url_external_goes_through_proxy():
-    ext = "https://www.365scores.com/logos/ahly.png"
-    out = _og_image_url(BASE, ext)
-    assert out == f"{BASE}/og-image?u={quote(ext, safe='')}"
+    # non-Cloudinary source → signed /og-image URL (the signature is what makes
+    # the endpoint fetch only our own logo URLs).
+    with _make_app().app_context():
+        ext = "https://www.365scores.com/logos/ahly.png"
+        out = _og_image_url(BASE, ext)
+        assert out == f"{BASE}/og-image?u={quote(ext, safe='')}&s={_og_sig(ext)}"
 
 
 def test_og_url_bare_filename_uses_uploads_route():
-    out = _og_image_url(BASE, "abc.jpg")
-    assert out == f"{BASE}/og-image?u={quote(BASE + '/uploads/abc.jpg', safe='')}"
+    with _make_app().app_context():
+        absu = BASE + "/uploads/abc.jpg"
+        out = _og_image_url(BASE, "abc.jpg")
+        assert out == f"{BASE}/og-image?u={quote(absu, safe='')}&s={_og_sig(absu)}"
 
 
 def test_og_url_root_relative_uses_base():
-    out = _og_image_url(BASE, "/uploads/abc.jpg")
-    assert out == f"{BASE}/og-image?u={quote(BASE + '/uploads/abc.jpg', safe='')}"
+    with _make_app().app_context():
+        absu = BASE + "/uploads/abc.jpg"
+        out = _og_image_url(BASE, "/uploads/abc.jpg")
+        assert out == f"{BASE}/og-image?u={quote(absu, safe='')}&s={_og_sig(absu)}"
 
 
 def test_og_url_empty_is_none():
@@ -94,11 +101,22 @@ def _make_app():
         DevelopmentConfig.SQLALCHEMY_DATABASE_URI = orig
 
 
-def test_endpoint_rejects_internal_and_bad_urls():
+def test_endpoint_requires_a_valid_signature():
+    # No/invalid signature → 404, so the endpoint can't be used to fetch an
+    # arbitrary URL (no open proxy / SSRF).
     client = _make_app().test_client()
-    assert client.get("/og-image?u=http://127.0.0.1/x.png").status_code == 404
-    assert client.get("/og-image?u=not-a-url").status_code == 404
+    assert client.get("/og-image?u=https://example.com/x.png").status_code == 404
+    assert client.get("/og-image?u=https://example.com/x.png&s=deadbeef").status_code == 404
     assert client.get("/og-image").status_code == 404
+
+
+def test_endpoint_rejects_internal_url_even_when_signed():
+    app = _make_app()
+    with app.app_context():
+        u = "http://127.0.0.1/x.png"
+        sig = _og_sig(u)
+    r = app.test_client().get(f"/og-image?u={quote(u, safe='')}&s={sig}")
+    assert r.status_code == 404  # SSRF guard blocks the loopback address
 
 
 def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
@@ -106,11 +124,16 @@ def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
     Image.new("RGBA", (50, 50), (255, 0, 0, 128)).save(png, "PNG")  # semi-transparent
 
     class _FakeResp:
+        is_redirect = False
+
         def raise_for_status(self):
             pass
 
         def iter_content(self, _n):
             yield png.getvalue()
+
+        def close(self):
+            pass
 
     import requests
     from app.services import storage
@@ -118,8 +141,11 @@ def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
     # Skip the real DNS lookup in the SSRF guard so the test doesn't need network.
     monkeypatch.setattr(storage, "_is_internal_url", lambda _u: False)
 
-    client = _make_app().test_client()
-    r = client.get("/og-image?u=https://cdn.example.com/logo.png")
+    app = _make_app()
+    with app.app_context():
+        u = "https://cdn.example.com/logo.png"
+        sig = _og_sig(u)
+    r = app.test_client().get(f"/og-image?u={quote(u, safe='')}&s={sig}")
     assert r.status_code == 200
     assert r.mimetype == "image/jpeg"
     out = Image.open(io.BytesIO(r.data))

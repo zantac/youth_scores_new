@@ -223,12 +223,29 @@ def _card_logo(raw: str | None) -> str:
     return raw[:after] + "f_jpg,q_auto,c_pad,b_white,w_600,h_600/" + raw[after:]
 
 
+def _og_sig(url: str) -> str:
+    """A short HMAC over an /og-image source URL. The proxy only fetches a URL
+    that carries a matching signature, so it can serve *only* the logo URLs WE
+    emitted in our own OG tags — never an arbitrary attacker-supplied one. This is
+    what stops the (public, unauthenticated) endpoint being an SSRF / open-proxy."""
+    import hashlib
+    import hmac
+
+    from flask import current_app
+
+    secret = current_app.config.get("SECRET_KEY") or ""
+    if isinstance(secret, str):
+        secret = secret.encode()
+    return hmac.new(secret, url.encode(), hashlib.sha256).hexdigest()[:32]
+
+
 def _og_image_url(base: str, raw: str | None) -> str | None:
     """The final share-card image URL for a club crest. A Cloudinary crest keeps
     its inline-flattened Cloudinary URL (served by their CDN — see _card_logo);
     every other source (365scores / filgoal links, Railway uploads) is routed
-    through /og-image, which fetches and flattens it into an opaque, padded JPEG
-    so it isn't dropped or shown as a blank box on mobile. None for no logo."""
+    through /og-image (with a signature, so only our own logo URLs are fetchable),
+    which flattens it into an opaque, padded JPEG so it isn't dropped or shown as a
+    blank box on mobile. None for no logo."""
     from urllib.parse import quote
 
     raw = (raw or "").strip()
@@ -242,7 +259,7 @@ def _og_image_url(base: str, raw: str | None) -> str | None:
         absu = base + raw
     else:  # a bare filename from a Railway upload → the /uploads/ route
         absu = f"{base}/uploads/{raw}"
-    return f"{base}/og-image?u={quote(absu, safe='')}"
+    return f"{base}/og-image?u={quote(absu, safe='')}&s={_og_sig(absu)}"
 
 
 # JSON-LD structured data gives crawlers real machine-readable content (rich-result
@@ -810,16 +827,21 @@ def create_app(config_name: str | None = None) -> Flask:
         )
 
     @app.get("/og-image")
+    @limiter.limit("60 per minute")
     def og_image():
         """Flatten any club crest into an opaque, padded JPEG for social-share
         cards. Crests come from mixed sources (Cloudinary, 365scores, filgoal,
         Railway uploads) and are often small transparent PNGs, which WhatsApp/
         Telegram/Messenger drop or render as a blank box on mobile — while photos,
-        news covers and the app icon (opaque + large) preview fine. Fetch the
-        source (SSRF-guarded, with a browser UA so hotlink-protected CDNs serve
-        it), flatten onto white, pad to a 600 square, re-encode as JPEG. Referenced
-        only from our own OG tags; cached hard so a crawler fetches it once."""
+        news covers and the app icon (opaque + large) preview fine. Flatten onto
+        white, pad to a 600 square, re-encode as JPEG. Cached hard so a crawler
+        fetches it once.
+
+        The ``s`` signature means it only ever fetches a URL WE emitted in an OG
+        tag — not an arbitrary attacker one — so it is not an open proxy / SSRF."""
+        import hmac
         import io
+        from urllib.parse import urljoin
 
         import requests
         from PIL import Image
@@ -827,15 +849,30 @@ def create_app(config_name: str | None = None) -> Flask:
         from app.services import storage
 
         src = (request.args.get("u") or "").strip()
+        if not hmac.compare_digest(request.args.get("s", ""), _og_sig(src)):
+            abort(404)
         if not src.startswith(("http://", "https://")) or storage._is_internal_url(src):
             abort(404)
+        _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         try:
-            resp = requests.get(
-                src, timeout=6, stream=True,
-                headers={"User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")},
-            )
+            # Follow redirects ourselves, re-checking each hop against the SSRF
+            # guard — requests' own following would jump to an internal Location
+            # unchecked (and re-resolve DNS), so redirects are disabled here.
+            resp = None
+            for _ in range(4):
+                resp = requests.get(src, timeout=6, stream=True,
+                                    allow_redirects=False, headers={"User-Agent": _UA})
+                if not resp.is_redirect:
+                    break
+                nxt = urljoin(src, resp.headers.get("Location", ""))
+                resp.close()
+                if (not nxt.startswith(("http://", "https://"))
+                        or storage._is_internal_url(nxt)):
+                    abort(404)
+                src = nxt
+            else:
+                abort(404)  # too many redirects
             resp.raise_for_status()
             # Cap the download so a huge/hostile source can't exhaust memory.
             chunks, total = [], 0
