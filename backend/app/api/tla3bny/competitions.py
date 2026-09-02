@@ -789,6 +789,15 @@ def delete_competition_age(cage_id: int):
     cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
     if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
         return _forbid()
+    # The match / team-entry FKs to a sub-competition are SET NULL, so deleting a
+    # cage with live fixtures or registered teams silently detaches them (matches
+    # keep counting in standings under age_category_id but lose their rules, and
+    # entries lose their sub-comp link). Block it, like delete_team does for a
+    # team that has played — remove the fixtures / teams first.
+    if Tla3bnyMatch.query.filter_by(competition_age_id=cage_id).first():
+        return _err("لا يمكن حذف فئة لها مباريات. احذف مبارياتها أولًا.", 409)
+    if Tla3bnyCompetitionTeam.query.filter_by(competition_age_id=cage_id).first():
+        return _err("لا يمكن حذف فئة مسجّل بها فرق. أزل الفرق أولًا.", 409)
     db.session.delete(cage)
     db.session.commit()
     return jsonify({"message": "deleted"})
