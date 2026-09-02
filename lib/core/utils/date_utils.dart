@@ -5,7 +5,11 @@ class AppDateUtils {
     // A confirmed fixture with no date yet (TBD) sends an empty string.
     if (dateStr.isEmpty) return locale == 'ar' ? 'غير محدد' : 'TBD';
     try {
-      final dt = DateTime.parse(dateStr);
+      // toLocal() so a `Z`-suffixed (UTC) timestamp is compared/shown in the
+      // device's day, not UTC — otherwise a late-evening kickoff could read as
+      // "Tomorrow". A date-only string parses as local already, so this is a no-op
+      // for the feed's normal YYYY-MM-DD.
+      final dt = DateTime.parse(dateStr).toLocal();
       final today    = _today();
       final tomorrow = today.add(const Duration(days: 1));
       final yesterday = today.subtract(const Duration(days: 1));
@@ -28,7 +32,7 @@ class AppDateUtils {
 
   static String formatNewsDate(String dateStr, String locale) {
     try {
-      final dt = DateTime.parse(dateStr);
+      final dt = DateTime.parse(dateStr).toLocal();
       final pattern = locale == 'ar' ? 'd MMMM yyyy' : 'MMMM d, yyyy';
       return DateFormat(pattern, locale).format(dt);
     } catch (_) {
@@ -46,7 +50,7 @@ class AppDateUtils {
 
   static bool isUpcoming(String dateStr) {
     try {
-      final dt = DateTime.parse(dateStr);
+      final dt = DateTime.parse(dateStr).toLocal();
       return dt.isAfter(_today());
     } catch (_) {
       return false;
@@ -55,7 +59,7 @@ class AppDateUtils {
 
   static bool isToday(String dateStr) {
     try {
-      return _sameDay(DateTime.parse(dateStr), _today());
+      return _sameDay(DateTime.parse(dateStr).toLocal(), _today());
     } catch (_) {
       return false;
     }
