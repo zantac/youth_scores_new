@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchMatchFull } from '@/lib/api';
 import { hrefFor } from '@/lib/links';
-import { localize, formatMatchDate } from '@/lib/utils';
+import { localize, formatMatchDate, cloudinaryUrl } from '@/lib/utils';
 import type { MatchFull } from '@/lib/types';
 
 const CARD_ICON: Record<string, { icon: string; cls: string }> = {
@@ -15,7 +15,7 @@ const CARD_ICON: Record<string, { icon: string; cls: string }> = {
 
 function TeamAvatar({ url, name, size = 64 }: { url?: string; name: string; size?: number }) {
   const initials = name.trim().slice(0, 2).toUpperCase();
-  if (url) return <img src={url} alt={name} style={{ width: size, height: size }} className="object-contain drop-shadow-lg" />;
+  if (url) return <img src={cloudinaryUrl(url, size * 2)} alt={name} style={{ width: size, height: size }} className="object-contain drop-shadow-lg" />;
   return (
     <div style={{ width: size, height: size, fontSize: Math.round(size * 0.35) }}
       className="rounded-xl grid place-items-center font-black text-on-accent bg-gradient-to-br from-aqua to-aqua/70 shadow-[0_8px_20px_-8px_rgb(var(--accent-rgb)/0.5)]">
