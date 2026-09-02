@@ -258,13 +258,17 @@ def competition_data(competition_id: int) -> dict | None:
     ag = AgeGroup.query.get(comp.age_group_id) if comp.age_group_id else None
     age_ar = (ag.name_ar or ag.name_en) if ag else ""
     age_en = (ag.name_en or ag.name_ar) if ag else ""
+    season = comp.season
+    season_window = (season.start_date, season.end_date) if season else None
     return {
         "competition": {
             "id": comp.id,
             "title": _competition_title(comp, age_ar, age_en),
         },
+        # Scope each team's squad/staff to the competition's season, so a past
+        # season's page shows who actually played it rather than today's roster.
         "teams": [_team(t, groups_of.get(t.id) or [], docked.get(t.id, 0),
-                        names.get(t.id, (None, None)))
+                        names.get(t.id, (None, None)), season_window)
                   for t in teams],
         "matches": [_match(m) for m in matches],
         "venues": [],
@@ -364,19 +368,40 @@ def _squad_names_by_season_map() -> dict[tuple[int, int], tuple[str | None, str 
 
 
 def _team(t: Team, groups: list[Group], point_deduction: int = 0,
-          second_name: tuple[str | None, str | None] = (None, None)) -> dict:
+          second_name: tuple[str | None, str | None] = (None, None),
+          season_window: tuple | None = None) -> dict:
     group = groups[0] if groups else None
     club = t.club
     # Role seniority first (head coach → kit man), then any manual reorder within
-    # a role, so the head coach always leads however the staff were added. Only
-    # *current* staff (no end date) are shown here; a coach who has left drops off
-    # — their history stays on their own profile and in the season-scoped team view.
+    # a role, so the head coach always leads however the staff were added.
     role_rank = sa.case(codes.COACH_ROLE_RANK, value=TeamCoach.role_ar,
                         else_=codes.UNRANKED_COACH_ROLE)
     tcs = [tc for tc in TeamCoach.query.filter_by(team_id=t.id)
            .options(joinedload(TeamCoach.coach))
            .order_by(role_rank, TeamCoach.sort_order, TeamCoach.id).all()
-           if tc.coach and tc.end_date is None]
+           if tc.coach]
+    regs = (PlayerTeam.query.filter_by(team_id=t.id)
+            .options(joinedload(PlayerTeam.player))
+            .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
+            .all())
+
+    # Scope the squad/staff to the competition's season: keep the stints that
+    # overlapped its window, so a *past* season's competition shows the squad that
+    # actually played it — not today's roster (the same rule team_public applies to
+    # its season view). Without a window (older callers) fall back to the current
+    # members only, as before.
+    if season_window is not None:
+        ss, se = season_window
+
+        def _in_season(row) -> bool:
+            return row.start_date <= se and (row.end_date is None or row.end_date >= ss)
+
+        tcs = [tc for tc in tcs if _in_season(tc)]
+        regs = [r for r in regs if _in_season(r)]
+    else:
+        tcs = [tc for tc in tcs if tc.end_date is None]
+        regs = [r for r in regs if r.end_date is None]
+
     coaches = [
         c.coach.full_name_ar or c.coach.full_name_en
         for c in tcs if (c.coach.full_name_ar or c.coach.full_name_en)
@@ -390,13 +415,6 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
         "current": tc.end_date is None,
     } for tc in tcs]
 
-    # Current squad only (no end date). A player who has transferred or whose
-    # stint ended drops off; their history stays on their profile and in the
-    # season-scoped team view.
-    regs = (PlayerTeam.query.filter_by(team_id=t.id)
-            .options(joinedload(PlayerTeam.player))
-            .order_by(PlayerTeam.sort_order, PlayerTeam.shirt_number.asc(), PlayerTeam.id.asc())
-            .all())
     roster = [{
         "id": r.player_id,
         "name": _loc(r.player.full_name_ar, r.player.full_name_en) or {"ar": "", "en": ""},
@@ -405,7 +423,7 @@ def _team(t: Team, groups: list[Group], point_deduction: int = 0,
         "position": _loc(r.player.position_ar, r.player.position_en),
         "birth_year": r.player.birth_year,
         "current": r.end_date is None,
-    } for r in regs if r.player and r.end_date is None]
+    } for r in regs if r.player]
 
     return {
         "team_id": str(t.id),
