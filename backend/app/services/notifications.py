@@ -337,6 +337,11 @@ def notify_round_results(competition, week: str, matches, headline: str | None =
     }
     if group is not None:
         data["group_id"] = group.id
+        # Keep each group's digest distinct on-device: the android tag is derived
+        # from `url` (see _android_tag), so two groups finishing the same round
+        # would otherwise share a tag and the second would replace the first —
+        # the follower would miss one group's results. Scope the url per group.
+        data["url"] = f"{data['url']}&group={group.id}"
     result = send_to_topic(competition_topic(competition.id), title, body, data=data)
     send_to_topic(TOPIC_RESULTS, title, body, data=data)
     return result
