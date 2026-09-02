@@ -108,3 +108,24 @@ def test_all_matches_shape_and_date_filter():
             "http://x", date_from=date(2026, 6, 1), limit=100, order="desc",
         )["matches"]
         assert empty == []
+
+
+def test_config_blob_hides_unpublished_news():
+    """A draft (is_published=False) must not reach the public config feed."""
+    app, *_ = _app_with_league()
+    with app.app_context():
+        from app.models import News
+        from app.api import serializers
+
+        db.session.add_all([
+            News(title_ar="منشور", date=date(2026, 3, 2), is_published=True),
+            News(title_ar="مسودة", date=date(2026, 3, 3), is_published=False),
+        ])
+        db.session.commit()
+
+        titles = [
+            (n["title"]["ar"] if isinstance(n["title"], dict) else n["title"])
+            for n in serializers.config_blob("http://x")["news"]
+        ]
+        assert "منشور" in titles       # published one is served
+        assert "مسودة" not in titles    # draft is withheld
