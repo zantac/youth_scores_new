@@ -59,6 +59,7 @@ export default function MatchesEntry() {
   const [err, setErr] = useState<string | null>(null);
   const [fTeam, setFTeam] = useState('');
   const [fWeek, setFWeek] = useState('');
+  const [fGroup, setFGroup] = useState('');
   const [fDate, setFDate] = useState('');
   const [venues, setVenues] = useState<string[]>([]);
 
@@ -75,6 +76,10 @@ export default function MatchesEntry() {
   const loadComp = useCallback((id: number) => {
     if (!token) return;
     setCid(id); setEditing(null); setShowNew(false); setStages([]);
+    // Filters (team/week/group/date) belong to the competition being viewed —
+    // clear them on switch so a stale group/week from the previous one doesn't
+    // silently hide the new competition's matches.
+    setFTeam(''); setFWeek(''); setFGroup(''); setFDate('');
     Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id), apiStages(token, id)])
       .then(([t, m, s]) => { setTeams(t); setMatches(m); setStages(s); })
       .catch(e => setErr(e.message));
@@ -96,16 +101,34 @@ export default function MatchesEntry() {
   const active = useMemo(() => matches.filter(m => !m.deleted_at), [matches]);
   const recentlyDeleted = useMemo(() => matches.filter(m => m.deleted_at), [matches]);
 
+  // Group filter options — the groups that actually have matches, in stage/group
+  // order. Empty (and the dropdown hidden) for a flat competition with no groups.
+  const groups = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const m of active) {
+      if (m.group_id != null && !seen.has(m.group_id))
+        seen.set(m.group_id, m.group_name || `#${m.group_id}`);
+    }
+    const order = new Map<number, number>();
+    let i = 0;
+    for (const s of stages) for (const g of s.groups ?? []) order.set(g.id, i++);
+    return [...seen.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9)
+        || a.name.localeCompare(b.name, 'ar'));
+  }, [active, stages]);
+
   const shown = useMemo(() => {
     const q = fold(fTeam);
     return active.filter(m =>
       (!q || fold(teamLabel(m.home)).includes(q) || fold(teamLabel(m.away)).includes(q))
       && (!fWeek || m.week === fWeek)
+      && (!fGroup || String(m.group_id) === fGroup)
       && (!fDate || m.date === fDate));
-  }, [active, fTeam, fWeek, fDate]);
+  }, [active, fTeam, fWeek, fGroup, fDate]);
 
-  const filtering = Boolean(fTeam || fWeek || fDate);
-  const clear = () => { setFTeam(''); setFWeek(''); setFDate(''); };
+  const filtering = Boolean(fTeam || fWeek || fGroup || fDate);
+  const clear = () => { setFTeam(''); setFWeek(''); setFGroup(''); setFDate(''); };
 
   const restoreFromList = async (mid: number) => {
     if (!token) return;
@@ -144,6 +167,12 @@ export default function MatchesEntry() {
           <div className="bg-cardBg border border-bdr rounded-xl p-3 space-y-2">
             <input value={fTeam} onChange={e => setFTeam(e.target.value)}
               placeholder="ابحث باسم فريق…" className={inputCls} />
+            {groups.length > 0 && (
+              <select value={fGroup} onChange={e => setFGroup(e.target.value)} className={inputCls}>
+                <option value="">كل المجموعات</option>
+                {groups.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+              </select>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <select value={fWeek} onChange={e => setFWeek(e.target.value)} className={inputCls}>
                 <option value="">كل الجولات</option>
