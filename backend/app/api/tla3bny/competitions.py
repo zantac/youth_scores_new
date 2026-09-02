@@ -533,6 +533,7 @@ def delete_competition(comp_id: int):
 
 # ── competition admins ───────────────────────────────────────────────────────
 @tla3bny_bp.post("/competitions/<int:comp_id>/admins")
+@limiter.limit("20 per hour")
 @auth.login_required
 def add_competition_admin(comp_id: int):
     """Assign an organiser to this competition.
