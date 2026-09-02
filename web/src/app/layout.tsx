@@ -27,6 +27,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" className="dark" suppressHydrationWarning>
       <body className="bg-dark font-arabic antialiased" suppressHydrationWarning>
+        {/* Apply the visitor's saved language/direction/theme to <html> before
+            first paint. The static HTML ships the Arabic/RTL/dark default, so a
+            returning English or light-mode user would otherwise see a flash of
+            that default until the client effect runs. AppProvider keeps <html>
+            in sync afterwards (and skips its own first run so it can't clobber
+            what this set). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var e=document.documentElement," +
+              "l=localStorage.getItem('locale');" +
+              "if(l==='ar'||l==='en'){e.lang=l;" +
+              "e.setAttribute('dir',l==='ar'?'rtl':'ltr');}" +
+              "var d=localStorage.getItem('isDark');" +
+              "if(d!==null){e.classList.toggle('dark',d==='true');}" +
+              "}catch(_){}})();",
+          }}
+        />
         <SentryInit />
         <AppProvider>
           <div className="flex flex-col min-h-dvh">
