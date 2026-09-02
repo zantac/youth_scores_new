@@ -722,7 +722,11 @@ def bulk_update_matches():
     raw_ids = j.get("match_ids")
     if not isinstance(raw_ids, list) or not raw_ids:
         return jsonify({"error": "اختر مباريات"}), 400
-    ids = [i for i in (_as_int(x) for x in raw_ids) if i is not None]
+    if len(raw_ids) > 500:
+        # Bound the batch: one request must not rewrite an unbounded number of
+        # rows in a single transaction.
+        return jsonify({"error": "عدد كبير جدًا من المباريات (الحد 500)"}), 400
+    ids = list({i for i in (_as_int(x) for x in raw_ids) if i is not None})
 
     date_s = (j.get("date") or "").strip()
     time_s = (j.get("time") or "").strip()
