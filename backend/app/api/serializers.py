@@ -68,7 +68,12 @@ def config_blob(base_url: str) -> dict:
     return {
         "seasons": [_season(s, base_url) for s in Season.query.order_by(Season.id.desc()).all()],
         "venues": [_venue(v) for v in Venue.query.order_by(Venue.id).all()],
-        "news": [_news(n) for n in News.query.order_by(News.date.desc()).all()],
+        # Only published news — a draft (is_published=False) must not reach the
+        # public feed. list_news/share meta and the tla3bny feed already gate on
+        # this; the public config feed was the one path that didn't.
+        "news": [_news(n) for n in
+                 News.query.filter(News.is_published.is_(True))
+                 .order_by(News.date.desc()).all()],
         # Serve only ads that are active and within their start/expiry window.
         "Ads": [_ad(a) for a in Ad.query
                 .filter(Ad.active.is_(True),
