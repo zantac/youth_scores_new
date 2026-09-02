@@ -5,7 +5,9 @@ on Cloudinary, which WhatsApp renders as a blank box, so they're flattened onto 
 white background and forced to an opaque, bounded format.
 """
 
-from app import _card_logo
+from urllib.parse import quote
+
+from app import _card_logo, _og_image_url
 
 CLOUD = "https://res.cloudinary.com/demo/image/upload/v1/logos/ahly.png"
 
@@ -32,3 +34,94 @@ def test_empty_returns_empty():
     assert _card_logo(None) == ""
     assert _card_logo("") == ""
     assert _card_logo("   ") == ""
+
+
+# _og_image_url picks the final card image: a Cloudinary crest stays on the CDN,
+# any other source is routed through /og-image to be flattened server-side.
+
+BASE = "https://www.youthscores.org"
+
+
+def test_og_url_cloudinary_passthrough():
+    # already inline-flattened by _card_logo → served straight from Cloudinary
+    already = ("https://res.cloudinary.com/demo/image/upload/"
+               "f_jpg,c_pad,b_white,w_600,h_600/v1/logos/ahly.png")
+    assert _og_image_url(BASE, already) == already
+
+
+def test_og_url_external_goes_through_proxy():
+    ext = "https://www.365scores.com/logos/ahly.png"
+    out = _og_image_url(BASE, ext)
+    assert out == f"{BASE}/og-image?u={quote(ext, safe='')}"
+
+
+def test_og_url_bare_filename_uses_uploads_route():
+    out = _og_image_url(BASE, "abc.jpg")
+    assert out == f"{BASE}/og-image?u={quote(BASE + '/uploads/abc.jpg', safe='')}"
+
+
+def test_og_url_root_relative_uses_base():
+    out = _og_image_url(BASE, "/uploads/abc.jpg")
+    assert out == f"{BASE}/og-image?u={quote(BASE + '/uploads/abc.jpg', safe='')}"
+
+
+def test_og_url_empty_is_none():
+    assert _og_image_url(BASE, None) is None
+    assert _og_image_url(BASE, "") is None
+
+
+# ── /og-image endpoint (fetch → flatten → JPEG) ─────────────────────────────
+
+import io  # noqa: E402
+import os  # noqa: E402
+import tempfile  # noqa: E402
+
+from PIL import Image  # noqa: E402
+
+
+def _make_app():
+    os.environ.setdefault("FLASK_ENV", "development")
+    from app import create_app
+    from app.config import DevelopmentConfig
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    orig = DevelopmentConfig.SQLALCHEMY_DATABASE_URI
+    DevelopmentConfig.SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp.name}"
+    try:
+        return create_app("development")
+    finally:
+        DevelopmentConfig.SQLALCHEMY_DATABASE_URI = orig
+
+
+def test_endpoint_rejects_internal_and_bad_urls():
+    client = _make_app().test_client()
+    assert client.get("/og-image?u=http://127.0.0.1/x.png").status_code == 404
+    assert client.get("/og-image?u=not-a-url").status_code == 404
+    assert client.get("/og-image").status_code == 404
+
+
+def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
+    png = io.BytesIO()
+    Image.new("RGBA", (50, 50), (255, 0, 0, 128)).save(png, "PNG")  # semi-transparent
+
+    class _FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, _n):
+            yield png.getvalue()
+
+    import requests
+    from app.services import storage
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResp())
+    # Skip the real DNS lookup in the SSRF guard so the test doesn't need network.
+    monkeypatch.setattr(storage, "_is_internal_url", lambda _u: False)
+
+    client = _make_app().test_client()
+    r = client.get("/og-image?u=https://cdn.example.com/logo.png")
+    assert r.status_code == 200
+    assert r.mimetype == "image/jpeg"
+    out = Image.open(io.BytesIO(r.data))
+    assert out.size == (600, 600)  # padded to a square
+    assert out.mode == "RGB"       # flattened → opaque (JPEG has no alpha)
