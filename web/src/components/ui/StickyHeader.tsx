@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import ControlsBar from './ControlsBar';
+import { cloudinaryUrl } from '@/lib/utils';
 
 const BANNER =
   'https://res.cloudinary.com/debq5s4sn/image/upload/v1783684931/youthscores-banner-v2_yqr3hs.png';
@@ -30,7 +31,7 @@ export default function StickyHeader() {
           full-width it stretched across a desktop viewport while everything
           below it stayed in a phone-width column. */}
       <div className="w-full max-w-lg mx-auto">
-        <img src={BANNER} alt="Youth Scores" className="w-full h-auto" />
+        <img src={cloudinaryUrl(BANNER, 1024)} alt="Youth Scores" className="w-full h-auto" />
       </div>
       <ControlsBar />
     </header>
