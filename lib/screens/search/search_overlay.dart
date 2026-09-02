@@ -119,10 +119,17 @@ class _SearchScreenState extends State<_SearchScreen> {
     setState(() => _loading = true);
     _debounce = Timer(const Duration(milliseconds: 250), () async {
       final id = ++_reqId;
-      final r = await _api.fetchSearch(term);
+      SearchResults results;
+      try {
+        results = await _api.fetchSearch(term);
+      } catch (_) {
+        // Offline / timeout: show no network results rather than spin forever.
+        // (The local competition hits above are already on screen.)
+        results = SearchResults.empty;
+      }
       if (!mounted || id != _reqId) return; // a newer query superseded this one
       setState(() {
-        _res = r;
+        _res = results;
         _loading = false;
       });
     });
