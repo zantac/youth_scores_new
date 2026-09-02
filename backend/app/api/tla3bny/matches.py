@@ -30,6 +30,7 @@ from . import tla3bny_bp
 from .audit import _log
 from ._helpers import (
     _clamp_int,
+    _clip,
     _err,
     _forbid,
     _int,
@@ -154,9 +155,9 @@ def create_match():
         home_team_id=home_id,
         away_team_id=away_id,
         date=_parse_date(data.get("date")),
-        time=data.get("time"),
-        venue=(data.get("venue") or "").strip() or None,
-        round=(data.get("round") or "").strip() or None,
+        time=_clip(data.get("time"), 10),
+        venue=_clip(data.get("venue"), 255),
+        round=_clip(data.get("round"), 120),
         status="scheduled",
     )
     db.session.add(match)
@@ -173,16 +174,21 @@ def update_match(match_id: int):
     data = request.get_json(silent=True) or {}
     if "status" in data and data.get("status") not in codes.TLA3BNY_MATCH_STATUS:
         return _err("Invalid match status", 400)
-    for field in ("time", "venue", "round", "status"):
+    if "status" in data:
+        match.status = data.get("status")
+    # Clip the free-text fields to their column lengths — an over-long value
+    # would otherwise raise a DataError (500) and poison the session. Column
+    # widths: time String(10), venue String(255), round String(120).
+    for field, maxlen in (("time", 10), ("venue", 255), ("round", 120)):
         if field in data:
-            setattr(match, field, data.get(field))
+            setattr(match, field, _clip(data.get(field), maxlen))
     if "date" in data:
         d, derr = _parse_date_or_error(data.get("date"))
         if derr:
             return _err(derr, 400)
         match.date = d
     if "note" in data:
-        match.note = (data.get("note") or "").strip() or None
+        match.note = _clip(data.get("note"), 512)
     for field in ("stage_id", "group_id"):
         if field in data:
             setattr(match, field, _int(data.get(field)))
