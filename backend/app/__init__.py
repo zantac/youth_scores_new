@@ -856,10 +856,16 @@ def create_app(config_name: str | None = None) -> Flask:
                 img = flat
             else:
                 img = img.convert("RGB")
-            # Pad onto a 600 square so a small crest clears the client size floor.
-            img.thumbnail((600, 600))
-            canvas = Image.new("RGB", (600, 600), (255, 255, 255))
-            canvas.paste(img, ((600 - img.width) // 2, (600 - img.height) // 2))
+            # Scale the crest to (nearly) fill a 600 square — UP-scaling a small
+            # logo so it isn't a tiny mark in a sea of white — keeping aspect, then
+            # centre it with a small margin.
+            size, box = 600, 560
+            w, h = img.size
+            scale = box / max(w, h)
+            img = img.resize(
+                (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+            canvas = Image.new("RGB", (size, size), (255, 255, 255))
+            canvas.paste(img, ((size - img.width) // 2, (size - img.height) // 2))
             buf = io.BytesIO()
             canvas.save(buf, "JPEG", quality=85, optimize=True)
             out = app.response_class(buf.getvalue(), mimetype="image/jpeg")

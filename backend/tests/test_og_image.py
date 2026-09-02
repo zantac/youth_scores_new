@@ -125,3 +125,6 @@ def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
     out = Image.open(io.BytesIO(r.data))
     assert out.size == (600, 600)  # padded to a square
     assert out.mode == "RGB"       # flattened → opaque (JPEG has no alpha)
+    # A tiny 50×50 source is UP-scaled to fill the square, so a point well outside
+    # the centre is the (flattened) logo colour, not the white background.
+    assert out.getpixel((100, 300)) != (255, 255, 255)
