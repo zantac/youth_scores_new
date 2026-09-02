@@ -129,3 +129,33 @@ def test_config_blob_hides_unpublished_news():
         ]
         assert "منشور" in titles       # published one is served
         assert "مسودة" not in titles    # draft is withheld
+
+
+def test_competition_data_roster_is_season_scoped():
+    """A team's roster in competition_data reflects who played that season — a
+    player whose stint ended before the season is excluded; one active during it
+    is included."""
+    app, cid, home_id, away_id = _app_with_league()  # comp season = 2026
+    with app.app_context():
+        from app.models import Player, PlayerTeam
+        from app.api import serializers
+
+        left = Player(full_name_ar="راحل", birth_year=2009)
+        current = Player(full_name_ar="حالي", birth_year=2009)
+        db.session.add_all([left, current])
+        db.session.flush()
+        db.session.add_all([
+            # Stint entirely before the 2026 season → not part of that squad.
+            PlayerTeam(player_id=left.id, team_id=home_id,
+                       start_date=date(2024, 1, 1), end_date=date(2025, 6, 30)),
+            # Open stint that started in-season → part of the squad.
+            PlayerTeam(player_id=current.id, team_id=home_id,
+                       start_date=date(2026, 2, 1), end_date=None),
+        ])
+        db.session.commit()
+
+        home = next(t for t in serializers.competition_data(cid)["teams"]
+                    if t["team_id"] == str(home_id))
+        ids = {p["id"] for p in home["roster"]}
+        assert current.id in ids     # active during the season
+        assert left.id not in ids    # left before the season began
