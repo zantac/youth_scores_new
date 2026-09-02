@@ -6,14 +6,26 @@ results digest fire now? It must fire exactly once — on the not-settled →
 settled edge — and never for a round with nothing actually played.
 
 "Settled" means no match is still `scheduled` or `live` (a live score can still
-move) and at least one match is `completed`.
+move) and at least one match is `completed` *with a scoreline* — a completed
+match that has no scores yet still holds the round back.
 """
 
-from app.api.entry import _round_settles_now
+from app.api.entry import _round_settles_now, _round_state_from
+
+# The decision now runs on round-states, not raw statuses. Map the statuses the
+# tests speak in to their state so every existing case reads unchanged, and add
+# a "completed_unscored" token for the completed-but-no-score case.
+_STATE = {
+    "scheduled": "blocking", "live": "blocking",
+    "completed": "scored",              # completed WITH scores (the usual case)
+    "completed_unscored": "blocking",   # completed but no scoreline yet
+    "postponed": "final", "cancelled": "final",
+}
 
 
 def fires(others, old, new):
-    return _round_settles_now(others, old, new)
+    st = _STATE.__getitem__
+    return _round_settles_now([st(o) for o in others], st(old), st(new))
 
 
 class TestFiresOnLastResult:
@@ -75,3 +87,36 @@ class TestFiresExactlyOnce:
     def test_recompleting_after_reopen_fires_again(self):
         # ...and completing it again re-settles the round, so it fires once more.
         assert fires(["completed"], "scheduled", "completed")
+
+
+class TestCompletedButUnscored:
+    def test_completed_without_scores_does_not_settle(self):
+        # The last blocking match is marked completed but has no scoreline yet —
+        # the round is not done, so the digest must not fire.
+        assert not fires(["completed"], "scheduled", "completed_unscored")
+
+    def test_a_sibling_unscored_blocks_even_when_this_match_scores(self):
+        # This match gets a real result, but a sibling is completed-unscored, so
+        # the round is still pending.
+        assert not fires(["completed_unscored"], "scheduled", "completed")
+
+    def test_scoring_the_last_unscored_match_fires(self):
+        # Adding the missing scores to an already-completed match (unscored →
+        # scored) is what finally settles the round.
+        assert fires(["completed"], "completed_unscored", "completed")
+
+
+class TestStateClassification:
+    def test_completed_with_scores_is_scored(self):
+        assert _round_state_from("completed", True) == "scored"
+
+    def test_completed_without_scores_blocks(self):
+        assert _round_state_from("completed", False) == "blocking"
+
+    def test_scheduled_and_live_block(self):
+        assert _round_state_from("scheduled", False) == "blocking"
+        assert _round_state_from("live", False) == "blocking"
+
+    def test_postponed_and_cancelled_are_final(self):
+        assert _round_state_from("postponed", False) == "final"
+        assert _round_state_from("cancelled", False) == "final"
