@@ -336,6 +336,22 @@ def enter_result(match_id: int):
 
 # ── lineups ──────────────────────────────────────────────────────────────────
 
+def _oldest_birth_year(age_category) -> int | None:
+    """The oldest birth year an age category admits. Prefer the explicit column,
+    but fall back to the numeric age label (e.g. "2013") when it isn't set — the
+    same fallback teams_by_age uses. Without this, a bracket whose
+    oldest_birth_year is null would disable the guest age gate entirely and let
+    provably over-age players from sibling teams guest down."""
+    if age_category is None:
+        return None
+    if age_category.oldest_birth_year is not None:
+        return age_category.oldest_birth_year
+    try:
+        return int(age_category.label)
+    except (TypeError, ValueError):
+        return None
+
+
 def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     """Players a coach may include in the lineup for this match.
 
@@ -347,10 +363,9 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     team = Tla3bnyTeam.query.get_or_404(team_id)
     academy_id = team.academy_id
 
-    # Oldest birth year allowed by this competition's age category.
-    oldest_birth_year: int | None = (
-        match.age_category.oldest_birth_year if match.age_category else None
-    )
+    # Oldest birth year allowed by this competition's age category (label
+    # fallback, so a year-less bracket still gates guests).
+    oldest_birth_year: int | None = _oldest_birth_year(match.age_category)
 
     # Primary: approved competition players.
     entry = Tla3bnyCompetitionTeam.query.filter_by(
@@ -393,10 +408,7 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
         Tla3bnyTeam.id != team_id,
     ).all()
     for other_team in academy_teams:
-        team_birth_year: int | None = (
-            other_team.age_category.oldest_birth_year
-            if other_team.age_category else None
-        )
+        team_birth_year: int | None = _oldest_birth_year(other_team.age_category)
         # If the team's own age category is already younger, all its active
         # members are eligible regardless of individual DOB.
         team_is_younger = (
