@@ -118,7 +118,7 @@ def _competition_team_share_meta(competition_id: int, team_id: int) -> dict | No
     return {
         "title": " - ".join(p for p in (name, season) if p) or name,
         "description": " - ".join(p for p in (comp_name, age) if p),
-        "image": (club.logo_url or "") if club else "",
+        "image": _card_logo(club.logo_url) if club else "",
     }
 
 
@@ -165,7 +165,7 @@ def _match_share_meta(match_id: int) -> dict | None:
 
     home_team = db.session.get(Team, m.home_team_id)
     home_club = db.session.get(Club, home_team.club_id) if home_team and home_team.club_id else None
-    image = (home_club.logo_url or "") if home_club else ""
+    image = _card_logo(home_club.logo_url) if home_club else ""
 
     return {"title": title, "description": description, "image": image}
 
@@ -196,6 +196,29 @@ def _abs_url(base: str, raw: str | None) -> str | None:
     if raw.startswith("/"):
         return base + raw
     return None
+
+
+def _card_logo(raw: str | None) -> str:
+    """Make a club crest safe as a social-share image. Club logos are transparent
+    PNGs on Cloudinary, which WhatsApp renders as a blank/black box (a desktop
+    client tolerates them, so the same link previews fine there). Flatten onto a
+    white background, pad to a square, force an opaque format and bound the size.
+
+    A no-op for a non-Cloudinary URL or one already carrying transformation flags,
+    so it's safe to wrap any logo. Returns "" for an empty logo (→ the app-icon
+    fallback in _render_share_page)."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    marker = "/image/upload/"
+    at = raw.find(marker)
+    if at == -1 or "res.cloudinary.com" not in raw:
+        return raw
+    after = at + len(marker)
+    first_seg = raw[after:].split("/", 1)[0]
+    if "f_jpg" in first_seg or "c_pad" in first_seg or "b_" in first_seg:
+        return raw  # already transformed
+    return raw[:after] + "f_jpg,q_auto,c_pad,b_white,w_600,h_600/" + raw[after:]
 
 
 # JSON-LD structured data gives crawlers real machine-readable content (rich-result
@@ -354,7 +377,7 @@ def _club_share_meta(club_id: int) -> dict | None:
     if club is None:
         return None
     name = (club.name_ar or club.name_en or "نادي").strip()
-    return {"title": name, "image": club.logo_url or ""}
+    return {"title": name, "image": _card_logo(club.logo_url)}
 
 
 def _club_share_page(index_abs: str, item_id: int | None = None):
@@ -385,7 +408,7 @@ def _team_share_meta(team_id: int) -> dict | None:
         return None
     club = db.session.get(Club, t.club_id) if t.club_id else None
     name = ((club.name_ar or club.name_en) if club else "").strip() or "فريق"
-    logo = (club.logo_url or "") if club else ""
+    logo = _card_logo(club.logo_url) if club else ""
     age = ""
     if t.age_group_id:
         ag = db.session.get(AgeGroup, t.age_group_id)
