@@ -754,7 +754,11 @@ def bulk_update_matches():
                     changed = True
         if changed:
             updated += 1
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:  # noqa: BLE001 - keep the session clean and report cleanly
+        db.session.rollback()
+        return jsonify({"error": "تعذّر حفظ التغييرات"}), 500
     return jsonify({"updated": updated})
 
 

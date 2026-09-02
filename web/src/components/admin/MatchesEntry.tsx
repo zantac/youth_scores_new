@@ -104,7 +104,17 @@ export default function MatchesEntry() {
   }, [token]);
 
   const refreshMatches = useCallback(() => {
-    if (token && cid) apiCompetitionMatches(token, cid).then(setMatches);
+    if (!token || !cid) return;
+    apiCompetitionMatches(token, cid).then(m => {
+      setMatches(m);
+      // Drop ticked ids that no longer exist (deleted/moved) so the bulk
+      // "N محددة" count can't drift above what's actually on the list.
+      setSelected(prev => {
+        const live = new Set(m.map(x => x.id));
+        const next = new Set([...prev].filter(id => live.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
+    }).catch(() => {});
   }, [token, cid]);
 
   const openMatch = (mid: number) => token && apiGetMatch(token, mid).then(setEditing).catch(e => setErr(e.message));
