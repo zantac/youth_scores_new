@@ -16,6 +16,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db
@@ -1128,13 +1129,25 @@ def add_shootout_kick(mid: int):
         result = "scored"
     kick_order = _as_int(j.get("kick_order"))
     if kick_order is None:
-        kick_order = MatchPenaltyShootout.query.filter_by(match_id=mid, team_id=team_id).count() + 1
+        # max+1, not count+1: a deleted kick leaves a gap, so count+1 could land
+        # on an order that still exists. This still races two concurrent adds —
+        # the loser hits the unique constraint (uq_shootout_kick) and gets a clean
+        # 409 below instead of an unhandled 500.
+        top = (
+            db.session.query(sa.func.max(MatchPenaltyShootout.kick_order))
+            .filter_by(match_id=mid, team_id=team_id).scalar()
+        )
+        kick_order = (top or 0) + 1
     db.session.add(MatchPenaltyShootout(
         match_id=mid, team_id=team_id, player_id=player.id,
         kick_order=kick_order, result=result,
         is_winning_kick=bool(j.get("is_winning_kick", False)),
     ))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"error": "ترتيب الركلة مستخدم بالفعل، أعد المحاولة"}), 409
     return jsonify(_match_detail(m)), 201
 
 
