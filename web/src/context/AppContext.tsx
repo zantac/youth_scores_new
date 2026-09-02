@@ -98,7 +98,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (d !== null) setIsDark(d === 'true');
   }, []);
 
+  // Keep <html> lang/dir/theme in sync with state. The pre-paint inline script
+  // in the root layout already applied the saved prefs before hydration, so skip
+  // the first run here — it still carries the 'ar'/dark defaults from the initial
+  // state and would clobber the script's correction before the effect above loads
+  // the saved prefs. Every later change (saved prefs loading in, a user toggle)
+  // runs normally.
+  const htmlSynced = useRef(false);
   useEffect(() => {
+    if (!htmlSynced.current) { htmlSynced.current = true; return; }
     document.documentElement.setAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
     document.documentElement.setAttribute('lang', locale);
     document.documentElement.classList.toggle('dark', isDark);
