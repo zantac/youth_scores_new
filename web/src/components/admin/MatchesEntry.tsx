@@ -96,8 +96,12 @@ export default function MatchesEntry() {
     setCid(id); setEditing(null); setShowNew(false); setStages([]);
     // Filters (team/week/group/date) belong to the competition being viewed —
     // clear them on switch so a stale group/week from the previous one doesn't
-    // silently hide the new competition's matches.
+    // silently hide the new competition's matches. Also drop any bulk selection:
+    // its match ids are from the OLD competition, and Apply is by id, so a stale
+    // selection would silently edit the previous competition's matches.
     setFTeam(''); setFWeek(''); setFGroup(''); setFDate('');
+    setBulkMode(false); setSelected(new Set());
+    setBDate(''); setBTime(''); setBVenue(''); setBulkMsg(null); setBulkErr(null);
     Promise.all([apiCompetitionTeams(token, id), apiCompetitionMatches(token, id), apiStages(token, id)])
       .then(([t, m, s]) => { setTeams(t); setMatches(m); setStages(s); })
       .catch(e => setErr(e.message));
