@@ -19,7 +19,8 @@ export const viewport: Viewport = {
   themeColor: '#15D8FF',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
+  // No maximumScale/user-scalable lock: pinch-zoom must stay available for
+  // low-vision users on this dense Arabic UI (WCAG 2.1 SC 1.4.4).
   viewportFit: 'cover',
 };
 
