@@ -119,6 +119,7 @@ def _competition_team_share_meta(competition_id: int, team_id: int) -> dict | No
         "title": " - ".join(p for p in (name, season) if p) or name,
         "description": " - ".join(p for p in (comp_name, age) if p),
         "image": _card_logo(club.logo_url) if club else "",
+        "image_is_logo": True,
     }
 
 
@@ -167,7 +168,8 @@ def _match_share_meta(match_id: int) -> dict | None:
     home_club = db.session.get(Club, home_team.club_id) if home_team and home_team.club_id else None
     image = _card_logo(home_club.logo_url) if home_club else ""
 
-    return {"title": title, "description": description, "image": image}
+    return {"title": title, "description": description, "image": image,
+            "image_is_logo": True}
 
 
 def _match_share_page(index_abs: str, item_id: int | None = None):
@@ -219,6 +221,28 @@ def _card_logo(raw: str | None) -> str:
     if "f_jpg" in first_seg or "c_pad" in first_seg or "b_" in first_seg:
         return raw  # already transformed
     return raw[:after] + "f_jpg,q_auto,c_pad,b_white,w_600,h_600/" + raw[after:]
+
+
+def _og_image_url(base: str, raw: str | None) -> str | None:
+    """The final share-card image URL for a club crest. A Cloudinary crest keeps
+    its inline-flattened Cloudinary URL (served by their CDN — see _card_logo);
+    every other source (365scores / filgoal links, Railway uploads) is routed
+    through /og-image, which fetches and flattens it into an opaque, padded JPEG
+    so it isn't dropped or shown as a blank box on mobile. None for no logo."""
+    from urllib.parse import quote
+
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    if "res.cloudinary.com" in raw:
+        return _abs_url(base, raw)  # already opaque + on the CDN
+    if raw.startswith(("http://", "https://")):
+        absu = raw
+    elif raw.startswith("/"):
+        absu = base + raw
+    else:  # a bare filename from a Railway upload → the /uploads/ route
+        absu = f"{base}/uploads/{raw}"
+    return f"{base}/og-image?u={quote(absu, safe='')}"
 
 
 # JSON-LD structured data gives crawlers real machine-readable content (rich-result
@@ -303,7 +327,13 @@ def _render_share_page(
             html_text = f.read()
         base = f"{request.scheme}://{request.host}"
         url = base + request.full_path.rstrip("?")
-        image = _abs_url(base, meta.get("image")) or (base + "/icons/icon-512.png")
+        # A club crest (image_is_logo) is flattened to an opaque, padded image so
+        # mobile WhatsApp/Telegram don't drop it; photos/covers pass through as-is.
+        if meta.get("image_is_logo"):
+            image = _og_image_url(base, meta.get("image"))
+        else:
+            image = _abs_url(base, meta.get("image"))
+        image = image or (base + "/icons/icon-512.png")
         return _inject_share_meta(
             html_text, meta, url, image, og_type=og_type, schema_type=schema_type,
         )
@@ -377,7 +407,7 @@ def _club_share_meta(club_id: int) -> dict | None:
     if club is None:
         return None
     name = (club.name_ar or club.name_en or "نادي").strip()
-    return {"title": name, "image": _card_logo(club.logo_url)}
+    return {"title": name, "image": _card_logo(club.logo_url), "image_is_logo": True}
 
 
 def _club_share_page(index_abs: str, item_id: int | None = None):
@@ -421,7 +451,8 @@ def _team_share_meta(team_id: int) -> dict | None:
     # without an alias.
     na, ne = _squad_second_name(t)
     alt = (na or ne or "").strip()
-    return {"title": title, "description": ("" if alt == name else alt), "image": logo}
+    return {"title": title, "description": ("" if alt == name else alt),
+            "image": logo, "image_is_logo": True}
 
 
 def _team_share_page(index_abs: str, item_id: int | None = None):
@@ -777,6 +808,65 @@ def create_app(config_name: str | None = None) -> Flask:
                 }
             ]
         )
+
+    @app.get("/og-image")
+    def og_image():
+        """Flatten any club crest into an opaque, padded JPEG for social-share
+        cards. Crests come from mixed sources (Cloudinary, 365scores, filgoal,
+        Railway uploads) and are often small transparent PNGs, which WhatsApp/
+        Telegram/Messenger drop or render as a blank box on mobile — while photos,
+        news covers and the app icon (opaque + large) preview fine. Fetch the
+        source (SSRF-guarded, with a browser UA so hotlink-protected CDNs serve
+        it), flatten onto white, pad to a 600 square, re-encode as JPEG. Referenced
+        only from our own OG tags; cached hard so a crawler fetches it once."""
+        import io
+
+        import requests
+        from PIL import Image
+
+        from app.services import storage
+
+        src = (request.args.get("u") or "").strip()
+        if not src.startswith(("http://", "https://")) or storage._is_internal_url(src):
+            abort(404)
+        try:
+            resp = requests.get(
+                src, timeout=6, stream=True,
+                headers={"User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")},
+            )
+            resp.raise_for_status()
+            # Cap the download so a huge/hostile source can't exhaust memory.
+            chunks, total = [], 0
+            for chunk in resp.iter_content(64 * 1024):
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > 8_000_000:
+                    abort(413)
+            img = Image.open(io.BytesIO(b"".join(chunks)))
+            if img.width * img.height > 40_000_000:  # decompression-bomb guard
+                abort(413)
+            img.load()
+            # Flatten transparency onto white; everything becomes opaque RGB.
+            if img.mode in ("RGBA", "LA", "P"):
+                rgba = img.convert("RGBA")
+                flat = Image.new("RGB", rgba.size, (255, 255, 255))
+                flat.paste(rgba, mask=rgba.split()[-1])
+                img = flat
+            else:
+                img = img.convert("RGB")
+            # Pad onto a 600 square so a small crest clears the client size floor.
+            img.thumbnail((600, 600))
+            canvas = Image.new("RGB", (600, 600), (255, 255, 255))
+            canvas.paste(img, ((600 - img.width) // 2, (600 - img.height) // 2))
+            buf = io.BytesIO()
+            canvas.save(buf, "JPEG", quality=85, optimize=True)
+            out = app.response_class(buf.getvalue(), mimetype="image/jpeg")
+            out.headers["Cache-Control"] = "public, max-age=604800, immutable"
+            return out
+        except Exception:  # noqa: BLE001 - a blocked/broken source just yields no image
+            abort(404)
 
     # ── serve the exported Next.js sites on the same origin(s) as the API ─────
     # Two static exports share one backend, chosen by the request's Host:
