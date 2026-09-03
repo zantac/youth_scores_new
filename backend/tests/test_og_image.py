@@ -154,3 +154,12 @@ def test_endpoint_flattens_transparent_png_to_opaque_jpeg(monkeypatch):
     # A tiny 50×50 source is UP-scaled to fill the square, so a point well outside
     # the centre is the (flattened) logo colour, not the white background.
     assert out.getpixel((100, 300)) != (255, 255, 255)
+
+
+def test_rejects_are_short_cached_so_crawlers_back_off():
+    # A reject is an empty body carrying a short cache window — not a bare,
+    # uncacheable abort a social crawler would re-fetch on every render.
+    r = _make_app().test_client().get("/og-image?u=https://example.com/x.png")  # unsigned
+    assert r.status_code == 404
+    assert r.data == b""
+    assert "max-age=600" in r.headers.get("Cache-Control", "")

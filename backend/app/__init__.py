@@ -845,14 +845,23 @@ def create_app(config_name: str | None = None) -> Flask:
 
         import requests
         from PIL import Image
+        from werkzeug.exceptions import HTTPException
 
         from app.services import storage
 
+        def _no_image(code=404):
+            """A rejected or broken source: return a short-cached empty response so
+            a crawler backs off instead of re-hitting a bare, uncacheable abort —
+            while still allowing a retry later if the source recovers."""
+            resp = app.response_class(b"", status=code)
+            resp.headers["Cache-Control"] = "public, max-age=600"
+            return resp
+
         src = (request.args.get("u") or "").strip()
         if not hmac.compare_digest(request.args.get("s", ""), _og_sig(src)):
-            abort(404)
+            return _no_image()
         if not src.startswith(("http://", "https://")) or storage._is_internal_url(src):
-            abort(404)
+            return _no_image()
         _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         try:
@@ -908,8 +917,12 @@ def create_app(config_name: str | None = None) -> Flask:
             out = app.response_class(buf.getvalue(), mimetype="image/jpeg")
             out.headers["Cache-Control"] = "public, max-age=604800, immutable"
             return out
+        except HTTPException as e:
+            # Our own aborts inside the try (413 too-large / bomb, 404 bad
+            # redirect): keep the status but make the reject cacheable.
+            return _no_image(e.code or 404)
         except Exception:  # noqa: BLE001 - a blocked/broken source just yields no image
-            abort(404)
+            return _no_image()
 
     # ── serve the exported Next.js sites on the same origin(s) as the API ─────
     # Two static exports share one backend, chosen by the request's Host:
