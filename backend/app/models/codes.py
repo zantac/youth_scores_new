@@ -124,7 +124,11 @@ TLA3BNY_COACH_AWARD_TYPES = ("best_coach", "coach_of_round")
 #   fine            — a financial penalty (EGP) on a player / coach / team; private
 #                     (shown only to admins and the punished academy).
 #   point_deduction — points docked from a team; feeds the standings deduction.
-TLA3BNY_PUNISHMENT_TYPE = ("match_ban", "fine", "point_deduction")
+#   disqualification— a player / coach / team excluded from the competition; a
+#                     HARD block (an excluded player can't be saved in a lineup).
+# match_ban is also a hard block, but only for its ``matches`` count (served as the
+# team's finished matches after the ban), then it lapses.
+TLA3BNY_PUNISHMENT_TYPE = ("match_ban", "fine", "point_deduction", "disqualification")
 
 # TeamCoach.role_ar — the seniority order for a team's technical staff; the head
 # coach always leads however staff were added. Free text is still allowed;

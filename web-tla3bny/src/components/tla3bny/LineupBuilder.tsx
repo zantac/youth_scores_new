@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers, tCompetitionPunishments,
+  tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers,
   type TMatch, type TEligiblePlayer,
 } from '@/lib/tla3bnyApi';
 import { FORMATIONS, FORMATION_NAMES, slotBase } from '@/lib/tla3bnyFormations';
@@ -34,9 +34,6 @@ export default function LineupBuilder({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  // Player ids with an active match ban in this competition — a soft warning
-  // (the organizer decides), not a hard block.
-  const [bannedIds, setBannedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -89,21 +86,14 @@ export default function LineupBuilder({
     return () => { alive = false; };
   }, [matchId, teamId]);
 
-  // Active match bans for this competition (public list — bans are not private).
-  useEffect(() => {
-    if (!match) return;
-    tCompetitionPunishments(match.competition_id, token)
-      .then(ps => setBannedIds(new Set(
-        ps.filter(p => p.punishment_type === 'match_ban' && p.player_id).map(p => p.player_id as number))))
-      .catch(() => setBannedIds(new Set()));
-  }, [match, token]);
-
   const playerById = useCallback((id: number) => players.find(p => p.player_id === id), [players]);
-  // Names of selected (starter/sub) players who carry an active ban.
+  // Selected (starter/sub) players who are hard-blocked by a punishment — the
+  // eligible list carries the authoritative `banned` flag + reason.
   const bannedPicked = useMemo(
-    () => [...starters, ...subs].filter(id => bannedIds.has(id))
-      .map(id => playerById(id)?.player_name ?? `#${id}`),
-    [starters, subs, bannedIds, playerById]);
+    () => [...starters, ...subs].map(id => playerById(id))
+      .filter((p): p is TEligiblePlayer => !!p && p.banned === true)
+      .map(p => `${p.player_name}${p.banned_reason ? ` (${p.banned_reason})` : ''}`),
+    [starters, subs, playerById]);
 
   // IDs used across both groups — for mutual-exclusivity and slot-picker filtering.
   const slotUsedIds = useMemo(() => new Set<number>([...Object.values(assign), ...subs]), [assign, subs]);
@@ -237,11 +227,11 @@ export default function LineupBuilder({
       {bannedPicked.length > 0 && (
         <div className="bg-loss/10 border border-loss/40 rounded-xl px-4 py-3">
           <p className="text-loss font-bold text-sm">
-            🚫 {tt('لاعبون موقوفون في التشكيلة', 'Banned players in the lineup')}
+            🚫 {tt('لاعبون معاقَبون في التشكيلة', 'Punished players in the lineup')}
           </p>
           <p className="text-[11px] text-hint mt-0.5">
-            {tt(`${bannedPicked.join('، ')} — عليهم إيقاف مباريات في هذه البطولة. يمكنك المتابعة، لكن راجع الإدارة.`,
-                `${bannedPicked.join(', ')} — under a match ban in this competition. You can proceed, but check with the organizer.`)}
+            {tt(`${bannedPicked.join('، ')} — عليهم عقوبة في هذه البطولة. أزِلهم من التشكيلة؛ لا يمكن الحفظ وهم موجودون.`,
+                `${bannedPicked.join(', ')} — under an active punishment in this competition. Remove them; the lineup can't be saved with them in it.`)}
           </p>
         </div>
       )}
@@ -578,18 +568,20 @@ function PlayerPicker({
             // "used" means taken by the OTHER group (can't be starter AND sub).
             const used = usedIds.has(p.player_id) && !isSelected;
             const overAge = isOverAge(p);
+            const banned = p.banned === true;
             return (
               <button key={p.player_id}
-                disabled={used || notInPool}
+                disabled={used || notInPool || banned}
                 onClick={() => onPick(p.player_id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-start transition-colors ${
                   used || notInPool ? 'opacity-30 cursor-default' :
+                  banned ? 'opacity-50 cursor-not-allowed' :
                   isSelected ? 'bg-aqua/10 hover:bg-aqua/15' :
                   overAge ? 'hover:bg-gold/5' : 'hover:bg-cardBg2'
                 }`}>
                 <LogoAvatar src={p.photo_path} name={p.player_name} size={36} />
                 <div className="min-w-0 flex-1">
-                  <div className={`font-bold text-sm truncate ${isSelected ? 'text-aqua' : 'text-text'}`}>
+                  <div className={`font-bold text-sm truncate ${banned ? 'text-loss' : isSelected ? 'text-aqua' : 'text-text'}`}>
                     {p.player_name}
                   </div>
                   <div className="text-[11px] text-hint truncate">
@@ -603,6 +595,11 @@ function PlayerPicker({
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  {banned && (
+                    <span className="text-[10px] font-bold text-loss bg-loss/10 border border-loss/30 rounded-full px-1.5 py-0.5">
+                      🚫 {p.banned_reason ?? tt('معاقَب', 'Banned')}
+                    </span>
+                  )}
                   {isSelected && <span className="text-lg font-black text-aqua">✓</span>}
                   {overAge && (
                     <span title={tt(`مواليد قبل ${oldestBirthYear}`, `Born before ${oldestBirthYear}`)}

@@ -112,13 +112,17 @@ function PlayerContent() {
         </div>
       </Card>
 
-      {/* Match ban(s) — public disciplinary notice. */}
+      {/* Match ban / disqualification — public disciplinary notice. */}
       {bans.length > 0 && (
         <Card className="p-4 border-loss/40 bg-loss/[0.06] space-y-1">
-          <p className="text-loss font-black text-sm">🚫 {tt('إيقاف عن المشاركة', 'Match ban')}</p>
+          <p className="text-loss font-black text-sm">🚫 {tt('عقوبات', 'Disciplinary')}</p>
           {bans.map(b => (
             <p key={b.id} className="text-[12px] text-text">
-              <span className="font-bold">{b.matches} {tt('مباريات', 'matches')}</span>
+              <span className="font-bold">
+                {b.punishment_type === 'disqualification'
+                  ? tt('مستبعد من البطولة', 'Disqualified')
+                  : tt(`إيقاف ${b.matches} مباريات`, `Banned ${b.matches} matches`)}
+              </span>
               {b.competition_name ? <span className="text-hint"> · {b.competition_name}</span> : null}
               {b.reason ? <span className="text-hint"> — {b.reason}</span> : null}
             </p>

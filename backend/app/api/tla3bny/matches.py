@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from flask import jsonify, request
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -18,6 +18,7 @@ from app.models import (
     Tla3bnyMatchEvent,
     Tla3bnyPlayer,
     Tla3bnyPlayerTeam,
+    Tla3bnyPunishment,
     Tla3bnyStage,
     Tla3bnyTeam,
 )
@@ -352,6 +353,57 @@ def _oldest_birth_year(age_category) -> int | None:
         return None
 
 
+def _blocked_player_reasons(match: "Tla3bnyMatch", team_id: int) -> dict[int, str]:
+    """Players who are HARD-blocked from ``team_id``'s lineup for this match, by an
+    active punishment: a disqualification (of the player, or of the whole team), or
+    a match ban whose ``matches`` count isn't served yet. Served = the team's
+    finished matches that took place after the ban was recorded.
+
+    Returns ``{player_id: arabic_reason}``. Coaches aren't in lineups, so coach
+    punishments never appear here."""
+    puns = Tla3bnyPunishment.query.filter(
+        Tla3bnyPunishment.competition_id == match.competition_id,
+        Tla3bnyPunishment.punishment_type.in_(("match_ban", "disqualification")),
+    ).all()
+
+    team_disqualified = any(
+        p.punishment_type == "disqualification" and p.team_id == team_id for p in puns)
+    disqualified_players = {
+        p.player_id for p in puns
+        if p.punishment_type == "disqualification" and p.player_id}
+    ban_puns = [p for p in puns if p.punishment_type == "match_ban" and p.player_id]
+
+    # Count this team's finished matches (by date) once, to serve every ban against.
+    finished_dates: list = []
+    if ban_puns:
+        finished_dates = [
+            m.date for m in Tla3bnyMatch.query.filter(
+                Tla3bnyMatch.competition_id == match.competition_id,
+                Tla3bnyMatch.status.in_(_FINISHED),
+                or_(Tla3bnyMatch.home_team_id == team_id,
+                    Tla3bnyMatch.away_team_id == team_id),
+                Tla3bnyMatch.date.isnot(None),
+            ).all()
+        ]
+
+    reasons: dict[int, str] = {}
+    for p in ban_puns:
+        if not p.matches:
+            continue
+        ban_date = p.created_at.date() if p.created_at else None
+        served = sum(1 for d in finished_dates if ban_date and d > ban_date)
+        remaining = p.matches - served
+        if remaining > 0:
+            reasons[p.player_id] = f"موقوف — باقٍ {remaining} من {p.matches} مباريات"
+    # Disqualification overrides a ban count (permanent until removed).
+    for pid in disqualified_players:
+        reasons[pid] = "مستبعد من البطولة"
+    if team_disqualified:
+        # A sentinel the caller applies to every candidate on this team.
+        reasons[0] = "الفريق مستبعد من البطولة"
+    return reasons
+
+
 def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     """Players a coach may include in the lineup for this match.
 
@@ -444,6 +496,15 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
                 "guest_team": other_team.display_name(),
             })
 
+    # Hard-lock: flag players an active punishment bars from this lineup. The '0'
+    # key is the "whole team disqualified" sentinel, applied to everyone.
+    reasons = _blocked_player_reasons(match, team_id)
+    team_reason = reasons.get(0)
+    for r in result:
+        reason = team_reason or reasons.get(r["player_id"])
+        r["banned"] = reason is not None
+        r["banned_reason"] = reason
+
     return result
 
 
@@ -492,12 +553,17 @@ def save_lineup(match_id: int, team_id: int):
             return _err(f"Lineup too large (max {rules.lineup_size})", 409)
 
     # Each player must be eligible: either approved on this team's competition
-    # roster, or a younger guest from the same academy.
-    eligible = {p["player_id"] for p in _lineup_eligible_players(match, team_id)}
+    # roster, or a younger guest from the same academy — and not hard-blocked by a
+    # punishment (a match ban that isn't served, or a disqualification).
+    eligible_list = _lineup_eligible_players(match, team_id)
+    eligible = {p["player_id"] for p in eligible_list}
+    blocked = {p["player_id"]: p["banned_reason"] for p in eligible_list if p.get("banned")}
     for s in slots:
         pid = _int(s.get("player_id"))
         if pid and pid not in eligible:
             return _err("Lineup contains a player not eligible for this competition", 409)
+        if pid and pid in blocked:
+            return _err(f"لا يمكن إضافة لاعب معاقَب في التشكيلة: {blocked[pid]}", 409)
 
     lineup = Tla3bnyLineup.query.filter_by(match_id=match_id, team_id=team_id).first()
     was_new = lineup is None  # only the first submission notifies, not every edit
