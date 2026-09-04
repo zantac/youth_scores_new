@@ -73,6 +73,9 @@ function PlayerContent() {
     [tt('المركز', 'Position'), p.position],
     [tt('القدم/المركز الفرعي', 'Sub-position'), p.sub_position],
     [tt('تاريخ الميلاد', 'Date of birth'), p.dob],
+    // Only present for an authorised viewer (owning academy/team or an admin) —
+    // the API omits it from the public shape, same as the papers.
+    [tt('الرقم القومي', 'National ID'), p.national_id ?? null],
     [tt('الرقم', 'Jersey'), p.jersey_number != null ? `#${p.jersey_number}` : null],
   ];
 

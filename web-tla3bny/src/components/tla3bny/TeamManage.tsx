@@ -51,7 +51,12 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   const canAddPlayers = activeEntries.length > 0;
 
   // ── squad: add player (squad-only, no competition documents here) ──────────
-  const emptyPf = { name: '', name_en: '', position: '', jersey_number: '', dob: '' };
+  const emptyPf = { name: '', name_en: '', national_id: '', position: '', jersey_number: '', dob: '' };
+  // The national ID (الرقم القومي) is 14 digits. Normalise Arabic-Indic numerals
+  // first (mirrors the backend) so a value typed on an Arabic keyboard counts.
+  const nidDigits = (s: string) =>
+    s.replace(/[٠-٩۰-۹]/g, d => String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(d) % 10)).replace(/\D/g, '');
+  const nidValid = (s: string) => nidDigits(s).length === 14;
   const [pf, setPf] = useState(emptyPf);
   const [photo, setPhoto] = useState<File | null>(null);
   const [pBusy, setPBusy] = useState(false);
@@ -74,6 +79,10 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
     setEf({
       name: p.player_name ?? '',
       name_en: p.player_name_en ?? '',
+      // The national ID is private and not carried on the squad list; leaving it
+      // blank keeps the stored value (the API ignores an empty national_id), so
+      // this field is only for correcting it.
+      national_id: '',
       position: p.position ?? '',
       jersey_number: p.jersey_number != null ? String(p.jersey_number) : '',
       dob: '',
@@ -171,6 +180,16 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                     <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}>
                       <input value={ef.name_en} onChange={e => setEf({ ...ef, name_en: e.target.value })} dir="ltr" className={inputCls} />
                     </Field>
+                    <div className="col-span-2">
+                      <Field label={tt('الرقم القومي', 'National ID')}>
+                        <input value={ef.national_id} onChange={e => setEf({ ...ef, national_id: e.target.value })}
+                          className={inputCls} inputMode="numeric" maxLength={14} dir="ltr"
+                          placeholder={tt('اتركه فارغًا للإبقاء على الرقم الحالي', 'Leave blank to keep the current ID')} />
+                        {ef.national_id && !nidValid(ef.national_id) && (
+                          <p className="text-[10px] text-loss font-bold mt-1">{tt('الرقم القومي يجب أن يتكوّن من 14 رقمًا', 'National ID must be exactly 14 digits')}</p>
+                        )}
+                      </Field>
+                    </div>
                     <Field label={tt('المركز', 'Position')}>
                       <input value={ef.position} onChange={e => setEf({ ...ef, position: e.target.value })} className={inputCls} placeholder="ST / GK …" />
                     </Field>
@@ -189,7 +208,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
                   <p className="text-[10px] text-hint">
                     {tt('بعد الحفظ، سيُعاد إرسال اللاعب للاعتماد في البطولات المسجّل بها.', 'After saving, the player is resubmitted for approval in the competitions they are entered in.')}
                   </p>
-                  <PrimaryButton onClick={saveEdit} disabled={eBusy || !ef.name.trim()} className="text-sm">
+                  <PrimaryButton onClick={saveEdit} disabled={eBusy || !ef.name.trim() || (!!ef.national_id && !nidValid(ef.national_id))} className="text-sm">
                     {eBusy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ التعديلات', 'Save changes')}
                   </PrimaryButton>
                 </div>
@@ -204,6 +223,18 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
             <div className="grid grid-cols-2 gap-3">
               <Field label={tt('الاسم', 'Name')}><input value={pf.name} onChange={e => setPf({ ...pf, name: e.target.value })} className={inputCls} /></Field>
               <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={pf.name_en} onChange={e => setPf({ ...pf, name_en: e.target.value })} dir="ltr" className={inputCls} /></Field>
+              <div className="col-span-2">
+                <Field label={tt('الرقم القومي', 'National ID')}>
+                  <input value={pf.national_id} onChange={e => setPf({ ...pf, national_id: e.target.value })}
+                    className={inputCls} inputMode="numeric" maxLength={14} dir="ltr" placeholder="١٤ رقمًا" />
+                  <p className="text-[10px] text-hint mt-1">
+                    {pf.national_id && !nidValid(pf.national_id)
+                      ? <span className="text-loss font-bold">{tt('الرقم القومي يجب أن يتكوّن من 14 رقمًا', 'National ID must be exactly 14 digits')}</span>
+                      : tt('مطلوب — يُستخدم للتحقق من هوية اللاعب ومنع تسجيله في نفس البطولة مع أكثر من أكاديمية.',
+                           'Required — verifies the player\'s identity and stops the same child being entered in one competition by more than one academy.')}
+                  </p>
+                </Field>
+              </div>
               <Field label={tt('المركز', 'Position')}><input value={pf.position} onChange={e => setPf({ ...pf, position: e.target.value })} className={inputCls} placeholder="ST / GK …" /></Field>
               <Field label={tt('الرقم', 'Jersey')}><input value={pf.jersey_number} onChange={e => setPf({ ...pf, jersey_number: e.target.value })} className={inputCls} inputMode="numeric" /></Field>
               <Field label={tt('تاريخ الميلاد', 'Date of birth')}><input type="date" value={pf.dob} onChange={e => setPf({ ...pf, dob: e.target.value })} className={inputCls} /></Field>
@@ -212,7 +243,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
               <input type="file" accept="image/*" onChange={e => setPhoto(e.target.files?.[0] ?? null)} className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
               <p className="text-[10px] text-hint mt-1">{tt('استخدم صورة حديثة وواضحة لوجه اللاعب — تُستخدم للتحقق من هويته.', 'Use a recent, clear photo of the player\'s face — it is used to verify their identity.')}</p>
             </Field>
-            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
+            <PrimaryButton onClick={addPlayer} disabled={pBusy || !pf.name.trim() || !nidValid(pf.national_id)}>{pBusy ? tt('…', '…') : tt('إضافة لاعب', 'Add player')}</PrimaryButton>
           </Card>
         )}
 

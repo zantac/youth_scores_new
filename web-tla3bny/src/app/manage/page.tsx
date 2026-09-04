@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   tCompetition, tCompDashboard, tCategories,
-  tAddCompAge, tUpdateCompAge, tDeleteCompAge,
+  tAddCompAge, tUpdateCompAge, tDeleteCompAge, tSetCompAgeOrganizerPhoto,
   tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
@@ -366,6 +366,12 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
   const creating = age === null;
   const [name, setName] = useState(age?.name ?? '');
   const [desc, setDesc] = useState(age?.description ?? '');
+  const [organizerName, setOrganizerName] = useState(age?.organizer_name ?? '');
+  const [fieldSize, setFieldSize] = useState(age?.field_size ?? '');
+  // Organizer photo: the currently-stored path (for preview + clearing) and a
+  // freshly-picked file to upload after the row itself is saved.
+  const [organizerPhotoPath, setOrganizerPhotoPath] = useState(age?.organizer_photo_path ?? null);
+  const [organizerPhoto, setOrganizerPhoto] = useState<File | null>(null);
   const [fee, setFee] = useState(age?.subscription_fee != null ? String(age.subscription_fee) : '');
   const [deadline, setDeadline] = useState(age?.player_registration_deadline ?? '');
   const [createAgeId, setCreateAgeId] = useState('');
@@ -408,15 +414,21 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
     };
     if (creating) {
       if (!createAgeId) return;
-      await tAddCompAge(token, createCtx!.compId, {
+      const created = await tAddCompAge(token, createCtx!.compId, {
         age_category_id: Number(createAgeId),
         name: name.trim() || undefined,
         description: desc.trim() || undefined,
+        organizer_name: organizerName.trim() || undefined,
+        field_size: fieldSize.trim() || undefined,
         subscription_fee: fee.trim() === '' ? undefined : Number(fee),
         player_registration_deadline: deadline || undefined,
         ...rules,
       });
-      setName(''); setDesc(''); setFee(''); setDeadline(''); setDocs('');
+      // The photo needs the new row's id, so it uploads after create.
+      if (organizerPhoto) await tSetCompAgeOrganizerPhoto(token, created.id, organizerPhoto);
+      setName(''); setDesc(''); setOrganizerName(''); setFieldSize('');
+      setOrganizerPhoto(null); setOrganizerPhotoPath(null);
+      setFee(''); setDeadline(''); setDocs('');
       setF({ ...DEFAULT_RULES }); setEtPeriods(''); setEtMinutes('');
       setReplacementsOpen(false); setFormationRequired(false); setCreateAgeId('');
       setIsDirty(false); setOpen(false);
@@ -426,10 +438,19 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
     await tUpdateCompAge(token, age!.id, {
       name: name.trim() || null,
       description: desc.trim() || null,
+      organizer_name: organizerName.trim() || null,
+      field_size: fieldSize.trim() || null,
+      // Empty tells the API to clear a removed photo; a new file is uploaded below.
+      organizer_photo_path: organizerPhotoPath ? undefined : '',
       subscription_fee: fee.trim() === '' ? null : Number(fee),
       player_registration_deadline: deadline || null,
       ...rules,
     });
+    if (organizerPhoto) {
+      const updated = await tSetCompAgeOrganizerPhoto(token, age!.id, organizerPhoto);
+      setOrganizerPhotoPath(updated.organizer_photo_path);
+      setOrganizerPhoto(null);
+    }
     setOk(true); setIsDirty(false); setTimeout(() => setOk(false), 1500); reload();
   };
 
@@ -483,6 +504,36 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
           placeholder={tt('نبذة عن المنافسة الفرعية', 'A short blurb about this sub-competition')} />
       </Field>
 
+      {/* Sub-competition organizer (name + photo) — this bracket's own organizer */}
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
+        <p className="text-teal text-[10px] font-bold">{tt('منظّم البطولة الفرعية', 'Sub-competition organizer')}</p>
+        <div className="flex items-start gap-3">
+          {(organizerPhoto || organizerPhotoPath) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={organizerPhoto ? URL.createObjectURL(organizerPhoto) : mediaUrl(organizerPhotoPath)!}
+              alt="" className="w-14 h-14 rounded-full object-cover border border-bdr shrink-0" />
+          ) : (
+            <div className="w-14 h-14 rounded-full bg-darkBg border border-bdr flex items-center justify-center text-hint text-lg shrink-0">👤</div>
+          )}
+          <div className="flex-1 min-w-0 space-y-2">
+            <Field label={tt('اسم المنظّم', 'Organizer name')}>
+              <input value={organizerName} onChange={e => mark(setOrganizerName)(e.target.value)} className={inputCls}
+                placeholder={tt('المسؤول عن هذه الفئة', 'Who runs this bracket')} />
+            </Field>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="file" accept="image/*"
+                onChange={e => { setOrganizerPhoto(e.target.files?.[0] ?? null); setIsDirty(true); }}
+                className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+              {(organizerPhoto || organizerPhotoPath) && (
+                <button type="button"
+                  onClick={() => { setOrganizerPhoto(null); setOrganizerPhotoPath(null); setIsDirty(true); }}
+                  className="text-[11px] font-bold text-hint hover:text-loss">{tt('إزالة الصورة', 'Remove photo')}</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Match rules */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {RULE_FIELDS.map(([k, ar, en]) => (
@@ -493,6 +544,12 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
           </label>
         ))}
       </div>
+
+      {/* Field/pitch size — free text, since each age plays on a different size */}
+      <Field label={tt('مقاس الملعب', 'Field size')}>
+        <input value={fieldSize} onChange={e => mark(setFieldSize)(e.target.value)} className={inputCls}
+          placeholder={tt('مثال: ٤٠×٢٠ م · خماسي · نصف ملعب', 'e.g. 40×20 m · 5-a-side · half pitch')} />
+      </Field>
 
       {/* Extra time (knockout ties) */}
       <div className="border-t border-bdr/50 pt-3 space-y-2">

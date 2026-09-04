@@ -57,7 +57,7 @@ from ._helpers import (
     _validate_password,
     save_upload,
 )
-from .players import _player_team_id
+from .players import _national_id_clash_in_competition, _player_team_id
 
 
 # The free-text fields of a competition's public info page. Kept in one place so
@@ -733,6 +733,8 @@ def add_competition_age(comp_id: int):
         age_category_id=age_id,
         name=(data.get("name") or "").strip() or None,
         description=(data.get("description") or "").strip() or None,
+        organizer_name=_clip(data.get("organizer_name"), 200),
+        field_size=_clip(data.get("field_size"), 100),
         player_registration_deadline=_parse_date(data.get("player_registration_deadline")),
     )
     if "subscription_fee" in data:
@@ -766,6 +768,14 @@ def update_competition_age(cage_id: int):
         cage.name = (data.get("name") or "").strip() or None
     if "description" in data:
         cage.description = (data.get("description") or "").strip() or None
+    if "organizer_name" in data:
+        cage.organizer_name = _clip(data.get("organizer_name"), 200)
+    if "field_size" in data:
+        cage.field_size = _clip(data.get("field_size"), 100)
+    if "organizer_photo_path" in data and not (data.get("organizer_photo_path") or "").strip():
+        # The photo is set only via the multipart upload endpoint; an empty value
+        # here is how the form clears it (the actual file is uploaded separately).
+        cage.organizer_photo_path = None
     if "subscription_fee" in data:
         cage.subscription_fee = _parse_fee(data.get("subscription_fee"))
     if "player_registration_deadline" in data:
@@ -780,6 +790,27 @@ def update_competition_age(cage_id: int):
         cage.replacements_open = bool(data.get("replacements_open"))
     if "formation_required" in data:
         cage.formation_required = bool(data.get("formation_required"))
+    db.session.commit()
+    return jsonify(cage.to_dict(include_fee=True))
+
+
+@tla3bny_bp.post("/competition-ages/<int:cage_id>/organizer-photo")
+@auth.login_required
+def set_competition_age_organizer_photo(cage_id: int):
+    """Set (or replace) this sub-competition's organizer photo. Multipart, so it
+    is its own endpoint rather than the JSON create/update: send the image under
+    ``photo``. Clearing the photo is done through the JSON update (empty
+    ``organizer_photo_path``)."""
+    cage = Tla3bnyCompetitionAge.query.get_or_404(cage_id)
+    if not auth.is_competition_admin(auth.current_user(), cage.competition_id):
+        return _forbid()
+    _data, files = _read_payload()
+    if files is None or not files.get("photo"):
+        return _err("لم يتم إرفاق صورة", 400)
+    try:
+        cage.organizer_photo_path = save_upload(files.get("photo"), kind="image")
+    except ValueError as e:
+        return _err(str(e))
     db.session.commit()
     return jsonify(cage.to_dict(include_fee=True))
 
@@ -1147,6 +1178,25 @@ def add_roster_player(entry_id: int):
         competition_team_id=entry_id, player_id=player_id
     ).first():
         return _err("Player already on the roster", 409)
+
+    # One person, one academy, per competition. The national ID identifies the
+    # real player, so if the same ID is already actively entered on any roster in
+    # this competition — by this academy's other team or a rival academy — this is
+    # the same child being double-registered, which the rule forbids. Legacy
+    # players predating the field have no ID to match on, so require one first.
+    if not player.national_id:
+        return _err(
+            "أضِف الرقم القومي للاعب من ملفه أولًا قبل تسجيله في البطولة", 409
+        )
+    clash = _national_id_clash_in_competition(player, entry.competition_id)
+    if clash is not None:
+        other = clash.entry.team.academy if clash.entry and clash.entry.team else None
+        where = f" ({other.name})" if other else ""
+        return _err(
+            "هذا اللاعب (بنفس الرقم القومي) مسجّل بالفعل في هذه البطولة"
+            f" مع أكاديمية أخرى{where} — لا يمكن تسجيله مرتين في نفس البطولة",
+            409,
+        )
 
     # Use the entry's own sub-competition (fall back to age match only for legacy
     # rows) so a cap from a different sub-competition sharing this age isn't applied.

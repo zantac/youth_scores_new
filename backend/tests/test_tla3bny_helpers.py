@@ -5,7 +5,12 @@ enter_result, so a stray negative/huge value can't corrupt the standings and
 stats those feed. Mirrors youthscores' _clamp_int in entry.py.
 """
 
-from app.api.tla3bny._helpers import _clamp_int, _safe_photo_path
+from app.api.tla3bny._helpers import (
+    _clamp_int,
+    _national_id_or_error,
+    _normalize_national_id,
+    _safe_photo_path,
+)
 
 
 def test_clamp_int_within_range_unchanged():
@@ -65,3 +70,45 @@ def test_safe_photo_path_none_or_empty_stays_none():
     assert _safe_photo_path(None) is None
     assert _safe_photo_path("") is None
     assert _safe_photo_path("   ") is None
+
+
+# _national_id_or_error validates the الرقم القومي: an Egyptian national ID is
+# exactly 14 digits. It also normalises Arabic-Indic numerals so an ID typed on
+# an Arabic keyboard is accepted and stored the same as a Latin one.
+
+
+def test_national_id_accepts_exactly_14_ascii_digits():
+    nid, err = _national_id_or_error("29801011234567")
+    assert err is None
+    assert nid == "29801011234567"
+
+
+def test_national_id_normalises_arabic_indic_digits():
+    # ٢٩٨٠١٠١١٢٣٤٥٦٧ is the same value in Arabic-Indic numerals.
+    nid, err = _national_id_or_error("٢٩٨٠١٠١١٢٣٤٥٦٧")
+    assert err is None
+    assert nid == "29801011234567"  # stored as ASCII digits
+
+
+def test_national_id_strips_spaces_and_dashes():
+    nid, err = _national_id_or_error(" 298-0101 1234567 ")
+    assert err is None
+    assert nid == "29801011234567"
+
+
+def test_national_id_wrong_length_is_an_error():
+    for bad in ("123", "2980101123456", "298010112345678"):  # 3, 13, 15 digits
+        nid, err = _national_id_or_error(bad)
+        assert err is not None, bad
+
+
+def test_national_id_empty_is_not_an_error_here():
+    # Emptiness is the caller's call (required on create, optional on edit), so
+    # the validator itself reports no error for a blank value.
+    assert _national_id_or_error("") == ("", None)
+    assert _national_id_or_error(None) == ("", None)
+
+
+def test_normalize_national_id_drops_non_digits():
+    assert _normalize_national_id("2980-1011") == "29801011"
+    assert _normalize_national_id("abc") == ""
