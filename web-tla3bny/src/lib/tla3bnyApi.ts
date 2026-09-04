@@ -1244,6 +1244,57 @@ export const tSaveTeamOfRound = (token: string, compId: number, body: TTotrInput
 export const tDeleteTeamOfRound = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/team-of-round/${id}`, undefined, token);
 
+// ── punishments (العقوبات) ───────────────────────────────────────────────────
+export type TPunishmentType = 'match_ban' | 'fine' | 'point_deduction';
+export interface TPunishment {
+  id: number;
+  competition_id: number;
+  competition_age_id: number | null;
+  sub_competition_name: string | null;
+  age_label: string | null;
+  punishment_type: TPunishmentType;
+  matches: number | null;
+  points: number | null;
+  /** Fines only, and only sent to an admin or the punished academy. */
+  amount?: number | null;
+  reason: string | null;
+  player_id: number | null;
+  player_name: string | null;
+  player_name_en: string | null;
+  player_photo: string | null;
+  coach_id: number | null;
+  coach_name: string | null;
+  coach_name_en: string | null;
+  coach_photo: string | null;
+  team_id: number | null;
+  team_name: string | null;
+}
+export interface TPunishmentInput {
+  punishment_type: TPunishmentType;
+  competition_age_id?: number;
+  player_id?: number;
+  coach_id?: number;
+  team_id?: number;
+  matches?: number;
+  points?: number;
+  amount?: number;
+  reason?: string;
+}
+/** Fines are private: pass a token to get the ones you're allowed to see. */
+export const tCompetitionPunishments = (compId: number, token?: string | null) =>
+  get<TPunishment[]>(`/competitions/${compId}/punishments`, token);
+/** A player's match bans across competitions (public). */
+export interface TPlayerBan {
+  id: number; competition_id: number; competition_name: string | null;
+  matches: number | null; reason: string | null;
+}
+export const tPlayerBans = (playerId: number) =>
+  get<TPlayerBan[]>(`/players/${playerId}/bans`);
+export const tCreatePunishment = (token: string, compId: number, body: TPunishmentInput) =>
+  send<TPunishment>('POST', `/competitions/${compId}/punishments`, body, token);
+export const tDeletePunishment = (token: string, id: number) =>
+  send<{ message: string }>('DELETE', `/punishments/${id}`, undefined, token);
+
 // ── news / home ─────────────────────────────────────────────────────────────
 /** Published news. An editor passes their token with `drafts` to see their own
  *  unpublished items too; `scope: 'site'` narrows to site-wide news. */

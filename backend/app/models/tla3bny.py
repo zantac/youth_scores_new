@@ -2015,3 +2015,103 @@ class Tla3bnyTeamOfRoundSlot(TimestampMixin, db.Model):
             "team_id": team.id if team else None,
             "team_name": team.display_name() if team else None,
         }
+
+
+class Tla3bnyPunishment(TimestampMixin, db.Model):
+    """A disciplinary action an organizer records for a competition: a match ban
+    (player/coach), a fine (player/coach/team), or a point deduction (team).
+
+    Recipient is polymorphic like an award — exactly one of player_id / coach_id /
+    team_id is set. A point-deduction punishment also drives the standings: a
+    team's ``Tla3bnyCompetitionTeam.point_deduction`` is recomputed as the sum of
+    its active point-deduction punishments. Fines are private (shown only to
+    admins and the punished academy)."""
+
+    __tablename__ = "tla3bny_punishments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    punishment_type: Mapped[str] = mapped_column(
+        code_enum(*codes.TLA3BNY_PUNISHMENT_TYPE), nullable=False
+    )
+    player_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_players.id", ondelete="CASCADE")
+    )
+    coach_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_coaches.id", ondelete="CASCADE")
+    )
+    team_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE")
+    )
+    # match_ban → matches; point_deduction → points; fine → amount (EGP).
+    matches: Mapped[int | None] = mapped_column(sa.SmallInteger)
+    points: Mapped[int | None] = mapped_column(sa.SmallInteger)
+    amount: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
+    reason: Mapped[str | None] = mapped_column(sa.Text)
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    player: Mapped["Tla3bnyPlayer | None"] = relationship()
+    coach: Mapped["Tla3bnyCoach | None"] = relationship()
+    team: Mapped["Tla3bnyTeam | None"] = relationship()
+
+    __table_args__ = (
+        sa.Index("ix_tla3bny_punishments_comp", "competition_id"),
+        sa.Index("ix_tla3bny_punishments_player", "player_id"),
+        sa.Index("ix_tla3bny_punishments_team", "team_id"),
+    )
+
+    def recipient_academy_id(self) -> int | None:
+        """The academy the punished party belongs to — lets that academy (and only
+        it) see its own private fines."""
+        if self.team is not None:
+            return self.team.academy_id
+        if self.coach is not None and self.coach.team is not None:
+            return self.coach.team.academy_id
+        if self.player is not None:
+            cur = self.player.current_membership()
+            return cur.team.academy_id if cur and cur.team else None
+        return None
+
+    def to_dict(self, include_amount: bool = False) -> dict:
+        p, c, t = self.player, self.coach, self.team
+        cur = p.current_membership() if p else None
+        p_team = cur.team if cur else None
+        c_team = c.team if c else None
+        cage = self.competition_age
+        data = {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_name": cage.name if cage else None,
+            "age_label": cage.age_category.label if cage and cage.age_category else None,
+            "punishment_type": self.punishment_type,
+            "matches": self.matches,
+            "points": self.points,
+            "reason": self.reason,
+            "player_id": self.player_id,
+            "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            "player_photo": p.photo_path if p else None,
+            "coach_id": self.coach_id,
+            "coach_name": c.name if c else None,
+            "coach_name_en": c.name_en if c else None,
+            "coach_photo": c.photo_path if c else None,
+            "team_id": self.team_id or (p_team.id if p_team else None)
+            or (c_team.id if c_team else None),
+            "team_name": (t.display_name() if t else None)
+            or (p_team.display_name() if p_team else None)
+            or (c_team.display_name() if c_team else None),
+        }
+        # The fine amount is private — emitted only for an authorized caller.
+        if include_amount:
+            data["amount"] = float(self.amount) if self.amount is not None else None
+        return data
