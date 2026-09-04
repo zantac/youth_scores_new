@@ -23,13 +23,14 @@ import DocumentsManager from '@/components/tla3bny/DocumentsManager';
 import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import AdsManager from '@/components/tla3bny/AdsManager';
 import AwardsManager from '@/components/tla3bny/AwardsManager';
+import PunishmentsManager from '@/components/tla3bny/PunishmentsManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'news' | 'ads' | 'organizers';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'punishments' | 'news' | 'ads' | 'organizers';
 
 // Tab order in the bar; also the allow-list for the ?tab= URL param.
-const MANAGE_TABS: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'organizers', 'news', 'ads'];
+const MANAGE_TABS: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'punishments', 'organizers', 'news', 'ads'];
 
 function ManageContent() {
   const tt = useTT();
@@ -70,6 +71,7 @@ function ManageContent() {
     matches: ['المباريات', 'Matches'],
     stages: ['الأدوار', 'Stages'],
     awards: ['🏆 الجوائز', '🏆 Awards'],
+    punishments: ['⚖️ العقوبات', '⚖️ Punishments'],
     organizers: ['المنظمون', 'Organizers'],
     news: ['📰 الأخبار', '📰 News'],
     ads: ['📣 الإعلانات', '📣 Ads'],
@@ -94,6 +96,7 @@ function ManageContent() {
       {tab === 'matches' && <MatchesTab token={token} comp={comp} />}
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
       {tab === 'awards' && <AwardsManager token={token} comp={comp} />}
+      {tab === 'punishments' && <PunishmentsManager token={token} comp={comp} />}
       {tab === 'organizers' && <OrganizersTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
       {tab === 'ads' && <AdsManager token={token} competitionId={comp.id} />}

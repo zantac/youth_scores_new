@@ -2,9 +2,9 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds,
+  tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds, tPlayerBans,
   mediaUrl,
-  type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TAd,
+  type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TAd, type TPlayerBan,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import Spinner from '@/components/ui/Spinner';
@@ -24,6 +24,7 @@ function PlayerContent() {
   const [stats, setStats] = useState<TPlayerStatTotals | null>(null);
   const [ads, setAds] = useState<TAd[]>([]);
   const [adIdx, setAdIdx] = useState(0);
+  const [bans, setBans] = useState<TPlayerBan[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -46,6 +47,7 @@ function PlayerContent() {
   // Sponsor ads pooled from the player's competitions. When several run, rotate
   // the single large poster so each sponsor gets a turn.
   useEffect(() => { if (id) tPlayerAds(id).then(setAds).catch(() => setAds([])); }, [id]);
+  useEffect(() => { if (id) tPlayerBans(id).then(setBans).catch(() => setBans([])); }, [id]);
   useEffect(() => {
     if (ads.length <= 1) return;
     const t = setInterval(() => setAdIdx(i => (i + 1) % ads.length), 6000);
@@ -109,6 +111,20 @@ function PlayerContent() {
           {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
         </div>
       </Card>
+
+      {/* Match ban(s) — public disciplinary notice. */}
+      {bans.length > 0 && (
+        <Card className="p-4 border-loss/40 bg-loss/[0.06] space-y-1">
+          <p className="text-loss font-black text-sm">🚫 {tt('إيقاف عن المشاركة', 'Match ban')}</p>
+          {bans.map(b => (
+            <p key={b.id} className="text-[12px] text-text">
+              <span className="font-bold">{b.matches} {tt('مباريات', 'matches')}</span>
+              {b.competition_name ? <span className="text-hint"> · {b.competition_name}</span> : null}
+              {b.reason ? <span className="text-hint"> — {b.reason}</span> : null}
+            </p>
+          ))}
+        </Card>
+      )}
 
       {statCells.length > 0 && (
         <div className="grid grid-cols-5 gap-2">

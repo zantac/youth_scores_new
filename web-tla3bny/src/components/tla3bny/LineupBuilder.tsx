@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers,
+  tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers, tCompetitionPunishments,
   type TMatch, type TEligiblePlayer,
 } from '@/lib/tla3bnyApi';
 import { FORMATIONS, FORMATION_NAMES, slotBase } from '@/lib/tla3bnyFormations';
@@ -34,6 +34,9 @@ export default function LineupBuilder({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Player ids with an active match ban in this competition — a soft warning
+  // (the organizer decides), not a hard block.
+  const [bannedIds, setBannedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -86,7 +89,21 @@ export default function LineupBuilder({
     return () => { alive = false; };
   }, [matchId, teamId]);
 
+  // Active match bans for this competition (public list — bans are not private).
+  useEffect(() => {
+    if (!match) return;
+    tCompetitionPunishments(match.competition_id, token)
+      .then(ps => setBannedIds(new Set(
+        ps.filter(p => p.punishment_type === 'match_ban' && p.player_id).map(p => p.player_id as number))))
+      .catch(() => setBannedIds(new Set()));
+  }, [match, token]);
+
   const playerById = useCallback((id: number) => players.find(p => p.player_id === id), [players]);
+  // Names of selected (starter/sub) players who carry an active ban.
+  const bannedPicked = useMemo(
+    () => [...starters, ...subs].filter(id => bannedIds.has(id))
+      .map(id => playerById(id)?.player_name ?? `#${id}`),
+    [starters, subs, bannedIds, playerById]);
 
   // IDs used across both groups — for mutual-exclusivity and slot-picker filtering.
   const slotUsedIds = useMemo(() => new Set<number>([...Object.values(assign), ...subs]), [assign, subs]);
@@ -217,6 +234,17 @@ export default function LineupBuilder({
 
   return (
     <div className="space-y-4">
+      {bannedPicked.length > 0 && (
+        <div className="bg-loss/10 border border-loss/40 rounded-xl px-4 py-3">
+          <p className="text-loss font-bold text-sm">
+            🚫 {tt('لاعبون موقوفون في التشكيلة', 'Banned players in the lineup')}
+          </p>
+          <p className="text-[11px] text-hint mt-0.5">
+            {tt(`${bannedPicked.join('، ')} — عليهم إيقاف مباريات في هذه البطولة. يمكنك المتابعة، لكن راجع الإدارة.`,
+                `${bannedPicked.join(', ')} — under a match ban in this competition. You can proceed, but check with the organizer.`)}
+          </p>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <h2 className="text-lg font-black text-text flex-1">{tt('التشكيلة', 'Lineup')} · {teamName}</h2>
         {/* Step indicator */}

@@ -118,6 +118,14 @@ TLA3BNY_TEAM_AWARD_TYPES = ("champion", "runner_up", "third_place")
 # Award types whose recipient is a coach.
 TLA3BNY_COACH_AWARD_TYPES = ("best_coach", "coach_of_round")
 
+# Disciplinary actions an organizer records on the competition Punishments tab.
+#   match_ban       — a player or coach barred from N matches (recorded + shown;
+#                     the lineup builder soft-warns, it does not hard-block).
+#   fine            — a financial penalty (EGP) on a player / coach / team; private
+#                     (shown only to admins and the punished academy).
+#   point_deduction — points docked from a team; feeds the standings deduction.
+TLA3BNY_PUNISHMENT_TYPE = ("match_ban", "fine", "point_deduction")
+
 # TeamCoach.role_ar — the seniority order for a team's technical staff; the head
 # coach always leads however staff were added. Free text is still allowed;
 # anything not listed sorts after these. A manual reorder (TeamCoach.sort_order)
