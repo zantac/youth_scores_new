@@ -33,6 +33,8 @@ from ._helpers import (
     _err,
     _forbid,
     _int,
+    _national_id_or_error,
+    _normalize_national_id,
     _parse_date,
     _parse_date_or_error,
     _read_payload,
@@ -254,7 +256,7 @@ def create_player(team_id: int):
     """
     if not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
-    Tla3bnyTeam.query.get_or_404(team_id)
+    team = Tla3bnyTeam.query.get_or_404(team_id)
 
     data, files = _read_payload()
     name = (data.get("name") or "").strip()
@@ -265,6 +267,21 @@ def create_player(team_id: int):
     dob, dob_err = _parse_date_or_error(data.get("dob"))
     if dob_err:
         return _err(dob_err, 400)
+
+    # National ID is mandatory the moment a player joins a squad — it is the
+    # identity key the anti-duplicate rule matches on, so a missing one would be a
+    # hole in it. Validate the format, then reject a national ID already used by a
+    # player in this same academy (the same person can't be entered twice).
+    national_id, nid_err = _national_id_or_error(data.get("national_id"))
+    if nid_err:
+        return _err(nid_err, 400)
+    if not national_id:
+        return _err("الرقم القومي مطلوب لإضافة اللاعب", 400)
+    dup = _national_id_in_academy(national_id, team.academy_id)
+    if dup is not None:
+        return _err(
+            f"لاعب بنفس الرقم القومي مسجّل بالفعل في هذه الأكاديمية ({dup.name})", 409
+        )
 
     photo = None
     try:
@@ -277,6 +294,7 @@ def create_player(team_id: int):
         name=name,
         name_en=(data.get("name_en") or "").strip() or None,
         dob=dob,
+        national_id=national_id,
         position=(data.get("position") or "").strip() or None,
         sub_position=(data.get("sub_position") or "").strip() or None,
         photo_path=photo,
@@ -464,6 +482,55 @@ def _player_team_id(player: Tla3bnyPlayer) -> int | None:
     return cur.team_id if cur else None
 
 
+def _national_id_in_academy(
+    national_id: str, academy_id: int, exclude_player_id: int | None = None
+) -> Tla3bnyPlayer | None:
+    """The player (if any) in ``academy_id`` who already holds this national ID,
+    via an open membership on one of the academy's teams. Used to keep the same
+    person from being entered twice in one academy. Returns None when free."""
+    q = (
+        db.session.query(Tla3bnyPlayer)
+        .join(Tla3bnyPlayerTeam, Tla3bnyPlayerTeam.player_id == Tla3bnyPlayer.id)
+        .join(Tla3bnyTeam, Tla3bnyTeam.id == Tla3bnyPlayerTeam.team_id)
+        .filter(
+            Tla3bnyPlayer.national_id == national_id,
+            Tla3bnyTeam.academy_id == academy_id,
+            Tla3bnyPlayerTeam.end_date.is_(None),
+        )
+    )
+    if exclude_player_id is not None:
+        q = q.filter(Tla3bnyPlayer.id != exclude_player_id)
+    return q.first()
+
+
+def _national_id_clash_in_competition(
+    player: Tla3bnyPlayer, competition_id: int
+) -> "Tla3bnyCompetitionPlayer | None":
+    """An active (pending/approved) roster entry, on any team in ``competition_id``,
+    for a *different* player row that shares this player's national ID — i.e. the
+    same real child already entered in this competition by another academy (or
+    this academy's other team). Returns the clashing entry, or None when clear.
+    A player with no national ID can't be matched, so it returns None (the caller
+    requires the ID before this runs)."""
+    if not player.national_id:
+        return None
+    return (
+        db.session.query(Tla3bnyCompetitionPlayer)
+        .join(
+            Tla3bnyCompetitionTeam,
+            Tla3bnyCompetitionPlayer.competition_team_id == Tla3bnyCompetitionTeam.id,
+        )
+        .join(Tla3bnyPlayer, Tla3bnyCompetitionPlayer.player_id == Tla3bnyPlayer.id)
+        .filter(
+            Tla3bnyCompetitionTeam.competition_id == competition_id,
+            Tla3bnyPlayer.national_id == player.national_id,
+            Tla3bnyCompetitionPlayer.player_id != player.id,
+            Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+        )
+        .first()
+    )
+
+
 def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
     """Changing a player's global data (name, photo, DOB, papers…) is frozen for
     the academy in two cases; only the relevant competition's admin (or the super
@@ -521,6 +588,25 @@ def update_player(player_id: int):
         if dob_err:
             return _err(dob_err, 400)
         player.dob = dob
+    if _normalize_national_id(data.get("national_id")):
+        # A correction to the national ID: validate the new value and keep it
+        # unique within the academy. (An empty value is treated as "leave as-is",
+        # so a mandatory ID can't be silently cleared through an edit.)
+        national_id, nid_err = _national_id_or_error(data.get("national_id"))
+        if nid_err:
+            return _err(nid_err, 400)
+        cur_mem = player.current_membership()
+        academy_id = cur_mem.team.academy_id if cur_mem and cur_mem.team else None
+        dup = (
+            _national_id_in_academy(national_id, academy_id, player_id)
+            if academy_id is not None else None
+        )
+        if dup is not None:
+            return _err(
+                f"لاعب بنفس الرقم القومي مسجّل بالفعل في هذه الأكاديمية ({dup.name})",
+                409,
+            )
+        player.national_id = national_id
     if "position" in data:
         player.position = (data.get("position") or "").strip() or None
     if "sub_position" in data:

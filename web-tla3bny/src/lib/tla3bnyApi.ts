@@ -158,6 +158,9 @@ export interface TPlayer {
   current_team_id: number | null;
   current_academy_id: number | null;
   jersey_number: number | null;
+  // National ID (الرقم القومي) — PII, present only for callers the API lets see
+  // the private shape (owning academy/team login, or a competition admin).
+  national_id?: string | null;
   // Registration papers — present only for callers the API lets see them
   // (the owning academy/team login, or a competition admin).
   papers_path?: string | null;
@@ -219,6 +222,11 @@ export interface TCompAge {
   name: string | null;
   /** Public "about this sub-competition" text, shown to everyone. */
   description: string | null;
+  /** Who runs this specific sub-competition (public). */
+  organizer_name: string | null;
+  organizer_photo_path: string | null;
+  /** The pitch size for this age bracket, free text (public). */
+  field_size: string | null;
   /** Per-team entry fee (EGP). Present ONLY when the viewer is an academy or a
    *  competition admin — omitted for the public, so `undefined` means "not
    *  allowed to see" while `null` means "no fee set". */
@@ -881,6 +889,13 @@ export const tUpdateCompAge = (token: string, id: number, b: Record<string, unkn
   send<TCompAge>('PUT', `/competition-ages/${id}`, b, token);
 export const tDeleteCompAge = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/competition-ages/${id}`, undefined, token);
+/** Set/replace a sub-competition's organizer photo (multipart). Clear it via
+ *  tUpdateCompAge with organizer_photo_path: ''. */
+export function tSetCompAgeOrganizerPhoto(token: string, id: number, photo: File) {
+  const body = new FormData();
+  body.append('photo', photo);
+  return sendForm<TCompAge>('POST', `/competition-ages/${id}/organizer-photo`, body, token);
+}
 
 // ── registration documents: export & cleanup ────────────────────────────────
 export interface TDocDeleteResult {

@@ -313,6 +313,32 @@ def _parse_date_or_error(value):
     return d, None
 
 
+# Arabic-Indic (٠-٩) and Extended/Persian (۰-۹) digits → ASCII, so a national ID
+# typed on an Arabic keyboard validates and stores the same as a Latin one.
+_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+
+
+def _normalize_national_id(value) -> str:
+    """The national ID as bare ASCII digits: normalise Arabic-Indic numerals and
+    drop spaces/dashes a user might type. Returns "" for an empty value."""
+    if value is None:
+        return ""
+    s = str(value).translate(_ARABIC_DIGITS).strip()
+    return "".join(ch for ch in s if ch.isdigit())
+
+
+def _national_id_or_error(value):
+    """Validate the الرقم القومي. Egyptian national IDs are exactly 14 digits.
+    Returns (normalized_digits, error_or_None); a missing value is the caller's
+    responsibility to treat as required or not."""
+    nid = _normalize_national_id(value)
+    if not nid:
+        return "", None
+    if len(nid) != 14 or not nid.isdigit():
+        return nid, "الرقم القومي يجب أن يتكوّن من 14 رقمًا"
+    return nid, None
+
+
 def _validate_password(password: str) -> str | None:
     """Shared password-strength check for every set-password path. Returns an
     error message, or None when acceptable."""

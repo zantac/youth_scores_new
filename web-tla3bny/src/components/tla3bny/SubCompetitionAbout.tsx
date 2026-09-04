@@ -25,6 +25,7 @@ export default function SubCompetitionAbout({ age }: { age: TCompAge }) {
   // Every rule the organizer set for this sub-competition.
   const facts: [string, string | null][] = [
     [tt('آخر موعد للتسجيل', 'Registration deadline'), deadline],
+    [tt('مقاس الملعب', 'Field size'), age.field_size],
     [tt('قائمة الفريق', 'Squad list'), String(age.max_players_per_team)],
     [tt('التشكيلة', 'Lineup'), String(age.lineup_size)],
     [tt('الأساسيون', 'On pitch'), String(age.players_on_pitch)],
@@ -51,6 +52,16 @@ export default function SubCompetitionAbout({ age }: { age: TCompAge }) {
         <Card className="p-4 space-y-2">
           <h3 className="font-black text-text">{tt('عن المنافسة', 'About this competition')}</h3>
           <p className="text-sm text-teal whitespace-pre-line leading-relaxed">{age.description}</p>
+        </Card>
+      )}
+
+      {(age.organizer_name || age.organizer_photo_path) && (
+        <Card className="p-4 flex items-center gap-3">
+          <LogoAvatar src={age.organizer_photo_path} name={age.organizer_name ?? '?'} size={48} />
+          <div className="min-w-0">
+            <p className="text-hint text-[11px] font-bold">{tt('منظّم البطولة', 'Organizer')}</p>
+            <p className="text-text font-black truncate">{age.organizer_name || tt('غير محدد', 'Not set')}</p>
+          </div>
         </Card>
       )}
 

@@ -503,6 +503,12 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
     dob: Mapped[date | None] = mapped_column(sa.Date)
+    # National ID (الرقم القومي): the player's real-world identity key, 14 digits.
+    # Mandatory for newly-added players (enforced in the API); NULL only for legacy
+    # rows created before the field existed. It is the key the competition-entry
+    # guard matches on so one person can't be entered by two academies in the same
+    # competition. Private (PII): emitted only on the authorised serialization.
+    national_id: Mapped[str | None] = mapped_column(sa.String(14))
     position: Mapped[str | None] = mapped_column(sa.String(50))
     sub_position: Mapped[str | None] = mapped_column(sa.String(50))
     photo_path: Mapped[str | None] = mapped_column(sa.String(512))
@@ -547,6 +553,10 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
             # of which carries its own signed URL.
             data["files"] = [f.to_dict() for f in self.files]
             data["file_count"] = len(self.files)
+            # The national ID is PII, so it rides only on this authorised shape
+            # (owning academy/team or a competition/super admin) — never the public
+            # profile.
+            data["national_id"] = self.national_id
         return data
 
     def __repr__(self) -> str:
@@ -873,6 +883,11 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     # Public "about this sub-competition" text — shown to everyone, describing
     # what this bracket is (format, who it's for, notes). Set by the organizer.
     description: Mapped[str | None] = mapped_column(sa.Text)
+    # The person running THIS sub-competition (a big competition often hands each
+    # age bracket to a different organizer). Both are public — shown on the
+    # sub-competition's page so academies know who to deal with.
+    organizer_name: Mapped[str | None] = mapped_column(sa.String(200))
+    organizer_photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     # Per-team entry fee for this sub-competition, in EGP. Shown ONLY to academy
     # accounts and the competition's admins — never to the anonymous public.
     subscription_fee: Mapped[Decimal | None] = mapped_column(sa.Numeric(10, 2))
@@ -908,6 +923,9 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     lineup_deadline_minutes: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=60
     )
+    # The pitch size for this bracket, as free text — each age plays on a
+    # different-sized field (e.g. "٤٠×٢٠ م", "نصف ملعب", "خماسي"). Public.
+    field_size: Mapped[str | None] = mapped_column(sa.String(100))
     # Registration papers required for players in this sub-competition.
     # Null falls back to the competition's global list, then the age category default.
     required_documents: Mapped[list | None] = mapped_column(sa.JSON)
@@ -972,6 +990,9 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             ),
             "name": self.name,
             "description": self.description,
+            "organizer_name": self.organizer_name,
+            "organizer_photo_path": self.organizer_photo_path,
+            "field_size": self.field_size,
             "player_registration_deadline": (
                 self.player_registration_deadline.isoformat()
                 if self.player_registration_deadline else None
