@@ -691,6 +691,10 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     season_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_seasons.id", ondelete="CASCADE"), nullable=False
     )
+    # The edition/season number of THIS competition series (الموسم), typed by the
+    # organizer as 1, 2, 3… — distinct from the calendar season above. Shown under
+    # the name on the competition hero. Null when not set.
+    season_number: Mapped[int | None] = mapped_column(sa.SmallInteger)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     name_en: Mapped[str | None] = mapped_column(sa.String(255))
     description: Mapped[str | None] = mapped_column(sa.Text)
@@ -795,6 +799,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "id": self.id,
             "season_id": self.season_id,
             "season_name": self.season.name if self.season else None,
+            "season_number": self.season_number,
             "name": self.name,
             "name_en": self.name_en,
             "description": self.description,

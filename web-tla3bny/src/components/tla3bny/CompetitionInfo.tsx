@@ -12,10 +12,12 @@ import { Card, EmptyState, LogoAvatar, useTT } from './kit';
 export default function CompetitionInfo({ comp, hideAbout = false }: { comp: TCompetition; hideAbout?: boolean }) {
   const tt = useTT();
   const { locale } = useApp();
+  // Localized competition name (English when the UI is English, else Arabic).
+  const compName = locale === 'en' ? (comp.name_en || comp.name) : (comp.name || comp.name_en);
 
   const chat = whatsappLink(
     comp.whatsapp_number,
-    tt(`السلام عليكم، بخصوص بطولة ${comp.name}`, `Hello, about ${comp.name}`),
+    tt(`السلام عليكم، بخصوص بطولة ${comp.name}`, `Hello, about ${compName}`),
   );
 
   const dates = [comp.start_date, comp.end_date].filter(Boolean) as string[];

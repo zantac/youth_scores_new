@@ -11,14 +11,14 @@ import {
 import Spinner from '@/components/ui/Spinner';
 import { useApp } from '@/context/AppContext';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
-import { formatMatchDate, sortAges, subCompLabel, todayStr } from '@/lib/utils';
+import { formatMatchDate, sortAges, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionHero from '@/components/tla3bny/CompetitionHero';
 import SubCompetitionAbout from '@/components/tla3bny/SubCompetitionAbout';
 import { AdStrip } from '@/components/tla3bny/AdCard';
 import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
-import { Card, EmptyState, LogoAvatar, useTT } from '@/components/tla3bny/kit';
+import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 import { CompetitionHonours } from '@/components/tla3bny/Honours';
 
 type Tab = 'standings' | 'matches' | 'stats' | 'honours' | 'about';
@@ -34,6 +34,7 @@ function compUrl(id: number, cage: number | null, t: Tab): string {
 
 function CompetitionsContent() {
   const tt = useTT();
+  const nm = useName();
   const { token } = useTla3bnyAuth();
   const params = useSearchParams();
   const router = useRouter();
@@ -113,12 +114,14 @@ function CompetitionsContent() {
     const tabs = ['about', 'matches', 'standings', 'stats', 'honours'] as Tab[];
     return (
       <div className="space-y-4">
-        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">→ {comp.name}</button>
-        {/* The hero belongs to this sub-competition: titled by it, showing its own
-            description (falling back to the competition's). */}
+        <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">→ {nm(comp.name, comp.name_en)}</button>
+        {/* The hero belongs to this sub-competition: its name on the first line,
+            the age / year of birth on the second (as the ageLabel chip). The blurb
+            is dropped here — it shows in the About tab. */}
         <CompetitionHero comp={comp}
-          title={selectedAge ? subCompLabel(selectedAge) : undefined}
-          description={selectedAge?.description ?? comp.description} />
+          title={selectedAge?.name || undefined}
+          ageLabel={selectedAge?.age_category ?? undefined}
+          description={null} />
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
           {tabs.map(t => (

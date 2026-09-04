@@ -1676,6 +1676,7 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
     whatsapp_number: comp.whatsapp_number ?? '',
     whatsapp_group_url: comp.whatsapp_group_url ?? '',
     facebook_url: comp.facebook_url ?? '',
+    season_number: comp.season_number != null ? String(comp.season_number) : '',
     start_date: comp.start_date ?? '',
     end_date: comp.end_date ?? '',
   });
@@ -1723,6 +1724,10 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
           <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={set('name')} className={inputCls} /></Field>
           <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={f.name_en} onChange={set('name_en')} dir="ltr" className={inputCls} /></Field>
           <Field label={tt('المنظم', 'Organizer')}><input value={f.organizer_name} onChange={set('organizer_name')} className={inputCls} /></Field>
+          <Field label={tt('الموسم (رقم)', 'Season (number)')}>
+            <input value={f.season_number} onChange={set('season_number')} inputMode="numeric" className={inputCls}
+              placeholder={tt('مثال: 1', 'e.g. 1')} />
+          </Field>
         </div>
         <div className="flex items-center gap-3">
           {(organizerPhoto || organizerPhotoPath) ? (

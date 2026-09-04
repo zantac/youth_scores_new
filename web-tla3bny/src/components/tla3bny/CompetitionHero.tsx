@@ -1,6 +1,7 @@
 'use client';
 import { type ReactNode } from 'react';
 import { mediaUrl, type TCompetition } from '@/lib/tla3bnyApi';
+import { useTT, useName } from './kit';
 
 // The competition identity card: the logo fills the card's height, with the
 // name, short blurb (description) and location beside it. Shared by the
@@ -17,8 +18,11 @@ export default function CompetitionHero({ comp, title, description, ageLabel, ac
   ageLabel?: string | null;
   action?: ReactNode;
 }) {
+  const tt = useTT();
+  const nm = useName();
   const logo = mediaUrl(comp.logo_path);
-  const heading = title ?? comp.name;
+  // Use the English name when the UI is in English (falls back to Arabic).
+  const heading = title ?? nm(comp.name, comp.name_en);
   const blurb = description === undefined ? comp.description : description;
   return (
     <div className="flex items-stretch gap-4 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 shadow-[0_20px_40px_-24px_rgba(0,0,0,0.7)]">
@@ -34,6 +38,12 @@ export default function CompetitionHero({ comp, title, description, ageLabel, ac
           <h1 className="flex-1 min-w-0 text-text font-black text-2xl leading-tight">{heading}</h1>
           {action}
         </div>
+        {/* The organizer's edition/season number (الموسم), right under the name. */}
+        {comp.season_number != null && (
+          <span className="self-start text-xs font-bold text-gold">
+            {tt(`الموسم ${comp.season_number}`, `Season ${comp.season_number}`)}
+          </span>
+        )}
         {ageLabel && (
           <span className="self-start text-[11px] font-bold text-aqua bg-aqua/10 border border-aqua/30 rounded-full px-2.5 py-0.5">
             {ageLabel}
