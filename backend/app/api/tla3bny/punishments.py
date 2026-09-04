@@ -84,11 +84,14 @@ def list_punishments(comp_id: int):
 
 @tla3bny_bp.get("/players/<int:player_id>/bans")
 def player_bans(player_id: int):
-    """A player's match bans across competitions — public (bans are not private).
-    Drives the ban banner on the player profile."""
+    """A player's match bans and disqualifications across competitions — public
+    (not private, unlike fines). Drives the ban banner on the player profile."""
     rows = (
         Tla3bnyPunishment.query
-        .filter_by(player_id=player_id, punishment_type="match_ban")
+        .filter(
+            Tla3bnyPunishment.player_id == player_id,
+            Tla3bnyPunishment.punishment_type.in_(("match_ban", "disqualification")),
+        )
         .order_by(Tla3bnyPunishment.created_at.desc())
         .all()
     )
@@ -96,6 +99,7 @@ def player_bans(player_id: int):
         "id": p.id,
         "competition_id": p.competition_id,
         "competition_name": p.competition.name if p.competition else None,
+        "punishment_type": p.punishment_type,
         "matches": p.matches,
         "reason": p.reason,
     } for p in rows])
@@ -152,6 +156,20 @@ def create_punishment(comp_id: int):
         if not n or n < 1:
             return _err("عدد المباريات يجب أن يكون رقمًا موجبًا")
         pun.matches = min(100, n)
+    elif ptype == "disqualification":
+        # A player / coach / team excluded from the competition — no numeric value.
+        if team_id:
+            if not _team_in_comp(team_id):
+                return _err("هذا الفريق غير مشارك في البطولة", 409)
+            pun.team_id = team_id
+        elif player_id:
+            Tla3bnyPlayer.query.get_or_404(player_id)
+            pun.player_id = player_id
+        elif coach_id:
+            Tla3bnyCoach.query.get_or_404(coach_id)
+            pun.coach_id = coach_id
+        else:
+            return _err("اختر مستلمًا للاستبعاد (لاعب / مدرب / فريق)")
     else:  # fine
         if team_id:
             if not _team_in_comp(team_id):

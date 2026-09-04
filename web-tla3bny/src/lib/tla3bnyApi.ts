@@ -375,6 +375,9 @@ export interface TEligiblePlayer {
   dob: string | null;
   guest: boolean;
   guest_team: string | null;
+  /** Hard-blocked by an active punishment (match ban / disqualification). */
+  banned?: boolean;
+  banned_reason?: string | null;
 }
 
 export interface TCompTeam {
@@ -1245,7 +1248,7 @@ export const tDeleteTeamOfRound = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/team-of-round/${id}`, undefined, token);
 
 // ── punishments (العقوبات) ───────────────────────────────────────────────────
-export type TPunishmentType = 'match_ban' | 'fine' | 'point_deduction';
+export type TPunishmentType = 'match_ban' | 'fine' | 'point_deduction' | 'disqualification';
 export interface TPunishment {
   id: number;
   competition_id: number;
@@ -1283,9 +1286,10 @@ export interface TPunishmentInput {
 /** Fines are private: pass a token to get the ones you're allowed to see. */
 export const tCompetitionPunishments = (compId: number, token?: string | null) =>
   get<TPunishment[]>(`/competitions/${compId}/punishments`, token);
-/** A player's match bans across competitions (public). */
+/** A player's match bans / disqualifications across competitions (public). */
 export interface TPlayerBan {
   id: number; competition_id: number; competition_name: string | null;
+  punishment_type: 'match_ban' | 'disqualification';
   matches: number | null; reason: string | null;
 }
 export const tPlayerBans = (playerId: number) =>

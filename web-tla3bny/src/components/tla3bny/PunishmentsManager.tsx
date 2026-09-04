@@ -10,6 +10,7 @@ type Kind = 'player' | 'coach' | 'team';
 
 const PUN_META: Record<TPunishmentType, [string, string, string]> = {
   match_ban:       ['🚫', 'منع من المشاركة', 'Match ban'],
+  disqualification:['⛔', 'استبعاد من البطولة', 'Disqualification'],
   fine:            ['💰', 'غرامة مالية', 'Fine'],
   point_deduction: ['➖', 'خصم نقاط', 'Point deduction'],
 };
@@ -17,9 +18,12 @@ const ALL_TYPES = Object.keys(PUN_META) as TPunishmentType[];
 // Which recipient kinds each punishment type allows.
 const KINDS: Record<TPunishmentType, Kind[]> = {
   match_ban:       ['player', 'coach'],
+  disqualification:['player', 'coach', 'team'],
   fine:            ['player', 'coach', 'team'],
   point_deduction: ['team'],
 };
+// Disqualification carries no numeric value (just a reason).
+const NEEDS_VALUE = (t: TPunishmentType) => t !== 'disqualification';
 
 interface PoolPlayer { player_id: number; player_name: string | null; team_name: string | null }
 
@@ -80,6 +84,7 @@ export default function PunishmentsManager({ token, comp }: { token: string; com
                       const photo = p.player_photo ?? p.coach_photo ?? null;
                       const value = t === 'match_ban' ? tt(`${p.matches} مباريات`, `${p.matches} matches`)
                         : t === 'point_deduction' ? `-${p.points}`
+                        : t === 'disqualification' ? tt('مستبعد', 'Excluded')
                         : p.amount != null ? `${p.amount.toLocaleString('en-US')} ${tt('ج.م', 'EGP')}` : tt('غرامة', 'Fine');
                       return (
                         <div key={p.id} className="flex items-center gap-3 px-3 py-2">
@@ -130,7 +135,7 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
   }, [ptype]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const recipientReady = kind === 'player' ? !!playerId : kind === 'coach' ? !!coachId : !!teamId;
-  const ready = recipientReady && Number(num) > 0;
+  const ready = recipientReady && (!NEEDS_VALUE(ptype) || Number(num) > 0);
 
   const submit = async () => {
     onError(null); setBusy(true);
@@ -197,10 +202,12 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
         )}
       </Field>
 
-      <Field label={tt(numLabel[0], numLabel[1])}>
-        <input value={num} onChange={e => setNum(e.target.value)} inputMode="numeric" className={inputCls}
-          placeholder={ptype === 'fine' ? tt('مثال: 500', 'e.g. 500') : tt('مثال: 2', 'e.g. 2')} />
-      </Field>
+      {NEEDS_VALUE(ptype) && (
+        <Field label={tt(numLabel[0], numLabel[1])}>
+          <input value={num} onChange={e => setNum(e.target.value)} inputMode="numeric" className={inputCls}
+            placeholder={ptype === 'fine' ? tt('مثال: 500', 'e.g. 500') : tt('مثال: 2', 'e.g. 2')} />
+        </Field>
+      )}
 
       <Field label={tt('السبب (اختياري)', 'Reason (optional)')}>
         <input value={reason} onChange={e => setReason(e.target.value)} className={inputCls} />
@@ -210,7 +217,10 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
         <p className="text-[11px] text-hint">{tt('الغرامة خاصة — تظهر لإدارة البطولة وللأكاديمية المعنية فقط.', 'The fine is private — shown only to the organizer and the punished academy.')}</p>
       )}
       {ptype === 'match_ban' && (
-        <p className="text-[11px] text-hint">{tt('يُسجَّل الإيقاف ويُنبَّه المدرب عند اختيار اللاعب في التشكيلة (تنبيه فقط).', 'The ban is recorded and the coach is warned when picking the player in a lineup (a warning, not a hard block).')}</p>
+        <p className="text-[11px] text-hint">{tt('لا يمكن إضافة اللاعب في التشكيلة طوال عدد المباريات المحدد (منع فعلي)، ثم يُرفع الإيقاف تلقائيًا.', 'The player cannot be added to a lineup for the set number of matches (a hard block); the ban then lifts automatically.')}</p>
+      )}
+      {ptype === 'disqualification' && (
+        <p className="text-[11px] text-hint">{tt('استبعاد دائم من البطولة — لا يمكن إضافة اللاعب في أي تشكيلة حتى يُلغى الاستبعاد. استبعاد فريق يمنع كل لاعبيه.', 'Permanent exclusion from the competition — the player can\'t be added to any lineup until it is removed. Disqualifying a team blocks all its players.')}</p>
       )}
 
       <PrimaryButton onClick={submit} disabled={busy || !ready}>{busy ? tt('…', '…') : tt('تسجيل العقوبة', 'Record punishment')}</PrimaryButton>
