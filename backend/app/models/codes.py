@@ -110,9 +110,13 @@ TLA3BNY_AWARD_TYPE = (
     "best_goalkeeper",   # player
     "player_of_match",   # player, tied to a match
     "player_of_round",   # player, tied to a round label
+    "best_coach",        # coach
+    "coach_of_round",    # coach, tied to a round label
 )
-# Award types whose recipient is a team (everything else is a player).
+# Award types whose recipient is a team (everything else is a player or a coach).
 TLA3BNY_TEAM_AWARD_TYPES = ("champion", "runner_up", "third_place")
+# Award types whose recipient is a coach.
+TLA3BNY_COACH_AWARD_TYPES = ("best_coach", "coach_of_round")
 
 # TeamCoach.role_ar — the seniority order for a team's technical staff; the head
 # coach always leads however staff were added. Free text is still allowed;

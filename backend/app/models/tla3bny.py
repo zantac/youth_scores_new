@@ -1869,6 +1869,10 @@ class Tla3bnyAward(TimestampMixin, db.Model):
     team_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE")
     )
+    # Recipient for the coach awards (best_coach, coach_of_round); NULL otherwise.
+    coach_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_coaches.id", ondelete="CASCADE")
+    )
     note: Mapped[str | None] = mapped_column(sa.String(255))
     created_by_user_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
@@ -1878,10 +1882,12 @@ class Tla3bnyAward(TimestampMixin, db.Model):
     competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
     player: Mapped["Tla3bnyPlayer | None"] = relationship()
     team: Mapped["Tla3bnyTeam | None"] = relationship()
+    coach: Mapped["Tla3bnyCoach | None"] = relationship()
 
     __table_args__ = (
         sa.Index("ix_tla3bny_awards_player", "player_id"),
         sa.Index("ix_tla3bny_awards_team", "team_id"),
+        sa.Index("ix_tla3bny_awards_coach", "coach_id"),
         sa.Index("ix_tla3bny_awards_comp_age", "competition_id", "competition_age_id"),
     )
 
@@ -1909,6 +1915,14 @@ class Tla3bnyAward(TimestampMixin, db.Model):
             "team_name": t.display_name() if t else None,
             "team_logo": (t.academy.logo_path if t and t.academy else None),
             "academy_id": (t.academy_id if t else None),
+            "coach_id": self.coach_id,
+            "coach_name": self.coach.name if self.coach else None,
+            "coach_name_en": self.coach.name_en if self.coach else None,
+            "coach_photo": self.coach.photo_path if self.coach else None,
+            "coach_team_id": self.coach.team_id if self.coach else None,
+            "coach_team_name": (
+                self.coach.team.display_name() if self.coach and self.coach.team else None
+            ),
         }
 
 

@@ -12,6 +12,7 @@ from flask import jsonify, request
 from app.extensions import db
 from app.models import (
     Tla3bnyAward,
+    Tla3bnyCoach,
     Tla3bnyCompetition,
     Tla3bnyCompetitionAge,
     Tla3bnyCompetitionPlayer,
@@ -25,7 +26,11 @@ from app.models import (
     Tla3bnyTeamOfRound,
     Tla3bnyTeamOfRoundSlot,
 )
-from app.models.codes import TLA3BNY_AWARD_TYPE, TLA3BNY_TEAM_AWARD_TYPES
+from app.models.codes import (
+    TLA3BNY_AWARD_TYPE,
+    TLA3BNY_COACH_AWARD_TYPES,
+    TLA3BNY_TEAM_AWARD_TYPES,
+)
 from app.services import tla3bny_auth as auth
 from app.services import tla3bny_tables as tables
 
@@ -114,16 +119,20 @@ _AWARD_NEWS = {
     "best_goalkeeper": ("🧤", "أفضل حارس مرمى"),
     "player_of_round": ("🌟", "لاعب الجولة"),
     "player_of_match": ("🎖️", "رجل المباراة"),
+    "best_coach":      ("🎓", "أفضل مدرب"),
+    "coach_of_round":  ("📋", "مدرب الجولة"),
 }
 
 
 def _award_recipient(award):
-    """(display name, photo) for the winner — a player's profile photo, or a
-    team's own photo (falling back to its academy logo)."""
+    """(display name, photo) for the winner — a player's profile photo, a coach's
+    photo, or a team's own photo (falling back to its academy logo)."""
     if award.team is not None:
         photo = award.team.photo_path or (
             award.team.academy.logo_path if award.team.academy else None)
         return award.team.display_name(), photo
+    if award.coach is not None:
+        return award.coach.name, award.coach.photo_path
     if award.player is not None:
         return award.player.name, award.player.photo_path
     return "", None
@@ -200,6 +209,42 @@ def list_competition_awards(comp_id: int):
     return jsonify([a.to_dict() for a in awards])
 
 
+@tla3bny_bp.get("/competitions/<int:comp_id>/coaches")
+def competition_coaches(comp_id: int):
+    """The coaches of the teams entered in this competition — the pool an organizer
+    picks a coach-award (best coach / coach of the round) winner from. Public.
+    Optional ``?competition_age_id=`` narrows it to one sub-competition."""
+    cage_id = _int(request.args.get("competition_age_id"))
+    q = (
+        db.session.query(Tla3bnyCoach, Tla3bnyTeam)
+        .join(Tla3bnyTeam, Tla3bnyCoach.team_id == Tla3bnyTeam.id)
+        .join(Tla3bnyCompetitionTeam, Tla3bnyCompetitionTeam.team_id == Tla3bnyTeam.id)
+        .filter(
+            Tla3bnyCompetitionTeam.competition_id == comp_id,
+            Tla3bnyCoach.end_date.is_(None),  # current staff only
+        )
+    )
+    if cage_id:
+        q = q.filter(Tla3bnyCompetitionTeam.competition_age_id == cage_id)
+    seen: set[int] = set()
+    out = []
+    for coach, team in q.order_by(Tla3bnyTeam.id, Tla3bnyCoach.sort_order).all():
+        if coach.id in seen:
+            continue
+        seen.add(coach.id)
+        out.append({
+            "id": coach.id,
+            "name": coach.name,
+            "name_en": coach.name_en,
+            "photo_path": coach.photo_path,
+            "role_ar": coach.role_ar,
+            "team_id": team.id,
+            "team_name": team.display_name(),
+            "team_name_en": team.display_name("en"),
+        })
+    return jsonify(out)
+
+
 @tla3bny_bp.post("/competitions/<int:comp_id>/awards")
 @auth.login_required
 def grant_award(comp_id: int):
@@ -215,19 +260,23 @@ def grant_award(comp_id: int):
     if atype not in TLA3BNY_AWARD_TYPE:
         return _err("invalid award_type")
     is_team = atype in TLA3BNY_TEAM_AWARD_TYPES
+    is_coach = atype in TLA3BNY_COACH_AWARD_TYPES
     player_id = _int(data.get("player_id"))
     team_id = _int(data.get("team_id"))
+    coach_id = _int(data.get("coach_id"))
     if is_team and not team_id:
         return _err("team_id is required for a team title")
-    if not is_team and not player_id:
+    if is_coach and not coach_id:
+        return _err("coach_id is required for a coach award")
+    if not is_team and not is_coach and not player_id:
         return _err("player_id is required for this award")
     cage_id = _int(data.get("competition_age_id"))
     round_ = (data.get("round") or "").strip() or None
     match_id = _int(data.get("match_id"))
     if atype == "player_of_match" and not match_id:
         return _err("match_id is required for player of the match")
-    if atype == "player_of_round" and not round_:
-        return _err("round is required for player of the round")
+    if atype in ("player_of_round", "coach_of_round") and not round_:
+        return _err("round is required for a round award")
 
     # Validate the recipient belongs to this competition. Without this an admin
     # could pin a player award (top scorer, best player, player of the round/
@@ -241,6 +290,15 @@ def grant_award(comp_id: int):
         ).first()
         if not in_comp:
             return _err("هذا الفريق غير مشارك في البطولة", 409)
+    elif is_coach:
+        coach = Tla3bnyCoach.query.get_or_404(coach_id)
+        # The coach must belong to a team entered in this competition, so a coach
+        # award can't be pinned onto an unrelated coach.
+        in_comp = Tla3bnyCompetitionTeam.query.filter_by(
+            competition_id=comp_id, team_id=coach.team_id
+        ).first()
+        if not in_comp:
+            return _err("هذا المدرب لا يتبع فريقًا مشاركًا في البطولة", 409)
     else:
         Tla3bnyPlayer.query.get_or_404(player_id)
         if not _approved_in_competition(player_id, comp_id):
@@ -250,15 +308,19 @@ def grant_award(comp_id: int):
     q = Tla3bnyAward.query.filter_by(competition_id=comp_id, award_type=atype)
     if atype == "player_of_match":
         q = q.filter_by(match_id=match_id)
-    elif atype == "player_of_round":
+    elif atype in ("player_of_round", "coach_of_round"):
         q = q.filter_by(competition_age_id=cage_id, round=round_)
     else:
         q = q.filter_by(competition_age_id=cage_id)
     existing = q.all()
-    new_player = player_id if not is_team else None
+    new_player = player_id if not is_team and not is_coach else None
     new_team = team_id if is_team else None
+    new_coach = coach_id if is_coach else None
     # Re-granting to the same winner shouldn't publish a duplicate announcement.
-    same_winner = any(o.player_id == new_player and o.team_id == new_team for o in existing)
+    same_winner = any(
+        o.player_id == new_player and o.team_id == new_team and o.coach_id == new_coach
+        for o in existing
+    )
     for old in existing:
         db.session.delete(old)
 
@@ -270,13 +332,15 @@ def grant_award(comp_id: int):
         match_id=match_id,
         player_id=new_player,
         team_id=new_team,
+        coach_id=new_coach,
         note=(data.get("note") or "").strip() or None,
         created_by_user_id=auth.current_user().id,
     )
     db.session.add(award)
     db.session.flush()
     _log("award_granted", "award", award.id, {
-        "award_type": atype, "player_id": award.player_id, "team_id": award.team_id,
+        "award_type": atype, "player_id": award.player_id,
+        "team_id": award.team_id, "coach_id": award.coach_id,
     }, competition_id=comp_id)
     if not same_winner:
         _announce_award(award)

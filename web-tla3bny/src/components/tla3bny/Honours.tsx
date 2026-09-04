@@ -21,6 +21,8 @@ const AWARD_META: Record<TAwardType, [string, string, string]> = {
   best_goalkeeper: ['🧤', 'أفضل حارس', 'Best goalkeeper'],
   player_of_match: ['🎖️', 'رجل المباراة', 'Player of the match'],
   player_of_round: ['🌟', 'لاعب الجولة', 'Player of the round'],
+  best_coach:      ['🎓', 'أفضل مدرب', 'Best coach'],
+  coach_of_round:  ['📋', 'مدرب الجولة', 'Coach of the round'],
 };
 
 /** A titled honours section that collapses/expands — collapsed by default. */
@@ -49,6 +51,8 @@ function AwardChip({ a, showRecipient = true }: { a: TAward; showRecipient?: boo
   const scope = [a.sub_competition_name, a.round].filter(Boolean).join(' · ');
   const recipient = a.team_id
     ? { href: `/team?id=${a.team_id}`, name: a.team_name, logo: a.team_logo }
+    : a.coach_id
+    ? { href: `/coach?id=${a.coach_id}`, name: nm(a.coach_name, a.coach_name_en), logo: a.coach_photo }
     : { href: `/player?id=${a.player_id}`, name: nm(a.player_name, a.player_name_en), logo: a.player_photo };
   return (
     <Card className="p-2.5 flex items-center gap-3">
@@ -175,11 +179,14 @@ export function CompetitionHonours({ compId, cageId }: { compId: number; cageId?
   const titles = inScope.filter(a => titleTypes.includes(a.award_type));
   const overall = inScope.filter(a => overallTypes.includes(a.award_type));
   const playerOfRound = inScope.filter(a => a.award_type === 'player_of_round');
+  const bestCoach = inScope.filter(a => a.award_type === 'best_coach');
+  const coachOfRound = inScope.filter(a => a.award_type === 'coach_of_round');
   const scopedTotr = cageId ? totr.filter(t => t.competition_age_id === cageId) : totr;
 
   // Player of the match is intentionally omitted here — it already shows on each
   // match card, so listing it again in the competition honours is redundant.
-  if (titles.length + overall.length + playerOfRound.length + scopedTotr.length === 0) {
+  if (titles.length + overall.length + playerOfRound.length + bestCoach.length
+      + coachOfRound.length + scopedTotr.length === 0) {
     return <EmptyState icon="🏆" text={tt('لم تُمنح جوائز بعد', 'No honours awarded yet')} />;
   }
   return (
@@ -209,6 +216,16 @@ export function CompetitionHonours({ compId, cageId }: { compId: number; cageId?
       {playerOfRound.length > 0 && (
         <CollapsibleSection title={<>🌟 {tt('لاعب الجولة', 'Player of the round')}</>} count={playerOfRound.length}>
           <div className="space-y-2">{playerOfRound.map(a => <AwardChip key={a.id} a={a} />)}</div>
+        </CollapsibleSection>
+      )}
+      {bestCoach.length > 0 && (
+        <CollapsibleSection title={<>🎓 {tt('أفضل مدرب', 'Best coach')}</>} count={bestCoach.length}>
+          <div className="space-y-2">{bestCoach.map(a => <AwardChip key={a.id} a={a} />)}</div>
+        </CollapsibleSection>
+      )}
+      {coachOfRound.length > 0 && (
+        <CollapsibleSection title={<>📋 {tt('مدرب الجولة', 'Coach of the round')}</>} count={coachOfRound.length}>
+          <div className="space-y-2">{coachOfRound.map(a => <AwardChip key={a.id} a={a} />)}</div>
         </CollapsibleSection>
       )}
     </div>

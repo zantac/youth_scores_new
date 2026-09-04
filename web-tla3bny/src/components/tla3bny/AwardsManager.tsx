@@ -3,9 +3,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   tCompTeams, tMatches, tCompetitionRounds, tCompetitionAwards, tTeamOfRoundAll,
   tGrantAward, tRevokeAward, tAwardSuggestions, tSaveTeamOfRound, tDeleteTeamOfRound,
-  TEAM_AWARD_TYPES,
+  tCompetitionCoaches,
+  TEAM_AWARD_TYPES, COACH_AWARD_TYPES,
   type TCompetition, type TCompTeam, type TMatch, type TAward, type TAwardType,
-  type TTeamOfRound, type TAwardSuggestions,
+  type TTeamOfRound, type TAwardSuggestions, type TCoachPool,
 } from '@/lib/tla3bnyApi';
 import { formationRowLabels, FORMATIONS, FORMATION_NAMES } from '@/lib/tla3bnyFormations';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
@@ -20,6 +21,8 @@ const AWARD_META: Record<TAwardType, [string, string, string]> = {
   best_goalkeeper: ['🧤', 'أفضل حارس', 'Best goalkeeper'],
   player_of_match: ['🎖️', 'رجل المباراة', 'Player of the match'],
   player_of_round: ['🌟', 'لاعب الجولة', 'Player of the round'],
+  best_coach:      ['🎓', 'أفضل مدرب', 'Best coach'],
+  coach_of_round:  ['📋', 'مدرب الجولة', 'Coach of the round'],
 };
 const ALL_TYPES = Object.keys(AWARD_META) as TAwardType[];
 
@@ -36,6 +39,7 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const ageId = selectedAge?.age_category_id;
 
   const [teams, setTeams] = useState<TCompTeam[]>([]);
+  const [coaches, setCoaches] = useState<TCoachPool[]>([]);
   const [matches, setMatches] = useState<TMatch[]>([]);
   const [rounds, setRounds] = useState<string[]>([]);
   const [awards, setAwards] = useState<TAward[]>([]);
@@ -52,11 +56,12 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const [editWho, setEditWho] = useState<number | ''>('');
   const [editNote, setEditNote] = useState('');
   const startEdit = (a: TAward) => {
-    setEditId(a.id); setEditWho(a.team_id ?? a.player_id ?? ''); setEditNote(a.note ?? '');
+    setEditId(a.id); setEditWho(a.team_id ?? a.coach_id ?? a.player_id ?? ''); setEditNote(a.note ?? '');
   };
   const saveEdit = async (a: TAward) => {
     if (!editWho) return;
     const isTeam = TEAM_AWARD_TYPES.includes(a.award_type);
+    const isCoach = COACH_AWARD_TYPES.includes(a.award_type);
     setErr(null);
     try {
       await tGrantAward(token, comp.id, {
@@ -64,8 +69,9 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
         competition_age_id: a.competition_age_id ?? undefined,
         round: a.round ?? undefined,
         match_id: a.match_id ?? undefined,
-        player_id: !isTeam ? Number(editWho) : undefined,
+        player_id: !isTeam && !isCoach ? Number(editWho) : undefined,
         team_id: isTeam ? Number(editWho) : undefined,
+        coach_id: isCoach ? Number(editWho) : undefined,
         note: editNote || undefined,
       });
       setEditId(null); loadHonours();
@@ -79,8 +85,9 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
     [teams]);
 
   const loadScope = useCallback(() => {
-    if (!ageId || !cageId) { setTeams([]); setMatches([]); setRounds([]); return; }
+    if (!ageId || !cageId) { setTeams([]); setCoaches([]); setMatches([]); setRounds([]); return; }
     tCompTeams(comp.id, ageId, true, token, cageId).then(setTeams).catch(() => setTeams([]));
+    tCompetitionCoaches(comp.id, cageId, token).then(setCoaches).catch(() => setCoaches([]));
     tMatches({ competition_id: comp.id, competition_age_id: cageId }).then(setMatches).catch(() => setMatches([]));
     tCompetitionRounds(comp.id, cageId).then(setRounds).catch(() => setRounds([]));
   }, [comp.id, ageId, cageId, token]);
@@ -106,7 +113,7 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
 
       <GrantAward
         token={token} compId={comp.id} cageId={cageId}
-        players={players} teams={teams} matches={matches} rounds={rounds}
+        players={players} teams={teams} coaches={coaches} matches={matches} rounds={rounds}
         onGranted={loadHonours} onError={setErr} />
 
       <section>
@@ -131,8 +138,11 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                   {open && (
                     <div className="border-t border-bdr/50 divide-y divide-bdr/40">
                       {list.map(a => {
-                        const who = a.team_id ? a.team_name : nm(a.player_name, a.player_name_en);
                         const isTeam = TEAM_AWARD_TYPES.includes(a.award_type);
+                        const isCoach = COACH_AWARD_TYPES.includes(a.award_type);
+                        const who = a.team_id ? a.team_name
+                          : a.coach_id ? nm(a.coach_name, a.coach_name_en)
+                          : nm(a.player_name, a.player_name_en);
                         if (editId === a.id) {
                           return (
                             <div key={a.id} className="px-3 py-2.5 space-y-2 bg-cardBg2/40">
@@ -144,10 +154,20 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                                   <option value="">{tt('اختر الفريق…', 'Select team…')}</option>
                                   {teams.map(tm => <option key={tm.team_id} value={tm.team_id}>{nm(tm.team_name, tm.team_name_en)}</option>)}
                                 </select>
+                              ) : isCoach ? (
+                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
+                                  <option value="">{tt('اختر المدرب…', 'Select coach…')}</option>
+                                  {coaches.map(c => <option key={c.id} value={c.id}>{nm(c.name, c.name_en)}{c.team_name ? ` — ${c.team_name}` : ''}</option>)}
+                                </select>
                               ) : (
                                 <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
                                   <option value="">{tt('اختر اللاعب…', 'Select player…')}</option>
-                                  {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
+                                  {(() => {
+                                    // Player of the match: restrict to the match's two teams.
+                                    const m = a.match_id ? matches.find(x => x.id === a.match_id) : undefined;
+                                    const pool = m ? players.filter(p => p.team_id === m.home_team_id || p.team_id === m.away_team_id) : players;
+                                    return pool.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>);
+                                  })()}
                                 </select>
                               )}
                               <input value={editNote} onChange={e => setEditNote(e.target.value)} className={inputCls} placeholder={tt('ملاحظة (اختياري)', 'Note (optional)')} />
@@ -192,9 +212,9 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
 }
 
 // ── grant one award ──────────────────────────────────────────────────────────
-function GrantAward({ token, compId, cageId, players, teams, matches, rounds, onGranted, onError }: {
+function GrantAward({ token, compId, cageId, players, teams, coaches, matches, rounds, onGranted, onError }: {
   token: string; compId: number; cageId?: number;
-  players: PoolPlayer[]; teams: TCompTeam[]; matches: TMatch[]; rounds: string[];
+  players: PoolPlayer[]; teams: TCompTeam[]; coaches: TCoachPool[]; matches: TMatch[]; rounds: string[];
   onGranted: () => void; onError: (e: string | null) => void;
 }) {
   const tt = useTT();
@@ -202,6 +222,7 @@ function GrantAward({ token, compId, cageId, players, teams, matches, rounds, on
   const [atype, setAtype] = useState<TAwardType>('champion');
   const [playerId, setPlayerId] = useState<number | ''>('');
   const [teamId, setTeamId] = useState<number | ''>('');
+  const [coachId, setCoachId] = useState<number | ''>('');
   const [round, setRound] = useState('');
   const [matchId, setMatchId] = useState<number | ''>('');
   const [note, setNote] = useState('');
@@ -209,11 +230,12 @@ function GrantAward({ token, compId, cageId, players, teams, matches, rounds, on
   const [busy, setBusy] = useState(false);
 
   const isTeam = TEAM_AWARD_TYPES.includes(atype);
-  const needsRound = atype === 'player_of_round';
+  const isCoach = COACH_AWARD_TYPES.includes(atype);
+  const needsRound = atype === 'player_of_round' || atype === 'coach_of_round';
   const needsMatch = atype === 'player_of_match';
   const canSuggest = ['top_scorer', 'top_assister', 'player_of_round', 'player_of_match', ...TEAM_AWARD_TYPES].includes(atype);
 
-  useEffect(() => { setSug(null); setPlayerId(''); setTeamId(''); }, [atype, cageId]);
+  useEffect(() => { setSug(null); setPlayerId(''); setTeamId(''); setCoachId(''); }, [atype, cageId]);
 
   const suggest = async () => {
     onError(null);
@@ -234,16 +256,24 @@ function GrantAward({ token, compId, cageId, players, teams, matches, rounds, on
         competition_age_id: cageId,
         round: needsRound ? round : undefined,
         match_id: needsMatch && matchId ? Number(matchId) : undefined,
-        player_id: !isTeam && playerId ? Number(playerId) : undefined,
+        player_id: !isTeam && !isCoach && playerId ? Number(playerId) : undefined,
         team_id: isTeam && teamId ? Number(teamId) : undefined,
+        coach_id: isCoach && coachId ? Number(coachId) : undefined,
         note: note || undefined,
       });
-      setNote(''); setPlayerId(''); setTeamId(''); setSug(null);
+      setNote(''); setPlayerId(''); setTeamId(''); setCoachId(''); setSug(null);
       onGranted();
     } catch (e) { onError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
 
-  const ready = (isTeam ? !!teamId : !!playerId) && (!needsRound || !!round) && (!needsMatch || !!matchId);
+  const ready = (isTeam ? !!teamId : isCoach ? !!coachId : !!playerId) && (!needsRound || !!round) && (!needsMatch || !!matchId);
+
+  // For player of the match, the pool is only the two teams that played the
+  // selected match — not every player in the sub-competition.
+  const selectedMatch = needsMatch && matchId ? matches.find(m => m.id === Number(matchId)) : undefined;
+  const pickPlayers = selectedMatch
+    ? players.filter(p => p.team_id === selectedMatch.home_team_id || p.team_id === selectedMatch.away_team_id)
+    : players;
 
   return (
     <Card className="p-3 space-y-3">
@@ -256,7 +286,7 @@ function GrantAward({ token, compId, cageId, players, teams, matches, rounds, on
 
       {needsMatch && (
         <Field label={tt('المباراة', 'Match')}>
-          <select value={matchId} onChange={e => setMatchId(Number(e.target.value))} className={inputCls}>
+          <select value={matchId} onChange={e => { setMatchId(Number(e.target.value)); setPlayerId(''); }} className={inputCls}>
             <option value="">{tt('اختر…', 'Select…')}</option>
             {matches.map(m => (
               <option key={m.id} value={m.id}>
@@ -279,19 +309,30 @@ function GrantAward({ token, compId, cageId, players, teams, matches, rounds, on
         </Field>
       )}
 
-      <Field label={isTeam ? tt('الفريق', 'Team') : tt('اللاعب', 'Player')}>
+      <Field label={isTeam ? tt('الفريق', 'Team') : isCoach ? tt('المدرب', 'Coach') : tt('اللاعب', 'Player')}>
         {isTeam ? (
           <select value={teamId} onChange={e => setTeamId(Number(e.target.value))} className={inputCls}>
             <option value="">{tt('اختر…', 'Select…')}</option>
             {teams.map(t => <option key={t.team_id} value={t.team_id}>{nm(t.team_name, t.team_name_en)}</option>)}
           </select>
+        ) : isCoach ? (
+          <select value={coachId} onChange={e => setCoachId(Number(e.target.value))} className={inputCls}>
+            <option value="">{tt('اختر…', 'Select…')}</option>
+            {coaches.map(c => <option key={c.id} value={c.id}>{nm(c.name, c.name_en)}{c.team_name ? ` — ${c.team_name}` : ''}</option>)}
+          </select>
         ) : (
           <select value={playerId} onChange={e => setPlayerId(Number(e.target.value))} className={inputCls}>
             <option value="">{tt('اختر…', 'Select…')}</option>
-            {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
+            {pickPlayers.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
           </select>
         )}
       </Field>
+      {needsMatch && !matchId && (
+        <p className="text-[11px] text-hint">{tt('اختر المباراة أولًا لعرض لاعبي الفريقين.', 'Select the match first to list its two teams\' players.')}</p>
+      )}
+      {isCoach && coaches.length === 0 && (
+        <p className="text-[11px] text-hint">{tt('لا يوجد مدربون في فرق هذه البطولة الفرعية بعد.', 'No coaches on this sub-competition\'s teams yet.')}</p>
+      )}
 
       {canSuggest && (
         <div>
@@ -417,8 +458,11 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
           {labels.map(label => (
             <label key={label} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
               <span className="text-[11px] font-bold text-teal w-10 shrink-0">{label}</span>
+              {/* Solid dark bg (not transparent): the native option popup inherits
+                  the select's background, so a transparent one renders white in the
+                  dark theme and hides the names. */}
               <select value={slots[label] ?? ''} onChange={e => setSlots(prev => ({ ...prev, [label]: e.target.value ? Number(e.target.value) : '' }))}
-                className="flex-1 min-w-0 bg-transparent text-text text-xs outline-none">
+                className="flex-1 min-w-0 bg-darkBg text-text text-xs outline-none">
                 <option value="">{tt('—', '—')}</option>
                 {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
               </select>
