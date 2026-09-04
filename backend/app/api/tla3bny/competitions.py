@@ -319,6 +319,7 @@ def clone_competition(comp_id: int):
 
     new_comp = Tla3bnyCompetition(
         season_id=season_id,
+        season_number=source.season_number,
         name=source.name,
         name_en=source.name_en,
         description=source.description,
@@ -413,6 +414,7 @@ def create_competition():
         required_documents=docs,
     )
     _apply_competition_text(comp, data)
+    _apply_season_number(comp, data)
     if "registration_open" in data:
         comp.registration_open = _bool(data.get("registration_open"), True)
     if "exclusive_entry" in data:
@@ -440,6 +442,15 @@ def _apply_ad_controls(comp: Tla3bnyCompetition, data) -> None:
         comp.max_ads = max(0, _int(data.get("max_ads"), comp.max_ads) or 0)
     if "ads_enabled" in data:
         comp.ads_enabled = _bool(data.get("ads_enabled"), comp.ads_enabled)
+
+def _apply_season_number(comp: Tla3bnyCompetition, data) -> None:
+    """Set the competition's edition/season number (الموسم) if the caller sent it.
+    An empty/zero/invalid value clears it; a positive whole number sets it."""
+    if "season_number" not in data:
+        return
+    n = _int(data.get("season_number"))
+    comp.season_number = n if (n and n > 0) else None
+
 
 def _apply_max_players(comp: Tla3bnyCompetition, data) -> None:
     """Set the competition-wide contributor cap if the caller sent it. An empty
@@ -487,6 +498,7 @@ def update_competition(comp_id: int):
     comp = Tla3bnyCompetition.query.get_or_404(comp_id)
     data, files = _read_payload()
     _apply_competition_text(comp, data)
+    _apply_season_number(comp, data)
     if not comp.name:
         return _err("name is required")
     if "status" in data and data.get("status"):

@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tCompetition, type TCompetition } from '@/lib/tla3bnyApi';
-import { sortAges, subCompLabel } from '@/lib/utils';
+import { sortAges } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import CompetitionInfo from '@/components/tla3bny/CompetitionInfo';
 import CompetitionHero from '@/components/tla3bny/CompetitionHero';
@@ -58,7 +58,9 @@ function CompetitionContent() {
     <div className="space-y-5">
       <Link href="/competitions" className="inline-block text-aqua text-xs font-bold">→ {tt('البطولات', 'Competitions')}</Link>
 
-      <CompetitionHero comp={comp} action={<FollowButton competitionId={String(comp.id)} />} />
+      {/* Blurb (description) is intentionally hidden in the hero — it shows in the
+          About tab instead, so it doesn't crowd the hero on small screens. */}
+      <CompetitionHero comp={comp} description={null} action={<FollowButton competitionId={String(comp.id)} />} />
 
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
         {tabs.map(t => (
@@ -87,8 +89,10 @@ function CompetitionContent() {
                   className="group flex items-center gap-3 bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 hover:border-aqua/50 active:opacity-80 transition-colors">
                   <span className="w-11 h-11 rounded-xl bg-aqua/10 grid place-items-center text-lg flex-shrink-0">🏆</span>
                   <span className="flex-1 min-w-0">
-                    <span className="block text-text font-bold text-sm truncate">{subCompLabel(a)}</span>
-                    <span className="block text-hint text-[11px] mt-0.5">{tt('الترتيب والمباريات', 'Standings & matches')}</span>
+                    <span className="block text-text font-bold text-sm truncate">{a.name || a.age_category}</span>
+                    {a.name && a.age_category && (
+                      <span className="block text-hint text-[11px] mt-0.5">{a.age_category}</span>
+                    )}
                   </span>
                   <span className="text-aqua text-lg flex-shrink-0">‹</span>
                 </Link>

@@ -264,6 +264,8 @@ export interface TCompetition {
   id: number;
   season_id: number;
   season_name: string | null;
+  /** The competition series' edition number (الموسم), typed by the organizer. */
+  season_number: number | null;
   name: string;
   name_en: string | null;
   description: string | null;

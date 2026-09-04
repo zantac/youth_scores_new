@@ -95,7 +95,9 @@ function PlayerContent() {
           <img
             src={mediaUrl(p.photo_path)!}
             alt={p.name}
-            className="w-full h-72 object-cover object-top"
+            // Fit the whole photo (no crop/zoom): shrink it to fit the band,
+            // centered, with a dark backdrop behind any letterbox bars.
+            className="w-full h-72 object-contain object-center bg-darkBg"
           />
         ) : null}
         <div className="p-4 flex items-center gap-4">
