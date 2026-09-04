@@ -85,3 +85,14 @@ html.dark body::before {
   .text-aqua   { color: rgb(var(--accent-rgb)); }
   .text-teal-c { color: rgb(var(--text2-rgb)); }
 }
+
+/* Print isolation for the match-day player cards: when the organizer prints
+   (Save as PDF), show ONLY #print-cards and hide the rest of the app. The
+   container is kept in the DOM (pushed off-screen on screen) so its photos are
+   already loaded when the print dialog opens. */
+@media print {
+  body * { visibility: hidden !important; }
+  #print-cards, #print-cards * { visibility: visible !important; }
+  #print-cards { left: 0 !important; }
+  @page { margin: 12mm; }
+}

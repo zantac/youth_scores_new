@@ -102,6 +102,7 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
   const initials = (slot.player_name ?? '?').trim().slice(0, 2).toUpperCase();
   const aspect = small ? 'aspect-square' : 'aspect-[3/4]';
   const textSize = small ? 'text-xl' : 'text-2xl';
+  const birthYear = slot.player_dob ? slot.player_dob.slice(0, 4) : null;
 
   const inner = (
     <div className="flex flex-col items-center gap-1 text-center">
@@ -114,9 +115,10 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
         </div>
       )}
       <span className="text-xs font-bold text-text leading-tight line-clamp-2">{slot.player_name}</span>
-      {!slot.is_substitute && slot.position_slot && (
-        <span className="text-[10px] font-bold text-teal">{slotBase(slot.position_slot)}</span>
-      )}
+      <span className="flex items-center gap-1.5 text-[10px] font-bold text-teal">
+        {!slot.is_substitute && slot.position_slot && <span>{slotBase(slot.position_slot)}</span>}
+        {birthYear && <span className="text-hint">🎂 {birthYear}</span>}
+      </span>
     </div>
   );
 
@@ -126,11 +128,24 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
 }
 
 // Card/sheet view: photo grid for match-day identity verification.
-function SheetView({ m, lineups }: { m: TMatch; lineups: TLineup[] }) {
+function SheetView({ m, lineups, canDownload = false }: { m: TMatch; lineups: TLineup[]; canDownload?: boolean }) {
   const tt = useTT();
   const nm = useName();
+  const hasAnyPlayers = lineups.some(l => l.slots.some(s => s.player_id != null));
   return (
     <div className="space-y-8">
+      {canDownload && hasAnyPlayers && (
+        <div>
+          <button onClick={() => window.print()}
+            className="flex items-center gap-2 text-sm font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-2 hover:bg-aqua/10">
+            ⬇️ {tt('تحميل الكروت (PDF)', 'Download cards (PDF)')}
+          </button>
+          <p className="text-[11px] text-hint mt-1">
+            {tt('اطبع أو احفظ الكروت كـ PDF لمراجعة اللاعبين قبل المباراة بدون إنترنت.',
+                'Print or save the cards as a PDF to check players before the match — no internet needed.')}
+          </p>
+        </div>
+      )}
       {[m.home_team_id, m.away_team_id].map(tid => {
         const l = lineups.find(x => x.team_id === tid);
         const name = teamLabel(m, tid, nm);
@@ -167,11 +182,76 @@ function SheetView({ m, lineups }: { m: TMatch; lineups: TLineup[] }) {
   );
 }
 
+// One player on the printable (Save-as-PDF) sheet. Explicit light colours: the
+// app is dark-themed, but the print sheet is black-on-white.
+function PrintCard({ slot }: { slot: TLineupSlot }) {
+  const url = mediaUrl(slot.photo_path);
+  const year = slot.player_dob ? slot.player_dob.slice(0, 4) : null;
+  const meta = [slot.position_slot ? slotBase(slot.position_slot) : null, year ? `🎂 ${year}` : null]
+    .filter(Boolean).join(' · ');
+  return (
+    <div className="text-center border border-black/20 rounded p-1 break-inside-avoid">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" className="w-full aspect-[3/4] object-cover object-top rounded" />
+      ) : (
+        <div className="w-full aspect-[3/4] rounded bg-gray-200 grid place-items-center text-gray-500 text-base font-bold">
+          {(slot.player_name ?? '?').trim().slice(0, 2).toUpperCase()}
+        </div>
+      )}
+      <div className="text-[10px] font-bold leading-tight mt-0.5">{slot.player_name}</div>
+      {meta && <div className="text-[9px] text-gray-600">{meta}</div>}
+    </div>
+  );
+}
+
+// The off-screen sheet the print CSS reveals. Kept mounted (pushed off-screen)
+// so the photos are loaded before the print dialog opens.
+function PrintableCards({ m, lineups, nm }: {
+  m: TMatch; lineups: TLineup[]; nm: (a?: string | null, e?: string | null) => string;
+}) {
+  const header = [m.competition_name, m.age_category, m.round, m.date, m.time].filter(Boolean).join(' · ');
+  return (
+    <div id="print-cards" className="absolute -left-[10000px] top-0 w-full bg-white text-black p-4">
+      <h1 className="text-lg font-black text-center">
+        {teamLabel(m, m.home_team_id, nm)} × {teamLabel(m, m.away_team_id, nm)}
+      </h1>
+      {header && <p className="text-center text-xs text-gray-600 mb-4">{header}</p>}
+      {[m.home_team_id, m.away_team_id].map(tid => {
+        const l = lineups.find(x => x.team_id === tid);
+        const starters = (l?.slots ?? []).filter(s => !s.is_substitute && s.player_id != null);
+        const subs = (l?.slots ?? []).filter(s => s.is_substitute && s.player_id != null);
+        if (starters.length === 0 && subs.length === 0) return null;
+        return (
+          <div key={tid} className="mb-6 break-inside-avoid">
+            <h2 className="font-black border-b border-black/40 pb-1 mb-2">
+              {l?.team_name ?? teamLabel(m, tid, nm)}{l?.formation ? ` · ${l.formation}` : ''}
+            </h2>
+            <div className="grid grid-cols-5 gap-2">
+              {starters.map(s => <PrintCard key={s.id} slot={s} />)}
+            </div>
+            {subs.length > 0 && (
+              <>
+                <p className="text-xs font-bold mt-3 mb-1">البدلاء / Substitutes</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {subs.map(s => <PrintCard key={s.id} slot={s} />)}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Lineup tab: pitch view + card view toggle for both teams.
-function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; canEdit: (id: number) => boolean }) {
+function LineupTab({ m, lineups, canEdit, view, onView, canDownload = false }: {
+  m: TMatch; lineups: TLineup[]; canEdit: (id: number) => boolean;
+  view: 'pitch' | 'cards'; onView: (v: 'pitch' | 'cards') => void; canDownload?: boolean;
+}) {
   const tt = useTT();
   const nm = useName();
-  const [view, setView] = useState<'pitch' | 'cards'>('pitch');
   const hasLineups = lineups.some(l => l.slots.some(s => s.player_id != null));
 
   return (
@@ -179,7 +259,7 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
       {hasLineups && (
         <div className="flex items-center gap-1 bg-darkBg/60 border border-bdr/50 rounded-xl p-1 w-fit">
           {(['pitch', 'cards'] as const).map(v => (
-            <button key={v} onClick={() => setView(v)}
+            <button key={v} onClick={() => onView(v)}
               className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${view === v ? 'bg-cardBg text-aqua shadow-sm' : 'text-teal hover:text-text'}`}>
               {v === 'pitch' ? tt('الملعب', 'Pitch') : tt('🪪 بطاقات', '🪪 Cards')}
             </button>
@@ -187,7 +267,7 @@ function LineupTab({ m, lineups, canEdit }: { m: TMatch; lineups: TLineup[]; can
         </div>
       )}
 
-      {view === 'cards' ? <SheetView m={m} lineups={lineups} /> : (
+      {view === 'cards' ? <SheetView m={m} lineups={lineups} canDownload={canDownload} /> : (
         <div className="space-y-4">
           {[m.home_team_id, m.away_team_id].map(tid => {
             const l = lineups.find(x => x.team_id === tid);
@@ -1288,7 +1368,7 @@ function ShareSheet({ m, onClose }: { m: TMatch; onClose: () => void }) {
 }
 
 // ── ── ── MAIN CONTENT ── ── ──
-type PublicTab = 'lineup' | 'events';
+type Tab = 'lineup' | 'events' | 'manage';
 
 function MatchContent() {
   const tt = useTT();
@@ -1301,8 +1381,12 @@ function MatchContent() {
   const [lineups, setLineups] = useState<TLineup[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [pubTab, setPubTab] = useState<PublicTab>('lineup');
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = params.get('tab');
+    return t === 'events' || t === 'manage' ? t : 'lineup';
+  });
+  const [view, setView] = useState<'pitch' | 'cards'>(() =>
+    params.get('view') === 'cards' ? 'cards' : 'pitch');
   const [share, setShare] = useState(false);
 
   const load = useCallback(() => {
@@ -1312,6 +1396,17 @@ function MatchContent() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Keep the open tab (and lineup sub-view) in the address bar so any view is
+  // shareable/reopenable.
+  const syncUrl = useCallback((t: Tab, v: 'pitch' | 'cards') => {
+    const p = new URLSearchParams({ id: String(id) });
+    if (t !== 'lineup') p.set('tab', t);
+    if (t === 'lineup' && v === 'cards') p.set('view', v);
+    router.replace(`/match/?${p.toString()}`, { scroll: false });
+  }, [id, router]);
+  const selectTab = useCallback((t: Tab) => { setTab(t); syncUrl(t, view); }, [syncUrl, view]);
+  const selectView = useCallback((v: 'pitch' | 'cards') => { setView(v); syncUrl('lineup', v); }, [syncUrl]);
 
   if (loading) return <Spinner />;
   if (notFound || !m) return <EmptyState icon="🔍" text={tt('المباراة غير موجودة', 'Match not found')} />;
@@ -1336,12 +1431,17 @@ function MatchContent() {
   const evs = m.events ?? [];
   const context = [m.competition_name, m.age_category, m.stage_name, m.group_name].filter(Boolean).join(' · ');
 
-  // Build public tabs dynamically
+  // Tabs. Organizers/admins get a Manage tab (the old view/manage toggle) so they
+  // can edit AND see the public views — including the printable cards — in one place.
+  const hasLineups = lineups.some(l => l.slots.some(s => s.player_id != null));
   const hasEvents = evs.some(e => e.event_type !== 'assist' && e.event_type !== 'substitution_out');
-  const pubTabs: { key: PublicTab; ar: string; en: string }[] = [
+  const tabs: { key: Tab; ar: string; en: string }[] = [
     { key: 'lineup', ar: 'التشكيلة', en: 'Lineup' },
-    ...(hasEvents ? [{ key: 'events' as PublicTab, ar: 'الأحداث', en: 'Events' }] : []),
+    ...(hasEvents ? [{ key: 'events' as Tab, ar: 'الأحداث', en: 'Events' }] : []),
+    ...(canManage ? [{ key: 'manage' as Tab, ar: '⚙️ الإدارة', en: '⚙️ Manage' }] : []),
   ];
+  // Fall back to Lineup if the URL asks for a tab this viewer/match can't show.
+  const activeTab: Tab = tabs.some(t => t.key === tab) ? tab : 'lineup';
 
   return (
     <div className="min-h-screen bg-darkBg pb-24">
@@ -1349,12 +1449,6 @@ function MatchContent() {
       <div className="sticky top-0 z-30 bg-cardBg/90 backdrop-blur border-b border-bdr flex items-center gap-3 px-4 py-3">
         <button onClick={() => router.back()} className="text-aqua text-xl font-bold leading-none">{'‹'}</button>
         <span className="flex-1 text-aqua font-bold text-sm truncate">{context || tt('المباراة', 'Match')}</span>
-        {canManage && (
-          <button onClick={() => setShowAdmin(v => !v)}
-            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${showAdmin ? 'bg-aqua text-on-accent border-aqua' : 'text-teal border-bdr hover:border-teal'}`}>
-            {showAdmin ? tt('عرض', 'View') : tt('إدارة', 'Manage')}
-          </button>
-        )}
         <button onClick={() => setShare(true)} className="text-gold text-lg leading-none">{'↗'}</button>
       </div>
 
@@ -1417,31 +1511,33 @@ function MatchContent() {
         )}
       </div>
 
-      {/* Admin panel */}
-      {showAdmin && canManage && token ? (
+      {/* Tabs (Lineup / Events / Manage) — Manage shows only for organizers */}
+      <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar px-4 bg-cardBg/50">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => selectTab(t.key)}
+            className={`px-3 py-2.5 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${activeTab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
+            {tt(t.ar, t.en)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'manage' && canManage && token ? (
         <AdminPanel
           token={token} m={m} lineups={lineups}
           onUpdate={updated => { setM(updated); }}
           onLineupsUpdate={load}
         />
       ) : (
-        <>
-          {/* Public tabs */}
-          <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar px-4 bg-cardBg/50">
-            {pubTabs.map(t => (
-              <button key={t.key} onClick={() => setPubTab(t.key)}
-                className={`px-3 py-2.5 text-sm font-bold border-b-2 -mb-px whitespace-nowrap transition-colors ${pubTab === t.key ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
-                {tt(t.ar, t.en)}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-4">
-            {pubTab === 'lineup' && <LineupTab m={m} lineups={lineups} canEdit={canEditSide} />}
-            {pubTab === 'events' && <EventsTab m={m} />}
-          </div>
-        </>
+        <div className="p-4">
+          {activeTab === 'events'
+            ? <EventsTab m={m} />
+            : <LineupTab m={m} lineups={lineups} canEdit={canEditSide}
+                view={view} onView={selectView} canDownload={canManage} />}
+        </div>
       )}
+
+      {/* Off-screen printable cards (organizers only), revealed by the print CSS. */}
+      {canManage && hasLineups && <PrintableCards m={m} lineups={lineups} nm={nm} />}
 
       {share && <ShareSheet m={m} onClose={() => setShare(false)} />}
     </div>
