@@ -28,6 +28,9 @@ import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyStat
 
 type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'news' | 'ads' | 'organizers';
 
+// Tab order in the bar; also the allow-list for the ?tab= URL param.
+const MANAGE_TABS: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'organizers', 'news', 'ads'];
+
 function ManageContent() {
   const tt = useTT();
   const nm = useName();
@@ -36,7 +39,18 @@ function ManageContent() {
   const compId = Number(params.get('comp'));
   const { user, token, loading, canAdminCompetition } = useTla3bnyAuth();
   const [comp, setComp] = useState<TCompetition | null>(null);
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = params.get('tab') as Tab | null;
+    return t && MANAGE_TABS.includes(t) ? t : 'dashboard';
+  });
+
+  // Keep the open tab in the address bar so a specific view can be shared/reopened.
+  const selectTab = useCallback((t: Tab) => {
+    setTab(t);
+    const p = new URLSearchParams({ comp: String(compId) });
+    if (t !== 'dashboard') p.set('tab', t);  // dashboard is the bare URL
+    router.replace(`/manage/?${p.toString()}`, { scroll: false });
+  }, [compId, router]);
 
   const reload = useCallback(() => { if (compId) tCompetition(compId, token).then(setComp).catch(() => setComp(null)); }, [compId, token]);
   useEffect(reload, [reload]);
@@ -46,7 +60,7 @@ function ManageContent() {
   if (!compId || !canAdminCompetition(compId)) return <EmptyState icon="🔒" text={tt('غير مصرح', 'Not authorized')} />;
   if (!comp) return <Spinner />;
 
-  const tabs: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'organizers', 'news', 'ads'];
+  const tabs = MANAGE_TABS;
   const tabLabel: Record<Tab, [string, string]> = {
     dashboard: ['الرئيسية', 'Overview'],
     info: ['صفحة البطولة', 'Page'],
@@ -66,13 +80,13 @@ function ManageContent() {
       <h1 className="text-xl font-black text-text">{nm(comp.name, comp.name_en)}</h1>
       <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
         {tabs.map(t => (
-          <button key={t} onClick={() => setTab(t)}
+          <button key={t} onClick={() => selectTab(t)}
             className={`px-3 py-2 text-sm font-bold border-b-2 -mb-px whitespace-nowrap ${tab === t ? 'border-aqua text-aqua' : 'border-transparent text-teal'}`}>
             {tt(tabLabel[t][0], tabLabel[t][1])}
           </button>
         ))}
       </div>
-      {tab === 'dashboard' && <DashboardTab token={token} comp={comp} onNavigate={setTab} />}
+      {tab === 'dashboard' && <DashboardTab token={token} comp={comp} onNavigate={selectTab} />}
       {tab === 'info' && <InfoTab token={token} comp={comp} reload={reload} />}
       {tab === 'ages' && <AgesTab token={token} comp={comp} reload={reload} />}
       {tab === 'teams' && <TeamsTab token={token} comp={comp} />}
