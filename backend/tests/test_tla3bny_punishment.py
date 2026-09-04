@@ -92,6 +92,44 @@ def test_point_deduction_punishments_drive_the_entry_deduction(ctx):
     assert db.session.get(Tla3bnyCompetitionTeam, entry_id).point_deduction == 3
 
 
+def test_disqualification_and_unserved_ban_block_the_lineup(ctx):
+    db = ctx
+    from app.models import Tla3bnyAgeCategory, Tla3bnyMatch, Tla3bnyPlayer, Tla3bnyPunishment
+    from app.api.tla3bny.matches import _blocked_player_reasons
+
+    comp_id, team_id, _ = _seed(db)
+    age_id = db.session.query(Tla3bnyAgeCategory.id).scalar()
+    match = Tla3bnyMatch(competition_id=comp_id, age_category_id=age_id,
+                         home_team_id=team_id, away_team_id=team_id, status="scheduled")
+    p = Tla3bnyPlayer(name="X")
+    db.session.add_all([match, p])
+    db.session.flush()
+
+    # No punishment yet → nobody blocked.
+    assert _blocked_player_reasons(match, team_id) == {}
+
+    # A disqualified player is blocked.
+    db.session.add(Tla3bnyPunishment(
+        competition_id=comp_id, player_id=p.id, punishment_type="disqualification"))
+    # An unserved match ban (no finished matches yet) is blocked too.
+    q = Tla3bnyPlayer(name="Y")
+    db.session.add(q)
+    db.session.flush()
+    db.session.add(Tla3bnyPunishment(
+        competition_id=comp_id, player_id=q.id, punishment_type="match_ban", matches=2))
+    db.session.commit()
+
+    reasons = _blocked_player_reasons(match, team_id)
+    assert p.id in reasons          # disqualified
+    assert q.id in reasons          # ban not served (0 of 2)
+
+    # Disqualifying the whole team blocks everyone (sentinel key 0).
+    db.session.add(Tla3bnyPunishment(
+        competition_id=comp_id, team_id=team_id, punishment_type="disqualification"))
+    db.session.commit()
+    assert 0 in _blocked_player_reasons(match, team_id)
+
+
 def test_fine_amount_is_private_in_to_dict(ctx):
     db = ctx
     from app.models import Tla3bnyPunishment
