@@ -1113,9 +1113,11 @@ export const tAnalysis = (compId: number, ageId: number) =>
 export type TAwardType =
   | 'champion' | 'runner_up' | 'third_place'
   | 'top_scorer' | 'top_assister' | 'best_player' | 'best_goalkeeper'
-  | 'player_of_match' | 'player_of_round';
-/** Team titles go to a team; every other award goes to a player. */
+  | 'player_of_match' | 'player_of_round'
+  | 'best_coach' | 'coach_of_round';
+/** Team titles go to a team; coach awards to a coach; everything else to a player. */
 export const TEAM_AWARD_TYPES: TAwardType[] = ['champion', 'runner_up', 'third_place'];
+export const COACH_AWARD_TYPES: TAwardType[] = ['best_coach', 'coach_of_round'];
 
 export interface TAward {
   id: number;
@@ -1136,6 +1138,13 @@ export interface TAward {
   team_name: string | null;
   team_logo: string | null;
   academy_id: number | null;
+  // Coach awards (best_coach, coach_of_round) — recipient is a coach.
+  coach_id: number | null;
+  coach_name: string | null;
+  coach_name_en: string | null;
+  coach_photo: string | null;
+  coach_team_id: number | null;
+  coach_team_name: string | null;
 }
 export interface TTotrSlot {
   id: number;
@@ -1186,10 +1195,24 @@ export interface TAwardInput {
   match_id?: number;
   player_id?: number;
   team_id?: number;
+  coach_id?: number;
   note?: string;
 }
 export const tGrantAward = (token: string, compId: number, body: TAwardInput) =>
   send<TAward>('POST', `/competitions/${compId}/awards`, body, token);
+/** Coaches of the teams in a competition — the pool for a coach award. */
+export interface TCoachPool {
+  id: number;
+  name: string;
+  name_en: string | null;
+  photo_path: string | null;
+  role_ar: string | null;
+  team_id: number;
+  team_name: string | null;
+  team_name_en: string | null;
+}
+export const tCompetitionCoaches = (compId: number, cageId?: number, token?: string | null) =>
+  get<TCoachPool[]>(`/competitions/${compId}/coaches${qs({ competition_age_id: cageId })}`, token);
 export const tRevokeAward = (token: string, awardId: number) =>
   send<{ message: string }>('DELETE', `/awards/${awardId}`, undefined, token);
 /** Set (playerId) or clear (null) the player of the match from its edit panel. */
