@@ -330,6 +330,7 @@ def clone_competition(comp_id: int):
         required_documents=list(source.required_documents) if source.required_documents else None,
         info=source.info,
         organizer_name=source.organizer_name,
+        organizer_photo_path=source.organizer_photo_path,
         contact_phone=source.contact_phone,
         whatsapp_number=source.whatsapp_number,
         whatsapp_group_url=source.whatsapp_group_url,
@@ -516,8 +517,15 @@ def update_competition(comp_id: int):
     try:
         if files is not None and files.get("logo"):
             comp.logo_path = save_upload(files.get("logo"), kind="image")
+        if files is not None and files.get("organizer_photo"):
+            comp.organizer_photo_path = save_upload(files.get("organizer_photo"), kind="image")
     except ValueError as e:
         return _err(str(e))
+    # An explicit empty organizer_photo_path (with no new file) clears the photo.
+    if ("organizer_photo_path" in data
+            and not (data.get("organizer_photo_path") or "").strip()
+            and not (files is not None and files.get("organizer_photo"))):
+        comp.organizer_photo_path = None
     db.session.commit()
     return jsonify(comp.to_dict())
 

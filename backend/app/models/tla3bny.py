@@ -715,6 +715,8 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
     # the long text of the info page (format, rules, fees, how to enter).
     info: Mapped[str | None] = mapped_column(sa.Text)
     organizer_name: Mapped[str | None] = mapped_column(sa.String(255))
+    # A photo of the competition's organizer, shown on the public info page. Public.
+    organizer_photo_path: Mapped[str | None] = mapped_column(sa.String(512))
     contact_phone: Mapped[str | None] = mapped_column(sa.String(50))
     # Digits only, international form (e.g. 201234567890). The frontend turns it
     # into a wa.me link; storing the number rather than a URL keeps the two ways
@@ -804,6 +806,7 @@ class Tla3bnyCompetition(TimestampMixin, db.Model):
             "required_documents": self.documents,
             "info": self.info,
             "organizer_name": self.organizer_name,
+            "organizer_photo_path": self.organizer_photo_path,
             "contact_phone": self.contact_phone,
             "whatsapp_number": self.whatsapp_number,
             "whatsapp_group_url": self.whatsapp_group_url,
