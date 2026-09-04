@@ -528,6 +528,9 @@ export interface TLineupSlot {
   position_slot: string | null;
   player_id: number | null;
   player_name: string | null;
+  player_name_en: string | null;
+  /** Full DOB (YYYY-MM-DD); cards show the year of birth from it. */
+  player_dob: string | null;
   photo_path: string | null;
   is_substitute: boolean;
 }

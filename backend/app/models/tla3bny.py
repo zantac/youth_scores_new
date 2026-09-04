@@ -1622,6 +1622,9 @@ class Tla3bnyLineupSlot(TimestampMixin, db.Model):
             "position_slot": self.position_slot,
             "player_id": self.player_id,
             "player_name": p.name if p else None,
+            "player_name_en": p.name_en if p else None,
+            # Full DOB; the match-day cards show the year of birth from it.
+            "player_dob": (p.dob.isoformat() if p and p.dob else None),
             "photo_path": p.photo_path if p else None,
             "is_substitute": self.is_substitute,
         }
