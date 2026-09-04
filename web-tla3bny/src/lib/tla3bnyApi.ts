@@ -278,6 +278,8 @@ export interface TCompetition {
   /** The long "about this competition" text: format, rules, fees, how to enter. */
   info: string | null;
   organizer_name: string | null;
+  /** Photo of the competition's organizer, shown on the public info page. */
+  organizer_photo_path: string | null;
   contact_phone: string | null;
   /** Digits only, international form — see whatsappLink(). */
   whatsapp_number: string | null;
@@ -851,11 +853,12 @@ export const tCompetition = (id: number, token?: string | null) =>
  *  paper, in the order the organiser listed them. */
 function compBody(
   fd: Record<string, string | number | undefined>,
-  logo?: File | null, documents?: string[], keepEmpty = false,
+  logo?: File | null, documents?: string[], keepEmpty = false, organizerPhoto?: File | null,
 ) {
   const body = new FormData();
   Object.entries(fd).forEach(([k, v]) => { if (v != null && (keepEmpty || v !== '')) body.append(k, String(v)); });
   if (logo) body.append('logo', logo);
+  if (organizerPhoto) body.append('organizer_photo', organizerPhoto);
   // An empty entry still marks the field as sent, which resets the competition
   // to the default paper list rather than leaving the old one in place.
   if (documents) (documents.length ? documents : ['']).forEach(d => body.append('required_documents', d));
@@ -869,9 +872,9 @@ export function tCreateCompetition(
 }
 export function tUpdateCompetition(
   token: string, id: number, fd: Record<string, string | number | undefined>,
-  logo?: File | null, documents?: string[],
+  logo?: File | null, documents?: string[], organizerPhoto?: File | null,
 ) {
-  return sendForm<TCompetition>('PUT', `/competitions/${id}`, compBody(fd, logo, documents, true), token);
+  return sendForm<TCompetition>('PUT', `/competitions/${id}`, compBody(fd, logo, documents, true, organizerPhoto), token);
 }
 export const tDeleteCompetition = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/competitions/${id}`, undefined, token);

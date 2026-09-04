@@ -2,7 +2,7 @@
 import { whatsappLink, type TCompetition } from '@/lib/tla3bnyApi';
 import { useApp } from '@/context/AppContext';
 import { formatMatchDate, safeUrl } from '@/lib/utils';
-import { Card, EmptyState, useTT } from './kit';
+import { Card, EmptyState, LogoAvatar, useTT } from './kit';
 
 /**
  * The public "about this competition" page: what it is, who runs it, when and
@@ -23,8 +23,9 @@ export default function CompetitionInfo({ comp, hideAbout = false }: { comp: TCo
     ? dates.map(d => formatMatchDate(d, locale)).join(tt(' حتى ', ' — '))
     : null;
 
+  // The organizer gets its own card (name + photo) below, so it's out of `facts`.
+  const hasOrganizer = !!(comp.organizer_name || comp.organizer_photo_path);
   const facts: [string, string | null][] = [
-    [tt('المنظم', 'Organizer'), comp.organizer_name],
     [tt('الموسم', 'Season'), comp.season_name],
     [tt('المكان', 'Location'), comp.location],
     [tt('الفترة', 'Dates'), period],
@@ -35,7 +36,7 @@ export default function CompetitionInfo({ comp, hideAbout = false }: { comp: TCo
   // `hideAbout` drops it here — the long `info` still shows.
   const aboutEmpty = hideAbout ? !comp.info : (!comp.info && !comp.description);
   const nothingToShow =
-    aboutEmpty && shown.length === 0 && !chat &&
+    aboutEmpty && shown.length === 0 && !hasOrganizer && !chat &&
     !comp.contact_phone && !comp.facebook_url && !comp.whatsapp_group_url;
 
   if (nothingToShow) {
@@ -49,6 +50,16 @@ export default function CompetitionInfo({ comp, hideAbout = false }: { comp: TCo
           <h3 className="font-black text-text">{tt('عن البطولة', 'About the competition')}</h3>
           {!hideAbout && comp.description && <p className="text-sm text-teal">{comp.description}</p>}
           {comp.info && <p className="text-sm text-hint whitespace-pre-line leading-relaxed">{comp.info}</p>}
+        </Card>
+      )}
+
+      {hasOrganizer && (
+        <Card className="p-4 flex items-center gap-3">
+          <LogoAvatar src={comp.organizer_photo_path} name={comp.organizer_name ?? '?'} size={48} />
+          <div className="min-w-0">
+            <p className="text-hint text-[11px] font-bold">{tt('المنظم', 'Organizer')}</p>
+            <p className="text-text font-black truncate">{comp.organizer_name || tt('غير محدد', 'Not set')}</p>
+          </div>
         </Card>
       )}
 

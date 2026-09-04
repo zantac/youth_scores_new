@@ -1681,6 +1681,8 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   });
   const [registrationOpen, setRegistrationOpen] = useState(comp.registration_open);
   const [logo, setLogo] = useState<File | null>(null);
+  const [organizerPhoto, setOrganizerPhoto] = useState<File | null>(null);
+  const [organizerPhotoPath, setOrganizerPhotoPath] = useState(comp.organizer_photo_path ?? null);
   const [busy, setBusy] = useState(false);
   const [ok, setOk] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1695,11 +1697,17 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
   const save = async () => {
     setBusy(true); setOk(false); setErr(null);
     try {
-      await tUpdateCompetition(
+      const updated = await tUpdateCompetition(
         token, comp.id,
-        { ...f, registration_open: registrationOpen ? 'true' : 'false' },
-        logo,
+        {
+          ...f,
+          registration_open: registrationOpen ? 'true' : 'false',
+          // Empty clears a removed photo; undefined leaves the stored one as-is.
+          organizer_photo_path: organizerPhotoPath ? undefined : '',
+        },
+        logo, undefined, organizerPhoto,
       );
+      setOrganizerPhotoPath(updated.organizer_photo_path); setOrganizerPhoto(null);
       setOk(true); setIsDirty(false); setLogo(null); reload();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
@@ -1715,6 +1723,28 @@ function InfoTab({ token, comp, reload }: { token: string; comp: TCompetition; r
           <Field label={tt('الاسم', 'Name')}><input value={f.name} onChange={set('name')} className={inputCls} /></Field>
           <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}><input value={f.name_en} onChange={set('name_en')} dir="ltr" className={inputCls} /></Field>
           <Field label={tt('المنظم', 'Organizer')}><input value={f.organizer_name} onChange={set('organizer_name')} className={inputCls} /></Field>
+        </div>
+        <div className="flex items-center gap-3">
+          {(organizerPhoto || organizerPhotoPath) ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={organizerPhoto ? URL.createObjectURL(organizerPhoto) : mediaUrl(organizerPhotoPath)!}
+              alt="" className="w-14 h-14 rounded-full object-cover border border-bdr shrink-0" />
+          ) : (
+            <div className="w-14 h-14 rounded-full bg-darkBg border border-bdr flex items-center justify-center text-hint text-lg shrink-0">👤</div>
+          )}
+          <div className="flex-1 min-w-0">
+            <span className="block text-teal text-[10px] font-bold mb-1">{tt('صورة المنظم', 'Organizer photo')}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="file" accept="image/*"
+                onChange={e => { setOrganizerPhoto(e.target.files?.[0] ?? null); setIsDirty(true); }}
+                className="text-xs text-hint file:me-2 file:py-1.5 file:px-2 file:rounded-lg file:border-0 file:bg-cardBg2 file:text-teal" />
+              {(organizerPhoto || organizerPhotoPath) && (
+                <button type="button"
+                  onClick={() => { setOrganizerPhoto(null); setOrganizerPhotoPath(null); setIsDirty(true); }}
+                  className="text-[11px] font-bold text-hint hover:text-loss">{tt('إزالة', 'Remove')}</button>
+              )}
+            </div>
+          </div>
         </div>
         <Field label={tt('وصف مختصر (يظهر على الكارت)', 'Short blurb (shown on cards)')}>
           <input value={f.description} onChange={set('description')} className={inputCls} />
