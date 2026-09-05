@@ -8,6 +8,7 @@ import {
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
 import CompetitionRegistration from './CompetitionRegistration';
+import ChatThread from './ChatThread';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
 /** Players (squad) + per-competition registration + coaches, for one team.
@@ -24,6 +25,7 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [compEntries, setCompEntries] = useState<TTeamCompEntry[]>([]);
+  const [chatComp, setChatComp] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -298,6 +300,32 @@ export default function TeamManage({ token, teamId }: { token: string; teamId: n
           ))}
         </div>
       </section>
+
+      {/* ── chat with the competition's organizers ────────────────────────── */}
+      {activeEntries.length > 0 && (
+        <section>
+          <h3 className="font-black text-text mb-2">{tt('المحادثات مع المنظمين', 'Chat with organizers')}</h3>
+          <div className="space-y-2">
+            {activeEntries.map(e => (
+              <div key={e.entry_id}>
+                <button onClick={() => setChatComp(chatComp === e.competition_id ? null : e.competition_id)}
+                  className="w-full flex items-center justify-between gap-2 bg-cardBg border border-bdr rounded-xl px-3 py-2.5 hover:border-aqua/40 transition-colors">
+                  <span className="text-sm font-bold text-text truncate">💬 {e.competition_name}</span>
+                  <span className="text-aqua text-xs font-bold shrink-0">
+                    {chatComp === e.competition_id ? tt('إغلاق', 'Close') : tt('محادثة', 'Open chat')}
+                  </span>
+                </button>
+                {chatComp === e.competition_id && (
+                  <div className="mt-2">
+                    <ChatThread token={token} compId={e.competition_id} teamId={teamId}
+                      mySide="academy" title={e.competition_name ?? undefined} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ── coaches ───────────────────────────────────────────────────────── */}
       <section>

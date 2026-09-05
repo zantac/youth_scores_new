@@ -4,6 +4,7 @@ import {
   tCompTeams, tCompetitionCoaches, tCompetitionPunishments, tCreatePunishment, tDeletePunishment,
   type TCompetition, type TCompTeam, type TCoachPool, type TPunishment, type TPunishmentType,
 } from '@/lib/tla3bnyApi';
+import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
 type Kind = 'player' | 'coach' | 'team';
@@ -32,6 +33,10 @@ interface PoolPlayer { player_id: number; player_name: string | null; team_name:
 export default function PunishmentsManager({ token, comp }: { token: string; comp: TCompetition }) {
   const tt = useTT();
   const nm = useName();
+  const { user, isSuperAdmin } = useTla3bnyAuth();
+  // Recording a punishment is open to every organizer; removing one is gated.
+  const canRemove = isSuperAdmin
+    || !!(comp.admins ?? []).find(a => a.user_id === user?.id)?.can_remove_punishments;
   const [teams, setTeams] = useState<TCompTeam[]>([]);
   const [coaches, setCoaches] = useState<TCoachPool[]>([]);
   const [puns, setPuns] = useState<TPunishment[]>([]);
@@ -61,7 +66,10 @@ export default function PunishmentsManager({ token, comp }: { token: string; com
         onAdded={loadPuns} onError={setErr} />
 
       <section>
-        <h3 className="font-black text-text mb-2">{tt('العقوبات المسجّلة', 'Recorded punishments')}</h3>
+        <h3 className="font-black text-text mb-1">{tt('العقوبات المسجّلة', 'Recorded punishments')}</h3>
+        {!canRemove && (
+          <p className="text-[11px] text-hint mb-2">{tt('ليس لديك صلاحية حذف العقوبات — تواصل مع مدير البطولة.', 'You don\'t have permission to remove punishments — ask the competition owner.')}</p>
+        )}
         {puns.length === 0 ? (
           <EmptyState icon="🕊️" text={tt('لا عقوبات', 'No punishments')} />
         ) : (
@@ -96,8 +104,10 @@ export default function PunishmentsManager({ token, comp }: { token: string; com
                             {p.reason && <div className="text-[11px] text-hint truncate">{p.reason}</div>}
                           </div>
                           <span className="text-sm font-black text-loss shrink-0 tabular-nums">{value}</span>
-                          <button onClick={async () => { if (confirm(tt('حذف العقوبة؟', 'Remove punishment?'))) { await tDeletePunishment(token, p.id); loadPuns(); } }}
-                            className="text-hint hover:text-loss text-sm px-1 shrink-0">🗑</button>
+                          {canRemove && (
+                            <button onClick={async () => { if (confirm(tt('حذف العقوبة؟', 'Remove punishment?'))) { await tDeletePunishment(token, p.id); loadPuns(); } }}
+                              className="text-hint hover:text-loss text-sm px-1 shrink-0">🗑</button>
+                          )}
                         </div>
                       );
                     })}

@@ -130,6 +130,31 @@ def test_disqualification_and_unserved_ban_block_the_lineup(ctx):
     assert 0 in _blocked_player_reasons(match, team_id)
 
 
+def test_remove_permission_is_gated_per_organizer(ctx):
+    db = ctx
+    from app.models import Tla3bnyCompetitionAdmin, Tla3bnyUser
+    from app.services import tla3bny_auth as auth
+
+    comp_id, _team_id, _ = _seed(db)
+    superu = Tla3bnyUser(username="s", role="super_admin", status="active", password_hash="x")
+    org = Tla3bnyUser(username="o", role="competition_admin", status="active", password_hash="x")
+    outsider = Tla3bnyUser(username="x", role="competition_admin", status="active", password_hash="x")
+    db.session.add_all([superu, org, outsider])
+    db.session.flush()
+    ca = Tla3bnyCompetitionAdmin(competition_id=comp_id, user_id=org.id, can_remove_punishments=False)
+    db.session.add(ca)
+    db.session.commit()
+
+    assert auth.can_remove_punishment(superu, comp_id) is True     # super always
+    assert auth.can_remove_punishment(org, comp_id) is False       # organizer, not granted
+    assert auth.can_remove_punishment(outsider, comp_id) is False  # not an organizer here
+    assert auth.can_remove_punishment(None, comp_id) is False
+
+    ca.can_remove_punishments = True
+    db.session.commit()
+    assert auth.can_remove_punishment(org, comp_id) is True        # now granted
+
+
 def test_fine_amount_is_private_in_to_dict(ctx):
     db = ctx
     from app.models import Tla3bnyPunishment

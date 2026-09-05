@@ -178,6 +178,41 @@ def is_competition_admin(user: Tla3bnyUser | None, competition_id: int) -> bool:
     return False
 
 
+def can_remove_punishment(user: Tla3bnyUser | None, competition_id: int) -> bool:
+    """May this user REMOVE a punishment in the competition — the super admin, or
+    an organizer whose ``can_remove_punishments`` flag is set. (Recording a
+    punishment stays open to every organizer; only removal is gated.)"""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    if user.role == "competition_admin":
+        ca = (
+            db.session.query(Tla3bnyCompetitionAdmin)
+            .filter_by(competition_id=competition_id, user_id=user.id)
+            .first()
+        )
+        return bool(ca and ca.can_remove_punishments)
+    return False
+
+
+def can_chat(user: Tla3bnyUser | None, competition_id: int) -> bool:
+    """May this organizer use the academy/team chat for the competition — the super
+    admin, or an organizer whose ``can_chat`` flag is set."""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    if user.role == "competition_admin":
+        ca = (
+            db.session.query(Tla3bnyCompetitionAdmin)
+            .filter_by(competition_id=competition_id, user_id=user.id)
+            .first()
+        )
+        return bool(ca and ca.can_chat)
+    return False
+
+
 def can_manage_academy(user: Tla3bnyUser | None, academy_id: int) -> bool:
     """The super admin, or the academy's own login (unless suspended)."""
     if not user:

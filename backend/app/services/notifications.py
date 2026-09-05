@@ -84,6 +84,28 @@ def tla3bny_compadmin_topic(competition_id: int) -> str:
     return f"t3_compadmin_{competition_id}"
 
 
+def tla3bny_team_topic(team_id: int) -> str:
+    """One team's private topic (chat replies from organizers). The team's coach
+    subscribes at login; the owning academy subscribes to all its teams' topics."""
+    return f"t3_team_{team_id}"
+
+
+def notify_tla3bny_chat(competition_id: int, team_id: int, team_name: str,
+                        sender_side: str, preview: str) -> dict:
+    """Ping the *other* side about a new chat message. Academy/team → the
+    competition's organizers; organizer → the team (its coach + owning academy)."""
+    data = {
+        "type": "tla3bny_chat",
+        "competition_id": str(competition_id),
+        "team_id": str(team_id),
+    }
+    if sender_side == "academy":
+        return send_to_topic(tla3bny_compadmin_topic(competition_id),
+                             f"💬 رسالة من {team_name}", preview, data=data)
+    return send_to_topic(tla3bny_team_topic(team_id),
+                         "💬 رسالة من إدارة البطولة", preview, data=data)
+
+
 # Cached OAuth token so we don't re-sign every send.
 _token_cache: dict = {"access_token": None, "expiry": 0.0, "project_id": None}
 
