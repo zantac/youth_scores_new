@@ -207,7 +207,9 @@ def create_punishment(comp_id: int):
 @auth.login_required
 def delete_punishment(pun_id: int):
     pun = Tla3bnyPunishment.query.get_or_404(pun_id)
-    if not _admin(pun.competition_id):
+    # Removing a punishment is gated: not every organizer may (see the Organizers
+    # tab). Recording one stays open to all organizers.
+    if not auth.can_remove_punishment(auth.current_user(), pun.competition_id):
         return _forbid()
     comp_id, team_id = pun.competition_id, pun.team_id
     ptype = pun.punishment_type

@@ -844,6 +844,18 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
     user_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_users.id", ondelete="CASCADE"), nullable=False
     )
+    # Not every organizer may remove a punishment (a sensitive, auditable action).
+    # New co-organizers default to False; the super admin — or an organizer who
+    # already holds it — grants it. Existing organizers were backfilled to True.
+    can_remove_punishments: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
+    # Whether this organizer may use the chat with academies/teams. Same gating as
+    # can_remove_punishments: new (data-entry) organizers default False; existing
+    # ones were backfilled True.
+    can_chat: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
 
     competition: Mapped["Tla3bnyCompetition"] = relationship(
         back_populates="admins"
@@ -865,6 +877,8 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
             "user_login": (self.user.username or self.user.email) if self.user else None,
             "user_email": self.user.email if self.user else None,
             "user_name": self.user.name if self.user else None,
+            "can_remove_punishments": self.can_remove_punishments,
+            "can_chat": self.can_chat,
         }
 
 
@@ -2115,3 +2129,103 @@ class Tla3bnyPunishment(TimestampMixin, db.Model):
         if include_amount:
             data["amount"] = float(self.amount) if self.amount is not None else None
         return data
+
+
+class Tla3bnyConversation(TimestampMixin, db.Model):
+    """A chat thread between one team (its coach + owning academy) and a
+    competition's chat-enabled organizers. One per (competition, team).
+
+    Read state is two timestamps, not per-message rows: a side's unread count is
+    the messages the *other* side sent after that side last read."""
+
+    __tablename__ = "tla3bny_conversations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_teams.id", ondelete="CASCADE"), nullable=False
+    )
+    # The team's academy, denormalised so the owner's access + topic are one hop.
+    academy_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_academies.id", ondelete="CASCADE")
+    )
+    academy_last_read_at: Mapped[datetime | None] = mapped_column(sa.DateTime)
+    organizer_last_read_at: Mapped[datetime | None] = mapped_column(sa.DateTime)
+
+    competition: Mapped["Tla3bnyCompetition"] = relationship()
+    team: Mapped["Tla3bnyTeam"] = relationship()
+    messages: Mapped[list["Tla3bnyMessage"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan",
+        order_by="Tla3bnyMessage.created_at",
+    )
+
+    __table_args__ = (
+        sa.UniqueConstraint("competition_id", "team_id", name="uq_tla3bny_conversation"),
+        sa.Index("ix_tla3bny_conversations_comp", "competition_id"),
+    )
+
+    def unread_for(self, side: str) -> int:
+        """Messages the *other* side sent after ``side`` last read this thread."""
+        last = self.academy_last_read_at if side == "academy" else self.organizer_last_read_at
+        other = "organizer" if side == "academy" else "academy"
+        return sum(
+            1 for m in self.messages
+            if m.sender_side == other and (last is None or m.created_at > last)
+        )
+
+    def to_dict(self, side: str | None = None) -> dict:
+        last = self.messages[-1] if self.messages else None
+        team = self.team
+        return {
+            "id": self.id,
+            "competition_id": self.competition_id,
+            "competition_name": self.competition.name if self.competition else None,
+            "team_id": self.team_id,
+            "team_name": team.display_name() if team else None,
+            "team_name_en": team.display_name("en") if team else None,
+            "academy_id": self.academy_id,
+            "academy_name": (
+                team.academy.name if team and team.academy else None
+            ),
+            "last_message": last.body if last else None,
+            "last_message_at": last.created_at.isoformat() if last else None,
+            "unread": self.unread_for(side) if side else 0,
+        }
+
+
+class Tla3bnyMessage(TimestampMixin, db.Model):
+    """One text message in a conversation. ``sender_side`` records which end sent
+    it (academy/team vs organizer), so the thread renders without resolving roles
+    and unread counts are a cheap comparison."""
+
+    __tablename__ = "tla3bny_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("tla3bny_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    sender_user_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
+    )
+    sender_side: Mapped[str] = mapped_column(sa.String(10), nullable=False)
+    body: Mapped[str] = mapped_column(sa.Text, nullable=False)
+
+    conversation: Mapped["Tla3bnyConversation"] = relationship(back_populates="messages")
+    sender: Mapped["Tla3bnyUser | None"] = relationship()
+
+    __table_args__ = (
+        sa.Index("ix_tla3bny_messages_conversation", "conversation_id"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "conversation_id": self.conversation_id,
+            "sender_user_id": self.sender_user_id,
+            "sender_side": self.sender_side,
+            "sender_name": self.sender.name or self.sender.username if self.sender else None,
+            "body": self.body,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

@@ -650,6 +650,27 @@ def remove_competition_admin(comp_id: int, user_id: int):
     return jsonify({"message": "removed"})
 
 
+@tla3bny_bp.put("/competitions/<int:comp_id>/admins/<int:user_id>")
+@auth.login_required
+def set_competition_admin_permissions(comp_id: int, user_id: int):
+    """Set an organizer's permissions (currently just ``can_remove_punishments``).
+    Only the super admin, or an organizer who already holds the remove permission,
+    may grant/revoke it — so a restricted organizer can't unlock themselves."""
+    actor = auth.current_user()
+    if not auth.can_remove_punishment(actor, comp_id):
+        return _forbid()
+    ca = Tla3bnyCompetitionAdmin.query.filter_by(
+        competition_id=comp_id, user_id=user_id
+    ).first_or_404()
+    data = request.get_json(silent=True) or {}
+    if "can_remove_punishments" in data:
+        ca.can_remove_punishments = _bool(data.get("can_remove_punishments"))
+    if "can_chat" in data:
+        ca.can_chat = _bool(data.get("can_chat"))
+    db.session.commit()
+    return jsonify(ca.to_dict())
+
+
 # ── competition ages + rules ─────────────────────────────────────────────────
 _RULE_FIELDS = (
     "max_players_per_team",

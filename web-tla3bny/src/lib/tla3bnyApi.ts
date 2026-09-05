@@ -258,6 +258,10 @@ export interface TCompAdmin {
   user_login: string | null;
   user_email: string | null;
   user_name: string | null;
+  /** May this organizer remove punishments? (Granting a punishment is open to all.) */
+  can_remove_punishments: boolean;
+  /** May this organizer use the academy/team chat? */
+  can_chat: boolean;
 }
 
 export interface TCompetition {
@@ -892,6 +896,9 @@ export const tAddCompAdmin = (token: string, compId: number, b: Record<string, u
   send<{ message: string; user: TUser }>('POST', `/competitions/${compId}/admins`, b, token);
 export const tRemoveCompAdmin = (token: string, compId: number, userId: number) =>
   send<{ message: string }>('DELETE', `/competitions/${compId}/admins/${userId}`, undefined, token);
+/** Set an organizer's permissions (can_remove_punishments / can_chat). */
+export const tSetCompAdminPerms = (token: string, compId: number, userId: number, b: { can_remove_punishments?: boolean; can_chat?: boolean }) =>
+  send<TCompAdmin>('PUT', `/competitions/${compId}/admins/${userId}`, b, token);
 
 // ── competition ages + rules ──────────────────────────────────────────────
 export const tAddCompAge = (token: string, compId: number, b: Record<string, unknown>) =>
@@ -1298,6 +1305,46 @@ export const tCreatePunishment = (token: string, compId: number, body: TPunishme
   send<TPunishment>('POST', `/competitions/${compId}/punishments`, body, token);
 export const tDeletePunishment = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/punishments/${id}`, undefined, token);
+
+// ── chat (المحادثات) ─────────────────────────────────────────────────────────
+export interface TConversation {
+  id: number;
+  competition_id: number;
+  competition_name: string | null;
+  team_id: number;
+  team_name: string | null;
+  team_name_en: string | null;
+  academy_id: number | null;
+  academy_name: string | null;
+  last_message: string | null;
+  last_message_at: string | null;
+  unread: number;
+}
+export interface TChatMessage {
+  id: number;
+  conversation_id: number;
+  sender_user_id: number | null;
+  sender_side: 'academy' | 'organizer';
+  sender_name: string | null;
+  body: string;
+  created_at: string | null;
+}
+export interface TChatThread {
+  conversation_id: number | null;
+  team_name: string | null;
+  messages: TChatMessage[];
+}
+/** Organizer inbox: every team thread in a competition (chat-enabled organizers). */
+export const tOrgConversations = (token: string, compId: number) =>
+  get<TConversation[]>(`/competitions/${compId}/conversations`, token);
+/** Academy/team side: the caller's team threads across competitions. */
+export const tMyConversations = (token: string) =>
+  get<TConversation[]>(`/my-conversations`, token);
+/** The thread for (competition, team); fetching it marks it read for the caller. */
+export const tChatThread = (token: string, compId: number, teamId: number) =>
+  get<TChatThread>(`/competitions/${compId}/teams/${teamId}/messages`, token);
+export const tSendMessage = (token: string, compId: number, teamId: number, body: string) =>
+  send<TChatMessage>('POST', `/competitions/${compId}/teams/${teamId}/messages`, { body }, token);
 
 // ── news / home ─────────────────────────────────────────────────────────────
 /** Published news. An editor passes their token with `drafts` to see their own

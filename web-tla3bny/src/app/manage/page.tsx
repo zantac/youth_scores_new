@@ -10,7 +10,7 @@ import {
   tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
-  tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, whatsappLink, mediaUrl,
+  tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, tSetCompAdminPerms, whatsappLink, mediaUrl,
   type TCompetition, type TCompAge, type TCompDashboard, type TCategory,
   type TCompTeam, type TCompPlayer, type TMatch, type TCompAdmin,
 } from '@/lib/tla3bnyApi';
@@ -24,13 +24,14 @@ import NewsAdmin from '@/components/tla3bny/NewsAdmin';
 import AdsManager from '@/components/tla3bny/AdsManager';
 import AwardsManager from '@/components/tla3bny/AwardsManager';
 import PunishmentsManager from '@/components/tla3bny/PunishmentsManager';
+import MessagesManager from '@/components/tla3bny/MessagesManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
-type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'punishments' | 'news' | 'ads' | 'organizers';
+type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'punishments' | 'messages' | 'news' | 'ads' | 'organizers';
 
 // Tab order in the bar; also the allow-list for the ?tab= URL param.
-const MANAGE_TABS: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'punishments', 'organizers', 'news', 'ads'];
+const MANAGE_TABS: Tab[] = ['dashboard', 'info', 'ages', 'teams', 'approvals', 'stages', 'matches', 'awards', 'punishments', 'messages', 'organizers', 'news', 'ads'];
 
 function ManageContent() {
   const tt = useTT();
@@ -72,6 +73,7 @@ function ManageContent() {
     stages: ['الأدوار', 'Stages'],
     awards: ['🏆 الجوائز', '🏆 Awards'],
     punishments: ['⚖️ العقوبات', '⚖️ Punishments'],
+    messages: ['💬 المحادثات', '💬 Messages'],
     organizers: ['المنظمون', 'Organizers'],
     news: ['📰 الأخبار', '📰 News'],
     ads: ['📣 الإعلانات', '📣 Ads'],
@@ -97,6 +99,7 @@ function ManageContent() {
       {tab === 'stages' && <StagesTab token={token} comp={comp} reload={reload} />}
       {tab === 'awards' && <AwardsManager token={token} comp={comp} />}
       {tab === 'punishments' && <PunishmentsManager token={token} comp={comp} />}
+      {tab === 'messages' && <MessagesManager token={token} comp={comp} />}
       {tab === 'organizers' && <OrganizersTab token={token} comp={comp} reload={reload} />}
       {tab === 'news' && <NewsAdmin token={token} compId={comp.id} />}
       {tab === 'ads' && <AdsManager token={token} competitionId={comp.id} />}
@@ -665,13 +668,22 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
  *  every competition they run), so that control shows for the super admin only. */
 function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
   const tt = useTT();
-  const { user } = useTla3bnyAuth();
+  const { user, isSuperAdmin } = useTla3bnyAuth();
   const [f, setF] = useState({ username: '', name: '', password: '' });
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const admins = comp.admins ?? [];
+  // Only the super admin, or an organizer who already holds it, may grant/revoke
+  // the "remove punishments" permission — so a restricted organizer can't unlock
+  // themselves.
+  const canGrant = isSuperAdmin || admins.some(a => a.user_id === user?.id && a.can_remove_punishments);
+  const setPerm = async (a: TCompAdmin, body: { can_remove_punishments?: boolean; can_chat?: boolean }) => {
+    setErr(null);
+    try { await tSetCompAdminPerms(token, comp.id, a.user_id, body); reload(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
   const resettingExisting =
     f.username.trim() !== '' &&
     admins.some(a => (a.user_login ?? '').trim().toLowerCase() === f.username.trim().toLowerCase());
@@ -731,22 +743,45 @@ function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetit
           <p className="text-xs text-hint py-1">{tt('لا يوجد منظمون بعد', 'No organizers yet')}</p>
         )}
         {admins.map(a => (
-          <div key={a.id} className="flex items-center justify-between gap-2 text-sm border-t border-bdr/50 pt-2">
-            <span className="text-text min-w-0 truncate">
-              {a.user_name || a.user_login}
-              {a.user_name && a.user_login && <span className="text-hint" dir="ltr"> · {a.user_login}</span>}
-              {a.user_id === user?.id && <span className="text-aqua text-[11px]"> · {tt('أنت', 'you')}</span>}
-            </span>
-            <div className="flex items-center gap-3 shrink-0">
-              <button
-                onClick={() => { setF({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
-                className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
-                🔑 {tt('كلمة المرور', 'Password')}
-              </button>
-              <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
+          <div key={a.id} className="border-t border-bdr/50 pt-2 space-y-1.5">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-text min-w-0 truncate">
+                {a.user_name || a.user_login}
+                {a.user_name && a.user_login && <span className="text-hint" dir="ltr"> · {a.user_login}</span>}
+                {a.user_id === user?.id && <span className="text-aqua text-[11px]"> · {tt('أنت', 'you')}</span>}
+              </span>
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  onClick={() => { setF({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
+                  className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
+                  🔑 {tt('كلمة المرور', 'Password')}
+                </button>
+                <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
+              </div>
+            </div>
+            {/* Per-organizer permissions (a "full" organizer has both; a
+                data-entry organizer is granted these individually). */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <label className={`flex items-center gap-2 text-[11px] ${canGrant ? '' : 'opacity-70'}`}>
+                <input type="checkbox" checked={a.can_remove_punishments} disabled={!canGrant}
+                  onChange={e => setPerm(a, { can_remove_punishments: e.target.checked })} />
+                <span className={a.can_remove_punishments ? 'text-teal font-bold' : 'text-hint'}>
+                  ⚖️ {tt('حذف العقوبات', 'Remove punishments')}
+                </span>
+              </label>
+              <label className={`flex items-center gap-2 text-[11px] ${canGrant ? '' : 'opacity-70'}`}>
+                <input type="checkbox" checked={a.can_chat} disabled={!canGrant}
+                  onChange={e => setPerm(a, { can_chat: e.target.checked })} />
+                <span className={a.can_chat ? 'text-teal font-bold' : 'text-hint'}>
+                  💬 {tt('المحادثات', 'Chat')}
+                </span>
+              </label>
             </div>
           </div>
         ))}
+        {!canGrant && (
+          <p className="text-[10px] text-hint">{tt('صلاحية حذف العقوبات يمنحها السوبر أدمن أو منظم يملكها.', 'Only the super admin or an organizer who already has it can grant the remove-punishments permission.')}</p>
+        )}
       </Card>
     </div>
   );
