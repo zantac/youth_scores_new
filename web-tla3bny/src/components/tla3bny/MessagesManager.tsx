@@ -14,7 +14,8 @@ export default function MessagesManager({ token, comp }: { token: string; comp: 
   const tt = useTT();
   const nm = useName();
   const { user, isSuperAdmin } = useTla3bnyAuth();
-  const canChat = isSuperAdmin || !!(comp.admins ?? []).find(a => a.user_id === user?.id)?.can_chat;
+  const myAdmin = (comp.admins ?? []).find(a => a.user_id === user?.id);
+  const canChat = isSuperAdmin || !!(myAdmin && (myAdmin.is_owner || myAdmin.can_chat));
 
   const [convs, setConvs] = useState<TConversation[]>([]);
   const [teams, setTeams] = useState<TCompTeam[]>([]);

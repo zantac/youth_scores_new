@@ -675,11 +675,10 @@ function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetit
   const [busy, setBusy] = useState(false);
 
   const admins = comp.admins ?? [];
-  // Only the super admin, or an organizer who already holds it, may grant/revoke
-  // the "remove punishments" permission — so a restricted organizer can't unlock
-  // themselves.
-  const canGrant = isSuperAdmin || admins.some(a => a.user_id === user?.id && a.can_remove_punishments);
-  const setPerm = async (a: TCompAdmin, body: { can_remove_punishments?: boolean; can_chat?: boolean }) => {
+  // Only a competition owner (super admin) manages the organizer roster and
+  // permissions. Ownership itself is set by the site super admin only.
+  const iAmOwner = isSuperAdmin || admins.some(a => a.user_id === user?.id && a.is_owner);
+  const setPerm = async (a: TCompAdmin, body: { is_owner?: boolean; can_remove_punishments?: boolean; can_chat?: boolean }) => {
     setErr(null);
     try { await tSetCompAdminPerms(token, comp.id, a.user_id, body); reload(); }
     catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -711,6 +710,7 @@ function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetit
 
   return (
     <div className="space-y-3">
+      {iAmOwner && (
       <Card className="p-3 space-y-2">
         <p className="font-black text-text text-sm">{tt('إضافة منظم', 'Add organizer')}</p>
         <p className="text-[11px] text-hint">
@@ -736,51 +736,67 @@ function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetit
         </div>
         {err && <ErrorNote>{err}</ErrorNote>}
       </Card>
+      )}
 
       <Card className="p-3 space-y-2">
         <p className="font-black text-text text-sm">{tt('المنظمون الحاليون', 'Current organizers')}</p>
+        {!iAmOwner && <ErrorNote>{err}</ErrorNote>}
         {admins.length === 0 && (
           <p className="text-xs text-hint py-1">{tt('لا يوجد منظمون بعد', 'No organizers yet')}</p>
         )}
-        {admins.map(a => (
+        {admins.map(a => {
+          // A non-super owner can't remove another owner (only the site super admin can).
+          const canRemoveThis = iAmOwner && (isSuperAdmin || !a.is_owner);
+          return (
           <div key={a.id} className="border-t border-bdr/50 pt-2 space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-sm">
               <span className="text-text min-w-0 truncate">
+                {a.is_owner && <span className="text-gold" title={tt('مشرف عام', 'Owner')}>👑 </span>}
                 {a.user_name || a.user_login}
                 {a.user_name && a.user_login && <span className="text-hint" dir="ltr"> · {a.user_login}</span>}
                 {a.user_id === user?.id && <span className="text-aqua text-[11px]"> · {tt('أنت', 'you')}</span>}
               </span>
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  onClick={() => { setF({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
-                  className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
-                  🔑 {tt('كلمة المرور', 'Password')}
-                </button>
-                <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
+              {iAmOwner && (
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={() => { setF({ username: a.user_login ?? '', name: a.user_name ?? '', password: '' }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
+                    className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
+                    🔑 {tt('كلمة المرور', 'Password')}
+                  </button>
+                  {canRemoveThis && <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>}
+                </div>
+              )}
+            </div>
+            {iAmOwner && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 items-center">
+                {/* Ownership: the site super admin promotes/demotes the competition super admin. */}
+                {isSuperAdmin && (
+                  <label className="flex items-center gap-2 text-[11px]">
+                    <input type="checkbox" checked={a.is_owner} onChange={e => setPerm(a, { is_owner: e.target.checked })} />
+                    <span className={a.is_owner ? 'text-gold font-bold' : 'text-hint'}>👑 {tt('مشرف عام', 'Owner')}</span>
+                  </label>
+                )}
+                {a.is_owner ? (
+                  <span className="text-[11px] text-gold font-bold">{tt('كل الصلاحيات', 'All permissions')}</span>
+                ) : (<>
+                  <label className="flex items-center gap-2 text-[11px]">
+                    <input type="checkbox" checked={a.can_remove_punishments}
+                      onChange={e => setPerm(a, { can_remove_punishments: e.target.checked })} />
+                    <span className={a.can_remove_punishments ? 'text-teal font-bold' : 'text-hint'}>⚖️ {tt('حذف العقوبات', 'Remove punishments')}</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-[11px]">
+                    <input type="checkbox" checked={a.can_chat}
+                      onChange={e => setPerm(a, { can_chat: e.target.checked })} />
+                    <span className={a.can_chat ? 'text-teal font-bold' : 'text-hint'}>💬 {tt('المحادثات', 'Chat')}</span>
+                  </label>
+                </>)}
               </div>
-            </div>
-            {/* Per-organizer permissions (a "full" organizer has both; a
-                data-entry organizer is granted these individually). */}
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <label className={`flex items-center gap-2 text-[11px] ${canGrant ? '' : 'opacity-70'}`}>
-                <input type="checkbox" checked={a.can_remove_punishments} disabled={!canGrant}
-                  onChange={e => setPerm(a, { can_remove_punishments: e.target.checked })} />
-                <span className={a.can_remove_punishments ? 'text-teal font-bold' : 'text-hint'}>
-                  ⚖️ {tt('حذف العقوبات', 'Remove punishments')}
-                </span>
-              </label>
-              <label className={`flex items-center gap-2 text-[11px] ${canGrant ? '' : 'opacity-70'}`}>
-                <input type="checkbox" checked={a.can_chat} disabled={!canGrant}
-                  onChange={e => setPerm(a, { can_chat: e.target.checked })} />
-                <span className={a.can_chat ? 'text-teal font-bold' : 'text-hint'}>
-                  💬 {tt('المحادثات', 'Chat')}
-                </span>
-              </label>
-            </div>
+            )}
           </div>
-        ))}
-        {!canGrant && (
-          <p className="text-[10px] text-hint">{tt('صلاحية حذف العقوبات يمنحها السوبر أدمن أو منظم يملكها.', 'Only the super admin or an organizer who already has it can grant the remove-punishments permission.')}</p>
+          );
+        })}
+        {!iAmOwner && (
+          <p className="text-[10px] text-hint">{tt('إدارة المنظمين والصلاحيات للمشرف العام للبطولة فقط.', 'Only the competition owner (super admin) manages organizers and permissions.')}</p>
         )}
       </Card>
     </div>

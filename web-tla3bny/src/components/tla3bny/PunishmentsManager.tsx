@@ -34,9 +34,10 @@ export default function PunishmentsManager({ token, comp }: { token: string; com
   const tt = useTT();
   const nm = useName();
   const { user, isSuperAdmin } = useTla3bnyAuth();
-  // Recording a punishment is open to every organizer; removing one is gated.
-  const canRemove = isSuperAdmin
-    || !!(comp.admins ?? []).find(a => a.user_id === user?.id)?.can_remove_punishments;
+  // Recording a punishment is open to every organizer; removing one is gated to the
+  // owner or an organizer granted the permission.
+  const myAdmin = (comp.admins ?? []).find(a => a.user_id === user?.id);
+  const canRemove = isSuperAdmin || !!(myAdmin && (myAdmin.is_owner || myAdmin.can_remove_punishments));
   const [teams, setTeams] = useState<TCompTeam[]>([]);
   const [coaches, setCoaches] = useState<TCoachPool[]>([]);
   const [puns, setPuns] = useState<TPunishment[]>([]);

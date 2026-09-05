@@ -844,6 +844,14 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
     user_id: Mapped[int] = mapped_column(
         sa.ForeignKey("tla3bny_users.id", ondelete="CASCADE"), nullable=False
     )
+    # A competition's super admin(s). An owner holds every organizer permission
+    # implicitly and — crucially — may only be removed or demoted by the site super
+    # admin, so a regular organizer can't remove the competition's owner. Set only
+    # by the site super admin; the first organizer of a competition becomes its
+    # owner automatically. Existing organizers were backfilled to True.
+    is_owner: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
     # Not every organizer may remove a punishment (a sensitive, auditable action).
     # New co-organizers default to False; the super admin — or an organizer who
     # already holds it — grants it. Existing organizers were backfilled to True.
@@ -877,6 +885,7 @@ class Tla3bnyCompetitionAdmin(TimestampMixin, db.Model):
             "user_login": (self.user.username or self.user.email) if self.user else None,
             "user_email": self.user.email if self.user else None,
             "user_name": self.user.name if self.user else None,
+            "is_owner": self.is_owner,
             "can_remove_punishments": self.can_remove_punishments,
             "can_chat": self.can_chat,
         }

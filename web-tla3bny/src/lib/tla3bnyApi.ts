@@ -258,6 +258,9 @@ export interface TCompAdmin {
   user_login: string | null;
   user_email: string | null;
   user_name: string | null;
+  /** A competition super admin (owner): holds all permissions, removable only by
+   *  the site super admin. */
+  is_owner: boolean;
   /** May this organizer remove punishments? (Granting a punishment is open to all.) */
   can_remove_punishments: boolean;
   /** May this organizer use the academy/team chat? */
@@ -896,8 +899,8 @@ export const tAddCompAdmin = (token: string, compId: number, b: Record<string, u
   send<{ message: string; user: TUser }>('POST', `/competitions/${compId}/admins`, b, token);
 export const tRemoveCompAdmin = (token: string, compId: number, userId: number) =>
   send<{ message: string }>('DELETE', `/competitions/${compId}/admins/${userId}`, undefined, token);
-/** Set an organizer's permissions (can_remove_punishments / can_chat). */
-export const tSetCompAdminPerms = (token: string, compId: number, userId: number, b: { can_remove_punishments?: boolean; can_chat?: boolean }) =>
+/** Set an organizer's ownership/permissions (is_owner is site-super-admin only). */
+export const tSetCompAdminPerms = (token: string, compId: number, userId: number, b: { is_owner?: boolean; can_remove_punishments?: boolean; can_chat?: boolean }) =>
   send<TCompAdmin>('PUT', `/competitions/${compId}/admins/${userId}`, b, token);
 
 // ── competition ages + rules ──────────────────────────────────────────────

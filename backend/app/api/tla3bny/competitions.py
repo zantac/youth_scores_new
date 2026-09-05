@@ -564,7 +564,9 @@ def add_competition_admin(comp_id: int):
     competitions) or a brand new one, in which case a password creates it.
     """
     actor = auth.current_user()
-    if not auth.is_competition_admin(actor, comp_id):
+    # Only a competition owner (super admin) manages the organizer roster now, so a
+    # regular/data-entry organizer can't add or remove co-organizers.
+    if not auth.is_competition_owner(actor, comp_id):
         return _forbid()
     is_super = actor.role == "super_admin"
     Tla3bnyCompetition.query.get_or_404(comp_id)
@@ -619,7 +621,11 @@ def add_competition_admin(comp_id: int):
     if not Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user.id
     ).first():
-        db.session.add(Tla3bnyCompetitionAdmin(competition_id=comp_id, user_id=user.id))
+        # The competition's very first organizer becomes its owner (super admin);
+        # everyone added after is a regular organizer until the owner promotes them.
+        first = Tla3bnyCompetitionAdmin.query.filter_by(competition_id=comp_id).first() is None
+        db.session.add(Tla3bnyCompetitionAdmin(
+            competition_id=comp_id, user_id=user.id, is_owner=first))
     db.session.commit()
     return jsonify({"message": "assigned", "user": user.to_dict()}), 201
 
@@ -628,11 +634,16 @@ def add_competition_admin(comp_id: int):
 @auth.login_required
 def remove_competition_admin(comp_id: int, user_id: int):
     actor = auth.current_user()
-    if not auth.is_competition_admin(actor, comp_id):
+    # Only a competition owner (super admin) removes organizers.
+    if not auth.is_competition_owner(actor, comp_id):
         return _forbid()
     ca = Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user_id
     ).first_or_404()
+    # An owner (competition super admin) can only be removed by the SITE super
+    # admin — so a regular organizer, or even a co-owner, can't remove the owner.
+    if ca.is_owner and actor.role != "super_admin":
+        return _err("لا يمكن إزالة المشرف العام للبطولة — يتطلب مشرف الموقع.", 403)
     # A competition admin must not leave the competition with no organiser (they
     # would lock themselves and every co-organiser out). The super admin can,
     # since they retain global access and can reassign anyone afterwards.
@@ -653,16 +664,20 @@ def remove_competition_admin(comp_id: int, user_id: int):
 @tla3bny_bp.put("/competitions/<int:comp_id>/admins/<int:user_id>")
 @auth.login_required
 def set_competition_admin_permissions(comp_id: int, user_id: int):
-    """Set an organizer's permissions (currently just ``can_remove_punishments``).
-    Only the super admin, or an organizer who already holds the remove permission,
-    may grant/revoke it — so a restricted organizer can't unlock themselves."""
+    """Set an organizer's permissions / ownership. Permissions (can_remove_punishments,
+    can_chat) are set by a competition owner (super admin). Ownership (is_owner) is
+    set only by the SITE super admin, so owners are designated centrally."""
     actor = auth.current_user()
-    if not auth.can_remove_punishment(actor, comp_id):
+    if not auth.is_competition_owner(actor, comp_id):
         return _forbid()
     ca = Tla3bnyCompetitionAdmin.query.filter_by(
         competition_id=comp_id, user_id=user_id
     ).first_or_404()
     data = request.get_json(silent=True) or {}
+    if "is_owner" in data:
+        if actor.role != "super_admin":
+            return _err("تعيين المشرف العام يتطلب مشرف الموقع.", 403)
+        ca.is_owner = _bool(data.get("is_owner"))
     if "can_remove_punishments" in data:
         ca.can_remove_punishments = _bool(data.get("can_remove_punishments"))
     if "can_chat" in data:

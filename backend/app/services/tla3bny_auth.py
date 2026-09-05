@@ -178,39 +178,49 @@ def is_competition_admin(user: Tla3bnyUser | None, competition_id: int) -> bool:
     return False
 
 
+def _competition_admin_row(user: Tla3bnyUser | None, competition_id: int):
+    if not user or user.role != "competition_admin":
+        return None
+    return (
+        db.session.query(Tla3bnyCompetitionAdmin)
+        .filter_by(competition_id=competition_id, user_id=user.id)
+        .first()
+    )
+
+
+def is_competition_owner(user: Tla3bnyUser | None, competition_id: int) -> bool:
+    """A competition's super admin: the site super admin, or an organizer whose
+    ``is_owner`` flag is set. Owners manage the organizer roster + permissions and
+    are protected from removal by everyone but the site super admin."""
+    if not user:
+        return False
+    if user.role == "super_admin":
+        return True
+    ca = _competition_admin_row(user, competition_id)
+    return bool(ca and ca.is_owner)
+
+
 def can_remove_punishment(user: Tla3bnyUser | None, competition_id: int) -> bool:
-    """May this user REMOVE a punishment in the competition — the super admin, or
+    """May this user REMOVE a punishment — the super admin, a competition owner, or
     an organizer whose ``can_remove_punishments`` flag is set. (Recording a
     punishment stays open to every organizer; only removal is gated.)"""
     if not user:
         return False
     if user.role == "super_admin":
         return True
-    if user.role == "competition_admin":
-        ca = (
-            db.session.query(Tla3bnyCompetitionAdmin)
-            .filter_by(competition_id=competition_id, user_id=user.id)
-            .first()
-        )
-        return bool(ca and ca.can_remove_punishments)
-    return False
+    ca = _competition_admin_row(user, competition_id)
+    return bool(ca and (ca.is_owner or ca.can_remove_punishments))
 
 
 def can_chat(user: Tla3bnyUser | None, competition_id: int) -> bool:
-    """May this organizer use the academy/team chat for the competition — the super
-    admin, or an organizer whose ``can_chat`` flag is set."""
+    """May this organizer use the academy/team chat — the super admin, a competition
+    owner, or an organizer whose ``can_chat`` flag is set."""
     if not user:
         return False
     if user.role == "super_admin":
         return True
-    if user.role == "competition_admin":
-        ca = (
-            db.session.query(Tla3bnyCompetitionAdmin)
-            .filter_by(competition_id=competition_id, user_id=user.id)
-            .first()
-        )
-        return bool(ca and ca.can_chat)
-    return False
+    ca = _competition_admin_row(user, competition_id)
+    return bool(ca and (ca.is_owner or ca.can_chat))
 
 
 def can_manage_academy(user: Tla3bnyUser | None, academy_id: int) -> bool:

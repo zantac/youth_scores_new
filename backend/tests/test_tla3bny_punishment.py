@@ -155,6 +155,31 @@ def test_remove_permission_is_gated_per_organizer(ctx):
     assert auth.can_remove_punishment(org, comp_id) is True        # now granted
 
 
+def test_competition_owner_holds_all_permissions(ctx):
+    db = ctx
+    from app.models import Tla3bnyCompetitionAdmin, Tla3bnyUser
+    from app.services import tla3bny_auth as auth
+
+    comp_id, _team_id, _ = _seed(db)
+    owner = Tla3bnyUser(username="own", role="competition_admin", status="active", password_hash="x")
+    reg = Tla3bnyUser(username="reg", role="competition_admin", status="active", password_hash="x")
+    db.session.add_all([owner, reg])
+    db.session.flush()
+    # Owner: no explicit flags, but is_owner grants everything.
+    db.session.add(Tla3bnyCompetitionAdmin(competition_id=comp_id, user_id=owner.id, is_owner=True))
+    # Regular organizer: not an owner, no flags.
+    db.session.add(Tla3bnyCompetitionAdmin(competition_id=comp_id, user_id=reg.id, is_owner=False))
+    db.session.commit()
+
+    assert auth.is_competition_owner(owner, comp_id) is True
+    assert auth.is_competition_owner(reg, comp_id) is False
+    # The owner implicitly has every permission; the regular organizer has none.
+    assert auth.can_remove_punishment(owner, comp_id) is True
+    assert auth.can_chat(owner, comp_id) is True
+    assert auth.can_remove_punishment(reg, comp_id) is False
+    assert auth.can_chat(reg, comp_id) is False
+
+
 def test_fine_amount_is_private_in_to_dict(ctx):
     db = ctx
     from app.models import Tla3bnyPunishment
