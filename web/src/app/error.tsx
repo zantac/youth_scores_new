@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { isChunkLoadError, reloadForChunkError } from '@/lib/chunkReload';
 
 // Route-level error boundary. Any render/runtime error thrown by a page — most
 // likely an API response missing a field a view maps over — is caught here and
@@ -24,6 +25,15 @@ export default function Error({
       /* localStorage unavailable — keep the Arabic default */
     }
   }, []);
+
+  // A render-time chunk failure caught here is almost always deploy skew: this
+  // build's page tried to load a chunk that a newer deploy replaced. Reload once
+  // to pick up the new build rather than showing the error screen (and never
+  // surfacing the raw …/index.txt). The cooldown stops a loop if it's a genuine
+  // missing chunk — then the screen below is shown.
+  useEffect(() => {
+    if (isChunkLoadError(error)) reloadForChunkError();
+  }, [error]);
 
   useEffect(() => {
     const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;

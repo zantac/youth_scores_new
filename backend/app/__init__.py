@@ -1000,6 +1000,16 @@ def create_app(config_name: str | None = None) -> Flask:
             # asset loads off Railway's compute and egress.
             if path.startswith("_next/static/"):
                 resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            elif path.endswith((".txt", ".html")):
+                # The App Router RSC "flight" payloads (…/index.txt) and the HTML
+                # shells are build-specific, but their URLs are NOT content-hashed
+                # like _next/static. Caching them lets a browser (or an edge/CDN)
+                # keep a stale payload after a deploy; it references old chunk
+                # hashes that 404 on the new build, so the router falls back to a
+                # hard navigation and the user lands on the raw index.txt. Force a
+                # revalidation on every load (cheap via ETag → 304) so the current
+                # build is always used. Mirrors the HTML-shell rule below.
+                resp.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
             else:
                 resp.headers.setdefault("Cache-Control", "public, max-age=3600")
             return resp

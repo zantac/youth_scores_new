@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { isChunkLoadError, reloadForChunkError } from '@/lib/chunkReload';
 
 // Last-resort boundary for errors thrown by the ROOT layout itself (where the
 // normal error.tsx — which renders inside the layout — cannot help). It replaces
@@ -13,6 +14,12 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Deploy skew that reaches the root layout: reload once to pick up the new
+  // build instead of showing this last-resort screen. See src/lib/chunkReload.ts.
+  useEffect(() => {
+    if (isChunkLoadError(error)) reloadForChunkError();
+  }, [error]);
+
   useEffect(() => {
     const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
     if (!dsn) return;
