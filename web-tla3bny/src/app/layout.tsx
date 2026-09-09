@@ -3,6 +3,7 @@ import './globals.css';
 import { AppProvider } from '@/context/AppContext';
 import { Tla3bnyAuthProvider } from '@/context/Tla3bnyAuthContext';
 import Shell from '@/components/tla3bny/Shell';
+import ChunkReloadGuard from '@/components/ChunkReloadGuard';
 
 export const metadata: Metadata = {
   title: 'تلاعبني | Tla3bny League',
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" className="dark" suppressHydrationWarning>
       <body className="font-arabic antialiased min-h-dvh" suppressHydrationWarning>
+        <ChunkReloadGuard />
         <AppProvider>
           <Tla3bnyAuthProvider>
             <Shell>{children}</Shell>

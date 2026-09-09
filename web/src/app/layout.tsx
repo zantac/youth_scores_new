@@ -5,6 +5,7 @@ import BottomNav from '@/components/ui/BottomNav';
 import StickyHeader from '@/components/ui/StickyHeader';
 import AdOverlay from '@/components/ui/AdOverlay';
 import SentryInit from '@/components/SentryInit';
+import ChunkReloadGuard from '@/components/ChunkReloadGuard';
 
 export const metadata: Metadata = {
   title: 'بطولات الناشئين | Youth Scores',
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <SentryInit />
+        <ChunkReloadGuard />
         <AppProvider>
           <div className="flex flex-col min-h-dvh">
             {/* Banner + search/theme/language row. Pinned together on the home
