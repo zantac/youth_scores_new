@@ -1025,6 +1025,8 @@ def _staff_dto(s: ClubStaff):
         "id": s.id, "coach_id": s.coach_id,
         "name_ar": s.coach.full_name_ar, "name_en": s.coach.full_name_en,
         "photo": s.coach.profile_pic_url,
+        # Admin-only contact — this DTO is served only from editor-guarded routes.
+        "phone": s.coach.phone, "phone_country_code": s.coach.phone_country_code,
         "role_ar": s.role_ar, "role_en": s.role_en,
         "start_date": s.start_date.isoformat() if s.start_date else None,
         "end_date": s.end_date.isoformat() if s.end_date else None,
@@ -1054,7 +1056,8 @@ def add_club_staff(cid: int):
     if not (name_ar or name_en):
         return jsonify({"error": "اسم المسؤول مطلوب"}), 400
     coach = Coach(full_name_ar=name_ar, full_name_en=name_en,
-                  profile_pic_url=_str(j.get("photo")))
+                  profile_pic_url=_str(j.get("photo")),
+                  phone=_digits(j.get("phone")), phone_country_code=_digits(j.get("phone_country_code")))
     db.session.add(coach)
     db.session.flush()
     s = ClubStaff(club_id=cid, coach_id=coach.id,
@@ -1114,6 +1117,8 @@ def update_club_staff(sid: int):
     if "name_ar" in j: s.coach.full_name_ar = _str(j["name_ar"])
     if "name_en" in j: s.coach.full_name_en = _str(j["name_en"])
     if "photo" in j: s.coach.profile_pic_url = _str(j["photo"])
+    if "phone" in j: s.coach.phone = _digits(j["phone"])
+    if "phone_country_code" in j: s.coach.phone_country_code = _digits(j["phone_country_code"])
     if "role_ar" in j: s.role_ar = _str(j["role_ar"])
     if "role_en" in j: s.role_en = _str(j["role_en"])
     if "start_date" in j: s.start_date = _pd(j["start_date"])

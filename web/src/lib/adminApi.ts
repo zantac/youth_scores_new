@@ -322,6 +322,8 @@ export const apiDeleteClub = (t: string, id: number, password: string) => send<{
 export interface MClubStaff {
   id: number; coach_id: number;
   name_ar: string | null; name_en: string | null; photo: string | null;
+  /** Admin-only contact (never returned by public endpoints). */
+  phone: string | null; phone_country_code: string | null;
   role_ar: string | null; role_en: string | null;
   start_date: string | null; end_date: string | null;
 }

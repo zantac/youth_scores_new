@@ -12,6 +12,7 @@ import {
   apiSearchCoaches, apiClubTeams, apiCreateClubTeam, apiAgeGroups, apiSeasons,
   type MClub, type MClubStaff, type MTeamFull, type MAge, type MSeason, type CoachSearchResult,
 } from '@/lib/adminApi';
+import { PhoneField, WaLaunch, WA_DEFAULT_CC } from '@/components/admin/whatsapp';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 const btn = "bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50";
@@ -122,6 +123,7 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
     name_ar: staff?.name_ar ?? '', name_en: staff?.name_en ?? '',
     role_ar: staff?.role_ar ?? '', role_en: staff?.role_en ?? '',
     photo: staff?.photo ?? '',
+    phone: staff?.phone ?? '', phone_country_code: staff?.phone_country_code ?? WA_DEFAULT_CC,
     start_date: staff?.start_date ?? '', end_date: staff?.end_date ?? '',
   });
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
@@ -152,6 +154,7 @@ function StaffForm({ token, cid, staff, onDone, onCancel }: {
           </datalist>
         </Field>
         <Field label="المنصب (إنجليزي)"><input value={f.role_en} onChange={e => set('role_en', e.target.value)} dir="ltr" placeholder="Youth Sector Manager" className={inputCls} /></Field>
+        <PhoneField code={f.phone_country_code} phone={f.phone} onCode={v => set('phone_country_code', v)} onPhone={v => set('phone', v)} />
         <Field label="تاريخ البداية"><input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} className={inputCls} /></Field>
         <Field label="تاريخ النهاية"><input type="date" value={f.end_date} onChange={e => set('end_date', e.target.value)} className={inputCls} /></Field>
       </div>
@@ -292,6 +295,7 @@ function StaffSection({ token, cid }: { token: string; cid: number }) {
       {isFormer
         ? <span className="text-gold text-[10px] border border-gold/40 rounded px-2 py-0.5 flex-shrink-0">سابق</span>
         : <span className="text-win text-[10px] font-bold border border-win/40 bg-win/10 rounded px-2 py-0.5 flex-shrink-0">حالي</span>}
+      <WaLaunch cc={s.phone_country_code} phone={s.phone} />
       <button onClick={() => setEditing(s)} className="text-aqua text-[11px] font-bold flex-shrink-0">تعديل</button>
       <button onClick={() => remove(s)} className="text-loss text-[11px] font-bold flex-shrink-0">حذف</button>
     </div>
