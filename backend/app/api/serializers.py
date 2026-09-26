@@ -1091,50 +1091,77 @@ def _match_side(team, season=None) -> dict:
 
 
 def _player_matches(p) -> list[dict]:
-    """Every completed match the player actually played in, newest first, with his
-    own goals / assists / cards in that match and the result."""
+    """Every completed match the player took part in, newest first, with his own
+    goals / assists / cards in that match and the result.
+
+    A match counts if he was named in the lineup (starter/sub) OR was credited
+    with a goal, assist, or card in it — many matches are recorded via events
+    only, with no lineup entered, so an event is itself proof he was on the pitch.
+    """
     from app.models import MatchCard, MatchGoal, MatchPlayer
 
-    rows = (
-        MatchPlayer.query
-        .join(Match, Match.id == MatchPlayer.match_id)
-        .filter(
-            MatchPlayer.player_id == p.id,
-            MatchPlayer.role != "called",   # called-up-only players didn't play
-            Match.deleted_at.is_(None),
-            Match.status == codes.MATCH_STATUS_COMPLETED,
-        )
-        .all()
-    )
-    if not rows:
-        return []
-
-    # The player's per-match contributions, bucketed from the event tables. Rows
-    # for matches he didn't play (or that were deleted) are simply never read.
+    # The player's per-match contributions, bucketed from the event tables, plus
+    # the team he was on in each match. An event row tells us the side even when
+    # no lineup was entered; a lineup row (read last) is authoritative for it.
     goals_m:   dict[int, int] = defaultdict(int)
     assists_m: dict[int, int] = defaultdict(int)
     yellow_m:  dict[int, int] = defaultdict(int)
     red_m:     dict[int, int] = defaultdict(int)
-    for (mid,) in (MatchGoal.query
-                   .filter(MatchGoal.scorer_id == p.id,
-                           MatchGoal.is_own_goal == False)   # noqa: E712
-                   .with_entities(MatchGoal.match_id)):
-        goals_m[mid] += 1
-    for (mid,) in (MatchGoal.query
-                   .filter(MatchGoal.assist_id == p.id)
-                   .with_entities(MatchGoal.match_id)):
+    team_by_match: dict[int, int] = {}      # match_id -> player's team
+    own_goal_benef: dict[int, int] = {}     # match_id -> beneficiary (the opponent)
+
+    for mid, tid, is_own in (MatchGoal.query
+                             .filter(MatchGoal.scorer_id == p.id)
+                             .with_entities(MatchGoal.match_id, MatchGoal.team_id,
+                                            MatchGoal.is_own_goal)):
+        if is_own:
+            # Own goals aren't credited to the scorer; the recorded team is the
+            # opponent, so remember it to flip to his real side below.
+            own_goal_benef.setdefault(mid, tid)
+        else:
+            goals_m[mid] += 1
+            team_by_match.setdefault(mid, tid)
+    for mid, tid in (MatchGoal.query
+                     .filter(MatchGoal.assist_id == p.id)
+                     .with_entities(MatchGoal.match_id, MatchGoal.team_id)):
         assists_m[mid] += 1
-    for (mid, ctype) in (MatchCard.query
-                         .filter(MatchCard.player_id == p.id)
-                         .with_entities(MatchCard.match_id, MatchCard.card_type)):
+        team_by_match.setdefault(mid, tid)
+    for mid, tid, ctype in (MatchCard.query
+                            .filter(MatchCard.player_id == p.id)
+                            .with_entities(MatchCard.match_id, MatchCard.team_id,
+                                           MatchCard.card_type)):
         (yellow_m if ctype == "yellow" else red_m)[mid] += 1
+        team_by_match.setdefault(mid, tid)
+    lineup_team: dict[int, int] = {}        # authoritative side, and lineup-only matches
+    for mid, tid in (MatchPlayer.query
+                     .filter(MatchPlayer.player_id == p.id,
+                             MatchPlayer.role != "called")   # called-up-only sat out
+                     .with_entities(MatchPlayer.match_id, MatchPlayer.team_id)):
+        lineup_team[mid] = tid
+
+    cand_ids = set(team_by_match) | set(own_goal_benef) | set(lineup_team)
+    if not cand_ids:
+        return []
+    matches = (
+        Match.query
+        .filter(Match.id.in_(cand_ids),
+                Match.deleted_at.is_(None),
+                Match.status == codes.MATCH_STATUS_COMPLETED)
+        .all()
+    )
 
     out = []
-    for r in rows:
-        m = r.match
+    for m in matches:
+        # Resolve the player's side: a lineup row wins; else an event's team; else
+        # an own goal, whose recorded team is the opponent, so flip to the other.
+        tid = lineup_team.get(m.id)
+        if tid is None:
+            tid = team_by_match.get(m.id)
+        if tid is None and m.id in own_goal_benef:
+            tid = m.away_team_id if own_goal_benef[m.id] == m.home_team_id else m.home_team_id
         comp = m.stage.competition if m.stage else None
         season = comp.season if comp else None
-        home_side = r.team_id == m.home_team_id
+        home_side = tid == m.home_team_id
         conceded = m.away_score if home_side else m.home_score
         out.append({
             "id":           m.id,
