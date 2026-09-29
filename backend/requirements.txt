@@ -3,16 +3,16 @@ Flask-Limiter==4.1.1
 # Gzip API/JSON and static responses — cuts Railway egress on the large feed
 # payloads (JSON compresses ~80-90%).
 Flask-Compress==1.25
-boto3==1.43.98
-sentry-sdk[flask]==2.69.2
+boto3==1.43.103
+sentry-sdk[flask]==2.70.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.1.0
-SQLAlchemy==2.0.54
+SQLAlchemy==2.1.1
 PyMySQL==1.2.3
 cryptography==50.0.1
 python-dotenv==1.2.3
 Werkzeug==3.1.8
-google-auth==2.58.0
+google-auth==2.58.1
 requests==2.34.2
 Pillow==12.3.0
 # Production WSGI server (Railway / any host).
