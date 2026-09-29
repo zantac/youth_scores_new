@@ -6,7 +6,7 @@ import AdminShell from '@/components/admin/AdminShell';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiCompetition, apiStages, apiCreateStage, apiUpdateStage, apiDeleteStage,
-  apiCreateGroup, apiDeleteGroup, apiMoveGroup,
+  apiCreateGroup, apiUpdateGroup, apiDeleteGroup, apiMoveGroup,
   apiGroupTeams, apiAddGroupTeams, apiRemoveGroupTeam, apiCompTeamsManage,
   STAGE_TYPE_LABEL,
   type MComp, type MStage, type MGroup, type MGroupTeam, type MTeam, type StageType,
@@ -170,12 +170,24 @@ function StageCard({ token, stage, compTeams, onChanged }: {
   const [openGroup, setOpenGroup] = useState<number | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
   const [gname, setGname] = useState('');
+  const [editGroupId, setEditGroupId] = useState<number | null>(null);
+  const [editGname, setEditGname] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   const addGroup = async () => {
     if (!gname.trim()) return;
     setErr(null);
     try { await apiCreateGroup(token, stage.id, { name_ar: gname }); setGname(''); setAddingGroup(false); onChanged(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+  };
+  const startRenameGroup = (g: MGroup) => {
+    setEditGroupId(g.id);
+    setEditGname(g.name_ar || g.name_en || '');
+  };
+  const saveRenameGroup = async (g: MGroup) => {
+    if (!editGname.trim()) return;
+    setErr(null);
+    try { await apiUpdateGroup(token, g.id, { name_ar: editGname }); setEditGroupId(null); setEditGname(''); onChanged(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
   };
   const removeGroup = async (g: MGroup) => {
@@ -239,6 +251,15 @@ function StageCard({ token, stage, compTeams, onChanged }: {
           )}
           {stage.groups.map((g, i) => (
             <div key={g.id} className="bg-darkBg/50 border border-bdr rounded-xl p-2.5">
+              {editGroupId === g.id ? (
+                <div className="flex gap-2">
+                  <input value={editGname} onChange={e => setEditGname(e.target.value)} autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter') saveRenameGroup(g); if (e.key === 'Escape') setEditGroupId(null); }}
+                    placeholder="اسم المجموعة (مثال: 2A)" className={inputCls} />
+                  <button onClick={() => saveRenameGroup(g)} className="bg-aqua text-on-accent font-bold text-xs px-4 rounded-lg whitespace-nowrap">حفظ</button>
+                  <button onClick={() => { setEditGroupId(null); setEditGname(''); }} className="text-hint text-xs px-2">إلغاء</button>
+                </div>
+              ) : (
               <div className="flex items-center gap-2">
                 <button onClick={() => setOpenGroup(openGroup === g.id ? null : g.id)} className="flex-1 flex items-center gap-2 text-start">
                   <span className="text-aqua text-xs">{openGroup === g.id ? '▾' : '▸'}</span>
@@ -250,8 +271,10 @@ function StageCard({ token, stage, compTeams, onChanged }: {
                   className="text-aqua text-xs font-bold px-1 disabled:opacity-25" title="أعلى">▲</button>
                 <button onClick={() => moveGroup(g, 'down')} disabled={i === stage.groups.length - 1}
                   className="text-aqua text-xs font-bold px-1 disabled:opacity-25" title="أسفل">▼</button>
+                <button onClick={() => startRenameGroup(g)} className="text-aqua text-[10px] font-bold">تعديل</button>
                 <button onClick={() => removeGroup(g)} className="text-loss text-[10px] font-bold">حذف</button>
               </div>
+              )}
               {openGroup === g.id && <GroupTeams token={token} group={g} compTeams={compTeams} onChanged={onChanged} />}
             </div>
           ))}
