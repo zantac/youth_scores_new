@@ -876,7 +876,7 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, canEdi
           onAdd={m => { onChange(m); setEditCardId(null); }} />} />
 
       {/* Line-up — above substitutions, since the squad has to exist first. */}
-      <LineupSection token={token} match={match} players={players} onChange={onChange} />
+      <LineupSection token={token} match={match} players={players} canEdit={canEdit} onChange={onChange} />
 
       {/* Substitutions */}
       <EventSection title="🔁 التبديلات" items={match.subs.map(s => ({
@@ -1084,9 +1084,9 @@ function TeamsEditor({ token, match, teams, onChange }: {
 // One side at a time, saved whole: an XI is picked as a set, and sending it in
 // one call means a save can never leave half a list behind. Only starter/bench
 // is recorded — no minutes or positions.
-function LineupSection({ token, match, players, onChange }: {
+function LineupSection({ token, match, players, canEdit, onChange }: {
   token: string; match: EntryMatch; players: Record<number, EntryPlayer[]>;
-  onChange: (m: EntryMatch) => void;
+  canEdit: boolean; onChange: (m: EntryMatch) => void;
 }) {
   const [teamId, setTeamId] = useState(String(match.home.id));
   const side = Number(teamId) === match.home.id ? match.lineup.home : match.lineup.away;
@@ -1207,14 +1207,18 @@ function LineupSection({ token, match, players, onChange }: {
       </button>
 
       {/* Prepare a squad-news draft and open the news editor (admin adds the
-          cover photo, reviews, then publishes). */}
-      <button onClick={makeNews} disabled={newsBusy || dirty || squadTotal === 0}
-        className="w-full border border-gold/50 bg-gold/10 text-gold font-bold py-2 rounded-lg text-sm disabled:opacity-40">
-        {newsBusy ? '…' : '📣 تجهيز خبر القائمة'}
-      </button>
-      <p className="text-hint text-[11px]">يفتح محرّر الأخبار بالعنوان والأسماء جاهزة — أضِف صورة الغلاف ثم انشر.</p>
-      {dirty && squadTotal > 0 && <p className="text-hint text-[11px]">احفظ القائمة أولًا.</p>}
-      {newsMsg && <p className="text-loss text-[11px]">{newsMsg}</p>}
+          cover photo, reviews, then publishes). Editorial + news-editor only, so
+          a clerk (who can't reach أخبار and whom the backend would 403) is not
+          shown it. */}
+      {canEdit && <>
+        <button onClick={makeNews} disabled={newsBusy || dirty || squadTotal === 0}
+          className="w-full border border-gold/50 bg-gold/10 text-gold font-bold py-2 rounded-lg text-sm disabled:opacity-40">
+          {newsBusy ? '…' : '📣 تجهيز خبر القائمة'}
+        </button>
+        <p className="text-hint text-[11px]">يفتح محرّر الأخبار بالعنوان والأسماء جاهزة — أضِف صورة الغلاف ثم انشر.</p>
+        {dirty && squadTotal > 0 && <p className="text-hint text-[11px]">احفظ القائمة أولًا.</p>}
+        {newsMsg && <p className="text-loss text-[11px]">{newsMsg}</p>}
+      </>}
     </div>
   );
 }

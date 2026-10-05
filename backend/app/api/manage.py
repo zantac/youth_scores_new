@@ -598,8 +598,14 @@ def get_competition(cid: int):
     return jsonify({"competition": _comp_dto(c)})
 
 
+# Readable by any signed-in admin, not just editors: the match-entry screen
+# (which a clerk uses) needs the stage/group list to show group names and to
+# file a result under its stage/group. A clerk can already WRITE a match's
+# stage/group via update_match, so withholding the read-only list was an
+# inconsistency that broke match entry for clerks. Creating/editing stages below
+# stays editor-only.
 @manage_bp.get("/api/admin/competitions-manage/<int:cid>/stages")
-@auth.role_required("editor")
+@auth.login_required
 def list_stages(cid: int):
     if db.session.get(Competition, cid) is None:
         return jsonify({"error": "البطولة غير موجودة"}), 404
@@ -739,8 +745,11 @@ def delete_group(gid: int):
     return jsonify({"deleted": gid})
 
 
+# Readable by any signed-in admin: the new-match form (used by clerks) narrows
+# the team pickers to a group's members, so match entry needs this list. Adding
+# / removing teams from a group (below) stays editor-only.
 @manage_bp.get("/api/admin/groups/<int:gid>/teams")
-@auth.role_required("editor")
+@auth.login_required
 def list_group_teams(gid: int):
     g = db.session.get(Group, gid)
     if g is None:
