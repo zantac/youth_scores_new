@@ -308,7 +308,7 @@ function CompetitionPageInner() {
   }, [token, id, reload]);
 
   return (
-    <AdminShell title="البطولة">
+    <AdminShell title="البطولة" requireEditor>
       <Link href="/admin/structure?tab=comps" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">

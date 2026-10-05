@@ -27,10 +27,17 @@ const NAV = [
   { href: '/admin/users',     label: 'المستخدمون',  icon: '👥', super: true },
 ];
 
+// A clerk (data entry) is hired to enter match results and nothing else, so the
+// whole panel collapses to a single destination for them. Everything else is
+// editor-only and would just be a wall of lock screens.
+const CLERK_NAV = [
+  { href: '/admin/matches', label: 'المباريات', icon: '⚽', super: false },
+];
+
 export default function AdminShell({
-  title, requireSuperadmin, children,
-}: { title: string; requireSuperadmin?: boolean; children: React.ReactNode }) {
-  const { user, loading, logout, isSuperadmin } = useAdminAuth();
+  title, requireSuperadmin, requireEditor, children,
+}: { title: string; requireSuperadmin?: boolean; requireEditor?: boolean; children: React.ReactNode }) {
+  const { user, loading, logout, isSuperadmin, canEdit } = useAdminAuth();
   // Theme lives in the app-wide context (shared with the public site); the
   // admin shell covers the public ControlsBar, so the toggle is surfaced here.
   // No language toggle: the admin copy is Arabic-only, so it would just flip
@@ -45,7 +52,10 @@ export default function AdminShell({
     if (loading) return;
     if (!user) router.replace('/admin/login');
     else if (requireSuperadmin && !isSuperadmin) router.replace('/admin');
-  }, [loading, user, isSuperadmin, requireSuperadmin, router]);
+    // A clerk off their one allowed page (e.g. the dashboard they land on after
+    // login, or an editor-only section) is sent straight to match entry.
+    else if (requireEditor && !canEdit) router.replace('/admin/matches');
+  }, [loading, user, isSuperadmin, canEdit, requireSuperadmin, requireEditor, router]);
 
   // Publish the sticky top-bar height so page content (e.g. the المسابقات tab
   // strip) can pin directly beneath it and stay reachable through a long list.
@@ -60,9 +70,9 @@ export default function AdminShell({
     return () => { ro.disconnect(); root.style.removeProperty('--admin-head-h'); };
   }, [loading, user]);
 
-  if (loading || !user || (requireSuperadmin && !isSuperadmin)) return <Spinner />;
+  if (loading || !user || (requireSuperadmin && !isSuperadmin) || (requireEditor && !canEdit)) return <Spinner />;
 
-  const links = NAV.filter(n => !n.super || isSuperadmin);
+  const links = canEdit ? NAV.filter(n => !n.super || isSuperadmin) : CLERK_NAV;
 
   return (
     <div className="min-h-full">

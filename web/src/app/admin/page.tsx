@@ -6,7 +6,7 @@ import { apiStats, type AdminStats } from '@/lib/adminApi';
 
 export default function AdminDashboard() {
   return (
-    <AdminShell title="لوحة التحكم">
+    <AdminShell title="لوحة التحكم" requireEditor>
       <Dashboard />
     </AdminShell>
   );

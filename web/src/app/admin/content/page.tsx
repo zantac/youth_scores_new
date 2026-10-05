@@ -11,7 +11,7 @@ import {
 import { safeUrl } from '@/lib/utils';
 
 export default function AdminContentPage() {
-  return <AdminShell title="الأخبار والملاعب"><Content /></AdminShell>;
+  return <AdminShell title="الأخبار والملاعب" requireEditor><Content /></AdminShell>;
 }
 
 function NotifyBadge({ n }: { n: NotifyResult }) {

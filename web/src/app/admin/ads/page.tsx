@@ -9,7 +9,7 @@ import {
 } from '@/lib/adminApi';
 
 export default function AdminAdsPage() {
-  return <AdminShell title="الإعلانات"><AdsGate /></AdminShell>;
+  return <AdminShell title="الإعلانات" requireEditor><AdsGate /></AdminShell>;
 }
 
 // Same editor-permission gate the news/venues page uses, so a viewer-only

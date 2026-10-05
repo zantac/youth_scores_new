@@ -47,6 +47,16 @@ const STATUS: { v: string; l: string }[] = [
 ];
 const STATUS_L: Record<string, string> = Object.fromEntries(STATUS.map(s => [s.v, s.l]));
 
+// A goal/penalty tally can't be negative. Keep the field from ever holding a
+// minus sign (a number input still lets you type "-3"); empty stays empty so the
+// score can be cleared. The backend clamps to 0-99 too, but the UI shouldn't
+// show a value it will silently rewrite.
+const nonNegScore = (v: string) => {
+  if (v.trim() === '') return '';
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? String(n) : '0';
+};
+
 export default function MatchesEntry() {
   const { token, canEdit } = useAdminAuth();
   const [comps, setComps] = useState<EntryCompetition[]>([]);
@@ -233,7 +243,7 @@ export default function MatchesEntry() {
 
   if (editing) {
     return <MatchEditor token={token!} match={editing} teams={teams} stages={stages}
-      venues={venues} onVenueSaved={refreshVenues}
+      venues={venues} onVenueSaved={refreshVenues} canEdit={canEdit}
       onChange={setEditing} onBack={() => { setEditing(null); refreshMatches(); }} />;
   }
 
@@ -316,8 +326,10 @@ export default function MatchesEntry() {
             onCancel={() => setShowImport(false)} />}
 
           {/* Bulk edit: reschedule a whole round or move a team's fixtures in one
-              step. Filter to the matches, tick them, then set date/time/venue. */}
-          {active.length > 0 && (
+              step. Filter to the matches, tick them, then set date/time/venue.
+              Mass edit/delete is editor-only (the backend rejects a clerk with
+              403), so a clerk never sees the control. */}
+          {canEdit && active.length > 0 && (
             <button onClick={() => (bulkMode ? exitBulk() : setBulkMode(true))}
               className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
                 bulkMode
@@ -423,9 +435,16 @@ export default function MatchesEntry() {
                   </div>
                   <div className="flex-1 text-sm font-medium truncate">{teamLabel(m.away)}</div>
                 </div>
-                {/* Round and date, so two meetings of the same pair are told apart. */}
+                {/* Group, round, date and venue — so two meetings of the same
+                    pair are told apart, and a multi-group competition shows which
+                    group each fixture belongs to. Each part is omitted when empty. */}
                 <p className="text-hint text-[10px] tnum text-center mt-1.5">
-                  {[m.week && `الجولة ${m.week}`, m.date || 'غير محدد'].filter(Boolean).join(' · ')}
+                  {[
+                    m.group_name,
+                    m.week && `الجولة ${m.week}`,
+                    m.date || 'غير محدد',
+                    m.venue,
+                  ].filter(Boolean).join(' · ')}
                 </p>
               </button>
               );
@@ -551,9 +570,9 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
   );
 }
 
-function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChange, onBack }: {
+function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, canEdit, onChange, onBack }: {
   token: string; match: EntryMatch; teams: EntryTeam[]; stages: MStage[];
-  venues: string[]; onVenueSaved: () => void;
+  venues: string[]; onVenueSaved: () => void; canEdit: boolean;
   onChange: (m: EntryMatch) => void; onBack: () => void;
 }) {
   const [players, setPlayers] = useState<Record<number, EntryPlayer[]>>({});
@@ -693,9 +712,9 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
           <div className="text-sm font-bold">{teamLabel(match.home)}</div>
           <div className="flex items-center gap-2">
-            <input type="number" value={hs} onChange={e => setHs(e.target.value)} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
+            <input type="number" min="0" value={hs} onChange={e => setHs(nonNegScore(e.target.value))} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
             <span className="text-hint">-</span>
-            <input type="number" value={as} onChange={e => setAs(e.target.value)} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
+            <input type="number" min="0" value={as} onChange={e => setAs(nonNegScore(e.target.value))} className="w-12 bg-darkBg border border-bdr rounded-lg px-1 py-2 text-center text-aqua font-extrabold text-lg tnum outline-none focus:border-aqua" />
           </div>
           <div className="text-sm font-bold">{teamLabel(match.away)}</div>
         </div>
@@ -704,10 +723,10 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
           <div className="mt-3 pt-3 border-t border-bdr/50">
             <p className="text-hint text-[11px] mb-2">ركلات الترجيح (اختياري)</p>
             <div className="flex items-center justify-center gap-3">
-              <input type="number" min="0" value={hp} onChange={e => setHp(e.target.value)}
+              <input type="number" min="0" value={hp} onChange={e => setHp(nonNegScore(e.target.value))}
                 placeholder="—" className="w-12 bg-darkBg border border-gold/40 rounded-lg px-1 py-2 text-center text-gold font-extrabold text-lg tnum outline-none focus:border-gold" />
               <span className="text-hint text-sm">ر.ت</span>
-              <input type="number" min="0" value={ap} onChange={e => setAp(e.target.value)}
+              <input type="number" min="0" value={ap} onChange={e => setAp(nonNegScore(e.target.value))}
                 placeholder="—" className="w-12 bg-darkBg border border-gold/40 rounded-lg px-1 py-2 text-center text-gold font-extrabold text-lg tnum outline-none focus:border-gold" />
               {(hp !== '' || ap !== '') && (
                 <button onClick={() => { setHp(''); setAp(''); }}
@@ -870,8 +889,9 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
           onCancelEdit={() => setEditSubId(null)}
           onAdd={m => { onChange(m); setEditSubId(null); }} />} />
 
-      {/* Delete / undo-delete */}
-      {softDeleted ? (
+      {/* Delete / undo-delete — editor-only; the backend rejects a clerk's
+          delete with 403, so a clerk (data entry) doesn't see it at all. */}
+      {canEdit && (softDeleted ? (
         <div className="bg-cardBg border border-gold/30 rounded-2xl p-4 space-y-2">
           <p className="text-gold font-bold text-sm">تم حذف المباراة</p>
           <p className="text-hint text-[11px] leading-relaxed">
@@ -910,7 +930,7 @@ function MatchEditor({ token, match, teams, stages, venues, onVenueSaved, onChan
             </div>
           )}
         </div>
-      )}
+      ))}
     </div>
   );
 }

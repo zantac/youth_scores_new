@@ -696,7 +696,7 @@ function TeamPageInner() {
   }, [token, id]);
 
   return (
-    <AdminShell title="الفريق">
+    <AdminShell title="الفريق" requireEditor>
       <Link href={team ? `/admin/club?id=${team.club_id}` : '/admin/structure'} className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع للنادي</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">

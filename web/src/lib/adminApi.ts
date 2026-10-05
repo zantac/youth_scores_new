@@ -102,6 +102,7 @@ export interface EntryMatchRow {
   home_score: number | null; away_score: number | null;
   stage_id: number | null; group_id: number | null;
   stage_name: string | null; group_name: string | null;
+  venue?: string;
   deleted_at?: string | null;
 }
 export interface EntryGoal { id: number; team_id: number; side: string; scorer: string; assist: string | null; minute: number | null; is_own_goal: boolean; is_penalty: boolean; }

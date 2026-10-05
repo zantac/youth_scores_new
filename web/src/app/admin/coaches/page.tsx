@@ -119,7 +119,7 @@ export default function CoachesPage() {
   };
 
   return (
-    <AdminShell title="المدربون">
+    <AdminShell title="المدربون" requireEditor>
       <div className="space-y-4 max-w-lg">
         <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-4">
           <div>
