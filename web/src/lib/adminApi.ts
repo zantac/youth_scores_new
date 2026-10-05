@@ -42,7 +42,14 @@ export async function apiLogin(username: string, password: string) {
     method: 'POST', headers: headers(null, true),
     body: JSON.stringify({ username, password }),
   });
-  return parse<{ token: string; user: AdminUser }>(res);
+  // Do NOT route this through parse(): a 401 here means wrong credentials (or an
+  // inactive account), not an expired session. parse() would mislabel it as
+  // "انتهت صلاحية الجلسة" and fire the logout event, hiding the real reason.
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error || 'اسم المستخدم أو كلمة المرور غير صحيحة');
+  }
+  return data as { token: string; user: AdminUser };
 }
 
 export async function apiMe(token: string): Promise<AdminUser | null> {
