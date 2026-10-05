@@ -436,7 +436,7 @@ function ClubPageInner() {
   }, [token, id]);
 
   return (
-    <AdminShell title="النادي">
+    <AdminShell title="النادي" requireEditor>
       <Link href="/admin/structure?tab=clubs" className="inline-block text-aqua text-xs font-bold mb-3">→ رجوع</Link>
       {!canEdit ? (
         <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">

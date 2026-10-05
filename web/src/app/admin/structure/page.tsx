@@ -54,7 +54,7 @@ function StructureInner() {
   const shown = TABS.filter(t => canEdit || !t.edit);
 
   return (
-    <AdminShell title="المسابقات">
+    <AdminShell title="المسابقات" requireEditor>
       <div className="space-y-4">
         {/* Pinned below the admin top bar so the section tabs stay reachable
             while a long list scrolls. -mx-4 px-4 lets the opaque band cover the
@@ -625,7 +625,12 @@ function EnrollTeam({ token, cid, onDone }: { token: string; cid: number; onDone
       {results.map(c => (
         <button key={c.id} onClick={() => enroll(c)} className="w-full flex items-center gap-2 bg-darkBg border border-bdr rounded-lg px-3 py-2 text-start hover:border-aqua/40">
           {c.logo_url && <img src={c.logo_url} alt="" className="w-6 h-6 object-contain" />}
-          <span className="flex-1 text-text text-sm">{c.name_ar || c.name_en}</span>
+          {/* Show the club's area (city/governorate): the same club name recurs
+              across areas, so it's the only way to pick the right one. */}
+          <span className="flex-1 text-text text-sm">
+            {c.name_ar || c.name_en}
+            {(c.city_ar || c.city_en) && <span className="text-hint"> — {c.city_ar || c.city_en}</span>}
+          </span>
           <span className="text-aqua text-xs font-bold">+ إضافة</span>
         </button>
       ))}

@@ -270,6 +270,7 @@ def _match_row(m: Match) -> dict:
         "group_id": m.group_id,
         "stage_name": (m.stage.name_ar or m.stage.name_en) if m.stage else None,
         "group_name": (m.group.name_ar or m.group.name_en) if m.group else None,
+        "venue": m.venue_ar or m.venue_en or "",
         "deleted_at": m.deleted_at.isoformat() if m.deleted_at else None,
     }
 
