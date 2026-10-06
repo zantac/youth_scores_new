@@ -292,7 +292,7 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
         return (
           <Fragment key={dg.date}>
           <div ref={isAnchor ? anchorRef : undefined}
-            className="space-y-3 scroll-mt-[calc(var(--header-h,9rem)_+_0.5rem)]">
+            className="space-y-3 scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${isToday || isAnchor ? 'text-aqua' : 'text-text'}`}>

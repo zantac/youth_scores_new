@@ -150,8 +150,11 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {/* All vs Favourites (followed competitions/teams). */}
-          <div className="flex gap-2 mb-3">
+          {/* All vs Favourites (followed competitions/teams). Pinned below the
+              global header so the tabs stay reachable while the matches list
+              scrolls. -mx-4 px-4 lets the opaque band cover the page padding
+              edge to edge; z-30 tucks it under the header (z-40). */}
+          <div className="sticky top-[var(--header-h,0px)] z-30 -mx-4 px-4 py-2 mb-1 bg-darkBg flex gap-2">
             {([['all', isAr ? 'الكل' : 'All'], ['fav', isAr ? '⭐ المفضلة' : '⭐ Favourites']] as const).map(([v, l]) => (
               <button key={v} onClick={() => setFeedTab(v)}
                 aria-pressed={feedTab === v}
