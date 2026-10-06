@@ -123,6 +123,10 @@ function MiniNewsCard({ item, locale, onClick }: { item: NewsItem; locale: strin
 export default function HomePage() {
   const { config, configLoading, locale } = useApp();
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
+  // Matches feed tab: "all" (every competition/team) or "fav" (only the user's
+  // followed competitions/teams). Defaults to all so first-time visitors still
+  // see everything.
+  const [feedTab, setFeedTab] = useState<'all' | 'fav'>('all');
   const isAr = locale === 'ar';
 
   const latestNews = config?.news.slice(0, 3) ?? [];
@@ -146,7 +150,20 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <MatchesFeed locale={locale} />
+          {/* All vs Favourites (followed competitions/teams). */}
+          <div className="flex gap-2 mb-3">
+            {([['all', isAr ? 'الكل' : 'All'], ['fav', isAr ? '⭐ المفضلة' : '⭐ Favourites']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => setFeedTab(v)}
+                aria-pressed={feedTab === v}
+                className={`flex-1 text-xs font-bold py-2 rounded-xl border transition-colors ${
+                  feedTab === v ? 'bg-aqua text-on-accent border-transparent' : 'bg-cardBg border-bdr text-teal'
+                }`}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <MatchesFeed locale={locale} favouritesOnly={feedTab === 'fav'} />
         </section>
 
         {/* ── Latest news ───────────────────────────────────────────────── */}

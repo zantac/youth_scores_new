@@ -7,6 +7,7 @@ import { formatMatchDate, todayStr, localize, adNotExpired, groupLabel, matchesB
 import MatchCard from '@/components/competition/MatchCard';
 import FeedAdCard from '@/components/ui/FeedAdCard';
 import { useApp } from '@/context/AppContext';
+import { followedCompetitions, followedTeams } from '@/lib/notifications';
 import type { HomeMatch, Match, Team, AdItem } from '@/lib/types';
 
 // Adapt the compact home match into the shapes MatchCard already renders.
@@ -53,10 +54,22 @@ function shiftDay(dateStr: string, days: number): string {
 
 const STEP = 300; // matches pulled per direction per "load more"
 
-export default function MatchesFeed({ locale }: { locale: string }) {
+export default function MatchesFeed({ locale, favouritesOnly = false }: { locale: string; favouritesOnly?: boolean }) {
   const router = useRouter();
   const isAr = locale === 'ar';
   const { config } = useApp();
+
+  // Followed competitions/teams (client-only; stored in localStorage). Read on
+  // mount and whenever the Favourites tab is activated so a star toggled on
+  // another page is reflected when the user returns. The feed itself is not
+  // re-fetched — the same loaded matches are just filtered to the favourites.
+  const [favComps, setFavComps] = useState<Set<string>>(new Set());
+  const [favTeams, setFavTeams] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setFavComps(new Set(followedCompetitions()));
+    setFavTeams(new Set(followedTeams()));
+  }, [favouritesOnly]);
+  const hasFavourites = favComps.size > 0 || favTeams.size > 0;
 
   // One native sponsored card, picked once per config load by weighted random
   // from the feed-eligible ads. Shown right below the anchor date's block.
@@ -126,7 +139,16 @@ export default function MatchesFeed({ locale }: { locale: string }) {
 
   // Ascending: oldest → nearest(today) → newest.
   const ascending = useMemo(() => [...past].reverse().concat(future), [past, future]);
-  const dateGroups = useMemo(() => groupByDateThenCompetition(ascending), [ascending]);
+  // On the Favourites tab, keep only matches of a followed competition or team
+  // (home or away). The "All" tab shows everything, as before.
+  const visible = useMemo(() => {
+    if (!favouritesOnly) return ascending;
+    return ascending.filter(m =>
+      favComps.has(String(m.competition.id))
+      || (!!m.homeTeam && favTeams.has(m.homeTeam.id))
+      || (!!m.awayTeam && favTeams.has(m.awayTeam.id)));
+  }, [ascending, favouritesOnly, favComps, favTeams]);
+  const dateGroups = useMemo(() => groupByDateThenCompetition(visible), [visible]);
 
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
@@ -190,6 +212,23 @@ export default function MatchesFeed({ locale }: { locale: string }) {
   const hasMoreOlder = past.length >= pastLimit;
   const hasMoreNewer = future.length >= futureLimit;
 
+  // Favourites tab with nothing followed yet: a prompt instead of an empty feed.
+  // Shown immediately (no need to wait on the fetch).
+  if (favouritesOnly && !hasFavourites) {
+    return (
+      <div className="bg-cardBg border border-bdr rounded-2xl p-8 text-center">
+        <div className="text-4xl mb-3">⭐</div>
+        <p className="text-text font-bold text-sm mb-1">
+          {isAr ? 'لا توجد مفضلة بعد' : 'No favourites yet'}
+        </p>
+        <p className="text-hint text-xs leading-relaxed">
+          {isAr
+            ? 'لم تختر أي فريق أو بطولة في المفضلة بعد. اضغط على النجمة ⭐ في صفحة أي فريق أو بطولة لإضافته هنا.'
+            : 'No favourite team or competition selected yet. Tap the ⭐ on any team or competition to add it here.'}
+        </p>
+      </div>
+    );
+  }
   if (loading && ascending.length === 0) {
     return (
       <div className="bg-cardBg border border-bdr rounded-2xl p-6 text-center">
@@ -209,9 +248,31 @@ export default function MatchesFeed({ locale }: { locale: string }) {
     );
   }
   if (dateGroups.length === 0) {
+    // On the Favourites tab the user's matches may just be outside the loaded
+    // date window, so keep the load-more buttons available to widen it.
     return (
-      <div className="bg-cardBg border border-bdr rounded-2xl p-6 text-center">
-        <p className="text-teal text-sm">{isAr ? 'لا توجد مباريات' : 'No matches'}</p>
+      <div className="bg-cardBg border border-bdr rounded-2xl p-6 text-center space-y-3">
+        <p className="text-teal text-sm">
+          {favouritesOnly
+            ? (isAr ? 'لا توجد مباريات لمتابعاتك في هذه الفترة' : 'No matches for your favourites in this range')
+            : (isAr ? 'لا توجد مباريات' : 'No matches')}
+        </p>
+        {favouritesOnly && (hasMoreOlder || hasMoreNewer) && (
+          <div className="flex gap-2 justify-center">
+            {hasMoreOlder && (
+              <button onClick={loadOlder} disabled={loading}
+                className="bg-cardBg border border-aqua/30 text-aqua font-bold text-xs py-2 px-4 rounded-xl active:bg-aqua/10 disabled:opacity-50">
+                {isAr ? '↑ مباريات أقدم' : '↑ Older'}
+              </button>
+            )}
+            {hasMoreNewer && (
+              <button onClick={loadNewer} disabled={loading}
+                className="bg-cardBg border border-aqua/30 text-aqua font-bold text-xs py-2 px-4 rounded-xl active:bg-aqua/10 disabled:opacity-50">
+                {isAr ? '↓ مباريات أحدث' : '↓ Newer'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
