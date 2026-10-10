@@ -407,6 +407,7 @@ export interface TCompTeam {
   sub_competition_name: string | null;
   status: string;
   point_deduction: number;
+  player_count?: number;
   roster?: TCompPlayer[];
 }
 

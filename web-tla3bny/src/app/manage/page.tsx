@@ -850,10 +850,19 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [filterTeamAcad, setFilterTeamAcad] = useState('');
 
   const pending = entries.filter(e => e.status === 'pending');
-  const active  = entries.filter(e => e.status !== 'pending').filter(e =>
+  const activeAll = entries.filter(e => e.status !== 'pending');
+  const active  = activeAll.filter(e =>
     (!filterSubComp || String(e.competition_age_id) === filterSubComp) &&
     (!filterTeamAcad || e.academy_name?.toLowerCase().includes(filterTeamAcad.toLowerCase()))
   );
+
+  // Headline counts for the organiser: the whole field, and — when a
+  // sub-competition is picked — how many of those teams sit in it. Counted off
+  // the sub-comp filter alone so the name search doesn't move the total.
+  const totalTeams = activeAll.length;
+  const subCompTeams = filterSubComp
+    ? activeAll.filter(e => String(e.competition_age_id) === filterSubComp).length
+    : null;
 
   // Build sub-competition options for the filter (from active entries)
   const subCompOptions = Array.from(
@@ -874,6 +883,20 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
           </select>
           <input value={filterTeamAcad} onChange={e => setFilterTeamAcad(e.target.value)}
             placeholder={tt('اسم الأكاديمية…', 'Academy name…')} className={inputCls + ' text-sm flex-1'} />
+        </div>
+      )}
+
+      {/* Team totals */}
+      {activeAll.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-[11px]">
+          <span className="font-bold text-text bg-cardBg2/60 border border-bdr rounded-lg px-2.5 py-1">
+            {tt('إجمالي الفرق', 'Total teams')}: <span className="text-aqua tnum">{totalTeams}</span>
+          </span>
+          {subCompTeams != null && (
+            <span className="font-bold text-text bg-cardBg2/60 border border-bdr rounded-lg px-2.5 py-1">
+              {tt('في هذه البطولة الفرعية', 'In this sub-competition')}: <span className="text-teal tnum">{subCompTeams}</span>
+            </span>
+          )}
         </div>
       )}
 
@@ -910,7 +933,7 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 
       {active.length === 0 && pending.length === 0 && <EmptyState icon="⚽" text={tt('لا فرق مسجلة', 'No teams registered')} />}
       {active.map(e => (
-        <Card key={e.id} className="p-3 flex items-center justify-between">
+        <Card key={e.id} className="p-3 flex items-center justify-between gap-2">
           <Link href={`/team?id=${e.team_id}`} className="min-w-0">
             <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{nm(e.team_name, e.team_name_en)}</div>
             <div className="text-[11px] text-hint">
@@ -921,7 +944,15 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
               )}
             </div>
           </Link>
-          <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
+          <div className="flex items-center gap-3 shrink-0">
+            {typeof e.player_count === 'number' && (
+              <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/30 rounded-lg px-2 py-1 whitespace-nowrap"
+                title={tt('لاعبون مسجّلون', 'Registered players')}>
+                👥 <span className="tnum">{e.player_count}</span>
+              </span>
+            )}
+            <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
+          </div>
         </Card>
       ))}
     </div>

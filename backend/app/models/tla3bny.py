@@ -1258,7 +1258,12 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
         ),
     )
 
-    def to_dict(self, with_roster: bool = False, with_files: bool = False) -> dict:
+    def to_dict(
+        self,
+        with_roster: bool = False,
+        with_files: bool = False,
+        player_count: int | None = None,
+    ) -> dict:
         cage = self.competition_age
         data = {
             "id": self.id,
@@ -1285,6 +1290,11 @@ class Tla3bnyCompetitionTeam(TimestampMixin, db.Model):
             "status": self.status,
             "point_deduction": self.point_deduction,
         }
+        # How many players are approved on this entry's roster. Supplied by the
+        # caller (counted in bulk to avoid an N+1 over every team), so it rides
+        # along without loading the full roster.
+        if player_count is not None:
+            data["player_count"] = player_count
         if with_roster:
             data["roster"] = [r.to_dict(with_files=with_files) for r in self.roster]
         return data

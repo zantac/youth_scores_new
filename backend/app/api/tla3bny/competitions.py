@@ -1182,10 +1182,31 @@ def list_competition_teams(comp_id: int):
     # fallback above; we deliberately do not back-fill/commit here — a GET must
     # not write (it races concurrent readers and breaks on read replicas).
     with_roster = request.args.get("roster") == "1"
+    # Approved-player count per entry, counted in one grouped query (the entry+
+    # status index backs it) so the team list can show squad sizes without an
+    # N+1 over every team's roster.
+    counts: dict[int, int] = {}
+    entry_ids = [e.id for e in entries]
+    if entry_ids:
+        counts = dict(
+            db.session.query(
+                Tla3bnyCompetitionPlayer.competition_team_id, func.count()
+            )
+            .filter(
+                Tla3bnyCompetitionPlayer.competition_team_id.in_(entry_ids),
+                Tla3bnyCompetitionPlayer.status == "approved",
+            )
+            .group_by(Tla3bnyCompetitionPlayer.competition_team_id)
+            .all()
+        )
     # Papers are for this competition's admin panel only, never the public list.
     return jsonify(
         [
-            e.to_dict(with_roster=with_roster, with_files=is_admin)
+            e.to_dict(
+                with_roster=with_roster,
+                with_files=is_admin,
+                player_count=counts.get(e.id, 0),
+            )
             for e in entries
         ]
     )
