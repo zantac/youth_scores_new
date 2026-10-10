@@ -197,13 +197,21 @@ def standings_by_group(
     # for any fallback lookups that still need it.
     effective_age_id = cage.age_category_id if cage_id else age_category_id
 
+    matches = age_matches(competition_id, effective_age_id, cage_id=cage_id)
+    # Keep the table under wraps until the organiser has drawn up the fixtures.
+    # With no matches created yet, a standings table would carry nothing but the
+    # list of entered teams — which quietly tells every academy how many (and
+    # which) rivals have joined before the organiser has chosen to reveal the
+    # draw. No fixtures → no table, for everyone.
+    if not matches:
+        return []
+
     teams = age_teams(competition_id, effective_age_id, cage_id=cage_id)
     # Drop disqualified teams from the table; their matches still count for opponents.
     disqualified = disqualified_team_ids(competition_id)
     if disqualified:
         teams = [t for t in teams if t.id not in disqualified]
     team_by_id = {t.id: t for t in teams}
-    matches = age_matches(competition_id, effective_age_id, cage_id=cage_id)
     docked = deductions_of(competition_id, effective_age_id, cage_id=cage_id)
     groups = groups_of(cage)
     forms = _forms_by_team(matches)  # one pass, not team_form() re-scanning per row
