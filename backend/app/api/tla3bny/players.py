@@ -118,11 +118,15 @@ def serve_player_file(file_id: int):
 def player_registrations(player_id: int):
     """Where this player has been entered, and how each request went.
 
-    The rejection reason is the whole point: it is what tells the academy what
-    to fix and re-upload. Public callers get the status without the reason.
+    A registration request is private to the academy/team that made it and to
+    the organiser of its competition — it is their paperwork, and the rejection
+    reason is what tells *that* academy what to fix and re-upload. Each row is
+    authorised on its own entry, so a different academy looking at the same
+    child (the two share a national ID, not a team) gets the public profile with
+    no registration requests at all — never another academy's approvals.
     """
-    player = Tla3bnyPlayer.query.get_or_404(player_id)
-    detailed = _can_view_player_files(player)
+    player = Tla3bnyPlayer.query.get_or_404(player_id)  # noqa: F841 — existence check
+    user = auth.current_user()
     rows = (
         Tla3bnyCompetitionPlayer.query.filter_by(player_id=player_id)
         .join(Tla3bnyCompetitionPlayer.entry)
@@ -132,29 +136,39 @@ def player_registrations(player_id: int):
     )
     out = []
     for cp in rows:
-        comp = cp.entry.competition if cp.entry else None
-        item = {
+        entry = cp.entry
+        comp = entry.competition if entry else None
+        # Scope to this entry: only the owning academy/team login or the
+        # competition's organiser may see that this request exists at all.
+        if not (
+            entry
+            and user
+            and (
+                auth.can_manage_team(user, entry.team_id)
+                or auth.is_competition_admin(user, entry.competition_id)
+            )
+        ):
+            continue
+        # Papers are per registration: this competition's own required set,
+        # matched against the papers uploaded for *this* entry.
+        cage = None
+        if comp:
+            cage = next(
+                (a for a in comp.ages
+                 if a.age_category_id == entry.age_category_id),
+                None,
+            )
+        required = cage.documents if cage else (comp.documents if comp else [])
+        supplied = {f.label for f in cp.effective_files if f.label}
+        out.append({
             "id": cp.id,
             "competition_id": comp.id if comp else None,
             "competition_name": comp.name if comp else None,
             "status": cp.status,
-        }
-        if detailed:
-            # Papers are per registration: this competition's own required set,
-            # matched against the papers uploaded for *this* entry.
-            cage = None
-            if comp:
-                cage = next(
-                    (a for a in comp.ages
-                     if a.age_category_id == cp.entry.age_category_id),
-                    None,
-                )
-            required = cage.documents if cage else (comp.documents if comp else [])
-            supplied = {f.label for f in cp.effective_files if f.label}
-            item["rejection_reason"] = cp.rejection_reason
-            item["required_documents"] = required
-            item["missing_documents"] = [d for d in required if d not in supplied]
-        out.append(item)
+            "rejection_reason": cp.rejection_reason,
+            "required_documents": required,
+            "missing_documents": [d for d in required if d not in supplied],
+        })
     return jsonify(out)
 
 
