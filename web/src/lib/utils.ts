@@ -477,6 +477,20 @@ export function safeUrl(u: string | null | undefined): string | undefined {
   return undefined;
 }
 
+/**
+ * Build a wa.me chat link from an ad's WhatsApp number and optional prefilled
+ * message, so the admin only types a number + message instead of hand-crafting
+ * the URL. The number keeps digits only (wa.me wants a full international number
+ * like 201234567890, no "+"); the message is URL-encoded into ?text=. Returns
+ * undefined when there's no number.
+ */
+export function waAdLink(number?: string | null, text?: string | null): string | undefined {
+  const n = (number || '').replace(/\D/g, '');
+  if (!n) return undefined;
+  const t = (text || '').trim();
+  return t ? `https://wa.me/${n}?text=${encodeURIComponent(t)}` : `https://wa.me/${n}`;
+}
+
 // ── Cloudinary delivery optimization ────────────────────────────────────────
 
 /**

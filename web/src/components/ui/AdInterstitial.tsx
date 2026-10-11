@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
-import { safeUrl, cloudinaryUrl } from '@/lib/utils';
+import { safeUrl, cloudinaryUrl, waAdLink } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
 interface Props {
@@ -33,7 +33,8 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   const fbLink = safeUrl(ad.facebook_link);
   const ytLink = safeUrl(ad.youtube_video);
   const locLink = safeUrl(ad.location_url);
-  const hasActions = !!(ad.whatsapp_number || ad.mobile_number || fbLink || ytLink || locLink);
+  const waLink = waAdLink(ad.whatsapp_number);
+  const hasActions = !!(waLink || ad.mobile_number || fbLink || ytLink || locLink);
 
   return (
     <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
@@ -63,8 +64,8 @@ export default function AdInterstitial({ ad, onClose }: Props) {
       {hasActions && (
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-5 pb-10 pt-16">
         <div className="flex flex-wrap gap-2">
-          {ad.whatsapp_number && (
-            <a href={`https://wa.me/${String(ad.whatsapp_number).replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" onClick={click}
+          {waLink && (
+            <a href={waLink} target="_blank" rel="noopener noreferrer" onClick={click}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#25D366]/60 bg-[#25D366]/20 text-[#25D366] text-xs font-semibold">
               💬 WhatsApp
             </a>
