@@ -289,6 +289,7 @@ export async function fetchConfig(opts?: { fresh?: boolean }): Promise<ConfigDat
         placement:        a.placement        ? String(a.placement)        : 'interstitial',
         feed_position:    a.feed_position != null ? Number(a.feed_position) : undefined,
         feed_repeat:      a.feed_repeat    != null ? Number(a.feed_repeat)  : undefined,
+        format:           a.format           ? String(a.format)           : undefined,
         expire_date:      a.expire_date      ? String(a.expire_date)      : undefined,
       })),
     app_version: data.app_version,
