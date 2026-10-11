@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { apiAdImpression, apiAdClick } from '@/lib/api';
-import { safeUrl, cloudinaryUrl, waAdLink } from '@/lib/utils';
+import { safeUrl, cloudinaryUrl, waAdLink, isWhatsAppUrl } from '@/lib/utils';
 import type { AdItem } from '@/lib/types';
 
 interface Props {
@@ -33,7 +33,10 @@ export default function AdInterstitial({ ad, onClose }: Props) {
   const fbLink = safeUrl(ad.facebook_link);
   const ytLink = safeUrl(ad.youtube_video);
   const locLink = safeUrl(ad.location_url);
-  const waLink = waAdLink(ad.whatsapp_number);
+  // Prefer a wa.me link in the main link field — the link builder puts the number
+  // AND the prefilled message there, so the button carries the message. Fall back
+  // to the plain whatsapp_number (no message) when the link isn't a WhatsApp one.
+  const waLink = isWhatsAppUrl(link) ? link : waAdLink(ad.whatsapp_number);
   const hasActions = !!(waLink || ad.mobile_number || fbLink || ytLink || locLink);
 
   return (

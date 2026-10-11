@@ -491,6 +491,16 @@ export function waAdLink(number?: string | null, text?: string | null): string |
   return t ? `https://wa.me/${n}?text=${encodeURIComponent(t)}` : `https://wa.me/${n}`;
 }
 
+/** Whether a URL opens a WhatsApp chat (wa.me / whatsapp.com) — e.g. one built by
+ *  the ad link builder, which may carry a ?text= prefilled message. Lets the
+ *  fullscreen ad's WhatsApp button reuse that link (with its message) instead of
+ *  a bare number. */
+export function isWhatsAppUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  return u.includes('wa.me/') || u.includes('whatsapp.com/');
+}
+
 // ── Cloudinary delivery optimization ────────────────────────────────────────
 
 /**
