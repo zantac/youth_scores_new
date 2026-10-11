@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/admin/match_entry.dart';
@@ -344,6 +345,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
   Widget build(BuildContext context) {
     final isAr = context.watch<AppProvider>().locale == 'ar';
     final locale = isAr ? 'ar' : 'en';
+    // Editor-only actions: a data-entry clerk gets a 403 from the backend.
+    final canEdit = context.watch<AdminAuth>().user?.canEdit ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -648,24 +651,27 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
             ),
           ),
           // Publish the called squad as a news item (title + names + club logo).
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: (_busy || _lnDirty || _lnTotal == 0) ? null : _squadNews,
-              icon: const Icon(Icons.campaign, size: 18),
-              style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.orange,
-                  side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5))),
-              label: Text(isAr ? 'تجهيز خبر القائمة' : 'Prepare squad news'),
+          // Editor-only — the squad-news draft endpoint 403s for a clerk.
+          if (canEdit) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: (_busy || _lnDirty || _lnTotal == 0) ? null : _squadNews,
+                icon: const Icon(Icons.campaign, size: 18),
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.orange,
+                    side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5))),
+                label: Text(isAr ? 'تجهيز خبر القائمة' : 'Prepare squad news'),
+              ),
             ),
-          ),
-          if (_lnDirty && _lnTotal > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(isAr ? 'احفظ القائمة أولًا. سيفتح محرّر الأخبار لإضافة الصورة والنشر.' : 'Save first. The news editor opens to add a photo and publish.',
-                  style: TextStyle(color: AppColors.hint, fontSize: 11)),
-            ),
+            if (_lnDirty && _lnTotal > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(isAr ? 'احفظ القائمة أولًا. سيفتح محرّر الأخبار لإضافة الصورة والنشر.' : 'Save first. The news editor opens to add a photo and publish.',
+                    style: TextStyle(color: AppColors.hint, fontSize: 11)),
+              ),
+          ],
           // ── Substitutions ─────────────────────────────────────────────────
           const SizedBox(height: 8),
           const Divider(),
@@ -703,6 +709,8 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
         child: TextField(
           controller: c,
           keyboardType: TextInputType.number,
+          // Scores are non-negative integers; block the '-' sign and non-digits.
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           textAlign: TextAlign.center,
           style: TextStyle(
               color: AppColors.white,

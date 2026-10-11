@@ -98,6 +98,7 @@ class EntryMatchRow {
   final int? groupId;
   final String? stageName;
   final String? groupName;
+  final String? venue;
   final String? deletedAt;
 
   const EntryMatchRow({
@@ -114,6 +115,7 @@ class EntryMatchRow {
     this.groupId,
     this.stageName,
     this.groupName,
+    this.venue,
     this.deletedAt,
   });
 
@@ -136,6 +138,7 @@ class EntryMatchRow {
         groupId: _i(j['group_id']),
         stageName: _s(j['stage_name']),
         groupName: _s(j['group_name']),
+        venue: _s(j['venue']),
         deletedAt: _s(j['deleted_at']),
       );
 }

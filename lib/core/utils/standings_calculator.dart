@@ -1,5 +1,6 @@
 import '../models/competition_data_model.dart';
 import '../models/standing.dart';
+import 'group_utils.dart';
 
 class _H2HStat {
   int points = 0;
@@ -157,21 +158,25 @@ class StandingsCalculator {
 
   static Map<String, List<Standing>> byGroup(
     List<Match> matches,
-    List<Team> teams,
-  ) {
+    List<Team> teams, {
+    List<String> order = const [],
+  }) {
     final groups = teams
         .map((t) => t.groupKey ?? '')
         .where((g) => g.isNotEmpty)
         .toSet()
-        .toList()
-      ..sort();
+        .toList();
 
     if (groups.isEmpty) {
       return {'': calculate(matches, teams)};
     }
 
+    // Arrange by the canonical group order (the admin-set standings order),
+    // not alphabetically — so the standings read in the same sequence as the
+    // matches/teams/stats tabs and the website. [sortGroups] falls back to a
+    // name sort for any group missing from [order], and for an empty order.
     return {
-      for (final g in groups)
+      for (final g in sortGroups(groups, order))
         g: calculate(matches, teams, groupId: g),
     };
   }

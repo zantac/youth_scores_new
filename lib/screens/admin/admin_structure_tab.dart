@@ -1875,8 +1875,15 @@ class _EnrollTeamSheetState extends State<_EnrollTeamSheet> {
               _ClubLogo(url: c.logoUrl),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(c.name(isAr),
-                    style: TextStyle(color: AppColors.white, fontSize: 13)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(c.name(isAr),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.white, fontSize: 13)),
+                  if (c.city(isAr).isNotEmpty)
+                    Text(c.city(isAr),
+                        style: TextStyle(color: AppColors.hint, fontSize: 11)),
+                ]),
               ),
               Text(isAr ? '+ إضافة' : '+ Add',
                   style: TextStyle(color: AppColors.aqua, fontSize: 12, fontWeight: FontWeight.bold)),
