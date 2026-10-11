@@ -43,15 +43,13 @@ function SquareTile({ ad }: { ad: AdItem }) {
     >
       {hasImage ? (
         // 1:1 creative, shown whole — object-cover on a square never crops a
-        // square source, so the photo arrives untouched.
+        // square source, so the photo arrives untouched. No caption: the creative
+        // speaks for itself and the admin ad name is an internal label.
         <img src={cloudinaryUrl(ad.image, 400)} alt={ad.name}
           className="w-full aspect-square object-cover rounded-xl border border-bdr bg-cardBg" />
       ) : (
-        <div className="w-full aspect-square rounded-xl border border-bdr bg-cardBg grid place-items-center p-3">
-          <p className="text-text font-bold text-xs leading-tight line-clamp-3 text-center">{ad.name}</p>
-        </div>
+        <div className="w-full aspect-square rounded-xl border border-bdr bg-cardBg grid place-items-center text-3xl">📢</div>
       )}
-      <p className="mt-1 text-hint text-[11px] leading-tight line-clamp-1">{ad.name}</p>
     </a>
   );
 }
@@ -63,7 +61,6 @@ export default function FeedAdRail({ ads }: { ads: AdItem[] }) {
   if (!ads.length) return null;
   return (
     <div className="mb-2">
-      <p className="text-hint text-[10px] font-bold px-0.5 mb-1">إعلان</p>
       <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-0.5">
         {ads.map(a => <SquareTile key={a.id} ad={a} />)}
       </div>
