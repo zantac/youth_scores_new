@@ -195,6 +195,7 @@ def _ad(a: Ad) -> dict:
         "placement": a.placement,
         "feed_position": a.feed_position,
         "feed_repeat": a.feed_repeat,
+        "format": a.format,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
 

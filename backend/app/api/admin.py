@@ -346,6 +346,13 @@ def _ad_repeat(v) -> int | None:
         return None
 
 
+_AD_FORMATS = ("banner", "square")
+
+
+def _ad_format(v) -> str:
+    return v if v in _AD_FORMATS else "banner"
+
+
 def _ad_dto(a: Ad) -> dict:
     return {
         "id": a.id, "name": a.name, "image": a.image,
@@ -354,6 +361,7 @@ def _ad_dto(a: Ad) -> dict:
         "location": a.location, "location_url": a.location_url, "link": a.link,
         "active": a.active, "weight": a.weight, "placement": a.placement,
         "feed_position": a.feed_position, "feed_repeat": a.feed_repeat,
+        "format": a.format,
         "start_date": a.start_date.isoformat() if a.start_date else None,
         "expire_date": a.expire_date.isoformat() if a.expire_date else None,
     }
@@ -382,6 +390,7 @@ def create_ad():
         placement=_ad_placement(j.get("placement")),
         feed_position=_ad_position(j.get("feed_position", 3)),
         feed_repeat=_ad_repeat(j.get("feed_repeat")),
+        format=_ad_format(j.get("format")),
     )
     for k in _AD_STR_FIELDS:
         setattr(ad, k, (j.get(k) or None))
@@ -419,6 +428,8 @@ def update_ad(aid: int):
         ad.feed_position = _ad_position(j.get("feed_position"))
     if "feed_repeat" in j:
         ad.feed_repeat = _ad_repeat(j.get("feed_repeat"))
+    if "format" in j:
+        ad.format = _ad_format(j.get("format"))
     db.session.commit()
     return jsonify({"ad": _ad_dto(ad)})
 

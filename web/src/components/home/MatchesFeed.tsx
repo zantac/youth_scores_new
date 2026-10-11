@@ -6,6 +6,7 @@ import { hrefFor } from '@/lib/links';
 import { formatMatchDate, todayStr, localize, adNotExpired, groupLabel, matchesByGroup } from '@/lib/utils';
 import MatchCard from '@/components/competition/MatchCard';
 import FeedAdCard from '@/components/ui/FeedAdCard';
+import FeedAdRail from '@/components/ui/FeedAdRail';
 import { useApp } from '@/context/AppContext';
 import { followedCompetitions, followedTeams } from '@/lib/notifications';
 import type { HomeMatch, Match, Team, AdItem } from '@/lib/types';
@@ -54,6 +55,29 @@ function shiftDay(dateStr: string, days: number): string {
 
 const STEP = 300; // matches pulled per direction per "load more"
 
+// The match ids an inline ad unit renders after, given its 1-based slot `n`
+// (counted from the anchor date downward) and optional repeat `r`. Shared by the
+// banner card and the square rail so the two placements behave identically. Falls
+// back to the last match when there are fewer than `n` from the anchor.
+function feedSlotIds(dateGroups: DateGroup[], anchorDate: string | null, n: number, r: number): Set<string> {
+  const ids = new Set<string>();
+  if (!anchorDate) return ids;
+  let count = 0;
+  let lastId: string | null = null;
+  for (const dg of dateGroups) {
+    if (dg.date < anchorDate) continue;   // skip older matches above the anchor
+    for (const cg of dg.competitions) {
+      for (const m of cg.matches) {
+        lastId = m.id;
+        count++;
+        if (count === n || (r && count > n && (count - n) % r === 0)) ids.add(m.id);
+      }
+    }
+  }
+  if (ids.size === 0 && lastId) ids.add(lastId);  // fewer than N: still show once
+  return ids;
+}
+
 export default function MatchesFeed({ locale, favouritesOnly = false }: { locale: string; favouritesOnly?: boolean }) {
   const router = useRouter();
   const isAr = locale === 'ar';
@@ -71,19 +95,30 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
   }, [favouritesOnly]);
   const hasFavourites = favComps.size > 0 || favTeams.size > 0;
 
-  // One native sponsored card, picked once per config load by weighted random
-  // from the feed-eligible ads. Shown right below the anchor date's block.
-  const feedAd = useMemo<AdItem | null>(() => {
+  // Feed-eligible ads, split by creative shape: banner (2:1 full-width card) vs
+  // square (1:1 tiles grouped into one horizontal rail). Computed once per config.
+  const { feedAd, feedSquareAds } = useMemo(() => {
     const ads = config?.ads ?? [];
     const now = new Date();
     const pool = ads.filter(a => {
       const p = a.placement ?? 'interstitial';
       return adNotExpired(a.expire_date, now) && (p === 'feed' || p === 'both');
     });
-    if (!pool.length) return null;
     const w = (a: AdItem) => Math.max(1, a.weight ?? 1);
-    let r = Math.random() * pool.reduce((s, a) => s + w(a), 0);
-    return pool.find(a => (r -= w(a)) < 0) ?? pool[pool.length - 1];
+
+    // Square ads all show together, ordered highest-weight first (tiebreak: id).
+    const squares = pool
+      .filter(a => a.format === 'square')
+      .sort((a, b) => w(b) - w(a) || a.id - b.id);
+
+    // One banner card, picked by weighted random from the banner-format ads.
+    const banners = pool.filter(a => a.format !== 'square');
+    let banner: AdItem | null = null;
+    if (banners.length) {
+      let r = Math.random() * banners.reduce((s, a) => s + w(a), 0);
+      banner = banners.find(a => (r -= w(a)) < 0) ?? banners[banners.length - 1];
+    }
+    return { feedAd: banner, feedSquareAds: squares };
   }, [config]);
 
   const [today, setToday] = useState<string | null>(null);
@@ -153,32 +188,24 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
 
-  // Native card slots: the ids of matches to render the sponsored card after.
-  // Counted from the anchor date (where the feed lands) downward, so cards sit
-  // in the natural forward-scroll path rather than up among older matches. The
-  // first card lands after match N (feed_position); if feed_repeat is set, it
-  // repeats every R matches after that. Falls back to the last match when there
-  // are fewer than N matches from the anchor.
+  // Slots the sponsored card/rail render after, counted from the anchor date (where
+  // the feed lands) downward so they sit in the natural forward-scroll path. The
+  // banner uses the picked ad's own position/repeat; the square rail uses its
+  // lead (highest-weight) tile's, so the whole rail places as one unit.
   const adAfterMatchIds = useMemo<Set<string>>(() => {
-    const ids = new Set<string>();
-    if (!feedAd || !anchorDate) return ids;
-    const n = Math.max(1, feedAd.feed_position ?? 3);
-    const r = feedAd.feed_repeat && feedAd.feed_repeat > 0 ? feedAd.feed_repeat : 0;
-    let count = 0;
-    let lastId: string | null = null;
-    for (const dg of dateGroups) {
-      if (dg.date < anchorDate) continue;   // skip older matches above the anchor
-      for (const cg of dg.competitions) {
-        for (const m of cg.matches) {
-          lastId = m.id;
-          count++;
-          if (count === n || (r && count > n && (count - n) % r === 0)) ids.add(m.id);
-        }
-      }
-    }
-    if (ids.size === 0 && lastId) ids.add(lastId);  // fewer than N: still show once
-    return ids;
+    if (!feedAd) return new Set<string>();
+    return feedSlotIds(dateGroups, anchorDate,
+      Math.max(1, feedAd.feed_position ?? 3),
+      feedAd.feed_repeat && feedAd.feed_repeat > 0 ? feedAd.feed_repeat : 0);
   }, [feedAd, anchorDate, dateGroups]);
+
+  const railAfterMatchIds = useMemo<Set<string>>(() => {
+    const lead = feedSquareAds[0];
+    if (!lead) return new Set<string>();
+    return feedSlotIds(dateGroups, anchorDate,
+      Math.max(1, lead.feed_position ?? 3),
+      lead.feed_repeat && lead.feed_repeat > 0 ? lead.feed_repeat : 0);
+  }, [feedSquareAds, anchorDate, dateGroups]);
 
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
@@ -321,6 +348,7 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
                       <Fragment key={m.id}>
                         <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} showGroup={false} onClick={() => router.push(hrefFor('match', m.id))} />
                         {feedAd && adAfterMatchIds.has(m.id) && <FeedAdCard ad={feedAd} />}
+                        {railAfterMatchIds.has(m.id) && <FeedAdRail ads={feedSquareAds} />}
                       </Fragment>
                     ))}
                   </div>

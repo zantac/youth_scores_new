@@ -37,6 +37,7 @@ export interface AdItem {
   placement?: string;   // interstitial | feed | both
   feed_position?: number;  // native card shows after the Nth match (from anchor)
   feed_repeat?: number | null;  // repeat every N matches after that; null = once
+  format?: string;      // feed creative shape: banner (2:1 card) | square (1:1 rail tile)
   expire_date?: string;
 }
 

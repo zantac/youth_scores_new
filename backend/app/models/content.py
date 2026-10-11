@@ -69,6 +69,11 @@ class Ad(TimestampMixin, db.Model):
         sa.Integer, nullable=False, default=3)
     # Repeat the feed card every N matches after the first slot. Null = show once.
     feed_repeat: Mapped[int | None] = mapped_column(sa.Integer)
+    # Feed creative shape: "banner" (2:1 full-width card) or "square" (1:1 tile
+    # shown in a horizontal rail with the other square ads). Only affects the feed
+    # surface — the interstitial is always fullscreen regardless of format.
+    format: Mapped[str] = mapped_column(
+        sa.String(16), nullable=False, default="banner")
 
     __table_args__ = (sa.Index("ix_ads_expire", "expire_date"),)
 

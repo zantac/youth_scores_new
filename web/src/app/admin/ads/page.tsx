@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AdminShell from '@/components/admin/AdminShell';
 import { Field, inputCls } from '@/components/admin/formKit';
+import { waAdLink } from '@/lib/utils';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import {
   apiListAds, apiCreateAd, apiUpdateAd, apiDeleteAd, apiAdStats, apiUploadImage,
@@ -268,7 +269,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
 }) {
   const blank = {
     name: '', image: '', link: '', start_date: '', expire_date: '', weight: '1',
-    placement: 'interstitial', feed_position: '3', feed_repeat: '',
+    placement: 'interstitial', feed_position: '3', feed_repeat: '', format: 'banner',
     mobile_number: '', whatsapp_number: '',
     facebook_link: '', youtube_video: '', location: '', location_url: '',
   };
@@ -280,6 +281,7 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         placement: ad.placement ?? 'interstitial',
         feed_position: String(ad.feed_position ?? 3),
         feed_repeat: ad.feed_repeat != null ? String(ad.feed_repeat) : '',
+        format: ad.format ?? 'banner',
         mobile_number: ad.mobile_number ?? '', whatsapp_number: ad.whatsapp_number ?? '',
         facebook_link: ad.facebook_link ?? '', youtube_video: ad.youtube_video ?? '',
         location: ad.location ?? '', location_url: ad.location_url ?? '',
@@ -289,6 +291,15 @@ function AdForm({ token, ad, onSaved, onCancel }: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
+
+  // WhatsApp link builder: local-only inputs that generate a ready wa.me URL and
+  // drop it into the single "رابط الإعلان" field, so the admin never hand-writes
+  // the wa.me/<number>?text=<message> format. Not persisted on their own — the
+  // message rides along inside the link once inserted.
+  const [waNum, setWaNum] = useState('');
+  const [waMsg, setWaMsg] = useState('');
+  const waBuilt = waAdLink(waNum, waMsg);
+  const insertWa = () => { if (waBuilt) set('link', waBuilt); };
 
   const submit = async () => {
     setError(null); setBusy(true);
@@ -305,8 +316,23 @@ function AdForm({ token, ad, onSaved, onCancel }: {
       <p className="text-aqua font-bold text-sm">{ad ? '✏️ تعديل الإعلان' : '➕ إعلان جديد'}</p>
       <Field label="اسم الإعلان *"><input value={f.name} onChange={e => set('name', e.target.value)} className={inputCls} /></Field>
       <Field label="الصورة (تظهر بملء الشاشة)"><SingleImage token={token} value={f.image} onChange={v => set('image', v)} /></Field>
-      <Field label="🔗 رابط الإعلان (بالضغط على الصورة)"><input value={f.link} onChange={e => set('link', e.target.value)} dir="ltr" placeholder="https://…" className={inputCls} /></Field>
-      <p className="text-hint text-[11px]">أزرار التواصل تظهر فقط عند تعبئة حقلها.</p>
+      <Field label="🔗 رابط الإعلان (بالضغط على الصورة)"><input value={f.link} onChange={e => set('link', e.target.value)} dir="ltr" placeholder="https://… (موقع، فيسبوك، يوتيوب، أو رابط واتساب)" className={inputCls} /></Field>
+      {/* WhatsApp builder: fills the link field above with a ready wa.me URL. */}
+      <div className="rounded-xl border border-[#25D366]/30 bg-[#25D366]/5 p-2.5 space-y-2">
+        <p className="text-[#25D366] text-[11px] font-bold">💬 عايز الضغط على الصورة يفتح واتساب؟ اكتب الرقم والرسالة واضغط «إدراج»</p>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={waNum} onChange={e => setWaNum(e.target.value)} inputMode="tel" dir="ltr"
+            placeholder="201012345678" className={inputCls} />
+          <input value={waMsg} onChange={e => setWaMsg(e.target.value)} dir="rtl"
+            placeholder="رسالة جاهزة (اختياري)" className={inputCls} />
+        </div>
+        <button type="button" onClick={insertWa} disabled={!waBuilt}
+          className="w-full py-2 rounded-lg border border-[#25D366]/60 bg-[#25D366]/15 text-[#25D366] text-xs font-bold disabled:opacity-40">
+          ↑ إدراج رابط واتساب في «رابط الإعلان»
+        </button>
+        <p className="text-hint text-[10px]">الرقم بصيغة دولية بدون «+» (مثال 201012345678). سيحلّ محل أي رابط موجود في الحقل أعلاه.</p>
+      </div>
+      <p className="text-hint text-[11px]">أزرار التواصل بالأسفل تظهر في إعلان ملء الشاشة فقط عند تعبئة حقلها.</p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="📞 رقم الموبايل"><input value={f.mobile_number} onChange={e => set('mobile_number', e.target.value)} dir="ltr" className={inputCls} /></Field>
         <Field label="💬 واتساب (رقم دولي)"><input value={f.whatsapp_number} onChange={e => set('whatsapp_number', e.target.value)} dir="ltr" placeholder="201234567890" className={inputCls} /></Field>
@@ -330,19 +356,38 @@ function AdForm({ token, ad, onSaved, onCancel }: {
         </div>
       </Field>
       {(f.placement === 'feed' || f.placement === 'both') && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="موضع الإعلان (بعد المباراة رقم N)">
-            <input type="number" min="1" value={f.feed_position}
-              onChange={e => set('feed_position', e.target.value)} className={inputCls} />
+        <div className="space-y-3">
+          <Field label="شكل الإعلان في القائمة">
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['banner', 'بانر 2:1', 'عريض بعرض الشاشة'],
+                ['square', 'مربّع (شريط)', 'صور 1:1 في شريط أفقي'],
+              ] as const).map(([val, label, hint]) => (
+                <button key={val} type="button" onClick={() => set('format', val)}
+                  className={`py-2 px-2 rounded-lg border text-xs font-bold leading-tight ${f.format === val ? 'border-aqua/60 bg-aqua/10 text-aqua' : 'border-bdr text-hint'}`}>
+                  {label}<br /><span className="text-[10px] font-normal opacity-80">{hint}</span>
+                </button>
+              ))}
+            </div>
           </Field>
-          <Field label="تكرار كل (فارغ = بدون تكرار)">
-            <input type="number" min="1" value={f.feed_repeat} placeholder="بدون تكرار"
-              onChange={e => set('feed_repeat', e.target.value)} className={inputCls} />
-          </Field>
-          <p className="col-span-2 text-hint text-[11px]">
-            البطاقة تظهر بعد هذا العدد من المباريات بدءًا من مباريات اليوم (حيث تفتح الصفحة). مثال: موضع 3 وتكرار 6 = بعد المباراة 3 ثم 9 ثم 15…
-            <br />استخدم صورة بنسبة 2:1 (مثال 1200×600) لأن بطاقة القائمة تعرض الصورة كاملة بدون عنوان.
-          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={f.format === 'square' ? 'موضع الشريط (بعد المباراة رقم N)' : 'موضع الإعلان (بعد المباراة رقم N)'}>
+              <input type="number" min="1" value={f.feed_position}
+                onChange={e => set('feed_position', e.target.value)} className={inputCls} />
+            </Field>
+            <Field label="تكرار كل (فارغ = بدون تكرار)">
+              <input type="number" min="1" value={f.feed_repeat} placeholder="بدون تكرار"
+                onChange={e => set('feed_repeat', e.target.value)} className={inputCls} />
+            </Field>
+            <p className="col-span-2 text-hint text-[11px]">
+              يظهر بعد هذا العدد من المباريات بدءًا من مباريات اليوم (حيث تفتح الصفحة). مثال: موضع 3 وتكرار 6 = بعد المباراة 3 ثم 9 ثم 15…
+              {f.format === 'square' ? (
+                <><br />استخدم صورة مربّعة 1:1 (مثال 1000×1000). كل الإعلانات المربّعة تظهر معًا في شريط أفقي واحد، والأعلى وزنًا يظهر أولًا، ويتحكّم موضعه في مكان الشريط.</>
+              ) : (
+                <><br />استخدم صورة بنسبة 2:1 (مثال 1200×600) لأن بطاقة القائمة تعرض الصورة كاملة بدون عنوان.</>
+              )}
+            </p>
+          </div>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
