@@ -15,6 +15,7 @@ import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/group_utils.dart';
 import '../../widgets/ads/feed_ad_card.dart';
+import '../../widgets/ads/feed_ad_rail.dart';
 import '../../widgets/common/rate_prompt.dart';
 import '../../widgets/match/match_card.dart';
 import '../ads/ad_interstitial_screen.dart';
@@ -55,7 +56,8 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
   bool _favOnly = false;
   String? _restoreDate;
   List<_Row> _rows = const [];
-  AdItem? _feedAd; // native sponsored card, picked once per session
+  AdItem? _feedAd; // banner (2:1) sponsored card, picked once per session
+  List<AdItem> _squareAds = const []; // 1:1 tiles grouped into one horizontal rail
 
   Timer? _pollTimer;
   static const _kPollInterval = Duration(seconds: 45);
@@ -204,18 +206,17 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     return null;
   }
 
-  /// Match ids to render the sponsored card after. Counted from the anchor date
-  /// (where the feed lands) downward, so cards sit in the natural forward-scroll
-  /// path rather than up among older matches. First card after match N
-  /// (feedPosition); if feedRepeat is set, repeats every R after that. Falls
-  /// back to the last match when there are fewer than N from the anchor.
-  Set<String> _adAfterMatchIds(List<HomeMatch> matches) {
+  /// Match ids an inline ad unit renders after, given its 1-based slot [position]
+  /// (counted from the anchor date downward, so it sits in the natural
+  /// forward-scroll path) and optional [repeat]. Shared by the banner card and the
+  /// square rail so the two placements behave identically. Falls back to the last
+  /// match when there are fewer than [position] from the anchor.
+  Set<String> _slotIds(List<HomeMatch> matches, int position, int repeat) {
     final ids = <String>{};
-    final ad = _feedAd;
     final anchor = _anchorDate;
-    if (ad == null || anchor == null) return ids;
-    final n = ad.feedPosition < 1 ? 1 : ad.feedPosition;
-    final r = (ad.feedRepeat != null && ad.feedRepeat! > 0) ? ad.feedRepeat! : 0;
+    if (anchor == null) return ids;
+    final n = position < 1 ? 1 : position;
+    final r = repeat > 0 ? repeat : 0;
     var count = 0;
     String? lastId;
     for (final m in matches) {
@@ -255,7 +256,16 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
       if (favOnly && _hasMoreNewer) rows.add(const _LoadRow(older: false));
     } else {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
-      final adAfterIds = _adAfterMatchIds(matches);
+      // Banner placed by its own position/repeat; the square rail placed as one
+      // unit by its lead (highest-weight) tile's. Both sit in the feed loop, so
+      // they appear on the Favourites tab too (matches is already filtered there).
+      final bannerAfterIds = _feedAd != null
+          ? _slotIds(matches, _feedAd!.feedPosition, _feedAd!.feedRepeat ?? 0)
+          : const <String>{};
+      final railAfterIds = _squareAds.isNotEmpty
+          ? _slotIds(matches, _squareAds.first.feedPosition,
+              _squareAds.first.feedRepeat ?? 0)
+          : const <String>{};
       String? date;
       String? comp;
       String? group;
@@ -277,10 +287,13 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
           if (m.group.isNotEmpty) rows.add(_GroupRow(m.group));
         }
         rows.add(_MatchRow(m));
-        // Native sponsored card after the Nth match (and every R after) counted
-        // from the anchor date, so it sits in the natural downward-scroll path.
-        if (_feedAd != null && adAfterIds.contains(m.id)) {
+        // Native sponsored units after the Nth match (and every R after) counted
+        // from the anchor date, so they sit in the natural downward-scroll path.
+        if (_feedAd != null && bannerAfterIds.contains(m.id)) {
           rows.add(_AdRow(_feedAd!));
+        }
+        if (_squareAds.isNotEmpty && railAfterIds.contains(m.id)) {
+          rows.add(_RailRow(_squareAds));
         }
       }
       if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
@@ -303,12 +316,22 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
-    // Pick a feed-placement ad once (stable across rebuilds within a session).
+    // Feed-placement ads, split by creative shape. Banner: one weighted pick,
+    // stable across rebuilds within a session. Square: all tiles for the rail,
+    // ordered highest-weight first (deterministic, so recomputed each build).
     final feedAds = provider.config?.ads
             .where((a) => a.isLive && a.showsOn('feed'))
             .toList() ??
         const <AdItem>[];
-    _feedAd ??= weightedPickAd(feedAds);
+    _feedAd ??= weightedPickAd(
+        feedAds.where((a) => a.format != 'square').toList());
+    _squareAds = feedAds.where((a) => a.format == 'square').toList()
+      ..sort((a, b) {
+        final bw = b.weight > 0 ? b.weight : 1;
+        final aw = a.weight > 0 ? a.weight : 1;
+        final c = bw.compareTo(aw);
+        return c != 0 ? c : a.id.compareTo(b.id);
+      });
 
     // Followed competitions/teams → the Favourites filter.
     final favComps = provider.followedComps.map((c) => c.id).toSet();
@@ -535,6 +558,9 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     if (r is _AdRow) {
       return FeedAdCard(ad: r.ad);
     }
+    if (r is _RailRow) {
+      return FeedAdRail(ads: r.ads);
+    }
     if (r is _NewsHeaderRow) {
       return _SectionHeader(
         title: l10n.news,
@@ -631,6 +657,11 @@ class _MatchRow extends _Row {
 class _AdRow extends _Row {
   final AdItem ad;
   const _AdRow(this.ad);
+}
+
+class _RailRow extends _Row {
+  final List<AdItem> ads;
+  const _RailRow(this.ads);
 }
 
 class _NewsHeaderRow extends _Row {
