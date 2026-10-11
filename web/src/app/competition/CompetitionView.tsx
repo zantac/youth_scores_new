@@ -1324,7 +1324,7 @@ function teamTabIndexFromParam(raw: string | null): number {
 export default function CompetitionView({ id: idProp }: { id?: string }) {
   const params = useSearchParams();
   const router  = useRouter();
-  const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, locale } = useApp();
+  const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, showInterstitial, locale } = useApp();
   // The tab and the open team live in the URL, so a competition view can be
   // shared and reopened exactly (e.g. ?url=...&tab=2&team=t001).
   const mainTab = tabIndexFromParam(params.get('tab'));
@@ -1392,6 +1392,19 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
   useEffect(() => {
     if (url) loadCompetition(url, rawTitle);
   }, [url, rawTitle, loadCompetition]);
+
+  // Pop a fullscreen interstitial each time the user opens a competition. Keyed on
+  // the competition url via a ref so it fires once per open — and again on reopen,
+  // since this view remounts when leaving and returning — but not on in-page tab
+  // switches or background config refreshes (showInterstitial is stable, so this
+  // effect isn't retriggered by them).
+  const lastAdUrl = useRef<string | null>(null);
+  useEffect(() => {
+    if (url && lastAdUrl.current !== url) {
+      lastAdUrl.current = url;
+      showInterstitial();
+    }
+  }, [url, showInterstitial]);
 
   // Live auto-refresh (mirrors the home feed): while a fixture in this
   // competition is today-and-unfinished, silently re-fetch every 45s so scores

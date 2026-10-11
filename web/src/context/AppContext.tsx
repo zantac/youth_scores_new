@@ -34,6 +34,7 @@ interface AppContextValue {
   refreshConfigSilent: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
+  showInterstitial: () => void;
   newNewsCount: number;
   newVenuesCount: number;
   markNewsSeen: () => void;
@@ -89,6 +90,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     shownAds.current.add(ad.name);
     return ad;
   }, []);
+
+  // Live ref to config so showInterstitial stays stable (identity never changes on
+  // a background config refresh). If it changed, the effect that fires it on a
+  // competition open would re-run on every refresh and pop the ad repeatedly.
+  const configRef = useRef<ConfigData | null>(config);
+  useEffect(() => { configRef.current = config; }, [config]);
+
+  // Show a fullscreen interstitial (if any eligible ad exists). Called once per
+  // competition open by CompetitionView.
+  const showInterstitial = useCallback(() => {
+    const ad = pickAd(configRef.current);
+    if (ad) setPendingAd(ad);
+  }, [pickAd]);
 
   // Persist preferences
   useEffect(() => {
@@ -158,12 +172,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadCompetition = useCallback(async (url: string, title: string) => {
     setCompTitle(title);
-    const activeUrl = sessionStorage.getItem('activeCompUrl');
-    if (url !== activeUrl) {
-      const ad = pickAd(config);
-      if (ad) setPendingAd(ad);
-    }
-    sessionStorage.setItem('activeCompUrl', url);
     if (cache.current.has(url)) {
       setComp(cache.current.get(url)!); setCompUrl(url);
       // silent refresh
@@ -176,7 +184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cache.current.set(url, d); setComp(d); setCompUrl(url);
     } catch (e) { setCompErr(String(e)); }
     finally { setCompL(false); }
-  }, [config, pickAd]);
+  }, []);
 
   const refreshCompetition = useCallback(async () => {
     if (!compUrl) return;
@@ -223,7 +231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [config]);
 
   return (
-    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, refreshConfig, refreshConfigSilent, pendingAd, clearAd, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
+    <Ctx.Provider value={{ locale, isDark, toggleLocale, toggleTheme, config, configLoading, configError, competition, compLoading, compError, compUrl, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, refreshConfig, refreshConfigSilent, pendingAd, clearAd, showInterstitial, newNewsCount, newVenuesCount, markNewsSeen, markVenuesSeen }}>
       {children}
     </Ctx.Provider>
   );
