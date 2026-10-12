@@ -1393,27 +1393,21 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
     if (url) loadCompetition(url, rawTitle);
   }, [url, rawTitle, loadCompetition]);
 
-  // Pop a fullscreen interstitial each time the user opens a competition. Keyed on
-  // the competition url via a ref so it fires once per open — and again on reopen,
-  // since this view remounts when leaving and returning — but not on in-page tab
-  // switches (showInterstitial is stable, so this effect isn't retriggered by them).
+  // Pop a fullscreen interstitial when the user opens a competition. De-duping is
+  // keyed on `url` inside showInterstitial — NOT with a ref here — because switching
+  // tabs remounts this view, which would reset a component-local guard and re-pop
+  // the ad on every tab. The provider's ref survives the remount and only fires
+  // again for a different competition.
   //
   // Gate on config.ads being loaded: the ads ride on the big /api/data blob, which
-  // often hasn't arrived yet when the user taps a competition seconds after the
-  // home feed (its matches load from a separate, faster endpoint). Without this
-  // the effect fired once against an empty ad list, found nothing, and — with
-  // lastAdUrl already set — never retried, so the ad silently never showed.
-  // Depending on `config` re-runs the effect the moment the ads land.
-  const lastAdUrl = useRef<string | null>(null);
+  // often hasn't arrived yet when the user taps a competition seconds after the home
+  // feed (its matches load from a separate, faster endpoint). Depending on `config`
+  // re-runs the effect the moment the ads land. Pass that fresh config straight in:
+  // the provider's configRef may not be synced yet on this commit (its sync effect
+  // runs after this child effect).
   useEffect(() => {
     const adsReady = (config?.ads?.length ?? 0) > 0;
-    if (url && adsReady && lastAdUrl.current !== url) {
-      lastAdUrl.current = url;
-      // Pass the config we just gated on: the provider's configRef may not be
-      // synced yet on this commit (its sync effect runs after this child effect),
-      // so showInterstitial must pick from this fresh value, not the ref.
-      showInterstitial(config);
-    }
+    if (url && adsReady) showInterstitial(config, url);
   }, [url, config, showInterstitial]);
 
   // Live auto-refresh (mirrors the home feed): while a fixture in this

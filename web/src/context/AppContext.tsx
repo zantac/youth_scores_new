@@ -34,7 +34,7 @@ interface AppContextValue {
   refreshConfigSilent: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
-  showInterstitial: (cfg?: ConfigData | null) => void;
+  showInterstitial: (cfg?: ConfigData | null, compKey?: string) => void;
   newNewsCount: number;
   newVenuesCount: number;
   markNewsSeen: () => void;
@@ -106,9 +106,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // where config first arrives — the common case, since ads ride the big /api/data
   // blob that lands after the user has opened a competition — CompetitionView's
   // effect fires first, sees its fresh `config` prop, and calls this before the
-  // ref has been updated. Reading configRef then would see the stale (null) value,
-  // pickAd would find nothing, and with lastAdUrl already set it would never retry.
-  const showInterstitial = useCallback((cfg: ConfigData | null = configRef.current) => {
+  // ref has been updated. Reading configRef then would see the stale (null) value
+  // and pickAd would find nothing.
+  //
+  // De-dupe per competition via sessionStorage, NOT a React ref: switching tabs on
+  // the competition page triggers a full page reload (the static-export sentinel
+  // route can't client-navigate a query-only change), which remounts the whole app
+  // and wipes any in-memory guard — so the ad would re-pop on every tab. The key
+  // (the competition's data url) survives the reload, so the same competition is
+  // skipped until a *different* one is opened.
+  const showInterstitial = useCallback((cfg: ConfigData | null = configRef.current, compKey?: string) => {
+    if (compKey !== undefined) {
+      try {
+        if (sessionStorage.getItem('lastInterstitialComp') === compKey) return;
+        sessionStorage.setItem('lastInterstitialComp', compKey);
+      } catch { /* sessionStorage unavailable — fall through and show */ }
+    }
     const ad = pickAd(cfg);
     if (ad) setPendingAd(ad);
   }, [pickAd]);
