@@ -1177,7 +1177,12 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
             (_seasonFilter == null || c.season == _seasonFilter) &&
             (_nameFilter == null || c.name(isAr) == _nameFilter) &&
             (_sectorFilter == null || c.sector(isAr) == _sectorFilter))
-        .toList();
+        .toList()
+      // Canonical competition order, then by age — same as the website's list.
+      ..sort((a, b) {
+        final r = compareCompName(a.name(isAr), b.name(isAr));
+        return r != 0 ? r : (a.age ?? '').compareTo(b.age ?? '');
+      });
 
     return Scaffold(
       backgroundColor: Colors.transparent,
