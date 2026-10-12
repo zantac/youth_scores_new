@@ -1409,7 +1409,10 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
     const adsReady = (config?.ads?.length ?? 0) > 0;
     if (url && adsReady && lastAdUrl.current !== url) {
       lastAdUrl.current = url;
-      showInterstitial();
+      // Pass the config we just gated on: the provider's configRef may not be
+      // synced yet on this commit (its sync effect runs after this child effect),
+      // so showInterstitial must pick from this fresh value, not the ref.
+      showInterstitial(config);
     }
   }, [url, config, showInterstitial]);
 

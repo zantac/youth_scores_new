@@ -34,7 +34,7 @@ interface AppContextValue {
   refreshConfigSilent: () => Promise<void>;
   pendingAd: AdItem | null;
   clearAd: () => void;
-  showInterstitial: () => void;
+  showInterstitial: (cfg?: ConfigData | null) => void;
   newNewsCount: number;
   newVenuesCount: number;
   markNewsSeen: () => void;
@@ -99,8 +99,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Show a fullscreen interstitial (if any eligible ad exists). Called once per
   // competition open by CompetitionView.
-  const showInterstitial = useCallback(() => {
-    const ad = pickAd(configRef.current);
+  //
+  // The caller passes the config it just gated on. We can't rely on configRef
+  // here: it's synced in the effect above, which lives in this provider (the
+  // parent), and React flushes passive effects child-before-parent. On the commit
+  // where config first arrives — the common case, since ads ride the big /api/data
+  // blob that lands after the user has opened a competition — CompetitionView's
+  // effect fires first, sees its fresh `config` prop, and calls this before the
+  // ref has been updated. Reading configRef then would see the stale (null) value,
+  // pickAd would find nothing, and with lastAdUrl already set it would never retry.
+  const showInterstitial = useCallback((cfg: ConfigData | null = configRef.current) => {
+    const ad = pickAd(cfg);
     if (ad) setPendingAd(ad);
   }, [pickAd]);
 
