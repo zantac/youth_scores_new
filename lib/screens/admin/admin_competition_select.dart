@@ -147,17 +147,22 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
           widget.onChanged(null);
         },
       ),
-      const SizedBox(height: 8),
-      _dropdown<int>(
-        hint: isAr ? 'المرحلة' : 'Stage',
-        value: widget.value,
-        enabled: name != null,
-        items: [
-          for (final o in variants)
-            DropdownMenuItem(value: o.id, child: Text(_variantLabel(o), overflow: TextOverflow.ellipsis)),
-        ],
-        onChanged: widget.onChanged,
-      ),
+      // Hide the one-item «المرحلة» picker: a single-age competition's lone
+      // variant is already auto-selected above, so the dropdown is pure noise.
+      // Mirrors the website's `showAges = ages.length > 1`.
+      if (variants.length > 1) ...[
+        const SizedBox(height: 8),
+        _dropdown<int>(
+          hint: isAr ? 'المرحلة' : 'Stage',
+          value: widget.value,
+          enabled: name != null,
+          items: [
+            for (final o in variants)
+              DropdownMenuItem(value: o.id, child: Text(_variantLabel(o), overflow: TextOverflow.ellipsis)),
+          ],
+          onChanged: widget.onChanged,
+        ),
+      ],
     ]);
   }
 

@@ -73,7 +73,9 @@ class AdminApi {
   }
 
   /// POST /api/auth/login → {token, user}. Throws with the server message on
-  /// bad credentials.
+  /// bad credentials. Unlike other endpoints this does NOT route a 401 through
+  /// the shared AdminSessionExpired handler — a failed login's 401 means wrong
+  /// credentials / inactive account, so we surface the backend's real message.
   Future<({String token, AdminUser user})> login(
       String username, String password) async {
     final res = await http
@@ -83,7 +85,12 @@ class AdminApi {
           body: json.encode({'username': username, 'password': password}),
         )
         .timeout(_timeout);
-    final data = _parse(res);
+    final data = res.bodyBytes.isEmpty
+        ? <String, dynamic>{}
+        : json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw Exception(data['error']?.toString() ?? 'خطأ (${res.statusCode})');
+    }
     return (
       token: data['token'].toString(),
       user: AdminUser.fromJson(data['user'] as Map<String, dynamic>),
@@ -189,6 +196,30 @@ class AdminApi {
 
   Future<void> deleteMatch(String token, int mid) =>
       _send(token, 'DELETE', '/api/admin/matches/$mid');
+
+  /// PATCH /api/admin/matches/bulk → {updated, skipped}. Set date/time/venue
+  /// and/or stage+group across many matches at once. Pass stage_id with
+  /// group_id (an int, or null to clear the group); omit both to leave
+  /// placement alone. A match whose new stage already holds the same pairing is
+  /// skipped (the same duplicate guard as creation) and reported in `skipped`.
+  Future<({int updated, int skipped})> bulkUpdateMatches(
+      String token, List<int> ids, Map<String, dynamic> patch) async {
+    final data = await _send(token, 'PATCH', '/api/admin/matches/bulk',
+        {'match_ids': ids, ...patch});
+    return (
+      updated: (data['updated'] as num?)?.toInt() ?? 0,
+      skipped: (data['skipped'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  /// POST /api/admin/matches/bulk-delete → count. Soft-deletes each still-live
+  /// match (a whole round whose fixtures changed); restorable within 24h like a
+  /// single delete.
+  Future<int> bulkDeleteMatches(String token, List<int> ids) async {
+    final data = await _send(
+        token, 'POST', '/api/admin/matches/bulk-delete', {'match_ids': ids});
+    return (data['deleted'] as num?)?.toInt() ?? 0;
+  }
 
   Future<EntryMatch> restoreMatch(String token, int mid) async =>
       EntryMatch.fromJson(
@@ -473,6 +504,9 @@ class AdminApi {
 
   Future<void> createGroup(String token, int sid, Map<String, dynamic> body) =>
       _send(token, 'POST', '/api/admin/stages/$sid/groups', body);
+
+  Future<void> updateGroup(String token, int gid, Map<String, dynamic> body) =>
+      _send(token, 'PATCH', '/api/admin/groups/$gid', body);
 
   Future<void> deleteGroup(String token, int gid) =>
       _send(token, 'DELETE', '/api/admin/groups/$gid');

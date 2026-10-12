@@ -15,6 +15,7 @@ import '../../core/utils/ad_pick.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/group_utils.dart';
 import '../../widgets/ads/feed_ad_card.dart';
+import '../../widgets/ads/feed_ad_rail.dart';
 import '../../widgets/common/rate_prompt.dart';
 import '../../widgets/match/match_card.dart';
 import '../ads/ad_interstitial_screen.dart';
@@ -50,9 +51,13 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
   int _pastLimit = _kStep;
   int _futureLimit = _kStep;
   bool _didScroll = false;
+  // Home feed tab: false = All (every competition/team), true = Favourites
+  // (only followed competitions/teams). Defaults to All.
+  bool _favOnly = false;
   String? _restoreDate;
   List<_Row> _rows = const [];
-  AdItem? _feedAd; // native sponsored card, picked once per session
+  AdItem? _feedAd; // banner (2:1) sponsored card, picked once per session
+  List<AdItem> _squareAds = const []; // 1:1 tiles grouped into one horizontal rail
 
   Timer? _pollTimer;
   static const _kPollInterval = Duration(seconds: 45);
@@ -201,21 +206,20 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     return null;
   }
 
-  /// Match ids to render the sponsored card after. Counted from the anchor date
-  /// (where the feed lands) downward, so cards sit in the natural forward-scroll
-  /// path rather than up among older matches. First card after match N
-  /// (feedPosition); if feedRepeat is set, repeats every R after that. Falls
-  /// back to the last match when there are fewer than N from the anchor.
-  Set<String> _adAfterMatchIds() {
+  /// Match ids an inline ad unit renders after, given its 1-based slot [position]
+  /// (counted from the anchor date downward, so it sits in the natural
+  /// forward-scroll path) and optional [repeat]. Shared by the banner card and the
+  /// square rail so the two placements behave identically. Falls back to the last
+  /// match when there are fewer than [position] from the anchor.
+  Set<String> _slotIds(List<HomeMatch> matches, int position, int repeat) {
     final ids = <String>{};
-    final ad = _feedAd;
     final anchor = _anchorDate;
-    if (ad == null || anchor == null) return ids;
-    final n = ad.feedPosition < 1 ? 1 : ad.feedPosition;
-    final r = (ad.feedRepeat != null && ad.feedRepeat! > 0) ? ad.feedRepeat! : 0;
+    if (anchor == null) return ids;
+    final n = position < 1 ? 1 : position;
+    final r = repeat > 0 ? repeat : 0;
     var count = 0;
     String? lastId;
-    for (final m in _ascending) {
+    for (final m in matches) {
       if (m.date.compareTo(anchor) < 0) continue; // skip older matches above
       lastId = m.id;
       count++;
@@ -227,24 +231,45 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     return ids;
   }
 
-  List<_Row> _buildRows(List<NewsItem> news) {
+  List<_Row> _buildRows(
+    List<NewsItem> news, {
+    required bool favOnly,
+    required bool hasFollows,
+    required List<HomeMatch> matches,
+  }) {
     // The banner now lives in HomeTopBar above every tab, so the feed no longer
     // carries its own banner row.
     final rows = <_Row>[];
 
-    if (_loading && _ascending.isEmpty) {
+    if (favOnly && !hasFollows) {
+      // Favourites tab with nothing followed yet: a prompt, shown immediately.
+      rows.add(const _FavEmptyRow());
+    } else if (_loading && matches.isEmpty) {
       rows.add(const _MsgRow(loading: true));
-    } else if (_error && _ascending.isEmpty) {
+    } else if (_error && matches.isEmpty) {
       rows.add(const _MsgRow(error: true));
-    } else if (_ascending.isEmpty) {
-      rows.add(const _MsgRow());
+    } else if (matches.isEmpty) {
+      // On the Favourites tab the user's matches may just be outside the loaded
+      // window, so keep the load-more buttons available to widen it.
+      rows.add(_MsgRow(favEmpty: favOnly));
+      if (favOnly && _hasMoreOlder) rows.add(const _LoadRow(older: true));
+      if (favOnly && _hasMoreNewer) rows.add(const _LoadRow(older: false));
     } else {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
-      final adAfterIds = _adAfterMatchIds();
+      // Banner placed by its own position/repeat; the square rail placed as one
+      // unit by its lead (highest-weight) tile's. Both sit in the feed loop, so
+      // they appear on the Favourites tab too (matches is already filtered there).
+      final bannerAfterIds = _feedAd != null
+          ? _slotIds(matches, _feedAd!.feedPosition, _feedAd!.feedRepeat ?? 0)
+          : const <String>{};
+      final railAfterIds = _squareAds.isNotEmpty
+          ? _slotIds(matches, _squareAds.first.feedPosition,
+              _squareAds.first.feedRepeat ?? 0)
+          : const <String>{};
       String? date;
       String? comp;
       String? group;
-      for (final m in _ascending) {
+      for (final m in matches) {
         if (m.date != date) {
           date = m.date;
           comp = null;
@@ -262,10 +287,13 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
           if (m.group.isNotEmpty) rows.add(_GroupRow(m.group));
         }
         rows.add(_MatchRow(m));
-        // Native sponsored card after the Nth match (and every R after) counted
-        // from the anchor date, so it sits in the natural downward-scroll path.
-        if (_feedAd != null && adAfterIds.contains(m.id)) {
+        // Native sponsored units after the Nth match (and every R after) counted
+        // from the anchor date, so they sit in the natural downward-scroll path.
+        if (_feedAd != null && bannerAfterIds.contains(m.id)) {
           rows.add(_AdRow(_feedAd!));
+        }
+        if (_squareAds.isNotEmpty && railAfterIds.contains(m.id)) {
+          rows.add(_RailRow(_squareAds));
         }
       }
       if (_hasMoreNewer) rows.add(const _LoadRow(older: false));
@@ -288,26 +316,108 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final provider = context.watch<AppProvider>();
     final locale = provider.locale;
-    // Pick a feed-placement ad once (stable across rebuilds within a session).
+    // Feed-placement ads, split by creative shape. Banner: one weighted pick,
+    // stable across rebuilds within a session. Square: all tiles for the rail,
+    // ordered highest-weight first (deterministic, so recomputed each build).
     final feedAds = provider.config?.ads
             .where((a) => a.isLive && a.showsOn('feed'))
             .toList() ??
         const <AdItem>[];
-    _feedAd ??= weightedPickAd(feedAds);
-    _rows = _buildRows(provider.config?.news ?? const []);
+    _feedAd ??= weightedPickAd(
+        feedAds.where((a) => a.format != 'square').toList());
+    _squareAds = feedAds.where((a) => a.format == 'square').toList()
+      ..sort((a, b) {
+        final bw = b.weight > 0 ? b.weight : 1;
+        final aw = a.weight > 0 ? a.weight : 1;
+        final c = bw.compareTo(aw);
+        return c != 0 ? c : a.id.compareTo(b.id);
+      });
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        _didScroll = false;
-        await _load();
-      },
-      color: AppColors.aqua,
-      child: ScrollablePositionedList.builder(
-        itemScrollController: _itemCtrl,
-        physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: _rows.length,
-        itemBuilder: (ctx, i) => _rowWidget(ctx, _rows[i], locale, provider),
-      ),
+    // Followed competitions/teams → the Favourites filter.
+    final favComps = provider.followedComps.map((c) => c.id).toSet();
+    final favTeams = provider.followedTeams.map((t) => t.id).toSet();
+    final hasFollows = favComps.isNotEmpty || favTeams.isNotEmpty;
+    final matches = _favOnly
+        ? _ascending
+            .where((m) =>
+                favComps.contains(m.competition.id) ||
+                (m.homeTeam != null && favTeams.contains(m.homeTeam!.id)) ||
+                (m.awayTeam != null && favTeams.contains(m.awayTeam!.id)))
+            .toList()
+        : _ascending;
+    _rows = _buildRows(
+      provider.config?.news ?? const [],
+      favOnly: _favOnly,
+      hasFollows: hasFollows,
+      matches: matches,
+    );
+
+    return Column(
+      children: [
+        _buildTabBar(locale),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              _didScroll = false;
+              await _load();
+            },
+            color: AppColors.aqua,
+            child: ScrollablePositionedList.builder(
+              itemScrollController: _itemCtrl,
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: _rows.length,
+              itemBuilder: (ctx, i) => _rowWidget(ctx, _rows[i], locale, provider),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // All vs ⭐ Favourites. Lives above the scrolling list (in the Column), so it
+  // is always visible without scrolling — the native equivalent of the web's
+  // sticky tab bar.
+  Widget _buildTabBar(String locale) {
+    final isAr = locale == 'ar';
+    Widget tab(bool fav, String label) {
+      final selected = _favOnly == fav;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            if (_favOnly == fav) return;
+            setState(() { _favOnly = fav; _didScroll = false; });
+            _scheduleScroll();
+          },
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.aqua : AppColors.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: selected ? Colors.transparent : AppColors.border),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: selected ? AppColors.darkBg : AppColors.teal,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      color: AppColors.darkBg,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+      child: Row(children: [
+        tab(false, isAr ? 'الكل' : 'All'),
+        tab(true, isAr ? '⭐ المفضلة' : '⭐ Favourites'),
+      ]),
     );
   }
 
@@ -315,13 +425,20 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     final l10n = L10n(locale);
     final isAr = locale == 'ar';
 
+    if (r is _FavEmptyRow) {
+      return _FavEmptyCard(isAr: isAr);
+    }
     if (r is _MsgRow) {
       if (r.loading) return _LoadingCard();
       final msg = r.error
           ? (isAr ? 'تعذر تحميل المباريات' : 'Could not load matches')
           : r.news
               ? l10n.noNews
-              : l10n.noMatches;
+              : r.favEmpty
+                  ? (isAr
+                      ? 'لا توجد مباريات لمتابعاتك في هذه الفترة'
+                      : 'No matches for your favourites in this range')
+                  : l10n.noMatches;
       return _EmptyCard(message: msg);
     }
     if (r is _LoadRow) {
@@ -441,6 +558,9 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     if (r is _AdRow) {
       return FeedAdCard(ad: r.ad);
     }
+    if (r is _RailRow) {
+      return FeedAdRail(ads: r.ads);
+    }
     if (r is _NewsHeaderRow) {
       return _SectionHeader(
         title: l10n.news,
@@ -495,7 +615,17 @@ class _MsgRow extends _Row {
   final bool loading;
   final bool error;
   final bool news;
-  const _MsgRow({this.loading = false, this.error = false, this.news = false});
+  final bool favEmpty; // Favourites tab, no matches in the loaded window
+  const _MsgRow(
+      {this.loading = false,
+      this.error = false,
+      this.news = false,
+      this.favEmpty = false});
+}
+
+// Favourites tab with nothing followed yet.
+class _FavEmptyRow extends _Row {
+  const _FavEmptyRow();
 }
 
 class _LoadRow extends _Row {
@@ -527,6 +657,11 @@ class _MatchRow extends _Row {
 class _AdRow extends _Row {
   final AdItem ad;
   const _AdRow(this.ad);
+}
+
+class _RailRow extends _Row {
+  final List<AdItem> ads;
+  const _RailRow(this.ads);
 }
 
 class _NewsHeaderRow extends _Row {
@@ -621,6 +756,48 @@ class _EmptyCard extends StatelessWidget {
         message,
         textAlign: TextAlign.center,
         style: TextStyle(color: AppColors.teal, fontSize: 13),
+      ),
+    );
+  }
+}
+
+// ── Favourites empty prompt ─────────────────────────────────────────────────────
+
+class _FavEmptyCard extends StatelessWidget {
+  final bool isAr;
+  const _FavEmptyCard({required this.isAr});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          const Text('⭐', style: TextStyle(fontSize: 36)),
+          const SizedBox(height: 12),
+          Text(
+            isAr ? 'لا توجد مفضلة بعد' : 'No favourites yet',
+            style: TextStyle(
+              color: AppColors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            isAr
+                ? 'لم تختر أي فريق أو بطولة في المفضلة بعد. اضغط على النجمة ⭐ في صفحة أي فريق أو بطولة لإضافته هنا.'
+                : 'No favourite team or competition selected yet. Tap the ⭐ on any team or competition to add it here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.hint, fontSize: 12, height: 1.5),
+          ),
+        ],
       ),
     );
   }

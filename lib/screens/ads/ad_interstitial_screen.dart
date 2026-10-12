@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/config_model.dart';
@@ -22,14 +21,14 @@ class AdInterstitialScreen extends StatefulWidget {
     required this.dataUrl,
   });
 
-  /// Open [destinationBuilder], showing the interstitial ad first — but only
-  /// when there are live ads AND the frequency cap allows it. Otherwise it
-  /// navigates straight through, so the user isn't shown an ad on every tap.
-  static Future<void> open(
+  /// Open [destinationBuilder], showing the interstitial ad first whenever there
+  /// is a live interstitial ad — i.e. on every competition open, mirroring the
+  /// website. Falls straight through to the destination when there are no ads.
+  static void open(
     BuildContext context, {
     required String dataUrl,
     required WidgetBuilder destinationBuilder,
-  }) async {
+  }) {
     final ads = context
             .read<AppProvider>()
             .config
@@ -37,11 +36,7 @@ class AdInterstitialScreen extends StatefulWidget {
             .where((a) => a.isLive && a.showsOn('interstitial'))
             .toList() ??
         const [];
-    final show = ads.isNotEmpty && await _AdFrequency.shouldShow();
-    if (!context.mounted) return;
-    if (show) {
-      await _AdFrequency.markShown();
-      if (!context.mounted) return;
+    if (ads.isNotEmpty) {
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -68,30 +63,6 @@ AdItem _weightedPick(List<AdItem> ads) {
     if (r < 0) return a;
   }
   return ads.last;
-}
-
-/// Show an interstitial at most once per [_minGap], persisted across launches.
-class _AdFrequency {
-  static const _key = 'ad_last_shown_ms';
-  static const _minGap = Duration(minutes: 2);
-
-  static Future<bool> shouldShow() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final last = prefs.getInt(_key) ?? 0;
-      return DateTime.now().millisecondsSinceEpoch - last >=
-          _minGap.inMilliseconds;
-    } catch (_) {
-      return true;
-    }
-  }
-
-  static Future<void> markShown() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_key, DateTime.now().millisecondsSinceEpoch);
-    } catch (_) {}
-  }
 }
 
 class _AdInterstitialScreenState extends State<AdInterstitialScreen>
@@ -174,9 +145,20 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
     final topPad  = MediaQuery.of(context).padding.top;
     final botPad  = MediaQuery.of(context).padding.bottom;
 
+    // WhatsApp button target: prefer a wa.me link in the main link field — the
+    // admin's link builder puts the number AND the prefilled message there, so the
+    // button carries the message. Fall back to the bare whatsapp_number otherwise.
+    final waUrl = ad == null
+        ? null
+        : (isWhatsAppUrl(ad.link)
+            ? ad.link
+            : (ad.whatsappNumber != null && ad.whatsappNumber!.isNotEmpty
+                ? 'https://wa.me/${ad.whatsappNumber!.replaceAll(RegExp(r'\D'), '')}'
+                : null));
+
     // Determine which action buttons to show
     final hasActions = ad != null && (
-      ad.whatsappNumber != null ||
+      waUrl             != null ||
       ad.mobileNumber   != null ||
       ad.facebookLink   != null ||
       ad.youtubeVideo   != null ||
@@ -235,13 +217,13 @@ class _AdInterstitialScreenState extends State<AdInterstitialScreen>
                       spacing: 10,
                       runSpacing: 10,
                       children: [
-                        if (ad.whatsappNumber != null)
+                        if (waUrl != null)
                           _ActionBtn(
                             icon: Icons.chat,
                             label: 'WhatsApp',
                             color: const Color(0xFF25D366),
                             onTap: () => _click(
-                              Uri.parse('https://wa.me/${ad.whatsappNumber}'),
+                              Uri.parse(waUrl),
                               mode: LaunchMode.externalApplication,
                             ),
                           ),

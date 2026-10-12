@@ -31,6 +31,14 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
   String _week = '';
   String _date = '';
 
+  // Bulk mode: tick several shown matches (e.g. a whole round) and edit their
+  // date/time/venue/stage/group or delete them together. Editor-only — the
+  // bulk endpoints 403 for a data-entry clerk. Mirrors the website's bulk panel.
+  bool _bulkMode = false;
+  final Set<int> _selected = {};
+  bool _confirmBulkDel = false;
+  bool _bulkBusy = false;
+
   int get _cid => widget.competition.id;
 
   @override
@@ -106,6 +114,8 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
   Widget build(BuildContext context) {
     final isAr = context.watch<AppProvider>().locale == 'ar';
     final locale = isAr ? 'ar' : 'en';
+    // Bulk edit/delete are editor-only; a clerk's 403 means we hide the entry.
+    final canEdit = context.watch<AdminAuth>().user?.canEdit ?? false;
 
     final active = _matches.where((m) => !m.isDeleted).toList();
     final q = _filter.trim().toLowerCase();
@@ -135,6 +145,18 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
       appBar: AppBar(
         title: Text(widget.competition.getName(locale)),
         actions: [
+          if (!_loading && _error == null && canEdit)
+            IconButton(
+              icon: Icon(_bulkMode ? Icons.close : Icons.checklist),
+              tooltip: _bulkMode
+                  ? (isAr ? 'إنهاء التحديد' : 'Exit selection')
+                  : (isAr ? 'تحديد متعدد' : 'Bulk select'),
+              onPressed: () => setState(() {
+                _bulkMode = !_bulkMode;
+                _selected.clear();
+                _confirmBulkDel = false;
+              }),
+            ),
           if (!_loading && _error == null)
             IconButton(
               icon: const Icon(Icons.notifications_active_outlined),
@@ -143,7 +165,7 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
             ),
         ],
       ),
-      floatingActionButton: _loading || _error != null
+      floatingActionButton: _loading || _error != null || _bulkMode
           ? null
           : FloatingActionButton.extended(
               backgroundColor: AppColors.aqua,
@@ -283,14 +305,186 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
                                   match: shown[i],
                                   locale: locale,
                                   isAr: isAr,
-                                  onTap: () => _openEditor(shown[i]),
+                                  bulkMode: _bulkMode,
+                                  selected: _selected.contains(shown[i].id),
+                                  onTap: () {
+                                    if (!_bulkMode) {
+                                      _openEditor(shown[i]);
+                                      return;
+                                    }
+                                    final id = shown[i].id;
+                                    setState(() => _selected.contains(id)
+                                        ? _selected.remove(id)
+                                        : _selected.add(id));
+                                  },
                                 ),
                               ),
                             ),
                     ),
+                    if (_bulkMode && _error == null)
+                      _buildBulkBar(isAr, shown),
                   ],
                 ),
     );
+  }
+
+  // Selection toolbar shown while in bulk mode: select-all-shown, the live
+  // count, and the edit / delete actions (delete has an inline confirm step).
+  Widget _buildBulkBar(bool isAr, List<EntryMatchRow> shown) {
+    final allShownSelected =
+        shown.isNotEmpty && shown.every((m) => _selected.contains(m.id));
+    final n = _selected.length;
+    return Material(
+      elevation: 8,
+      color: AppColors.cardBg,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              InkWell(
+                onTap: shown.isEmpty
+                    ? null
+                    : () => setState(() {
+                          if (allShownSelected) {
+                            for (final m in shown) {
+                              _selected.remove(m.id);
+                            }
+                          } else {
+                            for (final m in shown) {
+                              _selected.add(m.id);
+                            }
+                          }
+                        }),
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                        allShownSelected
+                            ? Icons.check_box
+                            : Icons.check_box_outline_blank,
+                        size: 20,
+                        color: AppColors.aqua),
+                    const SizedBox(width: 6),
+                    Text(isAr ? 'تحديد المعروض' : 'Select shown',
+                        style: TextStyle(color: AppColors.teal, fontSize: 12.5)),
+                  ]),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                  isAr ? '$n محدّدة' : '$n selected',
+                  style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600)),
+            ]),
+            const SizedBox(height: 6),
+            if (_confirmBulkDel)
+              Row(children: [
+                Expanded(
+                  child: Text(
+                      isAr
+                          ? 'حذف $n مباراة؟ (قابلة للاسترداد خلال 24 ساعة)'
+                          : 'Delete $n matches? (restorable within 24h)',
+                      style: TextStyle(color: AppColors.teal, fontSize: 12)),
+                ),
+                TextButton(
+                    onPressed: _bulkBusy
+                        ? null
+                        : () => setState(() => _confirmBulkDel = false),
+                    child: Text(isAr ? 'إلغاء' : 'Cancel')),
+                FilledButton(
+                  onPressed: _bulkBusy ? null : _bulkDelete,
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.red),
+                  child: _bulkBusy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : Text(isAr ? 'تأكيد الحذف' : 'Confirm delete'),
+                ),
+              ])
+            else
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: n == 0 ? null : () => _openBulkEdit(isAr),
+                    icon: const Icon(Icons.edit_calendar, size: 18),
+                    label: Text(isAr ? 'تعديل المحدد' : 'Edit selected'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        n == 0 ? null : () => setState(() => _confirmBulkDel = true),
+                    style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.red,
+                        side: BorderSide(color: AppColors.red.withValues(alpha: 0.5))),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: Text(isAr ? 'حذف المحدد' : 'Delete selected'),
+                  ),
+                ),
+              ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _bulkDelete() async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null || _selected.isEmpty) return;
+    setState(() => _bulkBusy = true);
+    try {
+      final count = await _api.bulkDeleteMatches(token, _selected.toList());
+      if (!mounted) return;
+      setState(() {
+        _selected.clear();
+        _confirmBulkDel = false;
+        _bulkBusy = false;
+      });
+      await _refreshMatches();
+      if (!mounted) return;
+      final isAr = context.read<AppProvider>().locale == 'ar';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isAr
+            ? '✓ حُذفت $count مباراة — قابلة للاسترداد خلال 24 ساعة'
+            : '✓ Deleted $count matches — restorable within 24h'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _bulkBusy = false);
+      if (!handleAdminError(context, e)) showAdminError(context, e);
+    }
+  }
+
+  Future<void> _openBulkEdit(bool isAr) async {
+    final token = context.read<AdminAuth>().token;
+    if (token == null || _selected.isEmpty) return;
+    final msg = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _BulkEditSheet(
+        api: _api,
+        token: token,
+        ids: _selected.toList(),
+        stages: _stages,
+        isAr: isAr,
+      ),
+    );
+    if (msg == null || !mounted) return; // cancelled
+    setState(() => _selected.clear());
+    await _refreshMatches();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _openRoundNotify(bool isAr, String locale) {
@@ -339,11 +533,15 @@ class _MatchTile extends StatelessWidget {
   final String locale;
   final bool isAr;
   final VoidCallback onTap;
+  final bool bulkMode;
+  final bool selected;
   const _MatchTile(
       {required this.match,
       required this.locale,
       required this.isAr,
-      required this.onTap});
+      required this.onTap,
+      this.bulkMode = false,
+      this.selected = false});
 
   @override
   Widget build(BuildContext context) {
@@ -354,8 +552,10 @@ class _MatchTile extends StatelessWidget {
             ? (match.time.isNotEmpty ? match.time : '--:--')
             : (isAr ? 'غير محدد' : 'TBD'));
     final meta = [
+      if (match.groupName != null && match.groupName!.isNotEmpty) match.groupName!,
       if (match.week.isNotEmpty) (isAr ? 'الجولة ${match.week}' : 'Round ${match.week}'),
       if (match.date.isNotEmpty) match.date else (isAr ? 'غير محدد' : 'TBD'),
+      if (match.venue != null && match.venue!.isNotEmpty) match.venue!,
     ].join(' · ');
 
     return Padding(
@@ -366,11 +566,21 @@ class _MatchTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppColors.cardBg,
+            color: selected ? AppColors.aqua.withValues(alpha: 0.08) : AppColors.cardBg,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(
+                color: selected ? AppColors.aqua : AppColors.border),
           ),
-          child: Column(children: [
+          child: Row(children: [
+            if (bulkMode) ...[
+              Icon(
+                  selected ? Icons.check_box : Icons.check_box_outline_blank,
+                  color: selected ? AppColors.aqua : AppColors.hint,
+                  size: 22),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Column(children: [
             Row(children: [
               // Home — aligned toward the centre.
               Expanded(
@@ -422,6 +632,8 @@ class _MatchTile extends StatelessWidget {
             Text(meta,
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
+              ]),
+            ),
           ]),
         ),
       ),
@@ -641,6 +853,278 @@ class _RoundNotifySheetState extends State<_RoundNotifySheet> {
               ),
             ]),
           const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Bulk match-edit sheet ─────────────────────────────────────────────────────
+// Set date/time/venue and/or move a selection of matches under a stage+group in
+// one step. Pops the result message on success. Mirrors the website's bulk
+// panel (apiBulkUpdateMatches): no stage picked leaves placement alone; a stage
+// with no group clears the group.
+class _BulkEditSheet extends StatefulWidget {
+  final AdminApi api;
+  final String token;
+  final List<int> ids;
+  final List<MStage> stages;
+  final bool isAr;
+  const _BulkEditSheet({
+    required this.api,
+    required this.token,
+    required this.ids,
+    required this.stages,
+    required this.isAr,
+  });
+
+  @override
+  State<_BulkEditSheet> createState() => _BulkEditSheetState();
+}
+
+class _BulkEditSheetState extends State<_BulkEditSheet> {
+  String _date = '';
+  final _time = TextEditingController();
+  final _venue = TextEditingController();
+  int? _stageId;
+  int? _groupId;
+  bool _busy = false;
+  String? _err;
+
+  @override
+  void dispose() {
+    _time.dispose();
+    _venue.dispose();
+    super.dispose();
+  }
+
+  bool get _hasChange =>
+      _date.isNotEmpty ||
+      _time.text.trim().isNotEmpty ||
+      _venue.text.trim().isNotEmpty ||
+      _stageId != null;
+
+  InputDecoration _dec(String? hint) => InputDecoration(
+        isDense: true,
+        hintText: hint,
+        hintStyle: TextStyle(color: AppColors.hint, fontSize: 13),
+        filled: true,
+        fillColor: AppColors.cardBg,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.border)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: AppColors.aqua)),
+      );
+
+  Future<void> _apply() async {
+    final patch = <String, dynamic>{};
+    if (_date.isNotEmpty) patch['date'] = _date;
+    final t = _time.text.trim();
+    if (t.isNotEmpty) patch['time'] = t;
+    final v = _venue.text.trim();
+    if (v.isNotEmpty) patch['venue'] = v;
+    // Stage and group travel together: a group only exists inside its stage, so
+    // a stage with no group chosen clears the group (group_id: null).
+    if (_stageId != null) {
+      patch['stage_id'] = _stageId;
+      patch['group_id'] = _groupId;
+    }
+    if (patch.isEmpty) return;
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      final r = await widget.api.bulkUpdateMatches(widget.token, widget.ids, patch);
+      if (!mounted) return;
+      final isAr = widget.isAr;
+      final msg = (isAr
+              ? '✓ تم تحديث ${r.updated} مباراة'
+              : '✓ Updated ${r.updated} matches') +
+          (r.skipped > 0
+              ? (isAr
+                  ? ' · تُخطّيت ${r.skipped} (مباراة مكرّرة في الدور)'
+                  : ' · skipped ${r.skipped} (duplicate in stage)')
+              : '');
+      Navigator.pop(context, msg);
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      setState(() {
+        _err = e.toString().replaceFirst('Exception: ', '');
+        _busy = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = widget.isAr;
+    final stage = widget.stages.where((s) => s.id == _stageId).toList();
+    final groups = stage.isEmpty ? const <MGroup>[] : stage.first.groups;
+
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Expanded(
+              child: Text(
+                  isAr
+                      ? 'تعديل ${widget.ids.length} مباراة'
+                      : 'Edit ${widget.ids.length} matches',
+                  style: TextStyle(
+                      color: AppColors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+            ),
+            IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: Icon(Icons.close, color: AppColors.hint)),
+          ]),
+          Text(
+              isAr
+                  ? 'الحقول المتروكة فارغة تبقى كما هي.'
+                  : 'Fields left blank are left unchanged.',
+              style: TextStyle(color: AppColors.hint, fontSize: 11.5)),
+          const SizedBox(height: 14),
+          // Date
+          InkWell(
+            onTap: () async {
+              DateTime init;
+              try {
+                init = DateTime.parse(_date);
+              } catch (_) {
+                init = DateTime.now();
+              }
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: init,
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+              );
+              if (picked != null) {
+                setState(() => _date =
+                    '${picked.year.toString().padLeft(4, '0')}-'
+                    '${picked.month.toString().padLeft(2, '0')}-'
+                    '${picked.day.toString().padLeft(2, '0')}');
+              }
+            },
+            child: InputDecorator(
+              decoration: _dec(null),
+              child: Row(children: [
+                Icon(Icons.calendar_month, color: AppColors.hint, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_date.isEmpty ? (isAr ? 'التاريخ (اختياري)' : 'Date (optional)') : _date,
+                      style: TextStyle(
+                          color: _date.isEmpty ? AppColors.hint : AppColors.white,
+                          fontSize: 13)),
+                ),
+                if (_date.isNotEmpty)
+                  InkWell(
+                    onTap: () => setState(() => _date = ''),
+                    child: Icon(Icons.clear, color: AppColors.hint, size: 16),
+                  ),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _time,
+                style: TextStyle(color: AppColors.white, fontSize: 13),
+                decoration: _dec(isAr ? 'الوقت (مثال 18:00)' : 'Time (e.g. 18:00)'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _venue,
+                style: TextStyle(color: AppColors.white, fontSize: 13),
+                decoration: _dec(isAr ? 'الملعب' : 'Venue'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          // Stage → group placement.
+          DropdownButtonFormField<int>(
+            initialValue: _stageId,
+            isExpanded: true,
+            dropdownColor: AppColors.cardBg,
+            style: TextStyle(color: AppColors.white, fontSize: 13),
+            hint: Text(isAr ? 'الدور (اتركه لعدم التغيير)' : 'Stage (leave to keep)',
+                style: TextStyle(color: AppColors.hint, fontSize: 13)),
+            decoration: _dec(null),
+            items: [
+              DropdownMenuItem(
+                  value: null,
+                  child: Text(isAr ? '— عدم التغيير —' : '— leave unchanged —')),
+              for (final s in widget.stages)
+                DropdownMenuItem(value: s.id, child: Text(s.name(isAr))),
+            ],
+            onChanged: (v) => setState(() {
+              _stageId = v;
+              _groupId = null;
+            }),
+          ),
+          if (_stageId != null && groups.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int>(
+              initialValue: _groupId,
+              isExpanded: true,
+              dropdownColor: AppColors.cardBg,
+              style: TextStyle(color: AppColors.white, fontSize: 13),
+              hint: Text(isAr ? 'المجموعة (بدون = مسح)' : 'Group (none = clear)',
+                  style: TextStyle(color: AppColors.hint, fontSize: 13)),
+              decoration: _dec(null),
+              items: [
+                DropdownMenuItem(
+                    value: null,
+                    child: Text(isAr ? '— بدون مجموعة —' : '— no group —')),
+                for (final g in groups)
+                  DropdownMenuItem(value: g.id, child: Text(g.name(isAr))),
+              ],
+              onChanged: (v) => setState(() => _groupId = v),
+            ),
+          ],
+          if (_err != null) ...[
+            const SizedBox(height: 10),
+            Text(_err!, style: TextStyle(color: AppColors.red, fontSize: 12)),
+          ],
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: (_busy || !_hasChange) ? null : _apply,
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.aqua,
+                  padding: const EdgeInsets.symmetric(vertical: 14)),
+              child: _busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : Text(isAr ? 'تطبيق على المحدد' : 'Apply to selected',
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
         ],
       ),
     );

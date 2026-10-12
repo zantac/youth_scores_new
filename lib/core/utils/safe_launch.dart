@@ -1,4 +1,5 @@
 import 'package:url_launcher/url_launcher.dart';
+import '../models/config_model.dart';
 
 /// Schemes we allow to open from admin/user-supplied link fields. Blocks
 /// `javascript:`, `intent:`, `file:` and other unexpected/abusable schemes.
@@ -25,6 +26,29 @@ Uri? safeUri(String? raw) {
     return uri.replace(scheme: 'https');
   }
   return _allowedSchemes.contains(uri.scheme.toLowerCase()) ? uri : null;
+}
+
+/// Whether a URL opens a WhatsApp chat (wa.me / whatsapp.com) — e.g. one built by
+/// the admin's ad link builder, which may carry a prefilled ?text= message. Lets
+/// the fullscreen ad's WhatsApp button reuse that link (with its message) instead
+/// of a bare number.
+bool isWhatsAppUrl(String? url) {
+  if (url == null) return false;
+  final u = url.toLowerCase();
+  return u.contains('wa.me/') || u.contains('whatsapp.com/');
+}
+
+/// Where tapping an ad goes: the explicit link, else the first available contact.
+/// Each candidate is scheme-checked so a malicious link field can't open anything
+/// but a real http(s)/tel/whatsapp target. Shared by the feed card and the rail.
+Uri? adDestUri(AdItem a) {
+  return safeUri(a.link) ??
+      safeUri(a.facebookLink) ??
+      safeUri(a.youtubeVideo) ??
+      safeUri(a.locationUrl) ??
+      (a.whatsappNumber != null && a.whatsappNumber!.isNotEmpty
+          ? safeUri('https://wa.me/${a.whatsappNumber!.replaceAll(RegExp(r'\D'), '')}')
+          : null);
 }
 
 /// Open an external URL safely: scheme-checked, existence-checked, and never

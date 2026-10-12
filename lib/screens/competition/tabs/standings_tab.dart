@@ -130,7 +130,8 @@ class _StandingsTabState extends State<StandingsTab>
 
     if (!identical(_cacheComp, comp)) {
       _cacheComp = comp;
-      _groupedCache = StandingsCalculator.byGroup(comp.matches, comp.teams);
+      _groupedCache =
+          StandingsCalculator.byGroup(comp.matches, comp.teams, order: comp.groupOrder);
     }
     final grouped = _groupedCache;
 

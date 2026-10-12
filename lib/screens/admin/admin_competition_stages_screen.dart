@@ -295,10 +295,14 @@ class _GroupsBlockState extends State<_GroupsBlock> {
   bool _adding = false;
   final _name = TextEditingController();
   int? _openGroup;
+  // Inline rename: the id of the group being renamed, and its edit buffer.
+  int? _editGroupId;
+  final _editName = TextEditingController();
 
   @override
   void dispose() {
     _name.dispose();
+    _editName.dispose();
     super.dispose();
   }
 
@@ -310,6 +314,20 @@ class _GroupsBlockState extends State<_GroupsBlock> {
       await widget.api.createGroup(_token, widget.stage.id, {'name_ar': _name.text.trim()});
       _name.clear();
       setState(() => _adding = false);
+      widget.onChanged();
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      showAdminError(context, e);
+    }
+  }
+
+  Future<void> _renameGroup(int gid) async {
+    final name = _editName.text.trim();
+    if (name.isEmpty) return;
+    try {
+      await widget.api.updateGroup(_token, gid, {'name_ar': name});
+      setState(() => _editGroupId = null);
       widget.onChanged();
     } catch (e) {
       if (!mounted) return;
@@ -385,6 +403,29 @@ class _GroupsBlockState extends State<_GroupsBlock> {
             border: Border.all(color: AppColors.border),
           ),
           child: Column(children: [
+            if (_editGroupId == g.id)
+              Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _editName,
+                    autofocus: true,
+                    style: _ts(),
+                    decoration: sDec(isAr ? 'اسم المجموعة' : 'Group name'),
+                    onSubmitted: (_) => _renameGroup(g.id),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => _renameGroup(g.id),
+                  style: FilledButton.styleFrom(backgroundColor: AppColors.aqua),
+                  child: Text(isAr ? 'حفظ' : 'Save'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _editGroupId = null),
+                  child: Text(isAr ? 'إلغاء' : 'Cancel'),
+                ),
+              ])
+            else
             Row(children: [
               Expanded(
                 child: InkWell(
@@ -427,6 +468,15 @@ class _GroupsBlockState extends State<_GroupsBlock> {
                     color: widget.stage.groups.indexOf(g) >= widget.stage.groups.length - 1
                         ? AppColors.hint : AppColors.aqua),
               ),
+              InkWell(
+                onTap: () => setState(() {
+                  _editGroupId = g.id;
+                  _editName.text = g.nameAr ?? g.nameEn ?? '';
+                }),
+                child: Text(isAr ? 'تعديل' : 'Edit',
+                    style: TextStyle(color: AppColors.aqua, fontSize: 11, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 10),
               InkWell(
                 onTap: () async {
                   if (!await _confirm(

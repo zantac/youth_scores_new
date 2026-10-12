@@ -320,6 +320,7 @@ class AdItem {
   final String placement;    // interstitial | feed | both
   final int feedPosition;    // feed card shows after the Nth match (from anchor)
   final int? feedRepeat;     // repeat every N matches after that; null = once
+  final String format;       // feed creative shape: banner (2:1 card) | square (1:1 rail tile)
   final String? expireDate;
 
   const AdItem({
@@ -337,6 +338,7 @@ class AdItem {
     this.placement = 'interstitial',
     this.feedPosition = 3,
     this.feedRepeat,
+    this.format = 'banner',
     this.expireDate,
   });
 
@@ -370,6 +372,7 @@ class AdItem {
     placement: json['placement']?.toString() ?? 'interstitial',
     feedPosition: int.tryParse(json['feed_position']?.toString() ?? '') ?? 3,
     feedRepeat: int.tryParse(json['feed_repeat']?.toString() ?? ''),
+    format: json['format']?.toString() ?? 'banner',
     expireDate: json['expire_date']?.toString(),
   );
 }

@@ -26,25 +26,11 @@ class _FeedAdCardState extends State<FeedAdCard> {
     }
   }
 
-  // Where a tap goes: the explicit link, else the first available contact. Each
-  // candidate is scheme-checked so a malicious link field can't open anything
-  // but a real http(s)/tel/mailto target.
-  Uri? get _dest {
-    final a = widget.ad;
-    return safeUri(a.link) ??
-        safeUri(a.facebookLink) ??
-        safeUri(a.youtubeVideo) ??
-        safeUri(a.locationUrl) ??
-        (a.whatsappNumber != null
-            ? safeUri('https://wa.me/${Uri.encodeComponent(a.whatsappNumber!)}')
-            : null);
-  }
-
   void _open() {
     if (widget.ad.id > 0) {
       ApiService().adClick(widget.ad.id, placement: 'feed');
     }
-    launchExternal(_dest);
+    launchExternal(adDestUri(widget.ad));
   }
 
   @override
