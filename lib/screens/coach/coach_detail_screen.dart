@@ -137,8 +137,7 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
       );
 
   Widget _careerTile(CoachCareerEntry e, String locale, bool isAr) {
-    final isManager = e.type == 'manager';
-    final typeLabel = isManager ? (isAr ? 'إداري' : 'Manager') : (isAr ? 'مدرّب' : 'Coach');
+    final role = e.roleName(locale);
     // Age and season sit on separate lines, mirroring the website.
     final age    = e.ageName(locale);
     final season = e.seasonName(locale);
@@ -184,11 +183,15 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
                     child: Text(alt,
                         style: TextStyle(color: AppColors.hint, fontSize: 11)),
                   ),
-                const SizedBox(height: 2),
-                Text(
-                  [e.roleName(locale), typeLabel].where((s) => s.isNotEmpty).join(' · '),
-                  style: TextStyle(color: AppColors.teal, fontSize: 12),
-                ),
+                // Just the role, like the website — no redundant "مدرّب/Coach"
+                // type label appended to every entry.
+                if (role.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    role,
+                    style: TextStyle(color: AppColors.teal, fontSize: 12),
+                  ),
+                ],
                 if (age != null && age.isNotEmpty)
                   Text(age, style: TextStyle(color: AppColors.hint, fontSize: 11)),
                 if (season != null && season.isNotEmpty)

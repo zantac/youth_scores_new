@@ -16,8 +16,19 @@ Map<String, String>? localizedMapOrNull(dynamic raw) {
 
 String pickLocale(Map<String, String>? m, String locale, [String fallback = '']) {
   if (m == null) return fallback;
-  final v = m[locale] ?? m['ar'] ?? m['en'];
-  return (v == null || v.isEmpty) ? fallback : v;
+  // Prefer the selected locale, then the other language (so an Arabic-only name
+  // still shows under English, matching the website), then any other non-empty
+  // value. A key that is PRESENT but set to an empty string must NOT win — `??`
+  // only skips null keys, so a blank `en` was making Arabic-only staff/players
+  // vanish when English was selected.
+  final sel = m[locale];
+  if (sel != null && sel.isNotEmpty) return sel;
+  final other = m[locale == 'ar' ? 'en' : 'ar'];
+  if (other != null && other.isNotEmpty) return other;
+  for (final v in m.values) {
+    if (v.isNotEmpty) return v;
+  }
+  return fallback;
 }
 
 class CompetitionData {
