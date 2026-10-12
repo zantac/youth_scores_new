@@ -23,6 +23,10 @@ String _fold(String s) => s
     .replaceAll(_spaces, ' ')
     .trim();
 
+/// Fold Arabic for lenient client-side matching (drop tashkeel/tatweel, unify
+/// alef/ya/ta-marbuta, lowercase). Shared with list search/filter boxes.
+String foldAr(String s) => _fold(s);
+
 final List<String> _order = _canonical.map(_fold).toList();
 
 int compRank(String name) {
