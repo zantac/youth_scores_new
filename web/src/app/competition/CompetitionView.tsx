@@ -1324,7 +1324,7 @@ function teamTabIndexFromParam(raw: string | null): number {
 export default function CompetitionView({ id: idProp }: { id?: string }) {
   const params = useSearchParams();
   const router  = useRouter();
-  const { competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, showInterstitial, locale } = useApp();
+  const { config, competition, compLoading, compError, compTitle, loadCompetition, refreshCompetition, refreshCompetitionSilent, showInterstitial, locale } = useApp();
   // The tab and the open team live in the URL, so a competition view can be
   // shared and reopened exactly (e.g. ?url=...&tab=2&team=t001).
   const mainTab = tabIndexFromParam(params.get('tab'));
@@ -1396,15 +1396,22 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
   // Pop a fullscreen interstitial each time the user opens a competition. Keyed on
   // the competition url via a ref so it fires once per open — and again on reopen,
   // since this view remounts when leaving and returning — but not on in-page tab
-  // switches or background config refreshes (showInterstitial is stable, so this
-  // effect isn't retriggered by them).
+  // switches (showInterstitial is stable, so this effect isn't retriggered by them).
+  //
+  // Gate on config.ads being loaded: the ads ride on the big /api/data blob, which
+  // often hasn't arrived yet when the user taps a competition seconds after the
+  // home feed (its matches load from a separate, faster endpoint). Without this
+  // the effect fired once against an empty ad list, found nothing, and — with
+  // lastAdUrl already set — never retried, so the ad silently never showed.
+  // Depending on `config` re-runs the effect the moment the ads land.
   const lastAdUrl = useRef<string | null>(null);
   useEffect(() => {
-    if (url && lastAdUrl.current !== url) {
+    const adsReady = (config?.ads?.length ?? 0) > 0;
+    if (url && adsReady && lastAdUrl.current !== url) {
       lastAdUrl.current = url;
       showInterstitial();
     }
-  }, [url, showInterstitial]);
+  }, [url, config, showInterstitial]);
 
   // Live auto-refresh (mirrors the home feed): while a fixture in this
   // competition is today-and-unfinished, silently re-fetch every 45s so scores
