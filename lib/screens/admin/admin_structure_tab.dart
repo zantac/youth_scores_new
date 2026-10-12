@@ -6,6 +6,7 @@ import '../../core/models/admin/structure_models.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import '../../core/utils/comp_order.dart';
 import 'admin_club_screen.dart';
 import 'admin_competition_select.dart';
 import 'admin_competition_stages_screen.dart';
@@ -1076,6 +1077,8 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
   List<MSeason> _seasons = const [];
   List<MAge> _ages = const [];
   String? _seasonFilter;
+  String? _nameFilter;   // البطولة
+  String? _sectorFilter; // القطاع
   String get _token => context.read<AdminAuth>().token ?? '';
 
   @override
@@ -1122,6 +1125,27 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
     }
   }
 
+  Widget _filterDropdown({
+    required String? value,
+    required String allLabel,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return DropdownButtonFormField<String?>(
+      initialValue: value,
+      isExpanded: true,
+      dropdownColor: AppColors.cardBg,
+      style: TextStyle(color: AppColors.white, fontSize: 13),
+      decoration: sDec(),
+      items: [
+        DropdownMenuItem(value: null, child: Text(allLabel)),
+        for (final o in options)
+          DropdownMenuItem(value: o, child: Text(o, overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: onChanged,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAr = context.watch<AppProvider>().locale == 'ar';
@@ -1131,9 +1155,29 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
     final seasonNames =
         {for (final c in _comps) c.season}.where((s) => s.isNotEmpty).toList()
           ..sort((a, b) => b.compareTo(a));
-    final shown = _seasonFilter == null
-        ? _comps
-        : _comps.where((c) => c.season == _seasonFilter).toList();
+    // البطولة names within the chosen season, and القطاع areas within the chosen
+    // name — a cascading filter mirroring the website's competitions list.
+    final compNames = {
+      for (final c in _comps
+          .where((c) => _seasonFilter == null || c.season == _seasonFilter))
+        c.name(isAr)
+    }.where((n) => n.isNotEmpty).toList()
+      ..sort(compareCompName);
+    final sectorNames = _nameFilter == null
+        ? const <String>[]
+        : ({
+            for (final c in _comps.where((c) =>
+                (_seasonFilter == null || c.season == _seasonFilter) &&
+                c.name(isAr) == _nameFilter))
+              c.sector(isAr)
+          }..remove('')).toList()
+          ..sort();
+    final shown = _comps
+        .where((c) =>
+            (_seasonFilter == null || c.season == _seasonFilter) &&
+            (_nameFilter == null || c.name(isAr) == _nameFilter) &&
+            (_sectorFilter == null || c.sector(isAr) == _sectorFilter))
+        .toList();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -1151,18 +1195,39 @@ class _CompetitionsSectionState extends State<_CompetitionsSection> {
         if (seasonNames.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-            child: DropdownButtonFormField<String?>(
-              initialValue: _seasonFilter,
-              isExpanded: true,
-              dropdownColor: AppColors.cardBg,
-              style: TextStyle(color: AppColors.white, fontSize: 13),
-              decoration: sDec(),
-              items: [
-                DropdownMenuItem(value: null, child: Text(isAr ? 'كل المواسم' : 'All seasons')),
-                for (final s in seasonNames) DropdownMenuItem(value: s, child: Text(s)),
+            child: Column(children: [
+              _filterDropdown(
+                value: _seasonFilter,
+                allLabel: isAr ? 'كل المواسم' : 'All seasons',
+                options: seasonNames,
+                onChanged: (v) => setState(() {
+                  _seasonFilter = v;
+                  _nameFilter = null;
+                  _sectorFilter = null;
+                }),
+              ),
+              if (compNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _filterDropdown(
+                  value: _nameFilter,
+                  allLabel: isAr ? 'كل البطولات' : 'All competitions',
+                  options: compNames,
+                  onChanged: (v) => setState(() {
+                    _nameFilter = v;
+                    _sectorFilter = null;
+                  }),
+                ),
               ],
-              onChanged: (v) => setState(() => _seasonFilter = v),
-            ),
+              if (sectorNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _filterDropdown(
+                  value: _sectorFilter,
+                  allLabel: isAr ? 'كل القطاعات' : 'All areas',
+                  options: sectorNames,
+                  onChanged: (v) => setState(() => _sectorFilter = v),
+                ),
+              ],
+            ]),
           ),
         Expanded(
           child: RefreshIndicator(
@@ -1485,6 +1550,7 @@ class _TeamsSectionState extends State<_TeamsSection> {
   bool _loadingComps = true;
   bool _loadingTeams = false;
   String? _activeSeason;
+  String _teamQuery = ''; // name filter over enrolled teams
   String get _token => context.read<AdminAuth>().token ?? '';
 
   @override
@@ -1545,6 +1611,13 @@ class _TeamsSectionState extends State<_TeamsSection> {
   Widget build(BuildContext context) {
     final isAr = context.watch<AppProvider>().locale == 'ar';
     if (_loadingComps) return const Center(child: CircularProgressIndicator());
+    final needle = foldAr(_teamQuery);
+    final shownTeams = needle.isEmpty
+        ? _teams
+        : _teams
+            .where((t) => foldAr('${t.clubName} ${t.nameAr ?? ''} ${t.nameEn ?? ''}')
+                .contains(needle))
+            .toList();
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -1566,6 +1639,7 @@ class _TeamsSectionState extends State<_TeamsSection> {
             setState(() {
               _cid = v;
               _teams = const [];
+              _teamQuery = '';
             });
             _loadTeams();
           },
@@ -1586,16 +1660,39 @@ class _TeamsSectionState extends State<_TeamsSection> {
           if (_loadingTeams)
             const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
           else ...[
-            Text('${_teams.length} ${isAr ? 'فريق' : 'teams'}',
-                style: TextStyle(color: AppColors.hint, fontSize: 12)),
+            // A big competition can hold 60+ teams, so a name filter makes a team
+            // quick to find — mirrors the website. Shown once past a handful.
+            if (_teams.length > 6)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: TextField(
+                  style: _txt(),
+                  onChanged: (v) => setState(() => _teamQuery = v),
+                  decoration: sDec(isAr ? 'تصفية الفرق المسجّلة بالاسم…' : 'Filter enrolled teams…')
+                      .copyWith(prefixIcon: Icon(Icons.search, color: AppColors.hint, size: 18)),
+                ),
+              ),
+            Text(
+              needle.isEmpty
+                  ? '${_teams.length} ${isAr ? 'فريق' : 'teams'}'
+                  : '${shownTeams.length}/${_teams.length} ${isAr ? 'فريق' : 'teams'}',
+              style: TextStyle(color: AppColors.hint, fontSize: 12),
+            ),
             const SizedBox(height: 6),
-            for (final t in _teams)
+            for (final t in shownTeams)
               _TeamRow(
                 api: _api,
                 token: _token,
                 team: t,
                 cid: _cid!,
                 onChanged: _loadTeams,
+              ),
+            if (needle.isNotEmpty && shownTeams.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(isAr ? 'لا فريق مطابق' : 'No matching team',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.hint, fontSize: 13)),
               ),
           ],
         ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/app_provider.dart';
+import '../../core/utils/comp_order.dart';
 
 /// One competition flattened for the picker. [name]/[sector] are already
 /// localized by the caller.
@@ -20,9 +21,10 @@ class CompOption {
   });
 }
 
-/// Three-step competition picker mirroring the website's CompetitionSelect:
-/// Season → Competition → المرحلة (age/sector variant). Defaults to the active
-/// season if [preferredSeason] is given, otherwise the newest.
+/// Four-step competition picker mirroring the website's CompetitionSelect:
+/// Season → البطولة (competition) → القطاع (sector, only when the competition is
+/// split into areas) → المرحلة (age, only when more than one remains). Defaults to
+/// the active season if [preferredSeason] is given, otherwise the newest.
 class AdminCompetitionSelect extends StatefulWidget {
   final List<CompOption> options;
   final int? value;
@@ -43,6 +45,7 @@ class AdminCompetitionSelect extends StatefulWidget {
 class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
   String? _season;
   String? _name;
+  String _sector = ''; // '' = all areas (sectors)
 
   List<String> get _seasons {
     final s = {for (final o in widget.options) o.season}
@@ -74,6 +77,7 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
     if (sel.isNotEmpty) {
       _season = sel.first.season;
       _name = sel.first.name;
+      _sector = sel.first.sector;
       return;
     }
     if ((_season == null || !seasons.contains(_season)) && seasons.isNotEmpty) {
@@ -86,19 +90,28 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
     final s = {
       for (final o in widget.options.where((o) => o.season == season)) o.name
     }.where((n) => n.isNotEmpty).toList()
-      ..sort();
+      ..sort(compareCompName);
     return s;
   }
 
-  List<CompOption> _variantsFor(String season, String name) {
-    final v = widget.options
-        .where((o) => o.season == season && o.name == name)
-        .toList()
-      ..sort((a, b) => a.age.compareTo(b.age));
-    return v;
-  }
+  List<CompOption> _variantsFor(String season, String name) => widget.options
+      .where((o) => o.season == season && o.name == name)
+      .toList();
 
+  // Distinct non-empty areas within a competition; empty → not split into areas.
+  List<String> _sectorsOf(List<CompOption> variants) =>
+      ({for (final v in variants) v.sector}..remove('')).toList()..sort();
+
+  // The age variants left after the (optional) area filter.
+  List<CompOption> _agesOf(List<CompOption> variants, String sector) => variants
+      .where((o) => sector.isEmpty || o.sector == sector)
+      .toList()
+    ..sort((a, b) => a.age.compareTo(b.age));
+
+  // Without an area filter, disambiguate same ages across areas by appending the
+  // area; once an area is chosen the label is just the age.
   String _variantLabel(CompOption o) {
+    if (_sector.isNotEmpty) return o.age.isEmpty ? o.name : o.age;
     final parts = [o.age, o.sector].where((s) => s.isNotEmpty).toList();
     return parts.isEmpty ? o.name : parts.join(' · ');
   }
@@ -112,11 +125,14 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
     final name = _name;
     final variants =
         (season != null && name != null) ? _variantsFor(season, name) : const <CompOption>[];
+    final sectors = _sectorsOf(variants);
+    final hasSectors = sectors.isNotEmpty;
+    final ages = _agesOf(variants, _sector);
 
-    // Auto-select the only variant of a chosen competition name.
-    if (name != null && variants.length == 1 && variants.first.id != widget.value) {
+    // Auto-select the only stage left after any area filter.
+    if (name != null && ages.length == 1 && ages.first.id != widget.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onChanged(variants.first.id);
+        if (mounted) widget.onChanged(ages.first.id);
       });
     }
 
@@ -129,6 +145,7 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
           setState(() {
             _season = s;
             _name = null;
+            _sector = '';
           });
           widget.onChanged(null);
         },
@@ -143,21 +160,41 @@ class _AdminCompetitionSelectState extends State<AdminCompetitionSelect> {
             DropdownMenuItem(value: n, child: Text(n, overflow: TextOverflow.ellipsis)),
         ],
         onChanged: (n) {
-          setState(() => _name = n);
+          setState(() {
+            _name = n;
+            _sector = '';
+          });
           widget.onChanged(null);
         },
       ),
+      // Area (sector) filter — only when the competition is split into areas.
+      if (hasSectors) ...[
+        const SizedBox(height: 8),
+        _dropdown<String>(
+          hint: isAr ? 'القطاع' : 'Area',
+          value: _sector,
+          enabled: name != null,
+          items: [
+            DropdownMenuItem(value: '', child: Text(isAr ? 'كل القطاعات' : 'All areas')),
+            for (final s in sectors)
+              DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)),
+          ],
+          onChanged: (s) {
+            setState(() => _sector = s ?? '');
+            widget.onChanged(null);
+          },
+        ),
+      ],
       // Hide the one-item «المرحلة» picker: a single-age competition's lone
-      // variant is already auto-selected above, so the dropdown is pure noise.
-      // Mirrors the website's `showAges = ages.length > 1`.
-      if (variants.length > 1) ...[
+      // variant is already auto-selected above. Mirrors `showAges = ages.length > 1`.
+      if (ages.length > 1) ...[
         const SizedBox(height: 8),
         _dropdown<int>(
           hint: isAr ? 'المرحلة' : 'Stage',
           value: widget.value,
           enabled: name != null,
           items: [
-            for (final o in variants)
+            for (final o in ages)
               DropdownMenuItem(value: o.id, child: Text(_variantLabel(o), overflow: TextOverflow.ellipsis)),
           ],
           onChanged: widget.onChanged,
