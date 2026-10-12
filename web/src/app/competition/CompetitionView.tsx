@@ -1394,21 +1394,29 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
   }, [url, rawTitle, loadCompetition]);
 
   // Pop a fullscreen interstitial when the user opens a competition. De-duping is
-  // keyed on `url` inside showInterstitial — NOT with a ref here — because switching
-  // tabs remounts this view, which would reset a component-local guard and re-pop
-  // the ad on every tab. The provider's ref survives the remount and only fires
-  // again for a different competition.
+  // keyed on `url` inside showInterstitial (in sessionStorage) — NOT with a ref —
+  // because switching tabs reloads this page, which would reset any in-memory guard
+  // and re-pop the ad on every tab. The stored key survives the reload and only
+  // fires again for a different competition.
   //
-  // Gate on config.ads being loaded: the ads ride on the big /api/data blob, which
-  // often hasn't arrived yet when the user taps a competition seconds after the home
-  // feed (its matches load from a separate, faster endpoint). Depending on `config`
-  // re-runs the effect the moment the ads land. Pass that fresh config straight in:
-  // the provider's configRef may not be synced yet on this commit (its sync effect
-  // runs after this child effect).
+  // Wait for the tab to be present in the URL before firing. Opening a competition
+  // lands on /competition/<id>/ with no ?tab, and the normalization effect above
+  // immediately adds ?tab=matches — which reloads the page. Firing before that
+  // would flash the ad for a frame and then the reload would wipe it (and burn the
+  // sessionStorage key, suppressing the re-show). Once the tab is set the URL is
+  // stable, so the ad shows and stays until the user closes it.
+  //
+  // Gate on config.ads being loaded too: the ads ride on the big /api/data blob,
+  // which often hasn't arrived yet when the user taps a competition seconds after
+  // the home feed (its matches load from a separate, faster endpoint). Depending on
+  // `config` re-runs the effect the moment the ads land. Pass that fresh config
+  // straight in: the provider's configRef may not be synced yet on this commit (its
+  // sync effect runs after this child effect).
+  const tabParam = params.get('tab');
   useEffect(() => {
     const adsReady = (config?.ads?.length ?? 0) > 0;
-    if (url && adsReady) showInterstitial(config, url);
-  }, [url, config, showInterstitial]);
+    if (url && adsReady && tabParam != null) showInterstitial(config, url);
+  }, [url, config, tabParam, showInterstitial]);
 
   // Live auto-refresh (mirrors the home feed): while a fixture in this
   // competition is today-and-unfinished, silently re-fetch every 45s so scores
