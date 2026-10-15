@@ -2,6 +2,7 @@
 import { usePathname } from 'next/navigation';
 import TopBar from './TopBar';
 import BottomNav from './BottomNav';
+import ImpersonationBanner from './ImpersonationBanner';
 
 // The staff sign-in is a bare, centered screen — matching the youthscores admin
 // login: no banner, top bar or bottom nav, just the form. Every other route
@@ -15,6 +16,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      <ImpersonationBanner />
       <div className="w-full max-w-3xl mx-auto">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/banner.png" alt="تلاعبني" className="w-full h-auto" />

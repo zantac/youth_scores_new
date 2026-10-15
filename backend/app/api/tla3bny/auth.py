@@ -116,6 +116,59 @@ def login():
     return jsonify({"token": auth.generate_token(user), "user": user.to_dict()})
 
 
+# Roles a super admin may "log in as" to troubleshoot an account's problem. A
+# super admin is never impersonable (no privilege laundering), and a team's
+# login is managed by its academy — so the help desk impersonates the academy,
+# which can already act on its teams, rather than the team account directly.
+_IMPERSONATABLE = ("academy", "competition_admin")
+
+
+@tla3bny_bp.post("/auth/impersonate/<int:user_id>")
+@auth.super_admin_required
+def impersonate(user_id: int):
+    """Mint a token that signs the super admin in AS another account, so they can
+    see what that account sees and fix its problem. The token carries a signed
+    stamp of who minted it and dies the moment the super admin changes their
+    password (see services.tla3bny_auth.generate_token)."""
+    me = auth.current_user()
+    target = db.session.get(Tla3bnyUser, user_id)
+    if not target:
+        return _err("Account not found", 404)
+    if target.id == me.id or target.role not in _IMPERSONATABLE:
+        return _err("This account cannot be impersonated", 403)
+    if target.status == "suspended":
+        return _err("This account is suspended", 403)
+    return jsonify(
+        {
+            "token": auth.generate_token(target, impersonator=me),
+            "user": target.to_dict(),
+        }
+    )
+
+
+@tla3bny_bp.post("/auth/impersonate/academy/<int:academy_id>")
+@auth.super_admin_required
+def impersonate_academy(academy_id: int):
+    """Log in as an academy's own account. The admin screen lists academies, not
+    their login ids, so the target is resolved from the academy here. (A suspended
+    academy is allowed — the super admin may need to see what it sees; the
+    academy-level suspension still blocks writes inside the session.)"""
+    me = auth.current_user()
+    user = (
+        Tla3bnyUser.query.filter_by(academy_id=academy_id, role="academy")
+        .order_by(Tla3bnyUser.id)
+        .first()
+    )
+    if not user:
+        return _err("This academy has no login account", 404)
+    return jsonify(
+        {
+            "token": auth.generate_token(user, impersonator=me),
+            "user": user.to_dict(),
+        }
+    )
+
+
 @tla3bny_bp.put("/auth/credentials")
 @limiter.limit("10 per hour")
 @auth.login_required
@@ -173,4 +226,13 @@ def me():
             for ca in Tla3bnyCompetitionAdmin.query.filter_by(user_id=user.id).all()
             if ca.competition
         ]
+    # During a "login as" session, tell the client who is really driving so it
+    # can show the "you are inside account X" banner and a way back out.
+    imp = auth.current_impersonator()
+    if imp:
+        data["impersonation"] = {
+            "super_admin_id": imp.id,
+            "username": imp.username or imp.email,
+            "name": imp.display_name(),
+        }
     return jsonify(data)

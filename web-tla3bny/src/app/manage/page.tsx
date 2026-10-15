@@ -669,7 +669,8 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
  *  every competition they run), so that control shows for the super admin only. */
 function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetition; reload: () => void }) {
   const tt = useTT();
-  const { user, isSuperAdmin } = useTla3bnyAuth();
+  const router = useRouter();
+  const { user, isSuperAdmin, impersonate } = useTla3bnyAuth();
   const [f, setF] = useState<{ username: string; name: string; password: string; role: 'collaborator' | 'data_entry'; can_chat: boolean }>({ username: '', name: '', password: '', role: 'collaborator', can_chat: false });
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -791,6 +792,16 @@ function OrganizersTab({ token, comp, reload }: { token: string; comp: TCompetit
                     className="text-teal hover:text-aqua font-bold text-xs" title={tt('تغيير كلمة المرور', 'Reset password')}>
                     🔑 {tt('كلمة المرور', 'Password')}
                   </button>
+                  {isSuperAdmin && (
+                    <button
+                      onClick={async () => {
+                        try { await impersonate({ userId: a.user_id }); router.push('/'); }
+                        catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+                      }}
+                      className="text-aqua hover:underline font-bold text-xs" title={tt('الدخول لحساب هذا المنظم', 'Sign in as this organizer')}>
+                      ↪ {tt('دخول', 'Login as')}
+                    </button>
+                  )}
                   {canRemoveThis && <button onClick={() => remove(a)} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>}
                 </div>
               )}

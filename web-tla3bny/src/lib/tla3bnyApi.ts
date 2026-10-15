@@ -584,6 +584,8 @@ export interface TMeResponse {
   academy?: TAcademy;
   team?: TTeam;
   competitions?: TCompetition[];
+  /** Present only inside a super-admin "login as" session — who is driving. */
+  impersonation?: { super_admin_id: number; username: string | null; name: string | null };
 }
 
 // ── fetch helpers ───────────────────────────────────────────────────────────
@@ -653,6 +655,17 @@ export function tRegister(fd: {
 }
 
 export const tMe = (token: string) => get<TMeResponse>('/auth/me', token).catch(() => null);
+
+/** Super-admin only: mint a token that logs you in AS another account (an academy
+ *  or a competition organizer) to see what they see and fix their problem.
+ *  Returns the impersonation token plus that account's user. */
+export const tImpersonate = (token: string, userId: number) =>
+  send<{ token: string; user: TUser }>('POST', `/auth/impersonate/${userId}`, undefined, token);
+
+/** Super-admin only: log in AS an academy's own account, resolved from the
+ *  academy id (the admin screen lists academies, not their login ids). */
+export const tImpersonateAcademy = (token: string, academyId: number) =>
+  send<{ token: string; user: TUser }>('POST', `/auth/impersonate/academy/${academyId}`, undefined, token);
 
 /** Change your own username / email / password. Returns the updated user plus,
  *  when the password changed, a fresh token (the old one is now invalidated). */

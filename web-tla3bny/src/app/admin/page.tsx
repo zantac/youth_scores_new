@@ -644,6 +644,8 @@ function Academies({ token }: { token: string }) {
 
 function AcademyRow({ a, token, reload }: { a: TAcademy; token: string; reload: () => void }) {
   const tt = useTT();
+  const router = useRouter();
+  const { impersonate } = useTla3bnyAuth();
   const [accOpen, setAccOpen] = useState(false);
   const [acc, setAcc] = useState({ username: '', password: '' });
   const [msg, setMsg] = useState<string | null>(null);
@@ -680,6 +682,12 @@ function AcademyRow({ a, token, reload }: { a: TAcademy; token: string; reload: 
             }} className="text-xs font-bold text-loss hover:underline">{tt('إيقاف', 'Suspend')}</button>}
         <button onClick={() => setAccOpen(o => !o)} className="text-xs font-bold text-teal hover:underline">
           {tt('بيانات الدخول', 'Reset login')}
+        </button>
+        <button onClick={async () => {
+          try { await impersonate({ academyId: a.id }); router.push('/'); }
+          catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+        }} className="text-xs font-bold text-aqua hover:underline" title={tt('الدخول لحساب الأكاديمية لحل مشكلتها', 'Sign in as this academy to fix its problem')}>
+          {tt('↪ دخول للحساب', '↪ Login as')}
         </button>
         <button onClick={async () => {
           if (!confirm(tt(
@@ -815,6 +823,8 @@ function Competitions({ token }: { token: string }) {
 function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string; seasons: TSeason[]; reload: () => void }) {
   const tt = useTT();
   const nm = useName();
+  const router = useRouter();
+  const { impersonate } = useTla3bnyAuth();
   const [adminOpen, setAdminOpen] = useState(false);
   const [docsOpen, setDocsOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
@@ -1042,6 +1052,14 @@ function CompRow({ c, token, seasons, reload }: { c: TCompetition; token: string
                   onClick={() => { setAf({ username: a.user_login ?? '', name: a.user_name ?? '', password: '', role: 'collaborator', can_chat: false }); setMsg(tt('اكتب كلمة المرور الجديدة ثم اضغط تغيير كلمة المرور', 'Type a new password, then press Reset password')); }}
                   className="text-teal hover:text-aqua font-bold" title={tt('تغيير كلمة المرور', 'Reset password')}>
                   🔑 {tt('كلمة المرور', 'Password')}
+                </button>
+                <button
+                  onClick={async () => {
+                    try { await impersonate({ userId: a.user_id }); router.push('/'); }
+                    catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+                  }}
+                  className="text-aqua hover:underline font-bold" title={tt('الدخول لحساب هذا المنظم', 'Sign in as this organizer')}>
+                  ↪ {tt('دخول', 'Login as')}
                 </button>
                 <button onClick={async () => { await tRemoveCompAdmin(token, c.id, a.user_id); reload(); }} className="text-hint hover:text-loss" title={tt('إزالة', 'Remove')}>✕</button>
               </div>
