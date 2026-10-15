@@ -71,8 +71,19 @@ def player_file_url(file_id: int) -> str:
     return f"/api/tla3bny/player-files/{file_id}?sig={sign_file_id(file_id)}"
 
 
-def generate_token(user: Tla3bnyUser) -> str:
-    return _serializer().dumps({"uid": user.id, "v": user.token_version})
+def generate_token(
+    user: Tla3bnyUser, impersonator: "Tla3bnyUser | None" = None
+) -> str:
+    payload = {"uid": user.id, "v": user.token_version}
+    if impersonator is not None:
+        # A "login as" token: it resolves to ``user`` (so every downstream
+        # authorisation check sees exactly what that account would), but carries
+        # a signed stamp of the super admin who minted it. ``impv`` pins it to
+        # that super admin's current session, so changing their password kills
+        # every impersonation token they ever issued.
+        payload["imp"] = impersonator.id
+        payload["impv"] = impersonator.token_version
+    return _serializer().dumps(payload)
 
 
 def verify_token(token: str) -> Tla3bnyUser | None:
@@ -88,6 +99,20 @@ def verify_token(token: str) -> Tla3bnyUser | None:
     # existing sessions survive this change without being logged out.
     if data.get("v", 0) != user.token_version:
         return None
+    # Impersonation ("login as"): valid only while the minting super admin is
+    # still a super admin, not suspended, and their own session is live. Any of
+    # those failing rejects the whole token — the operator falls back to login.
+    imp_id = data.get("imp")
+    if imp_id is not None:
+        imp = db.session.get(Tla3bnyUser, imp_id)
+        if (
+            imp is None
+            or imp.role != "super_admin"
+            or imp.status == "suspended"
+            or data.get("impv", 0) != imp.token_version
+        ):
+            return None
+        g.tla3bny_impersonator = imp
     return user
 
 
@@ -99,12 +124,22 @@ def _bearer_token() -> str | None:
 
 
 def current_user() -> Tla3bnyUser | None:
-    """The signed-in tla3bny account for this request, or None. Cached on g."""
+    """The signed-in tla3bny account for this request, or None. Cached on g.
+
+    During a super admin's "login as" session this is the *target* account, not
+    the super admin — see current_impersonator for who is really driving.
+    """
     if "tla3bny_user" in g:
         return g.tla3bny_user
     token = _bearer_token()
     g.tla3bny_user = verify_token(token) if token else None
     return g.tla3bny_user
+
+
+def current_impersonator() -> Tla3bnyUser | None:
+    """The super admin behind a "login as" session, or None for a normal login."""
+    current_user()  # ensure the token was resolved (sets g.tla3bny_impersonator)
+    return g.get("tla3bny_impersonator")
 
 
 # ── decorators ──────────────────────────────────────────────────────────────

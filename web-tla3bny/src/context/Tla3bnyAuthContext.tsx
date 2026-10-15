@@ -1,7 +1,7 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
-  tLogin, tMe, tRegister,
+  tLogin, tMe, tRegister, tImpersonate, tImpersonateAcademy,
   type TUser, type TAcademy, type TTeam, type TCompetition,
 } from '@/lib/tla3bnyApi';
 import { subscribeAccount } from '@/lib/notifications';
@@ -9,6 +9,10 @@ import { subscribeAccount } from '@/lib/notifications';
 // Kept separate from the youthscores admin session (ys_admin_token): this is the
 // subdomain's own login, so the two never collide in localStorage.
 const TOKEN_KEY = 'tla3bny_token';
+// While a super admin is "logged in as" another account, their own token is
+// parked here so "return to my account" can restore it. Its mere presence is
+// what tells the UI we're in an impersonation session (survives a page reload).
+const ADMIN_TOKEN_KEY = 'tla3bny_admin_token';
 
 interface Ctx {
   token: string | null;
@@ -25,6 +29,13 @@ interface Ctx {
   /** Replace the stored session token (e.g. the fresh one issued after a
    *  password change) and re-hydrate the account from it. */
   updateToken: (token: string) => Promise<void>;
+  /** True while a super admin is signed in AS another account. */
+  impersonating: boolean;
+  /** Super admin only: sign in AS another account to troubleshoot it — target
+   *  a competition organizer by its user id, or an academy by its academy id. */
+  impersonate: (target: { userId: number } | { academyId: number }) => Promise<void>;
+  /** Leave a "login as" session and restore the super admin's own account. */
+  stopImpersonation: () => Promise<void>;
   isSuperAdmin: boolean;
   isCompetitionAdmin: boolean;
   isAcademy: boolean;
@@ -51,6 +62,7 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
   const [team, setTeam] = useState<TTeam | null>(null);
   const [competitions, setCompetitions] = useState<TCompetition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [impersonating, setImpersonating] = useState(false);
 
   const applyMe = useCallback((me: Awaited<ReturnType<typeof tMe>>) => {
     if (!me) return false;
@@ -63,6 +75,8 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+    // A parked admin token means we reloaded mid-impersonation — keep the banner.
+    if (typeof window !== 'undefined' && localStorage.getItem(ADMIN_TOKEN_KEY)) setImpersonating(true);
     if (!saved) { setLoading(false); return; }
     setToken(saved);
     tMe(saved)
@@ -91,6 +105,8 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    setImpersonating(false);
     setToken(null);
     setUser(null);
     setAcademy(null);
@@ -108,6 +124,26 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     setToken(t);
     applyMe(await tMe(t));
   }, [applyMe]);
+
+  // Super admin "logs in as" another account: park the admin's own token, then
+  // swap in the impersonation token and hydrate as that account.
+  const impersonate = useCallback(async (target: { userId: number } | { academyId: number }) => {
+    if (!token) return;
+    const { token: t, user: u } = 'academyId' in target
+      ? await tImpersonateAcademy(token, target.academyId)
+      : await tImpersonate(token, target.userId);
+    localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    setImpersonating(true);
+    await afterAuth(t, u);
+  }, [token, afterAuth]);
+
+  const stopImpersonation = useCallback(async () => {
+    const admin = localStorage.getItem(ADMIN_TOKEN_KEY);
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    setImpersonating(false);
+    if (admin) await updateToken(admin);
+    else logout();
+  }, [updateToken, logout]);
 
   // Once logged in (on login or a restored session), subscribe this device to
   // the account's private notification topics. No-op unless push is enabled;
@@ -134,6 +170,7 @@ export function Tla3bnyAuthProvider({ children }: { children: React.ReactNode })
     <AuthCtx.Provider value={{
       token, user, academy, team, competitions, loading,
       login, register, logout, refresh, updateToken,
+      impersonating, impersonate, stopImpersonation,
       isSuperAdmin: user?.role === 'super_admin',
       isCompetitionAdmin: user?.role === 'competition_admin',
       isAcademy: user?.role === 'academy',
