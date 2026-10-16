@@ -2,7 +2,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import AdminShell from '@/components/admin/AdminShell';
-import { apiSearchPlayers, apiMergePlayer, apiPlayerSummary, type PlayerSearchResult, type PlayerMergeSummary } from '@/lib/adminApi';
+import { apiSearchPlayers, apiMergePlayer, apiPlayerSummary, apiPlayerDuplicates,
+  type PlayerSearchResult, type PlayerMergeSummary, type PlayerDupGroup } from '@/lib/adminApi';
 
 const inputCls = "w-full bg-darkBg border border-bdr rounded-lg px-3 py-2 text-text text-sm outline-none focus:border-aqua";
 
@@ -82,6 +83,86 @@ function PlayerPicker({ token, label, selected, onSelect }: {
   );
 }
 
+/** On-demand scan that lists players with the same (variant-folded) name so the
+ *  admin can spot duplicates without guessing. Each hit feeds the merge form. */
+function DuplicatesReport({ token, onPick }: {
+  token: string;
+  onPick: (p: PlayerSearchResult, as: 'source' | 'target') => void;
+}) {
+  const [shown, setShown] = useState(false);
+  const [groups, setGroups] = useState<PlayerDupGroup[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const fetchGroups = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try { const r = await apiPlayerDuplicates(token); setGroups(r.groups); setTruncated(r.truncated); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'خطأ'); }
+    finally { setLoading(false); }
+  }, [token]);
+
+  const open = () => { setShown(true); if (!groups && !loading) fetchGroups(); };
+
+  return (
+    <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-text font-bold text-sm">🔎 تقرير التكرارات المحتملة</p>
+          <p className="text-hint text-[11px] leading-relaxed">
+            لاعبون بأسماء متطابقة (مع تجاهل اختلاف الهمزة/الألف/الياء/التاء المربوطة) — قد يكون بعضهم نفس الشخص بصياغتين.
+          </p>
+        </div>
+        {!shown
+          ? <button onClick={open}
+              className="shrink-0 text-aqua text-xs font-bold px-3 py-1.5 border border-aqua/40 rounded-lg">فحص</button>
+          : <button onClick={fetchGroups} disabled={loading}
+              className="shrink-0 text-hint text-xs font-bold px-3 py-1.5 border border-bdr rounded-lg disabled:opacity-50">
+              {loading ? '…' : 'تحديث'}
+            </button>}
+      </div>
+
+      {shown && (
+        <>
+          {loading && !groups && <p className="text-hint text-xs text-center py-3">جارٍ الفحص…</p>}
+          {err && <p className="text-loss text-xs bg-loss/10 border border-loss/30 rounded-lg px-3 py-2">{err}</p>}
+          {groups && groups.length === 0 && !loading && (
+            <p className="text-win text-xs bg-win/10 border border-win/30 rounded-lg px-3 py-2">
+              لا توجد أسماء متكررة واضحة. 🎉
+            </p>
+          )}
+          {groups && groups.length > 0 && (
+            <>
+              <p className="text-hint text-[11px]">{groups.length} مجموعة محتملة — اختر «الهدف» للسجل الصحيح و«المصدر» للمكرَّر، ثم أكمِل الدمج بالأعلى.</p>
+              <div className="space-y-2">
+                {groups.map((g, gi) => (
+                  <div key={gi} className="border border-bdr rounded-xl p-2 space-y-1.5 bg-darkBg/40">
+                    {g.players.map(p => (
+                      <div key={p.id} className="flex items-center gap-2 flex-wrap">
+                        <span className="text-text text-sm font-medium flex-1 min-w-0 truncate">
+                          {p.name}
+                          <span className="text-hint text-[10px] font-normal"> #{p.id} · مواليد {p.birth_year}</span>
+                          {p.club && <span className="text-teal text-[10px]"> · {p.club}</span>}
+                          <span className="text-hint text-[10px]"> · {p.appearances} مباراة · {p.goals}⚽</span>
+                        </span>
+                        <button onClick={() => onPick(p, 'target')}
+                          className="shrink-0 text-win text-[11px] font-bold px-2 py-1 border border-win/40 rounded-lg">هدف</button>
+                        <button onClick={() => onPick(p, 'source')}
+                          className="shrink-0 text-loss text-[11px] font-bold px-2 py-1 border border-loss/40 rounded-lg">مصدر</button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              {truncated && <p className="text-hint text-[11px]">عُرضت أكبر 200 مجموعة فقط — عالِج هذه ثم حدِّث.</p>}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function PlayersPage() {
   const { token, canEdit } = useAdminAuth();
   const [source, setSource] = useState<PlayerSearchResult | null>(null);
@@ -103,6 +184,15 @@ export default function PlayersPage() {
     setSource(null); setTarget(null); setConfirm(false);
     setErr(null); setDone(null);
     setSourceKey(k => k + 1); setTargetKey(k => k + 1);
+  };
+
+  // Send a record from the duplicates report into the merge form above, then
+  // scroll up so the admin lands on the preview.
+  const pickFromReport = (p: PlayerSearchResult, as: 'source' | 'target') => {
+    setConfirm(false); setErr(null); setDone(null);
+    if (as === 'source') { setSource(p); setSourceKey(k => k + 1); }
+    else { setTarget(p); setTargetKey(k => k + 1); }
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const merge = async () => {
@@ -181,6 +271,8 @@ export default function PlayersPage() {
             </>
           )}
         </div>
+
+        {canEdit && <DuplicatesReport token={token!} onPick={pickFromReport} />}
       </div>
     </AdminShell>
   );

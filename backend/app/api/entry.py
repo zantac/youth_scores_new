@@ -62,6 +62,17 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# A looser key than _norm, for grouping likely-duplicate people: on top of the
+# diacritic/alef folding above it also collapses the ya/alef-maqsura, the hamza
+# seats, and ta-marbuta/ha — the spelling variants that make the quick-add flow
+# create a second record for the same person.
+_DUP_FOLD = str.maketrans({"ى": "ي", "ئ": "ي", "ؤ": "و", "ة": "ه"})
+
+
+def _dup_key(s: str) -> str:
+    return _norm(s).translate(_DUP_FOLD)
+
+
 def _team_name(t: Team, competition_id: int | None = None):
     """The name a squad shows under. The second name lives on the competition
     entry now: within a competition use that entry's; otherwise the most recent
@@ -1578,6 +1589,64 @@ def merge_players(source_id: int, target_id: int):
     return jsonify({"merged": source_id, "into": target_id, "target_name": target_name})
 
 
+@entry_bp.get("/api/admin/players/duplicates")
+@auth.login_required
+def player_duplicates():
+    """Report players whose names collapse to the same key (ignoring hamza / ya /
+    ta-marbuta spelling variants) — the usual way quick-add ends up with two rows
+    for one person. Each returned group carries enough context (birth year, club,
+    appearances, goals) to pick which record to keep, then feeds the merge tool."""
+    rows = db.session.query(
+        Player.id, Player.full_name_ar, Player.full_name_en, Player.birth_year
+    ).all()
+
+    groups: dict[str, list] = {}
+    for pid, ar, en, by in rows:
+        name = (ar or en or "").strip()
+        key = _dup_key(name)
+        if len(key) < 3:   # skip blank / single-letter names — noise, not duplicates
+            continue
+        groups.setdefault(key, []).append((pid, name, by))
+    dup = {k: v for k, v in groups.items() if len(v) > 1}
+
+    cand_ids = [pid for members in dup.values() for (pid, _, _) in members]
+    if not cand_ids:
+        return jsonify({"groups": [], "truncated": False})
+
+    # Appearances and goals per candidate — two grouped queries, not an N+1 walk.
+    apps = dict(db.session.query(MatchPlayer.player_id, sa.func.count())
+                .filter(MatchPlayer.player_id.in_(cand_ids))
+                .group_by(MatchPlayer.player_id).all())
+    goals = dict(db.session.query(MatchGoal.scorer_id, sa.func.count())
+                 .filter(MatchGoal.scorer_id.in_(cand_ids))
+                 .group_by(MatchGoal.scorer_id).all())
+
+    # Current (else most recent) club per candidate, mirroring search_players.
+    clubs: dict[int, str | None] = {}
+    for p in Player.query.filter(Player.id.in_(cand_ids)).all():
+        reg = next((r for r in p.registrations if r.end_date is None), None)
+        if reg is None and p.registrations:
+            reg = max(p.registrations, key=lambda r: r.start_date or date.min)
+        club = reg.team.club if reg and reg.team else None
+        clubs[p.id] = (club.name_ar or club.name_en) if club else None
+
+    out = []
+    for members in dup.values():
+        people = [{
+            "id": pid, "name": name, "birth_year": by,
+            "club": clubs.get(pid),
+            "appearances": int(apps.get(pid, 0)),
+            "goals": int(goals.get(pid, 0)),
+        } for (pid, name, by) in members]
+        # Richest record first — the likely one to keep (the merge target).
+        people.sort(key=lambda m: (-m["appearances"], -m["goals"], m["id"]))
+        out.append({"players": people})
+
+    # Biggest clusters first; cap so the report stays a page, not a data dump.
+    out.sort(key=lambda g: (-len(g["players"]), g["players"][0]["name"]))
+    return jsonify({"groups": out[:200], "truncated": len(out) > 200})
+
+
 # ── coach / club-staff merge (same tool, one person = coach + staff history) ───
 @entry_bp.get("/api/admin/coaches/<int:cid>/summary")
 @auth.login_required
@@ -1653,3 +1722,58 @@ def merge_coaches(source_id: int, target_id: int):
     db.session.delete(source)
     db.session.commit()
     return jsonify({"merged": source_id, "into": target_id, "target_name": target_name})
+
+
+@entry_bp.get("/api/admin/coaches/duplicates")
+@auth.login_required
+def coach_duplicates():
+    """Same idea as player_duplicates, for coach / club-staff entities: group
+    records whose names collapse to one key, with the current post and a count of
+    posts so an admin can tell the duplicate from the record worth keeping."""
+    rows = db.session.query(
+        Coach.id, Coach.full_name_ar, Coach.full_name_en, Coach.birth_year
+    ).all()
+
+    groups: dict[str, list] = {}
+    for cid, ar, en, by in rows:
+        name = (ar or en or "").strip()
+        key = _dup_key(name)
+        if len(key) < 3:
+            continue
+        groups.setdefault(key, []).append((cid, name, by))
+    dup = {k: v for k, v in groups.items() if len(v) > 1}
+
+    cand_ids = [cid for members in dup.values() for (cid, _, _) in members]
+    if not cand_ids:
+        return jsonify({"groups": [], "truncated": False})
+
+    # Current (else most recent) club + role and a post count per candidate,
+    # combining team stints and club roles exactly like search_coaches.
+    info: dict[int, tuple] = {}
+    for c in Coach.query.filter(Coach.id.in_(cand_ids)).all():
+        stints = []
+        for tc in c.team_roles:
+            club = tc.team.club if tc.team else None
+            stints.append((tc.end_date is None, tc.start_date or date.min, club, tc.role_ar or tc.role_en))
+        for cs in c.club_roles:
+            stints.append((cs.end_date is None, cs.start_date or date.min, cs.club, cs.role_ar or cs.role_en))
+        club = role = None
+        if stints:
+            stints.sort(key=lambda s: (s[0], s[1]), reverse=True)
+            _cur, _start, cl, role = stints[0]
+            club = (cl.name_ar or cl.name_en) if cl else None
+        info[c.id] = (club, role, len(stints))
+
+    out = []
+    for members in dup.values():
+        people = [{
+            "id": cid, "name": name, "birth_year": by,
+            "club": info.get(cid, (None, None, 0))[0],
+            "role": info.get(cid, (None, None, 0))[1],
+            "posts": info.get(cid, (None, None, 0))[2],
+        } for (cid, name, by) in members]
+        people.sort(key=lambda m: (-m["posts"], m["id"]))
+        out.append({"coaches": people})
+
+    out.sort(key=lambda g: (-len(g["coaches"]), g["coaches"][0]["name"]))
+    return jsonify({"groups": out[:200], "truncated": len(out) > 200})

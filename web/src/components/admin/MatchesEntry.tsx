@@ -1094,6 +1094,7 @@ function LineupSection({ token, match, players, canEdit, onChange }: {
   const [subs, setSubs] = useState<string[]>(side.subs);
   const [called, setCalled] = useState<string[]>(side.called);
   const [extra, setExtra] = useState('');
+  const [search, setSearch] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [newsBusy, setNewsBusy] = useState(false);
@@ -1102,7 +1103,7 @@ function LineupSection({ token, match, players, canEdit, onChange }: {
   // Reload the draft whenever the side changes or the server sends a new match.
   useEffect(() => {
     const s = Number(teamId) === match.home.id ? match.lineup.home : match.lineup.away;
-    setStarters(s.starters); setSubs(s.subs); setCalled(s.called); setErr(null);
+    setStarters(s.starters); setSubs(s.subs); setCalled(s.called); setErr(null); setSearch('');
   }, [teamId, match]);
 
   // Registered players come back already ordered like a team sheet (by position,
@@ -1115,6 +1116,11 @@ function LineupSection({ token, match, players, canEdit, onChange }: {
     .filter(n => !posOf.has(n)).sort((a, b) => a.localeCompare(b, 'ar'));
   const roster = [...rosterPlayers.map(p => p.name), ...extras];
   const inSquad = (n: string) => starters.includes(n) || subs.includes(n) || called.includes(n);
+  // Filter the displayed list by the search box (toggles still act on the full
+  // roster). Normalise alef/ya variants so "احمد"/"أحمد" and "يحيى"/"يحيي" match.
+  const norm = (s: string) => s.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').trim();
+  const q = norm(search);
+  const shownRoster = q ? roster.filter(n => norm(n).includes(q)) : roster;
 
   // Move a player to exactly one role, or remove from the squad entirely (null).
   const place = (name: string, role: 'start' | 'sub' | 'called' | null) => {
@@ -1169,27 +1175,43 @@ function LineupSection({ token, match, players, canEdit, onChange }: {
       <p className="text-hint text-[11px]">استدعِ اللاعبين، ثم حدّد الأساسي/البديل لاحقًا عند معرفتهم.</p>
       <SideSelect match={match} value={teamId} onChange={setTeamId} />
 
+      {roster.length > 6 && (
+        <div className="relative">
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 ابحث عن لاعب…" className={inputCls} />
+          {search && (
+            <button onClick={() => setSearch('')}
+              className="absolute inset-y-0 left-2 text-hint text-sm px-1" aria-label="مسح البحث">✕</button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-1">
-        {roster.map(n => {
+        {shownRoster.map(n => {
           const called_ = called.includes(n);
           const isStart = starters.includes(n);
           const isSub = subs.includes(n);
           const member = called_ || isStart || isSub;
           return (
-            <div key={n} className="flex items-center gap-1.5 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              <span className={`flex-1 text-sm truncate ${member ? 'text-text' : 'text-hint'}`}>
+            <div key={n} className="flex flex-col gap-1.5 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5 sm:flex-row sm:items-center">
+              <span className={`min-w-0 flex-1 text-sm break-words sm:truncate ${member ? 'text-text' : 'text-hint'}`}>
                 {n}{posOf.get(n) && <span className="text-hint text-[11px]"> · {posOf.get(n)}</span>}
               </span>
-              <button onClick={() => callToggle(n)}
-                className={pill(member, 'text-win border-win/50 bg-win/10')}>استدعاء</button>
-              <button onClick={() => starterToggle(n)}
-                className={pill(isStart, 'text-aqua border-aqua/50 bg-aqua/10')}>أساسي</button>
-              <button onClick={() => subToggle(n)}
-                className={pill(isSub, 'text-gold border-gold/50 bg-gold/10')}>بديل</button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => callToggle(n)}
+                  className={pill(member, 'text-win border-win/50 bg-win/10')}>استدعاء</button>
+                <button onClick={() => starterToggle(n)}
+                  className={pill(isStart, 'text-aqua border-aqua/50 bg-aqua/10')}>أساسي</button>
+                <button onClick={() => subToggle(n)}
+                  className={pill(isSub, 'text-gold border-gold/50 bg-gold/10')}>بديل</button>
+              </div>
             </div>
           );
         })}
         {roster.length === 0 && <p className="text-hint text-xs">لا توجد قائمة لهذا الفريق بعد</p>}
+        {roster.length > 0 && shownRoster.length === 0 && (
+          <p className="text-hint text-xs">لا يوجد لاعب مطابق لبحثك</p>
+        )}
       </div>
 
       <div className="flex gap-2">
