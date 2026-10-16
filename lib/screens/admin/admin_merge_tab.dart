@@ -103,6 +103,23 @@ class _AdminMergeTabState extends State<AdminMergeTab> {
     return '';
   }
 
+  // Run the possible-duplicates scan and show the report in a bottom sheet. A
+  // picked record is loaded straight into the source/target slot above.
+  Future<void> _openDuplicates() async {
+    final picked = await showModalBottomSheet<(int, bool)>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.darkBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _DuplicatesSheet(kind: widget.kind, api: _api, token: _token),
+    );
+    if (picked != null && mounted) {
+      await _loadSummary(picked.$1, picked.$2);
+    }
+  }
+
   Future<void> _merge() async {
     final isAr = context.read<AppProvider>().locale == 'ar';
     if (_srcId == null || _tgtId == null || _srcId == _tgtId) return;
@@ -181,6 +198,21 @@ class _AdminMergeTabState extends State<AdminMergeTab> {
               ? 'اختر السجل المُكرَّر (المصدر) والسجل الصحيح (الهدف). سيُدمج المصدر في الهدف.'
               : 'Pick the duplicate (source) and the correct record (target). The source merges into the target.',
           style: TextStyle(color: AppColors.hint, fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _openDuplicates,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.aqua,
+              side: BorderSide(color: AppColors.aqua.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            icon: const Icon(Icons.manage_search, size: 20),
+            label: Text(isAr ? 'فحص التكرارات المحتملة' : 'Scan for possible duplicates',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
         ),
         const SizedBox(height: 16),
         _MergePicker(
@@ -485,6 +517,239 @@ class _MergePickerState extends State<_MergePicker> {
             ),
         ],
       ]),
+    );
+  }
+}
+
+/// Possible-duplicates report, shown in a bottom sheet. Scans every player /
+/// coach and lists records whose names collapse to the same key once spelling
+/// variants are folded. Picking a record pops with (id, isSource) so the merge
+/// screen drops it straight into the source or target slot.
+class _DuplicatesSheet extends StatefulWidget {
+  final MergeKind kind;
+  final AdminApi api;
+  final String token;
+  const _DuplicatesSheet({required this.kind, required this.api, required this.token});
+
+  @override
+  State<_DuplicatesSheet> createState() => _DuplicatesSheetState();
+}
+
+class _DuplicatesSheetState extends State<_DuplicatesSheet> {
+  bool _loading = true;
+  String? _error;
+  List<PlayerDupGroup> _playerGroups = const [];
+  List<CoachDupGroup> _coachGroups = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      if (widget.kind == MergeKind.players) {
+        final g = await widget.api.playerDuplicates(widget.token);
+        if (!mounted) return;
+        setState(() {
+          _playerGroups = g;
+          _loading = false;
+        });
+      } else {
+        final g = await widget.api.coachDuplicates(widget.token);
+        if (!mounted) return;
+        setState(() {
+          _coachGroups = g;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (handleAdminError(context, e)) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
+  // One tappable record, with "target" (keep) and "source" (delete) actions.
+  Widget _memberRow({
+    required String name,
+    required String meta,
+    required int id,
+    required bool isAr,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(name,
+            style: TextStyle(
+                color: AppColors.white, fontSize: 13.5, fontWeight: FontWeight.w600)),
+        if (meta.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Text(meta, style: TextStyle(color: AppColors.hint, fontSize: 11)),
+          ),
+        const SizedBox(height: 6),
+        Row(children: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop<(int, bool)>(context, (id, false)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.green,
+              side: BorderSide(color: AppColors.green.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              minimumSize: const Size(0, 32),
+            ),
+            child: Text(isAr ? 'الهدف (يبقى)' : 'Target (keep)',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: () => Navigator.pop<(int, bool)>(context, (id, true)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.orange,
+              side: BorderSide(color: AppColors.orange.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              minimumSize: const Size(0, 32),
+            ),
+            child: Text(isAr ? 'المصدر (يُحذف)' : 'Source (delete)',
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _groupCard(List<Widget> rows) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (int i = 0; i < rows.length; i++) ...[
+              if (i > 0) Divider(height: 1, color: AppColors.border),
+              rows[i],
+            ],
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final isAr = context.watch<AppProvider>().locale == 'ar';
+    final count = widget.kind == MergeKind.players ? _playerGroups.length : _coachGroups.length;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scroll) => Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.manage_search, color: AppColors.aqua, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(isAr ? 'التكرارات المحتملة' : 'Possible duplicates',
+                  style: TextStyle(
+                      color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            if (!_loading)
+              IconButton(
+                onPressed: _load,
+                icon: Icon(Icons.refresh, color: AppColors.hint),
+                tooltip: isAr ? 'تحديث' : 'Refresh',
+              ),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            isAr
+                ? 'سجلّات بأسماء متطابقة (مع تجاهل اختلاف الهمزة/الألف/الياء/التاء المربوطة) — قد يكون بعضها لنفس الشخص.'
+                : 'Records with the same name once spelling variants are folded — some may be the same person.',
+            style: TextStyle(color: AppColors.hint, fontSize: 11.5),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          Text(_error!, style: TextStyle(color: AppColors.white)),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                              onPressed: _load, child: Text(isAr ? 'إعادة المحاولة' : 'Retry')),
+                        ]),
+                      )
+                    : count == 0
+                        ? Center(
+                            child: Text(isAr ? 'لا توجد أسماء متكررة واضحة 🎉' : 'No clear duplicates 🎉',
+                                style: TextStyle(color: AppColors.green, fontSize: 13)),
+                          )
+                        : ListView(
+                            controller: scroll,
+                            children: [
+                              Text(
+                                isAr
+                                    ? '$count مجموعة — اختر «الهدف» للسجل الصحيح و«المصدر» للمكرَّر.'
+                                    : '$count groups — pick "Target" for the correct record and "Source" for the duplicate.',
+                                style: TextStyle(color: AppColors.hint, fontSize: 11.5),
+                              ),
+                              const SizedBox(height: 10),
+                              if (widget.kind == MergeKind.players)
+                                for (final g in _playerGroups)
+                                  _groupCard([
+                                    for (final p in g.players)
+                                      _memberRow(
+                                        name: p.name,
+                                        id: p.id,
+                                        isAr: isAr,
+                                        meta: [
+                                          '#${p.id}',
+                                          isAr ? 'مواليد ${p.birthYear}' : 'b.${p.birthYear}',
+                                          if (p.club != null) p.club!,
+                                          isAr
+                                              ? '${p.appearances} مباراة · ${p.goals} هدف'
+                                              : '${p.appearances} apps · ${p.goals}g',
+                                        ].join(' · '),
+                                      ),
+                                  ])
+                              else
+                                for (final g in _coachGroups)
+                                  _groupCard([
+                                    for (final c in g.coaches)
+                                      _memberRow(
+                                        name: c.name,
+                                        id: c.id,
+                                        isAr: isAr,
+                                        meta: [
+                                          '#${c.id}',
+                                          if (c.birthYear != null)
+                                            (isAr ? 'مواليد ${c.birthYear}' : 'b.${c.birthYear}'),
+                                          if (c.role != null) c.role!,
+                                          if (c.club != null) c.club!,
+                                          isAr ? '${c.posts} دور' : '${c.posts} posts',
+                                        ].join(' · '),
+                                      ),
+                                  ]),
+                              const SizedBox(height: 20),
+                            ],
+                          ),
+          ),
+        ]),
+      ),
     );
   }
 }

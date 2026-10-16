@@ -318,6 +318,80 @@ class CoachMergeSummary {
       );
 }
 
+// ── Duplicates report ────────────────────────────────────────────────────────
+
+class PlayerDupMember {
+  final int id;
+  final String name;
+  final int birthYear;
+  final String? club;
+  final int appearances;
+  final int goals;
+  const PlayerDupMember({
+    required this.id,
+    required this.name,
+    required this.birthYear,
+    this.club,
+    required this.appearances,
+    required this.goals,
+  });
+  factory PlayerDupMember.fromJson(Map<String, dynamic> j) => PlayerDupMember(
+        id: _i(j['id']),
+        name: j['name']?.toString() ?? '',
+        birthYear: _i(j['birth_year']),
+        club: _s(j['club']),
+        appearances: _i(j['appearances']),
+        goals: _i(j['goals']),
+      );
+}
+
+class PlayerDupGroup {
+  final List<PlayerDupMember> players;
+  const PlayerDupGroup({this.players = const []});
+  factory PlayerDupGroup.fromJson(Map<String, dynamic> j) => PlayerDupGroup(
+        players: (j['players'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => PlayerDupMember.fromJson(e.cast<String, dynamic>()))
+            .toList(),
+      );
+}
+
+class CoachDupMember {
+  final int id;
+  final String name;
+  final int? birthYear;
+  final String? club;
+  final String? role;
+  final int posts;
+  const CoachDupMember({
+    required this.id,
+    required this.name,
+    this.birthYear,
+    this.club,
+    this.role,
+    required this.posts,
+  });
+  factory CoachDupMember.fromJson(Map<String, dynamic> j) => CoachDupMember(
+        id: _i(j['id']),
+        name: j['name']?.toString() ?? '',
+        birthYear: _iN(j['birth_year']),
+        club: _s(j['club']),
+        role: _s(j['role']),
+        posts: _i(j['posts']),
+      );
+}
+
+class CoachDupGroup {
+  final List<CoachDupMember> coaches;
+  const CoachDupGroup({this.coaches = const []});
+  factory CoachDupGroup.fromJson(Map<String, dynamic> j) => CoachDupGroup(
+        coaches: (j['coaches'] as List? ?? [])
+            .whereType<Map>()
+            .map((e) => CoachDupMember.fromJson(e.cast<String, dynamic>()))
+            .toList(),
+      );
+}
+
 // ── Content: news + venues ───────────────────────────────────────────────────
 
 class AdminNews {

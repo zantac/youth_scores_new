@@ -313,6 +313,19 @@ class AdminApi {
   Future<Map<String, dynamic>> mergeCoach(String token, int sourceId, int targetId) =>
       _send(token, 'POST', '/api/admin/coaches/$sourceId/merge-into/$targetId');
 
+  // ── Duplicates report ───────────────────────────────────────────────────────
+  Future<List<PlayerDupGroup>> playerDuplicates(String token) async =>
+      ((await _get(token, '/api/admin/players/duplicates'))['groups'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => PlayerDupGroup.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
+  Future<List<CoachDupGroup>> coachDuplicates(String token) async =>
+      ((await _get(token, '/api/admin/coaches/duplicates'))['groups'] as List? ?? [])
+          .whereType<Map>()
+          .map((e) => CoachDupGroup.fromJson(e.cast<String, dynamic>()))
+          .toList();
+
   // ── Users (superadmin) ──────────────────────────────────────────────────────
   Future<List<AdminUser>> users(String token) async =>
       ((await _get(token, '/api/admin/users'))['users'] as List? ?? [])

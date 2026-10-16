@@ -5,6 +5,7 @@ import '../../core/models/admin/admin_data.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import '../../core/utils/comp_order.dart';
 import 'admin_error.dart';
 import 'admin_upload_button.dart';
 
@@ -521,8 +522,19 @@ class _VenuesSectionState extends State<_VenuesSection> {
   bool _loading = true;
   String? _error;
   List<AdminVenue> _venues = const [];
+  String _query = '';
 
   String get _token => context.read<AdminAuth>().token ?? '';
+
+  // Filter by Arabic + English names so an admin can check a venue isn't already
+  // registered before adding a duplicate.
+  List<AdminVenue> get _filtered {
+    final q = foldAr(_query);
+    if (q.isEmpty) return _venues;
+    return _venues
+        .where((v) => foldAr('${v.nameAr ?? ''} ${v.nameEn ?? ''}').contains(q))
+        .toList();
+  }
 
   @override
   void initState() {
@@ -671,21 +683,58 @@ class _VenuesSectionState extends State<_VenuesSection> {
         icon: const Icon(Icons.add_location_alt),
         label: Text(isAr ? 'ملعب' : 'Venue'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _venues.isEmpty
-            ? ListView(children: [
-                const SizedBox(height: 120),
-                Center(
-                    child: Text(isAr ? 'لا ملاعب' : 'No venues',
-                        style: TextStyle(color: AppColors.hint))),
-              ])
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                itemCount: _venues.length,
-                itemBuilder: (_, i) {
-                  final v = _venues[i];
-                  return Container(
+      body: Column(children: [
+        if (_venues.length > 6)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: TextField(
+              style: TextStyle(color: AppColors.white, fontSize: 13),
+              onChanged: (v) => setState(() => _query = v),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: isAr
+                    ? 'ابحث عن ملعب للتأكد من عدم تكراره…'
+                    : 'Search a venue to avoid duplicates…',
+                hintStyle: TextStyle(color: AppColors.hint, fontSize: 13),
+                prefixIcon: Icon(Icons.search, color: AppColors.hint, size: 18),
+                filled: true,
+                fillColor: AppColors.darkBg,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: AppColors.aqua),
+                ),
+              ),
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _venues.isEmpty
+                ? ListView(children: [
+                    const SizedBox(height: 120),
+                    Center(
+                        child: Text(isAr ? 'لا ملاعب' : 'No venues',
+                            style: TextStyle(color: AppColors.hint))),
+                  ])
+                : _filtered.isEmpty
+                    ? ListView(children: [
+                        const SizedBox(height: 120),
+                        Center(
+                            child: Text(
+                                isAr ? 'لا يوجد ملعب مطابق لبحثك' : 'No venue matches your search',
+                                style: TextStyle(color: AppColors.hint))),
+                      ])
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                        itemCount: _filtered.length,
+                        itemBuilder: (_, i) {
+                          final v = _filtered[i];
+                          return Container(
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -721,7 +770,9 @@ class _VenuesSectionState extends State<_VenuesSection> {
                   );
                 },
               ),
-      ),
+          ),
+        ),
+      ]),
     );
   }
 }

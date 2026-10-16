@@ -7,6 +7,7 @@ import '../../core/models/admin/structure_models.dart';
 import '../../core/providers/admin_auth.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/services/admin_api.dart';
+import '../../core/utils/comp_order.dart';
 import 'admin_content_tab.dart' show showNewsEditor;
 import 'admin_error.dart';
 import 'admin_widgets.dart';
@@ -46,6 +47,7 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
 
   // Line-up (edited one side at a time, saved as a whole).
   final _lnExtra = TextEditingController();
+  String _lnSearch = '';
   String _lnSide = 'home';
   List<String> _lnStarters = const [];
   List<String> _lnSubs = const [];
@@ -219,6 +221,15 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
     }
     extras.sort();
     return [...out, ...extras];
+  }
+
+  // The roster filtered by the search box — so a long squad can be narrowed to
+  // find a player. Folding ignores alef/ya/ta-marbuta spelling variants.
+  List<String> get _lnRosterShown {
+    final q = foldAr(_lnSearch);
+    final roster = _lnRoster;
+    if (q.isEmpty) return roster;
+    return roster.where((n) => foldAr(n).contains(q)).toList();
   }
 
   bool _inSquad(String n) =>
@@ -611,14 +622,35 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
             awayName: _m.row.away.getName(locale),
             onChanged: (s) => setState(() {
               _lnSide = s;
+              _lnSearch = '';
               _resetLineup();
             }),
           ),
-          for (final n in _lnRoster) _lineupRow(n, isAr),
+          if (_lnRoster.length > 6)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 2),
+              child: TextField(
+                style: TextStyle(color: AppColors.white, fontSize: 13),
+                onChanged: (v) => setState(() => _lnSearch = v),
+                decoration: adminInputDecoration(
+                  hint: isAr ? 'ابحث عن لاعب…' : 'Search a player…',
+                ).copyWith(
+                  isDense: true,
+                  prefixIcon: Icon(Icons.search, color: AppColors.hint, size: 18),
+                ),
+              ),
+            ),
+          for (final n in _lnRosterShown) _lineupRow(n, isAr),
           if (_lnRoster.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(isAr ? 'لا توجد قائمة لهذا الفريق بعد' : 'No squad for this team yet',
+                  style: TextStyle(color: AppColors.hint, fontSize: 12)),
+            ),
+          if (_lnRoster.isNotEmpty && _lnRosterShown.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(isAr ? 'لا يوجد لاعب مطابق لبحثك' : 'No player matches your search',
                   style: TextStyle(color: AppColors.hint, fontSize: 12)),
             ),
           Row(children: [
@@ -839,39 +871,42 @@ class _AdminMatchEditorScreenState extends State<AdminMatchEditorScreen> {
                     fontWeight: FontWeight.bold)),
           ),
         );
+    // Name on its own full-width line (so long names aren't squeezed by the
+    // buttons on narrow phones), with the Call/Start/Sub pills on the line below.
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.cardBg,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
-      child: Row(children: [
-        Expanded(
-          child: Row(children: [
-            Flexible(
-              child: Text(n,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      color: member ? AppColors.white : AppColors.hint,
-                      fontSize: 13)),
-            ),
-            if (pos.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              Text(pos,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
-            ],
-          ]),
-        ),
-        pill(isAr ? 'استدعاء' : 'Call', member, AppColors.green, () => _callToggle(n)),
-        const SizedBox(width: 6),
-        pill(isAr ? 'أساسي' : 'Start', isStart, AppColors.aqua, () => _starterToggle(n)),
-        const SizedBox(width: 6),
-        pill(isAr ? 'بديل' : 'Sub', isSub, AppColors.orange, () => _subToggle(n)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Flexible(
+            child: Text(n,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: member ? AppColors.white : AppColors.hint,
+                    fontSize: 13)),
+          ),
+          if (pos.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Text(pos,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppColors.hint, fontSize: 10.5)),
+          ],
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          pill(isAr ? 'استدعاء' : 'Call', member, AppColors.green, () => _callToggle(n)),
+          const SizedBox(width: 6),
+          pill(isAr ? 'أساسي' : 'Start', isStart, AppColors.aqua, () => _starterToggle(n)),
+          const SizedBox(width: 6),
+          pill(isAr ? 'بديل' : 'Sub', isSub, AppColors.orange, () => _subToggle(n)),
+        ]),
       ]),
     );
   }
