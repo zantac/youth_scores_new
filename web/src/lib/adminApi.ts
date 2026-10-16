@@ -184,6 +184,12 @@ export const apiPlayerSummary = (t: string, id: number) =>
   get<PlayerMergeSummary>(t, `/api/admin/players/${id}/summary`);
 export const apiMergePlayer = (t: string, sourceId: number, targetId: number) =>
   send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/players/${sourceId}/merge-into/${targetId}`);
+
+// Possible-duplicates report — players whose names collapse to the same key.
+export interface PlayerDupMember extends PlayerSearchResult { appearances: number; goals: number }
+export interface PlayerDupGroup { players: PlayerDupMember[] }
+export const apiPlayerDuplicates = (t: string) =>
+  get<{ groups: PlayerDupGroup[]; truncated: boolean }>(t, '/api/admin/players/duplicates');
 export const apiAddGoal = (t: string, mid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'POST', `/api/admin/matches/${mid}/goals`, body);
 export const apiUpdateGoal = (t: string, gid: number, body: Record<string, unknown>) => send<EntryMatch>(t, 'PATCH', `/api/admin/goals/${gid}`, body);
 export const apiDeleteGoal = (t: string, gid: number) => send<EntryMatch>(t, 'DELETE', `/api/admin/goals/${gid}`);
@@ -400,6 +406,12 @@ export const apiCoachSummary = (t: string, id: number) =>
   get<CoachMergeSummary>(t, `/api/admin/coaches/${id}/summary`);
 export const apiMergeCoach = (t: string, sourceId: number, targetId: number) =>
   send<{ merged: number; into: number; target_name: string }>(t, 'POST', `/api/admin/coaches/${sourceId}/merge-into/${targetId}`);
+
+// Possible-duplicates report — coaches whose names collapse to the same key.
+export interface CoachDupMember extends CoachSearchResult { posts: number }
+export interface CoachDupGroup { coaches: CoachDupMember[] }
+export const apiCoachDuplicates = (t: string) =>
+  get<{ groups: CoachDupGroup[]; truncated: boolean }>(t, '/api/admin/coaches/duplicates');
 export const apiUpdateTeamCoach = (t: string, id: number, b: Record<string, unknown>) => send<{ coach: MTeamCoach }>(t, 'PATCH', `/api/admin/team-coaches/${id}`, b).then(d => d.coach);
 export const apiDeleteTeamCoach = (t: string, id: number) => send<{ deleted: number }>(t, 'DELETE', `/api/admin/team-coaches/${id}`);
 export const apiReorderTeamCoaches = (t: string, tid: number, ids: number[]) => send<{ ok: boolean }>(t, 'POST', `/api/admin/teams/${tid}/coaches/reorder`, { ids });

@@ -260,6 +260,7 @@ function VenuesTab() {
   const { token } = useAdminAuth();
   const [items, setItems] = useState<AdminVenue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   const load = useCallback(() => {
     if (!token) return;
@@ -267,14 +268,35 @@ function VenuesTab() {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
+  // Match against the Arabic and English names so an admin can check whether a
+  // venue already exists before adding a duplicate. Normalise alef/ya/ta-marbuta
+  // variants so "استاد"/"إستاد" match regardless of how it was typed.
+  const norm = (s: string) =>
+    s.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').toLowerCase().trim();
+  const q = norm(search);
+  const shown = q
+    ? items.filter(v => norm(`${v.name_ar ?? ''} ${v.name_en ?? ''}`).includes(q))
+    : items;
+
   return (
     <div className="space-y-5">
       <VenueForm onCreated={load} />
       <div className="space-y-2">
         <p className="text-teal text-xs font-bold">الملاعب المسجّلة ({items.length})</p>
+        <div className="relative">
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 ابحث عن ملعب للتأكد من عدم تكراره…" className={inputCls} />
+          {search && (
+            <button onClick={() => setSearch('')}
+              className="absolute inset-y-0 left-2 text-hint text-sm px-1" aria-label="مسح البحث">✕</button>
+          )}
+        </div>
         {loading && <p className="text-hint text-sm text-center py-4">جارٍ التحميل…</p>}
-        {items.map(v => <VenueRow key={v.id} token={token!} venue={v} onSaved={load} />)}
+        {shown.map(v => <VenueRow key={v.id} token={token!} venue={v} onSaved={load} />)}
         {!loading && items.length === 0 && <p className="text-hint text-xs text-center py-4">لا توجد ملاعب مسجّلة</p>}
+        {!loading && items.length > 0 && shown.length === 0 && (
+          <p className="text-hint text-xs text-center py-4">لا يوجد ملعب مطابق لبحثك — يمكنك إضافته أعلاه</p>
+        )}
       </div>
     </div>
   );
