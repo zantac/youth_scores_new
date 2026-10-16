@@ -12,6 +12,7 @@ export default function CompetitionsPage() {
   const [q, setQ]               = useState('');
   const [openSeasons, setOS]     = useState<Set<string>>(new Set());
   const [openComps,   setOC]     = useState<Set<string>>(new Set());
+  const [openAreas,   setOA]     = useState<Set<string>>(new Set());
   const isAr = locale === 'ar';
 
   const toggleSeason = (name: string) =>
@@ -19,6 +20,9 @@ export default function CompetitionsPage() {
 
   const toggleComp = (key: string) =>
     setOC(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+
+  const toggleArea = (key: string) =>
+    setOA(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   const go = (url: string, title: { ar: string; en: string }) => {
     // The data URL embeds the competition id (…/competitions/<id>/data) — open
@@ -206,13 +210,24 @@ export default function CompetitionsPage() {
                                     </button>
                                   );
                                 }
+                                // Multi-age area: show the area name as a row;
+                                // tapping it reveals the ages within that area, so
+                                // the user picks the area first (not one long list).
+                                const areaKey = `${compKey}:${areaName}`;
+                                const areaOpen = searchActive || openAreas.has(areaKey);
                                 return (
                                   <div key={areaName} className="border-b border-bdr/30 last:border-0">
-                                    <div className="flex items-center gap-2 px-5 py-2 bg-darkBg/50">
+                                    <button
+                                      onClick={() => toggleArea(areaKey)}
+                                      className="w-full flex items-center gap-2 px-5 py-3 bg-darkBg/50 active:bg-aqua/5 text-start">
                                       <span className="text-hint text-sm">📍</span>
-                                      <span className="text-aqua text-xs font-bold">{areaName}</span>
-                                    </div>
-                                    {area.ages.map(a => (
+                                      <span className="flex-1 text-aqua text-sm font-bold">{areaName}</span>
+                                      <span className="text-hint text-[11px]">
+                                        {area.ages.length} {isAr ? 'فئة' : 'ages'}
+                                      </span>
+                                      <span className="text-hint text-xs">{areaOpen ? '▲' : '▼'}</span>
+                                    </button>
+                                    {areaOpen && area.ages.map(a => (
                                       <button
                                         key={a.key}
                                         onClick={() => go(a.url, a.title)}

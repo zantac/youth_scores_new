@@ -75,6 +75,7 @@ class CompetitionAgesScreen extends StatelessWidget {
       );
     }
 
+    final isAr = locale == 'ar';
     final children = <Widget>[];
     for (final area in areas) {
       if (singleAge) {
@@ -85,14 +86,21 @@ class CompetitionAgesScreen extends StatelessWidget {
           onTap: () => openData(a.url, '$compName · ${a.label} · ${area.name}'),
         ));
       } else {
-        children.add(_AreaHeader(name: area.name));
-        for (final a in area.ages) {
-          children.add(_SubButton(
-            label: a.label,
-            onTap: () =>
-                openData(a.url, '$compName · ${a.label} · ${area.name}'),
-          ));
-        }
+        // Show the area name only; tapping it opens a screen listing the ages
+        // within that area — so the user picks the area first, not one long list.
+        children.add(_LeafButton(
+          icon: Icons.place,
+          label: area.name,
+          trailing: '${area.ages.length} ${isAr ? 'فئة' : 'ages'}',
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => CompetitionAreaAgesScreen(
+              compName: compName,
+              areaName: area.name,
+              seasonName: seasonName,
+              ages: [for (final a in area.ages) (label: a.label, url: a.url)],
+            ),
+          )),
+        ));
       }
     }
     for (final age in directAges) {
@@ -116,13 +124,16 @@ class CompetitionAgesScreen extends StatelessWidget {
   }
 }
 
-// A tappable leaf — a single-age area, or a flat age with its own direct link.
+// A tappable leaf — an area, a single-age area, or a flat age with its own
+// direct link. [trailing] overrides the default "View" badge (e.g. an age count
+// for an area row that drills into its ages).
 class _LeafButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final String? trailing;
   const _LeafButton(
-      {required this.icon, required this.label, required this.onTap});
+      {required this.icon, required this.label, required this.onTap, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -174,7 +185,7 @@ class _LeafButton extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: AppColors.aqua.withValues(alpha: 0.2)),
                 ),
-                child: Text(isAr ? 'عرض' : 'View',
+                child: Text(trailing ?? (isAr ? 'عرض' : 'View'),
                     style: TextStyle(
                         color: AppColors.aqua,
                         fontSize: 12,
@@ -188,60 +199,54 @@ class _LeafButton extends StatelessWidget {
   }
 }
 
-// Section label above the ages that play in one area.
-class _AreaHeader extends StatelessWidget {
-  final String name;
-  const _AreaHeader({required this.name});
+/// The ages that play within one chosen area — reached by tapping an area on
+/// [CompetitionAgesScreen]. Each age opens that area's matches for that age.
+class CompetitionAreaAgesScreen extends StatelessWidget {
+  final String compName;
+  final String areaName;
+  final String seasonName;
+  final List<({String label, String url})> ages;
+
+  const CompetitionAreaAgesScreen({
+    super.key,
+    required this.compName,
+    required this.areaName,
+    required this.seasonName,
+    required this.ages,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8, top: 4),
-      child: Row(children: [
-        const Text('📍', style: TextStyle(fontSize: 14)),
-        const SizedBox(width: 6),
-        Text(name,
-            style: TextStyle(
-                color: AppColors.aqua,
-                fontSize: 13,
-                fontWeight: FontWeight.bold)),
-      ]),
-    );
-  }
-}
-
-// One age within an area.
-class _SubButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _SubButton({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-          decoration: BoxDecoration(
-            color: AppColors.cardBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Row(children: [
-            Text('›', style: TextStyle(color: AppColors.aqua, fontSize: 15)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(label,
-                  style: TextStyle(color: AppColors.teal, fontSize: 14)),
-            ),
-            Icon(Icons.chevron_right, color: AppColors.border, size: 18),
-          ]),
+    void openData(String url, String title) {
+      AdInterstitialScreen.open(
+        context,
+        dataUrl: url,
+        destinationBuilder: (_) => CompetitionDataScreen(
+          dataUrl: url,
+          title: title,
+          seasonName: seasonName,
         ),
-      ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: Text(areaName)),
+      body: ages.isEmpty
+          ? Center(
+              child: Text(L10n(context.watch<AppProvider>().locale).noData,
+                  style: TextStyle(color: AppColors.teal)))
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+              children: [
+                for (final a in ages)
+                  _LeafButton(
+                    icon: Icons.groups,
+                    label: a.label,
+                    onTap: () =>
+                        openData(a.url, '$compName · ${a.label} · $areaName'),
+                  ),
+              ],
+            ),
     );
   }
 }
