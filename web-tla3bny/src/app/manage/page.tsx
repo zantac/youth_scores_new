@@ -1297,7 +1297,7 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
                     ))}
                   </select>
                 </Field>
-                {f.stageId && stageGroups.length > 0 && selectedStage?.type !== 'knockout' ? (
+                {f.stageId && selectedStage?.type === 'group' && stageGroups.length > 0 ? (
                   <Field label={tt('المجموعة', 'Group')}>
                     <select value={f.groupId} onChange={e => setF({ ...f, groupId: e.target.value, home: '', away: '' })} className={inputCls}>
                       <option value="">— {tt('بدون مجموعة', 'No group')}</option>
@@ -1345,7 +1345,11 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
           <button
             onClick={async e => {
               e.preventDefault();
-              if (confirm(tt('حذف المباراة؟', 'Delete match?'))) { await tDeleteMatch(token, m.id); reloadMatches(); }
+              if (!confirm(tt('حذف المباراة؟', 'Delete match?'))) return;
+              // Drop it from the list right away so it disappears on confirm,
+              // then reconcile with the server once the delete returns.
+              setMatches(prev => prev.filter(x => x.id !== m.id));
+              try { await tDeleteMatch(token, m.id); } finally { reloadMatches(); }
             }}
             className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
             🗑
