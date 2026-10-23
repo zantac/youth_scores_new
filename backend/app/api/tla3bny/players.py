@@ -1,7 +1,9 @@
 from collections import defaultdict
 from datetime import datetime  # noqa: F401 — kept for type annotations in this file
+from io import BytesIO
 
 from flask import Response, jsonify, request
+from werkzeug.datastructures import FileStorage
 import sqlalchemy as sa
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
@@ -785,6 +787,51 @@ def organizer_set_player_photo(player_id: int):
         return _err(str(e))
     _log("player_photo_set_by_organizer", "player", player.id, {
         "player_name": player.name,
+    })
+    db.session.commit()
+    return jsonify(player.to_dict(with_files=True))
+
+
+@tla3bny_bp.post("/players/<int:player_id>/photo/rotate")
+@auth.login_required
+def organizer_rotate_player_photo(player_id: int):
+    """Rotate a player's photo 90° left/right — some are uploaded upside down or
+    sideways. Same organizer authority and approval-preserving behaviour as the
+    photo replace; the rotated image goes back through the normal validate /
+    compress / store path so it stays within the size budget."""
+    from PIL import Image, ImageOps
+
+    player = Tla3bnyPlayer.query.get_or_404(player_id)
+    user = auth.current_user()
+    if not _organizer_may_set_photo(user, player):
+        return _forbid()
+    if not player.photo_path:
+        return _err("لا توجد صورة لتدويرها", 400)
+    data, _files = _read_payload()
+    direction = str(data.get("direction") or "right").lower()
+    if direction not in ("left", "right"):
+        return _err("direction must be 'left' or 'right'", 400)
+    try:
+        raw = storage.read_bytes(player.photo_path)
+    except Exception:
+        return _err("تعذّر قراءة الصورة الحالية", 400)
+    try:
+        # Bake in any EXIF orientation first so the rotation is WYSIWYG, then
+        # turn 90°. PIL rotates counter-clockwise for a positive angle.
+        img = ImageOps.exif_transpose(Image.open(BytesIO(raw)))
+        rotated = img.rotate(90 if direction == "left" else -90, expand=True)
+        buf = BytesIO()
+        rotated.convert("RGB").save(buf, "JPEG", quality=90)
+        buf.seek(0)
+    except Exception:
+        return _err("تعذّر تدوير الصورة", 400)
+    fs = FileStorage(stream=buf, filename="rotated.jpg", content_type="image/jpeg")
+    try:
+        player.photo_path = save_upload(fs, kind="image")
+    except ValueError as e:
+        return _err(str(e))
+    _log("player_photo_rotated_by_organizer", "player", player.id, {
+        "player_name": player.name, "direction": direction,
     })
     db.session.commit()
     return jsonify(player.to_dict(with_files=True))

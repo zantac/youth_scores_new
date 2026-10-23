@@ -895,6 +895,10 @@ export function tOrganizerSetPlayerPhoto(token: string, id: number, photo: File)
   body.append('photo', photo);
   return sendForm<TPlayer>('POST', `/players/${id}/photo`, body, token);
 }
+/** Organizer-only: rotate the player's photo 90° (for upside-down/sideways
+ *  uploads). Same approval-preserving behaviour as the photo replace. */
+export const tOrganizerRotatePlayerPhoto = (token: string, id: number, direction: 'left' | 'right') =>
+  send<TPlayer>('POST', `/players/${id}/photo/rotate`, { direction }, token);
 export const tMovePlayer = (token: string, id: number, b: Record<string, unknown>) =>
   send<TPlayer>('POST', `/players/${id}/move`, b, token);
 export const tDeletePlayer = (token: string, id: number) =>
