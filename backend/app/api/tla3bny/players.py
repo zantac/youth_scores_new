@@ -87,7 +87,13 @@ def get_player(player_id: int):
     # history (anti-impostor) stays visible.
     if player.is_orphan():
         return _err("اللاعب غير موجود", 404)
-    return jsonify(player.to_dict(with_files=_can_view_player_files(player)))
+    data = player.to_dict(with_files=_can_view_player_files(player))
+    # Whether THIS viewer may replace/rotate the identity photo. Computed on the
+    # same rule as the photo endpoints (any organizer of a competition the player
+    # is in), so the control shows for data-entry organizers too — they don't
+    # receive the registration list the client would otherwise infer this from.
+    data["can_set_photo"] = _organizer_may_set_photo(auth.current_user(), player)
+    return jsonify(data)
 
 
 @tla3bny_bp.get("/player-files/<int:file_id>")
