@@ -1,10 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   tUpdatePlayer, tDeletePlayerFile, mediaUrl,
   type TPlayerFile, type TDocSource,
 } from '@/lib/tla3bnyApi';
-import { useTT } from './kit';
+import { useTT, PhotoLightbox } from './kit';
 
 /** Papers are private: only the owning academy/team and the competition's
  *  admins ever receive them from the API, so nothing here is on public pages. */
@@ -12,6 +12,29 @@ import { useTT } from './kit';
 const linkCls = 'text-[11px] font-bold text-aqua hover:underline shrink-0';
 const fileInputCls =
   'text-[10px] text-hint file:me-1 file:py-1 file:px-2 file:rounded file:border-0 file:bg-cardBg2 file:text-teal max-w-[8.5rem]';
+
+function isPdf(f: TPlayerFile): boolean {
+  return (f.file_path || f.original_name || '').toLowerCase().endsWith('.pdf');
+}
+
+/** The "view" action for one paper. An image opens full-screen in the same
+ *  90%-of-screen lightbox (with an ✕) as the profile photo; a PDF can't be
+ *  shown as an image, so it still opens in a new tab. */
+function PaperView({ file, className, children }: {
+  file: TPlayerFile; className?: string; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const url = mediaUrl(file.file_path) ?? '#';
+  if (isPdf(file)) {
+    return <a href={url} target="_blank" rel="noreferrer" className={className}>{children}</a>;
+  }
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className={className}>{children}</button>
+      {open && <PhotoLightbox src={url} alt={file.label || file.original_name} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
 
 /** Which competitions demand a given paper — shown so a coach knows why. */
 function askedBy(doc: string, sources: TDocSource[]): string[] {
@@ -85,7 +108,7 @@ export function PapersUploader({
               <span className="text-xs text-text flex-1 min-w-0 truncate">
                 {f ? <span className="text-win">✓ </span> : <span className="text-gold">• </span>}{doc}
               </span>
-              {f && <a href={mediaUrl(f.file_path) ?? '#'} target="_blank" rel="noreferrer" className={linkCls}>{tt('عرض', 'View')}</a>}
+              {f && <PaperView file={f} className={linkCls}>{tt('عرض', 'View')}</PaperView>}
               {f && <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>}
               <input type="file" accept="image/*,.pdf" disabled={busy === doc}
                 onChange={e => { const file = e.target.files?.[0]; if (file) upload(doc, file); e.target.value = ''; }}
@@ -101,7 +124,7 @@ export function PapersUploader({
       {extra.map(f => (
         <div key={f.id} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
           <span className="text-xs text-hint flex-1 min-w-0 truncate">{f.label || f.original_name || tt('ملف', 'File')}</span>
-          <a href={mediaUrl(f.file_path) ?? '#'} target="_blank" rel="noreferrer" className={linkCls}>{tt('عرض', 'View')}</a>
+          <PaperView file={f} className={linkCls}>{tt('عرض', 'View')}</PaperView>
           <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>
         </div>
       ))}
@@ -124,10 +147,10 @@ export function PapersReview({
   return (
     <div className="flex flex-wrap gap-1.5">
       {files.map(f => (
-        <a key={f.id} href={mediaUrl(f.file_path) ?? '#'} target="_blank" rel="noreferrer"
+        <PaperView key={f.id} file={f}
           className="text-[11px] font-bold px-2 py-0.5 rounded-full border text-aqua bg-aqua/10 border-aqua/30 hover:bg-aqua/20">
           📎 {f.label || f.original_name || tt('ملف', 'File')}
-        </a>
+        </PaperView>
       ))}
       {missing.map(d => (
         <span key={d} className="text-[11px] font-bold px-2 py-0.5 rounded-full border text-loss bg-loss/10 border-loss/30">
