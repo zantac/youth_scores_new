@@ -887,6 +887,18 @@ export function tUpdatePlayer(
 ) {
   return sendForm<TPlayer>('PUT', `/players/${id}`, playerBody(fd, photo, documents), token);
 }
+/** Organizer-only: replace just the player's identity photo. Bypasses the
+ *  post-approval edit freeze and keeps existing approvals as-is (unlike the
+ *  academy's own edit). */
+export function tOrganizerSetPlayerPhoto(token: string, id: number, photo: File) {
+  const body = new FormData();
+  body.append('photo', photo);
+  return sendForm<TPlayer>('POST', `/players/${id}/photo`, body, token);
+}
+/** Organizer-only: rotate the player's photo 90° (for upside-down/sideways
+ *  uploads). Same approval-preserving behaviour as the photo replace. */
+export const tOrganizerRotatePlayerPhoto = (token: string, id: number, direction: 'left' | 'right') =>
+  send<TPlayer>('POST', `/players/${id}/photo/rotate`, { direction }, token);
 export const tMovePlayer = (token: string, id: number, b: Record<string, unknown>) =>
   send<TPlayer>('POST', `/players/${id}/move`, b, token);
 export const tDeletePlayer = (token: string, id: number) =>
