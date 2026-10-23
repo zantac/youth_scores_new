@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds, tPlayerBans,
-  mediaUrl,
+  tOrganizerSetPlayerPhoto, mediaUrl,
   type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TPlayerStatRow, type TAd, type TPlayerBan,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -18,7 +18,7 @@ function PlayerContent() {
   const tt = useTT();
   const params = useSearchParams();
   const id = Number(params.get('id'));
-  const { user, token, academy, team, isSuperAdmin } = useTla3bnyAuth();
+  const { user, token, academy, team, isSuperAdmin, canAdminCompetition } = useTla3bnyAuth();
   const [p, setP] = useState<TPlayer | null>(null);
   const [regs, setRegs] = useState<TPlayerRegistration[]>([]);
   const [docs, setDocs] = useState<TRequiredDocs>({ documents: [], sources: [] });
@@ -29,6 +29,8 @@ function PlayerContent() {
   const [bans, setBans] = useState<TPlayerBan[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState<string | null>(null);
 
   // The token decides what comes back: papers and rejection reasons are sent
   // only to the owning academy/team and to the competition's admins.
@@ -73,6 +75,20 @@ function PlayerContent() {
     || (team != null && team.id === p.current_team_id)
   );
 
+  // An organizer of any competition this player is entered in may refresh the
+  // identity photo (academies sometimes register an old one) — scoped to the
+  // photo only; the backend keeps approvals intact and bypasses the edit freeze.
+  const canOrganizerSetPhoto = Boolean(token)
+    && regs.some(r => r.competition_id != null && canAdminCompetition(r.competition_id));
+
+  const onPickPhoto = async (file: File | undefined) => {
+    if (!file || !token) return;
+    setPhotoErr(null); setPhotoBusy(true);
+    try { setP(await tOrganizerSetPlayerPhoto(token, p.id, file)); }
+    catch (e) { setPhotoErr(e instanceof Error ? e.message : String(e)); }
+    finally { setPhotoBusy(false); }
+  };
+
   const info: [string, string | null][] = [
     [tt('المركز', 'Position'), p.position],
     [tt('القدم/المركز الفرعي', 'Sub-position'), p.sub_position],
@@ -113,6 +129,24 @@ function PlayerContent() {
           <FollowPlayerButton playerId={p.id} />
           {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
         </div>
+        {/* Organizer-only: refresh a stale identity photo for match-day checks.
+            Scoped to the photo; keeps the player's approval as-is. */}
+        {canOrganizerSetPhoto && (
+          <div className="px-4 pb-4 -mt-1">
+            <label className={`inline-flex items-center gap-2 text-xs font-bold rounded-lg border px-3 py-2 cursor-pointer transition-colors ${
+              photoBusy ? 'opacity-60 pointer-events-none border-bdr text-hint' : 'border-aqua/40 text-aqua hover:bg-aqua/10'
+            }`}>
+              📷 {photoBusy ? tt('جارٍ الرفع…', 'Uploading…') : tt('تحديث صورة اللاعب', 'Update player photo')}
+              <input type="file" accept="image/*" className="hidden" disabled={photoBusy}
+                onChange={e => { onPickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+            <p className="text-[11px] text-hint mt-1">
+              {tt('للمنظّم فقط — تُحدَّث الصورة دون التأثير على اعتماد اللاعب.',
+                  'Organizer only — updates the photo without affecting the player’s approval.')}
+            </p>
+            {photoErr && <p className="text-loss text-[11px] mt-1">{photoErr}</p>}
+          </div>
+        )}
       </Card>
 
       {/* Match ban / disqualification — public disciplinary notice. */}

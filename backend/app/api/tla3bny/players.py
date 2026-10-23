@@ -737,6 +737,59 @@ def update_player(player_id: int):
     return jsonify(player.to_dict(with_files=True))
 
 
+def _organizer_may_set_photo(user, player: Tla3bnyPlayer) -> bool:
+    """True when ``user`` is an organizer of a competition this player is entered
+    in (pending or approved). These are the people verifying identities on match
+    day, so they may refresh a stale photo an academy uploaded."""
+    if user is None:
+        return False
+    regs = Tla3bnyCompetitionPlayer.query.filter(
+        Tla3bnyCompetitionPlayer.player_id == player.id,
+        Tla3bnyCompetitionPlayer.status.in_(("pending", "approved")),
+    ).all()
+    checked: set[int] = set()
+    for cp in regs:
+        entry = cp.entry
+        if entry is None or entry.competition_id in checked:
+            continue
+        checked.add(entry.competition_id)
+        if auth.can_enter_match_data(user, entry.competition_id):
+            return True
+    return False
+
+
+@tla3bny_bp.post("/players/<int:player_id>/photo")
+@auth.login_required
+def organizer_set_player_photo(player_id: int):
+    """Let a competition organizer replace a player's identity photo — academies
+    sometimes register an old photo, and the organizer wants a current one for
+    match-day checks. Deliberately different from the academy's own edit:
+
+      * scoped to the photo ONLY (name/DOB/papers are untouched),
+      * bypasses the post-approval / past-deadline edit freeze, and
+      * keeps existing approvals as they are — a fresh photo from a trusted
+        organizer must not knock an approved player back to pending.
+
+    The swap is audit-logged so there is always a record of who changed it.
+    """
+    player = Tla3bnyPlayer.query.get_or_404(player_id)
+    user = auth.current_user()
+    if not _organizer_may_set_photo(user, player):
+        return _forbid()
+    _data, files = _read_payload()
+    if files is None or not files.get("photo"):
+        return _err("صورة اللاعب مطلوبة", 400)
+    try:
+        player.photo_path = save_upload(files.get("photo"), kind="image")
+    except ValueError as e:
+        return _err(str(e))
+    _log("player_photo_set_by_organizer", "player", player.id, {
+        "player_name": player.name,
+    })
+    db.session.commit()
+    return jsonify(player.to_dict(with_files=True))
+
+
 @tla3bny_bp.post("/players/<int:player_id>/move")
 @auth.login_required
 def move_player(player_id: int):
