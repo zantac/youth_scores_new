@@ -47,6 +47,14 @@ def _png():
     return buf
 
 
+def _png_portrait():
+    from PIL import Image
+    buf = BytesIO()
+    Image.new("RGB", (12, 20), "green").save(buf, "PNG")
+    buf.seek(0)
+    return buf
+
+
 def _seed(db):
     from app.models import (
         Tla3bnyAcademy, Tla3bnyAgeCategory, Tla3bnyCompetition, Tla3bnyCompetitionAdmin,
@@ -164,3 +172,47 @@ def test_photo_required(client):
         headers={"Authorization": f"Bearer {s['collab']}"},
     )
     assert r.status_code == 400
+
+
+def _rotate(app, pid, tok, direction):
+    return app.test_client().post(
+        f"/api/tla3bny/players/{pid}/photo/rotate",
+        json={"direction": direction},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+
+
+def test_organizer_rotates_photo_and_keeps_approval(client):
+    app, db = client
+    s = _seed(db)
+    from app.models import Tla3bnyCompetitionPlayer, Tla3bnyPlayer
+    # Give the player a real (portrait) photo so rotation has something to turn.
+    buf = _png_portrait()
+    from app.api.tla3bny._helpers import save_upload
+    from werkzeug.datastructures import FileStorage
+    player = db.session.get(Tla3bnyPlayer, s["player_id"])
+    player.photo_path = save_upload(
+        FileStorage(stream=buf, filename="p.png", content_type="image/png"))
+    cp = db.session.get(Tla3bnyCompetitionPlayer, s["cp_id"])
+    cp.status = "approved"
+    db.session.commit()
+    before = player.photo_path
+
+    r = _rotate(app, s["player_id"], s["collab"], "right")
+    assert r.status_code == 200
+    db.session.expire_all()
+    # A new file is stored and approval is preserved.
+    assert db.session.get(Tla3bnyPlayer, s["player_id"]).photo_path != before
+    assert db.session.get(Tla3bnyCompetitionPlayer, s["cp_id"]).status == "approved"
+
+
+def test_rotate_rejects_bad_direction(client):
+    app, db = client
+    s = _seed(db)
+    assert _rotate(app, s["player_id"], s["collab"], "sideways").status_code == 400
+
+
+def test_rotate_denied_for_outsider(client):
+    app, db = client
+    s = _seed(db)
+    assert _rotate(app, s["player_id"], s["other"], "left").status_code == 403
