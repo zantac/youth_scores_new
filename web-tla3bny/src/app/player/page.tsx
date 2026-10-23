@@ -18,7 +18,7 @@ function PlayerContent() {
   const tt = useTT();
   const params = useSearchParams();
   const id = Number(params.get('id'));
-  const { user, token, academy, team, isSuperAdmin, canAdminCompetition } = useTla3bnyAuth();
+  const { user, token, academy, team, isSuperAdmin } = useTla3bnyAuth();
   const [p, setP] = useState<TPlayer | null>(null);
   const [regs, setRegs] = useState<TPlayerRegistration[]>([]);
   const [docs, setDocs] = useState<TRequiredDocs>({ documents: [], sources: [] });
@@ -78,8 +78,9 @@ function PlayerContent() {
   // An organizer of any competition this player is entered in may refresh the
   // identity photo (academies sometimes register an old one) — scoped to the
   // photo only; the backend keeps approvals intact and bypasses the edit freeze.
-  const canOrganizerSetPhoto = Boolean(token)
-    && regs.some(r => r.competition_id != null && canAdminCompetition(r.competition_id));
+  // The backend sets can_set_photo on the same rule as the photo endpoints, so
+  // this is true for every organizer type (owner, collaborator, data-entry).
+  const canOrganizerSetPhoto = Boolean(token) && p.can_set_photo === true;
 
   const onPickPhoto = async (file: File | undefined) => {
     if (!file || !token) return;

@@ -216,3 +216,37 @@ def test_rotate_denied_for_outsider(client):
     app, db = client
     s = _seed(db)
     assert _rotate(app, s["player_id"], s["other"], "left").status_code == 403
+
+
+def _can_set_photo(app, pid, tok=None):
+    # One request per call — current_user() caches on g, and the fixture keeps a
+    # single app_context open, so mixing differently-authed callers in one test
+    # would leak the first caller's identity into the rest.
+    headers = {"Authorization": f"Bearer {tok}"} if tok else {}
+    return app.test_client().get(
+        f"/api/tla3bny/players/{pid}", headers=headers).get_json()["can_set_photo"]
+
+
+def test_flag_true_for_full_organizer(client):
+    app, db = client
+    s = _seed(db)
+    assert _can_set_photo(app, s["player_id"], s["collab"]) is True
+
+
+def test_flag_true_for_data_entry_organizer(client):
+    app, db = client
+    s = _seed(db)
+    # The whole point of this change — data-entry organizers see the control too.
+    assert _can_set_photo(app, s["player_id"], s["de"]) is True
+
+
+def test_flag_false_for_outsider_organizer(client):
+    app, db = client
+    s = _seed(db)
+    assert _can_set_photo(app, s["player_id"], s["other"]) is False
+
+
+def test_flag_false_for_public_viewer(client):
+    app, db = client
+    s = _seed(db)
+    assert _can_set_photo(app, s["player_id"]) is False

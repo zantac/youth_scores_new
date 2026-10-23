@@ -166,6 +166,9 @@ export interface TPlayer {
   papers_path?: string | null;
   files?: TPlayerFile[];
   file_count?: number;
+  // True when the current viewer (any organizer of a competition the player is
+  // in) may replace/rotate the identity photo. Set by the backend.
+  can_set_photo?: boolean;
 }
 
 /** One competition a player was entered into, and how that request went. */
