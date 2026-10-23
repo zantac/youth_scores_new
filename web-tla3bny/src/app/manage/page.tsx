@@ -7,7 +7,7 @@ import {
   tAddCompAge, tUpdateCompAge, tDeleteCompAge, tSetCompAgeOrganizerPhoto,
   tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
-  tMatches, tCreateMatch, tDeleteMatch, tEnterResult,
+  tMatches, tCreateMatch, tDeleteMatch, tBulkUpdateMatches, tBulkDeleteMatches, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tMoveGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
   tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, tSetCompAdminPerms, whatsappLink, mediaUrl,
@@ -1145,6 +1145,24 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [matches, setMatches] = useState<TMatch[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [f, setF] = useState({ home: '', away: '', date: '', time: '', venue: '', round: '', stageId: '', groupId: '' });
+
+  // Bulk edit/delete: tick several matches (a whole round, a team's fixtures)
+  // and change their date/time/venue/stage/group — or delete them — in one step
+  // instead of opening each. Each match is updated/deleted through the normal
+  // per-match endpoint, so the backend re-authorises every one; a stale tick from
+  // another sub-competition simply can't be touched.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bDate, setBDate] = useState('');
+  const [bTime, setBTime] = useState('');
+  const [bVenue, setBVenue] = useState('');
+  const [bStageId, setBStageId] = useState('');
+  const [bGroupId, setBGroupId] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [bulkErr, setBulkErr] = useState<string | null>(null);
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false);
+
   const reloadMatches = useCallback(() => {
     if (!cageId) return;
     tMatches({
@@ -1167,6 +1185,11 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     setRoundFilter('');
     setDateFilter('');
     setShowNew(false);
+    // The ticked ids belong to the sub-competition we're leaving — drop them so
+    // a bulk apply/delete can never hit the previous one's matches.
+    setBulkMode(false); setSelected(new Set()); setConfirmBulkDel(false);
+    setBDate(''); setBTime(''); setBVenue(''); setBStageId(''); setBGroupId('');
+    setBulkMsg(null); setBulkErr(null);
   }, [cageId, comp.id]);
 
   // Reload matches whenever any filter (or the cage) changes.
@@ -1216,6 +1239,68 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     return true;
   });
 
+  // ── bulk edit / delete ──────────────────────────────────────────────────────
+  const toggleSel = (id: number) =>
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const exitBulk = () => {
+    setBulkMode(false); setSelected(new Set()); setConfirmBulkDel(false);
+    setBDate(''); setBTime(''); setBVenue(''); setBStageId(''); setBGroupId('');
+    setBulkMsg(null); setBulkErr(null);
+  };
+  // Select-all works on the currently-shown (filtered) matches.
+  const allShownSelected = shownMatches.length > 0 && shownMatches.every(m => selected.has(m.id));
+  const toggleSelectAllShown = () =>
+    setSelected(prev => {
+      const s = new Set(prev);
+      if (allShownSelected) shownMatches.forEach(m => s.delete(m.id));
+      else shownMatches.forEach(m => s.add(m.id));
+      return s;
+    });
+  // Groups offered in the bulk placement picker belong to the chosen target
+  // stage, and only for a group-type stage (league/knockout pools have none).
+  const bulkStage = stages.find(s => s.id === Number(bStageId));
+  const bulkGroups = bulkStage?.type === 'group' ? (bulkStage.groups ?? []) : [];
+
+  const applyBulk = async () => {
+    if (selected.size === 0) return;
+    setBulkErr(null); setBulkMsg(null); setBulkBusy(true);
+    try {
+      const patch: { date?: string; time?: string; venue?: string; stage_id?: number; group_id?: number | null } = {};
+      if (bDate) patch.date = bDate;
+      if (bTime) patch.time = bTime;
+      if (bVenue.trim()) patch.venue = bVenue.trim();
+      // Stage and group travel together: a group only exists inside its stage,
+      // so leaving the stage blank leaves placement untouched; a chosen stage
+      // with no group clears the group.
+      if (bStageId) {
+        patch.stage_id = Number(bStageId);
+        patch.group_id = bGroupId ? Number(bGroupId) : null;
+      }
+      const r = await tBulkUpdateMatches(token, [...selected], patch);
+      setBulkMsg(tt(`✓ تم تحديث ${r.updated} مباراة`, `✓ Updated ${r.updated} matches`)
+        + (r.skipped ? tt(` · تُخطّيت ${r.skipped}`, ` · ${r.skipped} skipped`) : ''));
+      setSelected(new Set());
+      setBDate(''); setBTime(''); setBVenue(''); setBStageId(''); setBGroupId('');
+      reloadMatches();
+    } catch (e) { setBulkErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBulkBusy(false); }
+  };
+
+  const deleteBulk = async () => {
+    if (selected.size === 0) return;
+    setBulkErr(null); setBulkMsg(null); setBulkBusy(true);
+    const ids = [...selected];
+    // Drop them from the list right away so they vanish on confirm.
+    setMatches(prev => prev.filter(m => !selected.has(m.id)));
+    try {
+      const r = await tBulkDeleteMatches(token, ids);
+      setBulkMsg(tt(`✓ تم حذف ${r.deleted} مباراة`, `✓ Deleted ${r.deleted} matches`)
+        + (r.skipped ? tt(` · تُخطّيت ${r.skipped}`, ` · ${r.skipped} skipped`) : ''));
+      setSelected(new Set()); setConfirmBulkDel(false);
+    } catch (e) { setBulkErr(e instanceof Error ? e.message : String(e)); }
+    finally { setBulkBusy(false); reloadMatches(); }
+  };
+
   return (
     <div className="space-y-3">
       {/* Filters */}
@@ -1263,14 +1348,26 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
         <span className="text-hint text-xs tabular-nums">
           {q ? `${shownMatches.length} ${tt('من', 'of')} ` : ''}{matches.length} {tt('مباراة', 'matches')}
         </span>
-        <button onClick={() => setShowNew(s => !s)}
-          className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
-            showNew
-              ? 'border-loss text-loss hover:bg-loss/10'
-              : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
-          }`}>
-          {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
-        </button>
+        <div className="flex items-center gap-2">
+          {matches.length > 0 && (
+            <button onClick={() => { if (bulkMode) exitBulk(); else { setBulkMode(true); setShowNew(false); } }}
+              className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
+                bulkMode
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
+              {bulkMode ? tt('✕ إنهاء التحديد', '✕ Done') : tt('✎ تحديد جماعي', '✎ Bulk')}
+            </button>
+          )}
+          <button onClick={() => setShowNew(s => !s)}
+            className={`font-bold text-xs px-4 py-2 rounded-xl border transition-colors ${
+              showNew
+                ? 'border-loss text-loss hover:bg-loss/10'
+                : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+            }`}>
+            {showNew ? tt('✕ إلغاء', '✕ Cancel') : `+ ${tt('إضافة مباراة', 'Add match')}`}
+          </button>
+        </div>
       </div>
 
       {showNew && (
@@ -1297,7 +1394,7 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
                     ))}
                   </select>
                 </Field>
-                {f.stageId && stageGroups.length > 0 && selectedStage?.type !== 'knockout' ? (
+                {f.stageId && selectedStage?.type === 'group' && stageGroups.length > 0 ? (
                   <Field label={tt('المجموعة', 'Group')}>
                     <select value={f.groupId} onChange={e => setF({ ...f, groupId: e.target.value, home: '', away: '' })} className={inputCls}>
                       <option value="">— {tt('بدون مجموعة', 'No group')}</option>
@@ -1337,21 +1434,110 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
         </Card>
       )}
 
-      {/* Match list — MatchRow cards + quick delete */}
+      {/* Bulk panel — tick matches below, then reschedule/move or delete them. */}
+      {bulkMode && (
+        <Card className="p-4 space-y-3 border-aqua/30">
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 text-teal text-xs cursor-pointer">
+              <input type="checkbox" checked={allShownSelected} onChange={toggleSelectAllShown} />
+              {tt('تحديد كل الظاهر', 'Select all shown')} ({shownMatches.length})
+            </label>
+            <span className="text-hint text-[11px] font-bold tabular-nums">{selected.size} {tt('محددة', 'selected')}</span>
+          </div>
+          <p className="text-hint text-[11px] leading-relaxed">
+            {tt('اترك الحقل فارغًا لعدم تغييره. تغيير الوقت وحده يُبقي تاريخ كل مباراة كما هو.',
+                'Leave a field blank to keep it. Changing only the time keeps each match’s date.')}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={tt('التاريخ', 'Date')}><input type="date" value={bDate} onChange={e => setBDate(e.target.value)} className={inputCls} /></Field>
+            <Field label={tt('الوقت', 'Time')}><input type="time" value={bTime} onChange={e => setBTime(e.target.value)} className={inputCls} /></Field>
+          </div>
+          <Field label={tt('الملعب', 'Venue')}><input value={bVenue} onChange={e => setBVenue(e.target.value)} className={inputCls} /></Field>
+          {stages.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label={tt('الدور', 'Stage')}>
+                <select value={bStageId} onChange={e => { setBStageId(e.target.value); setBGroupId(''); }} className={inputCls}>
+                  <option value="">— {tt('بدون تغيير', 'No change')}</option>
+                  {stages.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name || tt(({ league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب' } as Record<string,string>)[s.type] ?? s.type, s.type)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {bStageId && bulkStage?.type === 'group' && bulkGroups.length > 0 ? (
+                <Field label={tt('المجموعة', 'Group')}>
+                  <select value={bGroupId} onChange={e => setBGroupId(e.target.value)} className={inputCls}>
+                    <option value="">— {tt('بدون مجموعة', 'No group')}</option>
+                    {bulkGroups.map(g => <option key={g.id} value={g.id}>{g.name || `Group ${g.id}`}</option>)}
+                  </select>
+                </Field>
+              ) : <div />}
+            </div>
+          )}
+          {bulkErr && <ErrorNote>{bulkErr}</ErrorNote>}
+          {bulkMsg && <p className="text-win text-[11px] bg-win/10 border border-win/30 rounded-lg px-3 py-2">{bulkMsg}</p>}
+          <PrimaryButton onClick={applyBulk}
+            disabled={bulkBusy || selected.size === 0 || (!bDate && !bTime && !bVenue.trim() && !bStageId)}
+            className="w-full">
+            {bulkBusy ? tt('…', '…') : tt(`تطبيق على ${selected.size} مباراة`, `Apply to ${selected.size} matches`)}
+          </PrimaryButton>
+          <div className="pt-3 border-t border-bdr/60">
+            {!confirmBulkDel ? (
+              <button onClick={() => { setConfirmBulkDel(true); setBulkMsg(null); setBulkErr(null); }}
+                disabled={selected.size === 0}
+                className="w-full text-loss text-xs font-bold border border-loss/40 rounded-xl py-2.5 hover:bg-loss/10 disabled:opacity-40">
+                🗑 {tt('حذف المحدد', 'Delete selected')} ({selected.size})
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-loss text-xs leading-relaxed">
+                  {tt(`حذف ${selected.size} مباراة نهائيًا؟ لا يمكن التراجع.`, `Permanently delete ${selected.size} matches? This cannot be undone.`)}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setConfirmBulkDel(false)} className="flex-1 text-hint text-xs font-bold px-3 py-2 border border-bdr rounded-lg">{tt('إلغاء', 'Cancel')}</button>
+                  <button onClick={deleteBulk} disabled={bulkBusy}
+                    className="flex-1 bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                    {bulkBusy ? tt('…', '…') : tt('تأكيد الحذف', 'Confirm delete')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Match list — MatchRow cards + quick delete (tick-to-select in bulk mode) */}
       {shownMatches.length === 0 && <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />}
-      {shownMatches.map(m => (
+      {shownMatches.map(m => {
+        const sel = selected.has(m.id);
+        return (
         <div key={m.id} className="relative group">
           <MatchRow m={m} />
-          <button
-            onClick={async e => {
-              e.preventDefault();
-              if (confirm(tt('حذف المباراة؟', 'Delete match?'))) { await tDeleteMatch(token, m.id); reloadMatches(); }
-            }}
-            className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
-            🗑
-          </button>
+          {bulkMode ? (
+            // Overlay intercepts the row click (preventDefault stops navigation)
+            // and toggles selection instead.
+            <button onClick={e => { e.preventDefault(); toggleSel(m.id); }}
+              className={`absolute inset-0 rounded-2xl border-2 transition-colors ${sel ? 'border-aqua bg-aqua/10' : 'border-transparent hover:bg-black/5'}`}>
+              <span className={`absolute top-2 end-2 w-6 h-6 rounded-md border grid place-items-center text-xs ${sel ? 'bg-aqua border-aqua text-on-accent' : 'bg-darkBg border-bdr text-transparent'}`}>✓</span>
+            </button>
+          ) : (
+            <button
+              onClick={async e => {
+                e.preventDefault();
+                if (!confirm(tt('حذف المباراة؟', 'Delete match?'))) return;
+                // Drop it from the list right away so it disappears on confirm,
+                // then reconcile with the server once the delete returns.
+                setMatches(prev => prev.filter(x => x.id !== m.id));
+                try { await tDeleteMatch(token, m.id); } finally { reloadMatches(); }
+              }}
+              className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity bg-darkBg border border-bdr rounded-lg p-1.5 text-hint hover:text-loss text-xs z-10">
+              🗑
+            </button>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

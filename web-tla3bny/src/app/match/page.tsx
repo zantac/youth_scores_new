@@ -15,6 +15,14 @@ import MatchTimer from '@/components/tla3bny/MatchTimer';
 import Spinner from '@/components/ui/Spinner';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
+// TEMP TOGGLE — set to false to test the mobile blank-screen bug. The off-screen
+// full-size photo preload in <PrintableCards> (organizer + lineup only) is the
+// suspected cause: decoding every player's full photo at once can exhaust the
+// per-tab image memory budget on mobile Safari / in-app WebViews and make the
+// browser discard the page. Flip to false and re-check the match page on the
+// phone; if it stops going blank, this block is confirmed as the culprit.
+const ENABLE_PRINTABLE_CARDS = false;
+
 // ── draft auto-save ───────────────────────────────────────────────────────────
 const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
 
@@ -882,7 +890,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
               </select>
             </Field>
           )}
-          {matchGroups.length > 0 && (
+          {matchSelectedStage?.type === 'group' && matchGroups.length > 0 && (
             <Field label={tt('المجموعة', 'Group')}>
               <select value={groupId} onChange={e => setGroupId(e.target.value)} className={inputCls}>
                 <option value="">— {tt('بدون مجموعة', 'No group')}</option>
@@ -1025,7 +1033,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         ) : (
           <div className="flex items-center gap-2">
             <button onClick={() => setConfirmDel(false)} className="text-hint text-xs font-bold px-3 py-2">{tt('إلغاء', 'Cancel')}</button>
-            <button onClick={async () => { await tDeleteMatch(token, m.id); router.back(); }}
+            <button onClick={async () => { await tDeleteMatch(token, m.id); router.back(); router.refresh(); }}
               className="bg-loss text-white font-bold px-4 py-2 rounded-lg text-sm">
               {tt('تأكيد الحذف', 'Confirm delete')}
             </button>
@@ -1553,7 +1561,7 @@ function MatchContent() {
       )}
 
       {/* Off-screen printable cards (organizers only), revealed by the print CSS. */}
-      {canManage && hasLineups && <PrintableCards m={m} lineups={lineups} nm={nm} />}
+      {ENABLE_PRINTABLE_CARDS && canManage && hasLineups && <PrintableCards m={m} lineups={lineups} nm={nm} />}
 
       {share && <ShareSheet m={m} onClose={() => setShare(false)} />}
     </div>
