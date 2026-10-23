@@ -211,6 +211,89 @@ def delete_match(match_id: int):
     return jsonify({"message": "deleted"})
 
 
+# Upper bound on one bulk call — a sanity cap so a malformed/huge payload can't
+# load tens of thousands of rows. A single round is a few dozen matches.
+_BULK_MAX = 500
+
+
+def _bulk_match_ids():
+    """Parse and dedupe the match_ids list from the request body. Returns
+    (ids, error_response); error_response is None when the ids are usable."""
+    data = request.get_json(silent=True) or {}
+    ids = list(dict.fromkeys(i for i in (_int(x) for x in (data.get("match_ids") or [])) if i))
+    if not ids:
+        return None, _err("match_ids is required", 400)
+    if len(ids) > _BULK_MAX:
+        return None, _err(f"Too many matches in one request (max {_BULK_MAX})", 400)
+    return ids, None
+
+
+@tla3bny_bp.patch("/matches/bulk")
+@auth.login_required
+def bulk_update_matches():
+    """Apply the same schedule/placement (date, time, venue, stage, group) to
+    several matches in one transaction. Only keys present in the body are
+    touched. Every match is re-authorised individually, so a selection that
+    strays into another competition is silently skipped rather than edited."""
+    ids, err = _bulk_match_ids()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+
+    # Validate the date up-front so a bad value rejects the whole request
+    # cleanly instead of editing some rows and 400-ing on others.
+    new_date = None
+    if "date" in data:
+        new_date, derr = _parse_date_or_error(data.get("date"))
+        if derr:
+            return _err(derr, 400)
+
+    user = auth.current_user()
+    matches = Tla3bnyMatch.query.filter(Tla3bnyMatch.id.in_(ids)).all()
+    updated = 0
+    for match in matches:
+        if not auth.can_enter_match_data(user, match.competition_id):
+            continue
+        if "date" in data:
+            match.date = new_date
+        if "time" in data:
+            match.time = _clip(data.get("time"), 10)
+        if "venue" in data:
+            match.venue = _clip(data.get("venue"), 255)
+        if "round" in data:
+            match.round = _clip(data.get("round"), 120)
+        # Stage and group travel together on the client, but each is applied
+        # only if sent — mirroring the single-match update.
+        if "stage_id" in data:
+            match.stage_id = _int(data.get("stage_id"))
+        if "group_id" in data:
+            match.group_id = _int(data.get("group_id"))
+        updated += 1
+    db.session.commit()
+    return jsonify({"updated": updated, "skipped": len(ids) - updated})
+
+
+@tla3bny_bp.post("/matches/bulk-delete")
+@auth.login_required
+def bulk_delete_matches():
+    """Delete several matches in one transaction (clear a whole round whose
+    fixtures changed). Each match is re-authorised individually; ids the caller
+    can't edit are skipped. Permanent — tla3bny has no soft-delete."""
+    ids, err = _bulk_match_ids()
+    if err:
+        return err
+    user = auth.current_user()
+    matches = Tla3bnyMatch.query.filter(Tla3bnyMatch.id.in_(ids)).all()
+    deleted = 0
+    for match in matches:
+        if not auth.can_enter_match_data(user, match.competition_id):
+            continue
+        db.session.delete(match)
+        deleted += 1
+    db.session.commit()
+    return jsonify({"deleted": deleted, "skipped": len(ids) - deleted})
+
+
 @tla3bny_bp.post("/matches/<int:match_id>/result")
 @auth.login_required
 def enter_result(match_id: int):

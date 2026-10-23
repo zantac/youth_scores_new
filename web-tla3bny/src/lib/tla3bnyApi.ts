@@ -1116,6 +1116,14 @@ export const tUpdateMatch = (token: string, id: number, b: Record<string, unknow
   send<TMatch>('PUT', `/matches/${id}`, b, token);
 export const tDeleteMatch = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/matches/${id}`, undefined, token);
+// Bulk edit/delete — one transaction server-side. Each match is re-authorised
+// individually; ids the caller can't edit come back in `skipped`.
+export const tBulkUpdateMatches = (
+  token: string, ids: number[],
+  patch: { date?: string; time?: string; venue?: string; round?: string; stage_id?: number; group_id?: number | null },
+) => send<{ updated: number; skipped: number }>('PATCH', '/matches/bulk', { match_ids: ids, ...patch }, token);
+export const tBulkDeleteMatches = (token: string, ids: number[]) =>
+  send<{ deleted: number; skipped: number }>('POST', '/matches/bulk-delete', { match_ids: ids }, token);
 export const tEnterResult = (token: string, id: number, b: Record<string, unknown>) =>
   send<TMatch>('POST', `/matches/${id}/result`, b, token);
 

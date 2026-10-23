@@ -7,7 +7,7 @@ import {
   tAddCompAge, tUpdateCompAge, tDeleteCompAge, tSetCompAgeOrganizerPhoto,
   tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
-  tMatches, tCreateMatch, tUpdateMatch, tDeleteMatch, tEnterResult,
+  tMatches, tCreateMatch, tDeleteMatch, tBulkUpdateMatches, tBulkDeleteMatches, tEnterResult,
   tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tMoveGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
   tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, tSetCompAdminPerms, whatsappLink, mediaUrl,
@@ -1265,7 +1265,7 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     if (selected.size === 0) return;
     setBulkErr(null); setBulkMsg(null); setBulkBusy(true);
     try {
-      const patch: Record<string, unknown> = {};
+      const patch: { date?: string; time?: string; venue?: string; stage_id?: number; group_id?: number | null } = {};
       if (bDate) patch.date = bDate;
       if (bTime) patch.time = bTime;
       if (bVenue.trim()) patch.venue = bVenue.trim();
@@ -1276,12 +1276,9 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
         patch.stage_id = Number(bStageId);
         patch.group_id = bGroupId ? Number(bGroupId) : null;
       }
-      const ids = [...selected];
-      const results = await Promise.allSettled(ids.map(id => tUpdateMatch(token, id, patch)));
-      const ok = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.length - ok;
-      setBulkMsg(tt(`✓ تم تحديث ${ok} مباراة`, `✓ Updated ${ok} matches`)
-        + (failed ? tt(` · تعذّر تحديث ${failed}`, ` · ${failed} failed`) : ''));
+      const r = await tBulkUpdateMatches(token, [...selected], patch);
+      setBulkMsg(tt(`✓ تم تحديث ${r.updated} مباراة`, `✓ Updated ${r.updated} matches`)
+        + (r.skipped ? tt(` · تُخطّيت ${r.skipped}`, ` · ${r.skipped} skipped`) : ''));
       setSelected(new Set());
       setBDate(''); setBTime(''); setBVenue(''); setBStageId(''); setBGroupId('');
       reloadMatches();
@@ -1296,11 +1293,9 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
     // Drop them from the list right away so they vanish on confirm.
     setMatches(prev => prev.filter(m => !selected.has(m.id)));
     try {
-      const results = await Promise.allSettled(ids.map(id => tDeleteMatch(token, id)));
-      const ok = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.length - ok;
-      setBulkMsg(tt(`✓ تم حذف ${ok} مباراة`, `✓ Deleted ${ok} matches`)
-        + (failed ? tt(` · تعذّر حذف ${failed}`, ` · ${failed} failed`) : ''));
+      const r = await tBulkDeleteMatches(token, ids);
+      setBulkMsg(tt(`✓ تم حذف ${r.deleted} مباراة`, `✓ Deleted ${r.deleted} matches`)
+        + (r.skipped ? tt(` · تُخطّيت ${r.skipped}`, ` · ${r.skipped} skipped`) : ''));
       setSelected(new Set()); setConfirmBulkDel(false);
     } catch (e) { setBulkErr(e instanceof Error ? e.message : String(e)); }
     finally { setBulkBusy(false); reloadMatches(); }
