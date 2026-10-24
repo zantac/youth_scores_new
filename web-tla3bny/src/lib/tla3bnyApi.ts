@@ -1123,8 +1123,8 @@ export const tMatches = (params: {
   stage_id?: number; group_id?: number; status?: string; team_id?: number; date?: string;
   /** A date window, for the home feed's page-outwards-from-today browsing. */
   from?: string; to?: string; order?: 'asc'; limit?: number;
-} = {}) => get<TMatch[]>(`/matches${qs(params)}`);
-export const tMatch = (id: number) => get<TMatch>(`/matches/${id}`);
+} = {}, token?: string | null) => get<TMatch[]>(`/matches${qs(params)}`, token);
+export const tMatch = (id: number, token?: string | null) => get<TMatch>(`/matches/${id}`, token);
 export const tCreateMatch = (token: string, b: Record<string, unknown>) =>
   send<TMatch>('POST', '/matches', b, token);
 export const tUpdateMatch = (token: string, id: number, b: Record<string, unknown>) =>
@@ -1143,7 +1143,11 @@ export const tEnterResult = (token: string, id: number, b: Record<string, unknow
   send<TMatch>('POST', `/matches/${id}/result`, b, token);
 
 // ── lineups ─────────────────────────────────────────────────────────────────
-export const tMatchLineups = (matchId: number) => get<TLineup[]>(`/lineups/match/${matchId}`);
+/** Pass a token for a fresh (no-store) read — used by organizers/editors right
+ *  after saving a lineup so the change shows immediately instead of a cached
+ *  (stale-while-revalidate) response. */
+export const tMatchLineups = (matchId: number, token?: string | null) =>
+  get<TLineup[]>(`/lineups/match/${matchId}`, token);
 export const tEligibleLineupPlayers = (matchId: number, teamId: number, token?: string | null) =>
   get<TEligiblePlayer[]>(`/lineups/match/${matchId}/team/${teamId}/eligible-players`, token);
 export const tSaveLineup = (token: string, matchId: number, teamId: number, b: Record<string, unknown>) =>

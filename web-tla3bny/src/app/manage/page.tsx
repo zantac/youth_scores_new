@@ -1172,8 +1172,8 @@ function MatchesTab({ token, comp }: { token: string; comp: TCompetition }) {
       ...(stageFilter ? { stage_id: Number(stageFilter) } : {}),
       ...(dateFilter ? { date: dateFilter } : {}),
       order: 'asc',
-    }).then(setMatches);
-  }, [comp.id, cageId, statusFilter, stageFilter, dateFilter]);
+    }, token).then(setMatches);
+  }, [comp.id, cageId, statusFilter, stageFilter, dateFilter, token]);
 
   // Reset UI state when the sub-competition changes.
   useEffect(() => {

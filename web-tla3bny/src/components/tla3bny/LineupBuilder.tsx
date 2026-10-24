@@ -40,13 +40,13 @@ export default function LineupBuilder({
     (async () => {
       setLoading(true);
       try {
-        const m = await tMatch(matchId);
+        const m = await tMatch(matchId, token);
         if (!alive) return;
         setMatch(m);
         const eligible = await tEligibleLineupPlayers(matchId, teamId, token).catch(() => []);
         if (!alive) return;
         setPlayers(eligible);
-        const lineups = await tMatchLineups(matchId).catch(() => []);
+        const lineups = await tMatchLineups(matchId, token).catch(() => []);
         if (!alive) return;
         const mine = lineups.find(l => l.team_id === teamId);
         const playersOnPitch = m.rules?.players_on_pitch ?? 11;

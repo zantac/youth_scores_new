@@ -1441,9 +1441,12 @@ function MatchContent() {
 
   const load = useCallback(() => {
     if (!id) { setLoading(false); setNotFound(true); return; }
-    tMatch(id).then(setM).catch(() => setNotFound(true)).finally(() => setLoading(false));
-    tMatchLineups(id).then(setLineups).catch(() => setLineups([]));
-  }, [id]);
+    // Logged-in users (organizers/team managers) get a fresh no-store read so a
+    // just-created match or just-saved lineup shows immediately; anonymous
+    // visitors keep the fast stale-while-revalidate cached read.
+    tMatch(id, token).then(setM).catch(() => setNotFound(true)).finally(() => setLoading(false));
+    tMatchLineups(id, token).then(setLineups).catch(() => setLineups([]));
+  }, [id, token]);
 
   useEffect(() => { load(); }, [load]);
 
