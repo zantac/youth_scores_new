@@ -15,14 +15,6 @@ import MatchTimer from '@/components/tla3bny/MatchTimer';
 import Spinner from '@/components/ui/Spinner';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
-// TEMP TOGGLE — set to false to test the mobile blank-screen bug. The off-screen
-// full-size photo preload in <PrintableCards> (organizer + lineup only) is the
-// suspected cause: decoding every player's full photo at once can exhaust the
-// per-tab image memory budget on mobile Safari / in-app WebViews and make the
-// browser discard the page. Flip to false and re-check the match page on the
-// phone; if it stops going blank, this block is confirmed as the culprit.
-const ENABLE_PRINTABLE_CARDS = false;
-
 // ── draft auto-save ───────────────────────────────────────────────────────────
 const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
 
@@ -137,17 +129,20 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
 }
 
 // Card/sheet view: photo grid for match-day identity verification.
-function SheetView({ m, lineups, canDownload = false }: { m: TMatch; lineups: TLineup[]; canDownload?: boolean }) {
+function SheetView({ m, lineups, canDownload = false, onDownload, downloading = false }: {
+  m: TMatch; lineups: TLineup[]; canDownload?: boolean;
+  onDownload?: () => void; downloading?: boolean;
+}) {
   const tt = useTT();
   const nm = useName();
   const hasAnyPlayers = lineups.some(l => l.slots.some(s => s.player_id != null));
   return (
     <div className="space-y-8">
-      {canDownload && hasAnyPlayers && (
+      {canDownload && hasAnyPlayers && onDownload && (
         <div>
-          <button onClick={() => window.print()}
-            className="flex items-center gap-2 text-sm font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-2 hover:bg-aqua/10">
-            ⬇️ {tt('تحميل الكروت (PDF)', 'Download cards (PDF)')}
+          <button onClick={onDownload} disabled={downloading}
+            className="flex items-center gap-2 text-sm font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-2 hover:bg-aqua/10 disabled:opacity-50">
+            ⬇️ {downloading ? tt('جارٍ التحضير…', 'Preparing…') : tt('تحميل الكروت (PDF)', 'Download cards (PDF)')}
           </button>
           <p className="text-[11px] text-hint mt-1">
             {tt('اطبع أو احفظ الكروت كـ PDF لمراجعة اللاعبين قبل المباراة بدون إنترنت.',
@@ -214,14 +209,40 @@ function PrintCard({ slot }: { slot: TLineupSlot }) {
   );
 }
 
-// The off-screen sheet the print CSS reveals. Kept mounted (pushed off-screen)
-// so the photos are loaded before the print dialog opens.
+// The off-screen sheet the print CSS reveals. Mounted ON DEMAND only while
+// printing (never kept resident), so the full-size photos are decoded just for
+// the print window and released afterwards — keeping them always mounted used
+// to exhaust the per-tab image memory on mobile Safari / in-app WebViews and
+// blank the page. On mount it waits for every photo to decode, then opens the
+// print dialog; the parent unmounts it again on `afterprint`.
 function PrintableCards({ m, lineups, nm }: {
   m: TMatch; lineups: TLineup[]; nm: (a?: string | null, e?: string | null) => string;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const root = rootRef.current;
+    if (!root) return;
+    const imgs = Array.from(root.querySelectorAll('img'));
+    // Resolve (never reject) per image so one broken photo can't block the PDF.
+    const ready = Promise.all(imgs.map(img =>
+      img.complete
+        ? img.decode().catch(() => {})
+        : new Promise<void>(res => {
+            img.onload = () => img.decode().then(() => res()).catch(() => res());
+            img.onerror = () => res();
+          })
+    ));
+    // Backstop: a hung network image must never block the dialog forever.
+    const timeout = new Promise<void>(res => setTimeout(res, 4000));
+    Promise.race([ready, timeout]).then(() => {
+      if (!cancelled) window.print();
+    });
+    return () => { cancelled = true; };
+  }, []);
   const header = [m.competition_name, m.age_category, m.round, m.date, m.time].filter(Boolean).join(' · ');
   return (
-    <div id="print-cards" className="absolute -left-[10000px] top-0 w-full bg-white text-black p-4">
+    <div id="print-cards" ref={rootRef} className="absolute -left-[10000px] top-0 w-full bg-white text-black p-4">
       <h1 className="text-lg font-black text-center">
         {teamLabel(m, m.home_team_id, nm)} × {teamLabel(m, m.away_team_id, nm)}
       </h1>
@@ -255,9 +276,10 @@ function PrintableCards({ m, lineups, nm }: {
 }
 
 // Lineup tab: pitch view + card view toggle for both teams.
-function LineupTab({ m, lineups, canEdit, view, onView, canDownload = false }: {
+function LineupTab({ m, lineups, canEdit, view, onView, canDownload = false, onDownload, downloading = false }: {
   m: TMatch; lineups: TLineup[]; canEdit: (id: number) => boolean;
   view: 'pitch' | 'cards'; onView: (v: 'pitch' | 'cards') => void; canDownload?: boolean;
+  onDownload?: () => void; downloading?: boolean;
 }) {
   const tt = useTT();
   const nm = useName();
@@ -276,7 +298,7 @@ function LineupTab({ m, lineups, canEdit, view, onView, canDownload = false }: {
         </div>
       )}
 
-      {view === 'cards' ? <SheetView m={m} lineups={lineups} canDownload={canDownload} /> : (
+      {view === 'cards' ? <SheetView m={m} lineups={lineups} canDownload={canDownload} onDownload={onDownload} downloading={downloading} /> : (
         <div className="space-y-4">
           {[m.home_team_id, m.away_team_id].map(tid => {
             const l = lineups.find(x => x.team_id === tid);
@@ -1402,6 +1424,20 @@ function MatchContent() {
   const [view, setView] = useState<'pitch' | 'cards'>(() =>
     params.get('view') === 'cards' ? 'cards' : 'pitch');
   const [share, setShare] = useState(false);
+  // Cards → PDF: mount the printable sheet on demand only; it decodes the
+  // full-size photos and opens the print dialog, then we unmount it on
+  // `afterprint` so the images don't stay resident in memory.
+  const [printing, setPrinting] = useState(false);
+  const handleDownloadCards = useCallback(() => setPrinting(true), []);
+  useEffect(() => {
+    if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    // Backstop so a WebView that never fires `afterprint` can't leave the
+    // full-size print sheet mounted indefinitely.
+    const t = setTimeout(done, 60_000);
+    return () => { window.removeEventListener('afterprint', done); clearTimeout(t); };
+  }, [printing]);
 
   const load = useCallback(() => {
     if (!id) { setLoading(false); setNotFound(true); return; }
@@ -1556,12 +1592,14 @@ function MatchContent() {
           {activeTab === 'events'
             ? <EventsTab m={m} />
             : <LineupTab m={m} lineups={lineups} canEdit={canEditSide}
-                view={view} onView={selectView} canDownload={canManage} />}
+                view={view} onView={selectView} canDownload={canManage}
+                onDownload={handleDownloadCards} downloading={printing} />}
         </div>
       )}
 
-      {/* Off-screen printable cards (organizers only), revealed by the print CSS. */}
-      {ENABLE_PRINTABLE_CARDS && canManage && hasLineups && <PrintableCards m={m} lineups={lineups} nm={nm} />}
+      {/* Off-screen printable cards — mounted only while printing (revealed by
+          the print CSS), then unmounted on `afterprint`. */}
+      {printing && canManage && hasLineups && <PrintableCards m={m} lineups={lineups} nm={nm} />}
 
       {share && <ShareSheet m={m} onClose={() => setShare(false)} />}
     </div>
