@@ -11,6 +11,7 @@ import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3b
 import TeamHero from '@/components/tla3bny/TeamHero';
 import FollowTeamButton from '@/components/tla3bny/FollowTeamButton';
 import { TeamHonours } from '@/components/tla3bny/Honours';
+import PrintableCards from '@/components/tla3bny/PrintableCards';
 
 function TeamContent() {
   const tt = useTT();
@@ -18,7 +19,7 @@ function TeamContent() {
   const router = useRouter();
   const params = useSearchParams();
   const id = Number(params.get('id'));
-  const { academy, team: myTeam, token, isAcademy, isTeam, isSuperAdmin } = useTla3bnyAuth();
+  const { academy, team: myTeam, token, isAcademy, isTeam, isSuperAdmin, isCompetitionAdmin } = useTla3bnyAuth();
   const [t, setT] = useState<TTeam | null>(null);
   const [matches, setMatches] = useState<TMatch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,20 @@ function TeamContent() {
   // client (T_BASE is relative in dev), so the calendar app can subscribe.
   const [fixturesFeed, setFixturesFeed] = useState('');
 
+  // Squad → PDF (organizers only): mount the printable sheet on demand, decode
+  // the photos and open the print dialog, then unmount on `afterprint` so the
+  // full-size images don't stay resident in memory.
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    // Backstop so a WebView that never fires `afterprint` can't leave the
+    // full-size print sheet mounted indefinitely.
+    const timer = setTimeout(done, 60_000);
+    return () => { window.removeEventListener('afterprint', done); clearTimeout(timer); };
+  }, [printing]);
+
   useEffect(() => {
     if (!id) { setLoading(false); setNotFound(true); return; }
     tTeam(id).then(setT).catch(() => setNotFound(true)).finally(() => setLoading(false));
@@ -69,6 +84,20 @@ function TeamContent() {
   const canManage = isSuperAdmin
     || (isTeam && myTeam?.id === id)
     || (isAcademy && (academy?.teams ?? []).some(at => at.id === id));
+
+  // Organizers (and the owning academy/team) can print the whole squad's ID
+  // cards as a PDF — a convenience version of the match-day lineup cards for
+  // checking players before a match. The photos/names are already public on
+  // this tab, so this only adds a one-click sheet.
+  const isOrganizer = isSuperAdmin || isCompetitionAdmin;
+  const canDownloadCards = isOrganizer || canManage;
+  const squadCards = (t.players ?? []).map(p => ({
+    key: p.id,
+    photoPath: p.photo_path,
+    name: nm(p.player_name, p.player_name_en),
+    meta: [p.position, p.jersey_number != null ? `#${p.jersey_number}` : null]
+      .filter(Boolean).join(' · ') || null,
+  }));
 
   const canManageTab = canManage && !!token;
   const tabs: { key: 'squad' | 'matches' | 'manage'; ar: string; en: string }[] = [
@@ -123,7 +152,15 @@ function TeamContent() {
           )}
 
           <section>
-            <h2 className="font-black text-text mb-2">{tt('اللاعبون', 'Players')}</h2>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <h2 className="font-black text-text">{tt('اللاعبون', 'Players')}</h2>
+              {canDownloadCards && squadCards.length > 0 && (
+                <button onClick={() => setPrinting(true)} disabled={printing}
+                  className="flex items-center gap-2 text-xs font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1.5 hover:bg-aqua/10 disabled:opacity-50">
+                  ⬇️ {printing ? tt('جارٍ التحضير…', 'Preparing…') : tt('تحميل الكروت (PDF)', 'Download cards (PDF)')}
+                </button>
+              )}
+            </div>
             {t.players && t.players.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {t.players.map(p => (
@@ -168,6 +205,16 @@ function TeamContent() {
       {shownTab === 'manage' && canManageTab && token && (
         <TeamManage token={token} teamId={id}
           section={manageSection} onSectionChange={s => go('manage', s)} onChanged={refetchTeam} />
+      )}
+
+      {/* Off-screen printable squad cards — mounted only while printing
+          (revealed by the print CSS), then unmounted on `afterprint`. */}
+      {printing && canDownloadCards && squadCards.length > 0 && (
+        <PrintableCards
+          title={`${nm(t.display_name, t.display_name_en)}${t.age_category ? ` · ${t.age_category}` : ''}`}
+          subtitle={nm(t.academy_name, t.academy_name_en) || undefined}
+          items={squadCards}
+        />
       )}
     </div>
   );
