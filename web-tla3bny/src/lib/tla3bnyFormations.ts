@@ -1,14 +1,37 @@
 // Formation → ordered position-slot labels (GK first, then defence → attack),
 // ported from the ug/ Flutter app. Rows are laid out goalkeeper (bottom) to
-// forwards (top). The trailing "(7s)" formats are smaller-sided youth setups.
+// forwards (top). The trailing "(9s)"/"(8s)"/"(7s)"/"(6s)" formats are
+// smaller-sided youth setups; the lineup builder offers only the formations
+// whose total slot count equals the competition's players-on-pitch (incl. GK).
 export const FORMATIONS: Record<string, string[]> = {
+  // ── 11-a-side (GK + 10) ──
   '4-3-3': ['GK', 'LB', 'CB1', 'CB2', 'RB', 'CM1', 'CM2', 'CM3', 'LW', 'ST', 'RW'],
   '4-4-2': ['GK', 'LB', 'CB1', 'CB2', 'RB', 'LM', 'CM1', 'CM2', 'RM', 'ST1', 'ST2'],
   '3-4-3': ['GK', 'CB1', 'CB2', 'CB3', 'LM', 'CM1', 'CM2', 'RM', 'LW', 'ST', 'RW'],
   '4-2-3-1': ['GK', 'LB', 'CB1', 'CB2', 'RB', 'CDM1', 'CDM2', 'CAM', 'LW', 'RW', 'ST'],
   '3-5-2': ['GK', 'CB1', 'CB2', 'CB3', 'LM', 'CM1', 'CM2', 'CM3', 'RM', 'ST1', 'ST2'],
+  // ── 9-a-side (GK + 8) ──
+  '3-3-2 (9s)': ['GK', 'CB1', 'CB2', 'CB3', 'LM', 'CM', 'RM', 'ST1', 'ST2'],
+  '3-2-3 (9s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM1', 'CM2', 'LW', 'ST', 'RW'],
+  '2-4-2 (9s)': ['GK', 'CB1', 'CB2', 'LM', 'CM1', 'CM2', 'RM', 'ST1', 'ST2'],
+  '3-4-1 (9s)': ['GK', 'CB1', 'CB2', 'CB3', 'LM', 'CM1', 'CM2', 'RM', 'ST'],
+  '4-3-1 (9s)': ['GK', 'LB', 'CB1', 'CB2', 'RB', 'LM', 'CM', 'RM', 'ST'],
+  // ── 8-a-side (GK + 7) ──
+  '3-3-1 (8s)': ['GK', 'CB1', 'CB2', 'CB3', 'LM', 'CM', 'RM', 'ST'],
+  '2-3-2 (8s)': ['GK', 'CB1', 'CB2', 'LM', 'CM', 'RM', 'ST1', 'ST2'],
+  '3-2-2 (8s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM1', 'CM2', 'ST1', 'ST2'],
+  '2-4-1 (8s)': ['GK', 'CB1', 'CB2', 'LM', 'CM1', 'CM2', 'RM', 'ST'],
+  '3-1-3 (8s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM', 'LW', 'ST', 'RW'],
+  // ── 7-a-side (GK + 6) ──
   '2-3-1 (7s)': ['GK', 'CB1', 'CB2', 'LM', 'CM', 'RM', 'ST'],
   '3-2-1 (7s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM1', 'CM2', 'ST'],
+  '2-2-2 (7s)': ['GK', 'CB1', 'CB2', 'CM1', 'CM2', 'ST1', 'ST2'],
+  '3-1-2 (7s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM', 'ST1', 'ST2'],
+  // ── 6-a-side (GK + 5) ──
+  '2-2-1 (6s)': ['GK', 'CB1', 'CB2', 'CM1', 'CM2', 'ST'],
+  '2-1-2 (6s)': ['GK', 'CB1', 'CB2', 'CM', 'ST1', 'ST2'],
+  '1-2-2 (6s)': ['GK', 'CB', 'CM1', 'CM2', 'ST1', 'ST2'],
+  '3-1-1 (6s)': ['GK', 'CB1', 'CB2', 'CB3', 'CM', 'ST'],
 };
 
 export const FORMATION_NAMES = Object.keys(FORMATIONS);
