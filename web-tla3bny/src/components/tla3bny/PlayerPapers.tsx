@@ -1,7 +1,7 @@
 'use client';
 import { useState, type ReactNode } from 'react';
 import {
-  tUpdatePlayer, tDeletePlayerFile, mediaUrl,
+  tUpdatePlayer, tDeletePlayerFile, mediaUrl, docSupplied,
   type TPlayerFile, type TDocSource,
 } from '@/lib/tla3bnyApi';
 import { useTT, PhotoLightbox } from './kit';
@@ -45,8 +45,8 @@ function askedBy(doc: string, sources: TDocSource[]): string[] {
 
 export function PapersProgress({ required, files }: { required: string[]; files: TPlayerFile[] }) {
   const tt = useTT();
-  const have = new Set(files.map(f => f.label).filter(Boolean));
-  const done = required.filter(d => have.has(d)).length;
+  const labels = files.map(f => f.label);
+  const done = required.filter(d => docSupplied(d, labels)).length;
   if (required.length === 0) return null;
   const complete = done === required.length;
   return (
@@ -90,9 +90,11 @@ export function PapersUploader({
   // of the order competitions or age categories were created.
   const sortedRequired = [...required].sort();
 
-  // Anything uploaded under a label the requirements no longer mention still
-  // belongs to the player, so keep showing it rather than hiding it.
-  const extra = files.filter(f => !f.label || !required.includes(f.label));
+  // Anything uploaded under a label no required paper matches still belongs to
+  // the player, so keep showing it rather than hiding it. Uses tolerant
+  // matching so a file whose label was the old (e.g. longer) name of a renamed
+  // requirement counts for that requirement instead of showing up here.
+  const extra = files.filter(f => !f.label || !required.some(d => docSupplied(d, [f.label])));
 
   return (
     <div className="space-y-1.5">
@@ -100,7 +102,7 @@ export function PapersUploader({
         <p className="text-[11px] text-hint">{tt('لا أوراق مطلوبة', 'No papers required')}</p>
       )}
       {sortedRequired.map(doc => {
-        const f = files.find(x => x.label === doc);
+        const f = files.find(x => docSupplied(doc, [x.label]));
         const asks = askedBy(doc, sources);
         return (
           <div key={doc} className="bg-darkBg border border-bdr rounded-xl px-3 py-2">

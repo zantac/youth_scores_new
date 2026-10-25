@@ -35,6 +35,37 @@ from app.models import codes
 from app.models.base import TimestampMixin, code_enum, db
 
 
+# ── document matching ─────────────────────────────────────────────────────────
+def _norm_doc_label(s: str | None) -> str:
+    """Whitespace-normalised form of a document label for tolerant matching:
+    trim the ends and collapse internal runs of whitespace to single spaces."""
+    return " ".join((s or "").split())
+
+
+def missing_required_documents(required, supplied_labels) -> list:
+    """The required document names that no supplied file label satisfies.
+
+    Matching is deliberately tolerant rather than exact equality. Beyond a
+    whitespace-normalised exact match, a supplied label also counts for a
+    required name when one is a prefix of the other. This keeps the papers
+    players already uploaded from being orphaned when a required document is
+    later *renamed* — most often shortened, because a long label overflowed
+    small screens — which leaves the new (shorter) name as a prefix of the
+    label the existing files were stored under. Without this, hundreds of
+    already-approved players would suddenly show the renamed paper as missing.
+    """
+    norm_supplied = [n for n in (_norm_doc_label(s) for s in supplied_labels) if n]
+    out = []
+    for d in required:
+        nd = _norm_doc_label(d)
+        if not nd:
+            continue
+        if not any(ns == nd or ns.startswith(nd) or nd.startswith(ns)
+                   for ns in norm_supplied):
+            out.append(d)
+    return out
+
+
 # ── accounts ────────────────────────────────────────────────────────────────
 class Tla3bnyUser(TimestampMixin, db.Model):
     """A tla3bny login account.
@@ -1387,10 +1418,10 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
                     None,
                 )
                 required = cage.documents if cage else self.entry.competition.documents
-            supplied = {f.label for f in files if f.label}
             data["files"] = [f.to_dict() for f in files]
             data["required_documents"] = required
-            data["missing_documents"] = [d for d in required if d not in supplied]
+            data["missing_documents"] = missing_required_documents(
+                required, (f.label for f in files))
         return data
 
 

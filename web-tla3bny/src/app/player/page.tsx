@@ -3,7 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds, tPlayerBans,
-  tOrganizerSetPlayerPhoto, tOrganizerRotatePlayerPhoto, mediaUrl,
+  tOrganizerSetPlayerPhoto, tOrganizerRotatePlayerPhoto, mediaUrl, docSupplied,
   type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TPlayerStatRow, type TAd, type TPlayerBan,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -268,7 +268,7 @@ function PlayerContent() {
               sources={docs.sources} files={p.files ?? []} onChange={refreshPapers} />
           ) : (
             <PapersReview files={p.files} required={docs.documents}
-              missing={docs.documents.filter(d => !(p.files ?? []).some(f => f.label === d))} />
+              missing={docs.documents.filter(d => !docSupplied(d, (p.files ?? []).map(f => f.label)))} />
           )}
         </Card>
       )}
