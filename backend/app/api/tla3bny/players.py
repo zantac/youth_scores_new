@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.models import (
+    missing_required_documents,
     Tla3bnyAcademy,
     Tla3bnyAgeCategory,
     Tla3bnyCompetition,
@@ -167,7 +168,6 @@ def player_registrations(player_id: int):
                 None,
             )
         required = cage.documents if cage else (comp.documents if comp else [])
-        supplied = {f.label for f in cp.effective_files if f.label}
         out.append({
             "id": cp.id,
             "competition_id": comp.id if comp else None,
@@ -175,7 +175,8 @@ def player_registrations(player_id: int):
             "status": cp.status,
             "rejection_reason": cp.rejection_reason,
             "required_documents": required,
-            "missing_documents": [d for d in required if d not in supplied],
+            "missing_documents": missing_required_documents(
+                required, (f.label for f in cp.effective_files)),
         })
     return jsonify(out)
 
@@ -422,7 +423,6 @@ def competition_registration(entry_id: int):
         files = list(cp.effective_files) if cp else [
             f for f in p.files if f.competition_player_id is None
         ]
-        supplied = {f.label for f in files if f.label}
         players.append({
             "player_id": p.id,
             "player_name": p.name,
@@ -435,7 +435,8 @@ def competition_registration(entry_id: int):
             "registration_status": cp.status if cp else None,
             "rejection_reason": cp.rejection_reason if cp else None,
             "files": [f.to_dict() for f in files],
-            "missing_documents": [d for d in required if d not in supplied],
+            "missing_documents": missing_required_documents(
+                required, (f.label for f in files)),
         })
 
     admin = auth.is_competition_admin(auth.current_user(), entry.competition_id)

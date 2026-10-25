@@ -15,6 +15,7 @@ from flask import after_this_request, jsonify, request, send_file
 
 from app.extensions import db, limiter
 from app.models import (
+    missing_required_documents,
     Tla3bnyAgeCategory,
     Tla3bnyCompetition,
     Tla3bnyCompetitionAdmin,
@@ -1438,8 +1439,8 @@ def approve_roster_player(cp_id: int):
         )
         required = cage.documents if cage else entry.competition.documents
         # This registration's papers, plus the player's global identity papers.
-        supplied = {f.label for f in cp.effective_files if f.label}
-        missing = [d for d in required if d not in supplied]
+        missing = missing_required_documents(
+            required, (f.label for f in cp.effective_files))
         force = bool((request.get_json(silent=True) or {}).get("force"))
         if missing and not force:
             return _err(
@@ -1597,8 +1598,8 @@ def bulk_approve_roster_players():
             )
             required = cage.documents if cage else entry.competition.documents
             # This registration's papers, plus the player's global identity papers.
-            supplied = {f.label for f in cp.effective_files if f.label}
-            missing = [d for d in required if d not in supplied]
+            missing = missing_required_documents(
+                required, (f.label for f in cp.effective_files))
             if missing:
                 errors.append({
                     "id": cp.id,

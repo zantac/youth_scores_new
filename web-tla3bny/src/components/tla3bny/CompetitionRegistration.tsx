@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   tCompetitionRegistration, tRegisterCompetitionPlayer, tUploadRegistrationDocs,
-  tRemoveRosterPlayer, tReplaceCompPlayer,
+  tRemoveRosterPlayer, tReplaceCompPlayer, docSupplied,
   type TCompetitionRegistration, type TRegistrationPlayer, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
@@ -115,14 +115,14 @@ export default function CompetitionRegistration({ token, entryId, onChange }: {
       ) : reg.players.map(p => {
         const st = p.registration_status;
         const meta = st ? STATUS_META[st] : null;
-        const supplied = new Set(p.files.map(f => f.label).filter(Boolean) as string[]);
+        const suppliedLabels = p.files.map(f => f.label);
         const canEditDocs = reg.registration_open && st !== 'replaced' && st !== 'approved';
         const canRegister = st === null && reg.registration_open && !full;
         const staged = pickedDocs(p.player_id).length;
         // Required papers not yet supplied or staged — entry is blocked until
         // they're all uploaded (the organizer can't approve without them anyway).
         const missingToEnter = reg.required_documents.filter(
-          d => !supplied.has(d) && !docFiles[`${p.player_id}:${d}`]);
+          d => !docSupplied(d, suppliedLabels) && !docFiles[`${p.player_id}:${d}`]);
         return (
           <Card key={p.player_id} className={`p-3 space-y-2 ${st === 'rejected' ? 'border-loss/40' : st === 'pending' ? 'border-gold/40' : ''}`}>
             <div className="flex items-center gap-3">
@@ -152,7 +152,7 @@ export default function CompetitionRegistration({ token, entryId, onChange }: {
             {reg.required_documents.length > 0 && (st === null || canEditDocs) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {reg.required_documents.map(doc => {
-                  const has = supplied.has(doc);
+                  const has = docSupplied(doc, suppliedLabels);
                   const picked = !!docFiles[`${p.player_id}:${doc}`];
                   return (
                     <label key={doc} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">

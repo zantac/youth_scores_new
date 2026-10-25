@@ -18,6 +18,7 @@ from app.models.match import (
 )
 from app.models.team import ClubStaff, PlayerTeam, Team, TeamCoach
 from app.models.tla3bny import (
+    missing_required_documents,
     Tla3bnyAd,
     Tla3bnyAdSettings,
     Tla3bnyAuditLog,
@@ -88,6 +89,7 @@ __all__ = [
     # auth
     "AdminUser",
     # tla3bny (youth-academy competitions subdomain)
+    "missing_required_documents",
     "Tla3bnyAd",
     "Tla3bnyAdSettings",
     "Tla3bnyAuditLog",

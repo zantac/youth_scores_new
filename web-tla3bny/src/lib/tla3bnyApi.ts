@@ -147,6 +147,23 @@ export interface TPlayerFile {
   label: string | null;
 }
 
+/** Whitespace-normalised label for tolerant document matching. */
+const _normDoc = (s: string | null | undefined): string => (s ?? '').trim().replace(/\s+/g, ' ');
+
+/** Does any supplied file label satisfy a required document name? Mirrors the
+ *  backend's missing_required_documents(): beyond an exact (whitespace-tolerant)
+ *  match, a label also counts when one of it / the required name is a prefix of
+ *  the other — so papers uploaded under an old label still count after a
+ *  required document is renamed (usually shortened to fit small screens). */
+export function docSupplied(required: string, labels: (string | null | undefined)[]): boolean {
+  const nd = _normDoc(required);
+  if (!nd) return false;
+  return labels.some(l => {
+    const ns = _normDoc(l);
+    return ns !== '' && (ns === nd || ns.startsWith(nd) || nd.startsWith(ns));
+  });
+}
+
 export interface TPlayer {
   id: number;
   name: string;
