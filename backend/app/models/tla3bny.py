@@ -1715,12 +1715,22 @@ class Tla3bnyLineup(TimestampMixin, db.Model):
     )
 
     def to_dict(self) -> dict:
+        # The team's head coach (top of the sorted staff list) rides along so the
+        # match lineup can show them above the substitutes.
+        head = next(iter(sorted_coaches(self.team.coaches)), None) if self.team else None
         return {
             "id": self.id,
             "match_id": self.match_id,
             "team_id": self.team_id,
             "team_name": self.team.display_name() if self.team else None,
             "formation": self.formation,
+            "head_coach": {
+                "id": head.id,
+                "name": head.name,
+                "name_en": head.name_en,
+                "role_ar": head.role_ar,
+                "photo_path": head.photo_path,
+            } if head else None,
             "slots": [s.to_dict() for s in self.slots],
         }
 

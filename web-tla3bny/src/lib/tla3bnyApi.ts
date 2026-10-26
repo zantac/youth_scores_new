@@ -569,12 +569,21 @@ export interface TLineupSlot {
   photo_path: string | null;
   is_substitute: boolean;
 }
+export interface TLineupCoach {
+  id: number;
+  name: string;
+  name_en: string | null;
+  role_ar: string | null;
+  photo_path: string | null;
+}
 export interface TLineup {
   id: number;
   match_id: number;
   team_id: number;
   team_name: string | null;
   formation: string | null;
+  /** The team's head coach (top of the staff list), if any. */
+  head_coach?: TLineupCoach | null;
   slots: TLineupSlot[];
 }
 

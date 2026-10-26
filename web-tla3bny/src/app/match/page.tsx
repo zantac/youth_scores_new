@@ -338,23 +338,35 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
         </div>
         {hasFormation ? (
           <div className="max-w-sm mx-auto px-2 pb-2">
-            <PitchView formation={l.formation} filled={filled} />
+            <PitchView formation={l.formation} filled={filled} size={52} />
           </div>
         ) : unpositioned.length > 0 ? (
           <div className="px-4 pb-3">
             <p className="text-[11px] text-teal font-bold mb-2">{tt('الأساسيون', 'Starters')}</p>
             <div className="flex flex-col gap-1.5">
               {unpositioned.map(s => (
-                <div key={s.id} className="flex items-center gap-2">
-                  <LogoAvatar src={s.photo_path} name={s.player_name} size={22} />
-                  <span className="text-xs font-bold text-text">{firstName(s.player_name)}</span>
-                </div>
+                <Link key={s.id} href={`/player?id=${s.player_id}`} className="flex items-center gap-2 w-fit group">
+                  <LogoAvatar src={s.photo_path} name={s.player_name} size={36} />
+                  <span className="text-xs font-bold text-text group-hover:text-aqua">{firstName(s.player_name)}</span>
+                </Link>
               ))}
             </div>
           </div>
         ) : (
           <div className="max-w-sm mx-auto px-2 pb-2">
-            <PitchView formation={l.formation} filled={filled} />
+            <PitchView formation={l.formation} filled={filled} size={52} />
+          </div>
+        )}
+        {l.head_coach && (
+          <div className="border-t border-bdr/50 px-4 py-3">
+            <p className="text-[11px] text-teal font-bold mb-2">{tt('المدير الفني', 'Head coach')}</p>
+            <Link href={`/coach?id=${l.head_coach.id}`} className="flex items-center gap-2 w-fit group">
+              <LogoAvatar src={l.head_coach.photo_path} name={l.head_coach.name} size={36} />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-text group-hover:text-aqua truncate">{nm(l.head_coach.name, l.head_coach.name_en)}</p>
+                {l.head_coach.role_ar && <p className="text-[10px] text-hint truncate">{l.head_coach.role_ar}</p>}
+              </div>
+            </Link>
           </div>
         )}
         {subs.length > 0 && (
@@ -362,10 +374,10 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
             <p className="text-[11px] text-teal font-bold mb-2">{tt('البدلاء', 'Substitutes')}</p>
             <div className="flex flex-col gap-1.5">
               {subs.map(s => (
-                <div key={s.id} className="flex items-center gap-2">
-                  <LogoAvatar src={s.photo_path} name={s.player_name} size={22} />
-                  <span className="text-xs font-bold text-text">{s.player_name}</span>
-                </div>
+                <Link key={s.id} href={`/player?id=${s.player_id}`} className="flex items-center gap-2 w-fit group">
+                  <LogoAvatar src={s.photo_path} name={s.player_name} size={36} />
+                  <span className="text-xs font-bold text-text group-hover:text-aqua">{s.player_name}</span>
+                </Link>
               ))}
             </div>
           </div>
