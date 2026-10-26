@@ -653,23 +653,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addEv = (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => {
-    setEvents(prev => {
-      const next = [...prev, { ...ev, id: Date.now(), match_id: m.id, related_event_id: null }];
-      // Save immediately so a crash right after adding an event loses nothing.
-      draftRef.current.dirty = true;
-      saveDraft(m.id, draftRef.current.homeScore, draftRef.current.awayScore, next);
-      return next;
-    });
-  };
-  const removeEv = (id: number) => {
-    setEvents(prev => {
-      const next = prev.filter(e => e.id !== id);
-      draftRef.current.dirty = true;
-      saveDraft(m.id, draftRef.current.homeScore, draftRef.current.awayScore, next);
-      return next;
-    });
-  };
+  // Removing an event saves straight away too, so there's no separate "save" step
+  // to remember — every change in the event sections is persisted immediately.
+  const removeEv = (id: number) => persistEvents(events.filter(e => e.id !== id));
 
   // Roster for event forms
   const [rosters, setRosters] = useState<Record<number, TCompPlayer[]>>({});
@@ -718,14 +704,42 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     return out;
   };
 
-  // Serialize the current events state for the /result endpoint.
-  const eventsPayload = () => events.filter(e => e.player_id != null).map(e => ({
+  // Serialize an events list for the /result endpoint.
+  const eventsPayload = (list: TMatchEvent[] = events) => list.filter(e => e.player_id != null).map(e => ({
     event_type: e.event_type, team_id: e.team_id,
     player_id: e.player_id, minute: e.minute ?? undefined,
     is_extra_time: e.is_extra_time, is_own_goal: e.is_own_goal,
     is_penalty: e.is_penalty, kick_order: e.kick_order ?? undefined,
     is_winning_kick: e.is_winning_kick,
   }));
+
+  // Persist an explicit events list (so a just-added event is saved in the same
+  // click, without waiting for a state update to flush).
+  const persistEvents = async (list: TMatchEvent[]) => {
+    setErr(null); setEventsBusy(true);
+    try {
+      setEvents(list);
+      const updated = await tEnterResult(token, m.id, {
+        home_score: m.home_score, away_score: m.away_score,
+        events: eventsPayload(list),
+      });
+      // Clear the local draft too, so reopening the tab doesn't offer to recover
+      // changes that are already saved.
+      clearDraft(m.id);
+      draftRef.current.dirty = false;
+      onUpdate(updated); setEventsOk(true); setTimeout(() => setEventsOk(false), 1500);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    finally { setEventsBusy(false); }
+  };
+
+  // Append the given (unsaved) events to the current list and persist in one go —
+  // what the event sections' single Save button does.
+  const addAndSaveEvents = (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => {
+    const stamped = bare.map((ev, i) => ({
+      ...ev, id: Date.now() + i, match_id: m.id, related_event_id: null as number | null,
+    }));
+    return persistEvents([...events, ...stamped]);
+  };
 
   // One save for the whole result-&-info section: match info (date/time/venue/
   // round/status/note/stage/group) plus the score + events.
@@ -788,21 +802,6 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     finally { setPotmBusy(false); }
   };
 
-  const saveEvents = async () => {
-    setErr(null); setEventsBusy(true);
-    try {
-      const updated = await tEnterResult(token, m.id, {
-        home_score: m.home_score, away_score: m.away_score,
-        events: eventsPayload(),
-      });
-      // Clear the local draft too, so reopening the tab doesn't offer to recover
-      // changes that are already saved.
-      clearDraft(m.id);
-      draftRef.current.dirty = false;
-      onUpdate(updated); setEventsOk(true); setTimeout(() => setEventsOk(false), 1500);
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
-    finally { setEventsBusy(false); }
-  };
 
   return (
     <div className="space-y-4 p-4">
@@ -1007,9 +1006,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         m={m}
         rosters={rosters}
         lineups={lineups}
-        onAdd={addEv}
         onRemove={removeEv}
-        onSave={saveEvents}
+        onSave={addAndSaveEvents}
         saving={eventsBusy}
         ok={eventsOk}
         tt={tt}
@@ -1024,9 +1022,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         m={m}
         rosters={rosters}
         lineups={lineups}
-        onAdd={addEv}
         onRemove={removeEv}
-        onSave={saveEvents}
+        onSave={addAndSaveEvents}
         saving={eventsBusy}
         ok={eventsOk}
         tt={tt}
@@ -1042,9 +1039,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           m={m}
           rosters={rosters}
           lineups={lineups}
-          onAdd={addEv}
           onRemove={removeEv}
-          onSave={saveEvents}
+          onSave={addAndSaveEvents}
           saving={eventsBusy}
           ok={eventsOk}
           tt={tt}
@@ -1060,9 +1056,8 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         m={m}
         rosters={rosters}
         lineups={lineups}
-        onAdd={addEv}
         onRemove={removeEv}
-        onSave={saveEvents}
+        onSave={addAndSaveEvents}
         saving={eventsBusy}
         ok={eventsOk}
         tt={tt}
@@ -1129,11 +1124,11 @@ function ScoreInput({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, saving, ok, tt }: {
+function GoalSection({ events, m, rosters, lineups, onRemove, onSave, saving, ok, tt }: {
   events: TMatchEvent[]; m: TMatch; rosters: Record<number, TCompPlayer[]>; lineups: TLineup[];
-  onAdd: (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => void;
   onRemove: (id: number) => void;
-  onSave: () => void; saving: boolean; ok: boolean;
+  onSave: (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => void;
+  saving: boolean; ok: boolean;
   tt: (ar: string, en: string) => string;
 }) {
   const nm = useName();
@@ -1156,7 +1151,8 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
     ? lineupSlots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
     : (rosters[teamId] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
 
-  const add = () => {
+  // Build the goal (+ optional assist) and save it straight to the match.
+  const save = () => {
     if (!evScorer) return;
     const scorer   = roster.find(p => String(p.player_id) === evScorer);
     const assister = evAssist && !isOwnGoal ? roster.find(p => String(p.player_id) === evAssist) : null;
@@ -1165,16 +1161,19 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
     const creditTeam = isOwnGoal
       ? (Number(evTeam) === m.home_team_id ? m.away_team_id : m.home_team_id)
       : Number(evTeam);
-    onAdd({ event_type: 'goal', team_id: creditTeam,
+    const bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[] = [{
+      event_type: 'goal', team_id: creditTeam,
       player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
       is_extra_time: isGoalET, is_own_goal: isOwnGoal, is_penalty: isPenalty,
-      kick_order: null, is_winning_kick: false });
+      kick_order: null, is_winning_kick: false,
+    }];
     if (assister) {
-      onAdd({ event_type: 'assist', team_id: Number(evTeam),
+      bare.push({ event_type: 'assist', team_id: Number(evTeam),
         player_id: assister.player_id, player_name: assister.player_name ?? '', minute,
         is_extra_time: isGoalET, is_own_goal: false, is_penalty: false,
         kick_order: null, is_winning_kick: false });
     }
+    onSave(bare);
     setEvScorer(''); setEvAssist(''); setEvMinute('');
     setIsOwnGoal(false); setIsPenalty(false); setIsGoalET(false);
   };
@@ -1253,32 +1252,22 @@ function GoalSection({ events, m, rosters, lineups, onAdd, onRemove, onSave, sav
             {tt('في الوقت الإضافي', 'Extra time')}
           </label>
         </div>
-        <p className="text-hint text-[10px]">
-          {tt('«إضافة» تضيفه للقائمة بالأسفل، و«حفظ» يحفظ القائمة في المباراة.',
-              '"Add" puts it in the list below; "Save" commits the whole list to the match.')}
-        </p>
-        <div className="flex items-center gap-2">
-          <button onClick={add} disabled={!evScorer}
-            className="flex-1 border border-aqua/40 text-aqua text-xs font-bold rounded-lg py-2 hover:bg-aqua/10 disabled:opacity-40">
-            + {tt('إضافة للقائمة', 'Add to list')}
-          </button>
-          <button onClick={onSave} disabled={saving}
-            className="flex-1 bg-aqua text-on-accent text-xs font-bold rounded-lg py-2 disabled:opacity-50">
-            {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ في المباراة', 'Save to match')}
-          </button>
-        </div>
+        <button onClick={save} disabled={saving || !evScorer}
+          className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
+          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ الهدف', 'Save goal')}
+        </button>
       </div>
     </Card>
   );
 }
 
-function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, onRemove, onSave, saving, ok, tt }: {
+function EventSection({ title, icon, events, types, m, rosters, lineups, onRemove, onSave, saving, ok, tt }: {
   title: string; icon: string;
   events: TMatchEvent[]; types: EvType[];
   m: TMatch; rosters: Record<number, TCompPlayer[]>; lineups: TLineup[];
-  onAdd: (ev: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>) => void;
   onRemove: (id: number) => void;
-  onSave: () => void; saving: boolean; ok: boolean;
+  onSave: (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => void;
+  saving: boolean; ok: boolean;
   tt: (ar: string, en: string) => string;
 }) {
   const nm = useName();
@@ -1301,10 +1290,11 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
     ? lineupSlots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
     : (rosters[teamId] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
 
-  const add = () => {
+  // Build the event and save it straight to the match.
+  const save = () => {
     if (!evPlayer) return;
     const player = roster.find(p => String(p.player_id) === evPlayer);
-    onAdd({
+    onSave([{
       event_type: evType as EvType,
       team_id: Number(evTeam),
       player_id: player?.player_id ?? null,
@@ -1315,7 +1305,7 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
       is_penalty: false,
       kick_order: isPenSection && kickOrder ? Number(kickOrder) : null,
       is_winning_kick: isPenSection ? isWinningKick : false,
-    });
+    }]);
     setEvPlayer(''); setEvMinute(''); setIsEvET(false);
     if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
   };
@@ -1389,20 +1379,10 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onAdd, 
               min={1} max={20} placeholder="1" className={inputCls} />
           </Field>
         )}
-        <p className="text-hint text-[10px]">
-          {tt('«إضافة» تضيفه للقائمة بالأعلى، و«حفظ» يحفظ القائمة في المباراة.',
-              '"Add" puts it in the list above; "Save" commits the whole list to the match.')}
-        </p>
-        <div className="flex items-center gap-2">
-          <button onClick={add} disabled={!evPlayer}
-            className="flex-1 border border-aqua/40 text-aqua text-xs font-bold rounded-lg py-2 hover:bg-aqua/10 disabled:opacity-40">
-            + {tt('إضافة للقائمة', 'Add to list')}
-          </button>
-          <button onClick={onSave} disabled={saving}
-            className="flex-1 bg-aqua text-on-accent text-xs font-bold rounded-lg py-2 disabled:opacity-50">
-            {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ في المباراة', 'Save to match')}
-          </button>
-        </div>
+        <button onClick={save} disabled={saving || !evPlayer}
+          className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
+          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ', 'Save')}
+        </button>
       </div>
     </Card>
   );
