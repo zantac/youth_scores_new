@@ -95,6 +95,10 @@ function teamLabel(
   return teamId === m.home_team_id ? home : away;
 }
 
+/** Just the first token of a (usually Arabic) full name — shown under the pitch
+ *  photos where horizontal space is tight. */
+const firstName = (n?: string | null) => (n ?? '').trim().split(/\s+/)[0] ?? '';
+
 // ── ── ── PUBLIC TABS ── ── ──
 
 // One player tile used in the sheet/cards view.
@@ -275,108 +279,128 @@ function PrintableCards({ m, lineups, nm }: {
   );
 }
 
-// Lineup tab: pitch view + card view toggle for both teams.
-function LineupTab({ m, lineups, canEdit, view, onView, canDownload = false, onDownload, downloading = false }: {
+// Lineup tab: per-team pitch view, plus a cards view (organizer-only).
+function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, canDownload = false, onDownload, downloading = false }: {
   m: TMatch; lineups: TLineup[]; canEdit: (id: number) => boolean;
-  view: 'pitch' | 'cards'; onView: (v: 'pitch' | 'cards') => void; canDownload?: boolean;
+  view: 'pitch' | 'cards'; onView: (v: 'pitch' | 'cards') => void;
+  canViewCards?: boolean; canDownload?: boolean;
   onDownload?: () => void; downloading?: boolean;
 }) {
   const tt = useTT();
   const nm = useName();
   const hasLineups = lineups.some(l => l.slots.some(s => s.player_id != null));
+  // The cards view (match-day photo check) is for organizers only; everyone
+  // else always sees the pitch, whatever the URL asks for.
+  const effectiveView = canViewCards ? view : 'pitch';
+  // The pitch shows one team at a time, chosen via the team sub-tabs.
+  const [pitchTeam, setPitchTeam] = useState<number>(m.home_team_id);
+
+  const renderTeamPitch = (tid: number) => {
+    const l = lineups.find(x => x.team_id === tid);
+    if (!l) {
+      return canEdit(tid) ? (
+        <Link href={`/lineup?match=${m.id}&team=${tid}`}
+          className="flex items-center justify-between bg-cardBg border border-dashed border-aqua/40 rounded-2xl px-4 py-4 hover:bg-aqua/5 transition-colors">
+          <div>
+            <p className="font-bold text-text text-sm">{teamLabel(m, tid, nm)}</p>
+            <p className="text-hint text-xs mt-0.5">{tt('لا تشكيلة بعد', 'No lineup yet')}</p>
+          </div>
+          <span className="text-aqua text-sm font-bold">{tt('إضافة التشكيلة ←', 'Add lineup →')}</span>
+        </Link>
+      ) : (
+        <div className="flex items-center justify-between bg-cardBg border border-bdr rounded-2xl px-4 py-3 opacity-50">
+          <p className="font-bold text-text text-sm">{teamLabel(m, tid)}</p>
+          <span className="text-hint text-xs">{tt('لا تشكيلة بعد', 'No lineup yet')}</span>
+        </div>
+      );
+    }
+    const filled: Record<string, SlotView> = {};
+    l.slots.filter(s => !s.is_substitute && s.position_slot).forEach(s => {
+      // First name only under the pitch photo — full names overflow the circle.
+      filled[s.position_slot!] = { playerId: s.player_id, playerName: firstName(s.player_name), photoPath: s.photo_path };
+    });
+    const subs = l.slots.filter(s => s.is_substitute && s.player_id != null);
+    const unpositioned = l.slots.filter(s => !s.is_substitute && !s.position_slot && s.player_id != null);
+    const hasFormation = l.formation && Object.keys(filled).length > 0;
+    return (
+      <Card className="overflow-hidden">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <div>
+            <p className="font-black text-text">{l.team_name}</p>
+            {l.formation && <p className="text-[11px] text-teal">{l.formation}</p>}
+          </div>
+          {canEdit(tid) && (
+            <Link href={`/lineup?match=${m.id}&team=${tid}`}
+              className="text-xs font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1">
+              {tt('تعديل', 'Edit')}
+            </Link>
+          )}
+        </div>
+        {hasFormation ? (
+          <div className="max-w-sm mx-auto px-2 pb-2">
+            <PitchView formation={l.formation} filled={filled} />
+          </div>
+        ) : unpositioned.length > 0 ? (
+          <div className="px-4 pb-3">
+            <p className="text-[11px] text-teal font-bold mb-2">{tt('الأساسيون', 'Starters')}</p>
+            <div className="flex flex-col gap-1.5">
+              {unpositioned.map(s => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <LogoAvatar src={s.photo_path} name={s.player_name} size={22} />
+                  <span className="text-xs font-bold text-text">{firstName(s.player_name)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="max-w-sm mx-auto px-2 pb-2">
+            <PitchView formation={l.formation} filled={filled} />
+          </div>
+        )}
+        {subs.length > 0 && (
+          <div className="border-t border-bdr/50 px-4 py-3">
+            <p className="text-[11px] text-teal font-bold mb-2">{tt('البدلاء', 'Substitutes')}</p>
+            <div className="flex flex-col gap-1.5">
+              {subs.map(s => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <LogoAvatar src={s.photo_path} name={s.player_name} size={22} />
+                  <span className="text-xs font-bold text-text">{firstName(s.player_name)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-4">
-      {hasLineups && (
+      {hasLineups && canViewCards && (
         <div className="flex items-center gap-1 bg-darkBg/60 border border-bdr/50 rounded-xl p-1 w-fit">
           {(['pitch', 'cards'] as const).map(v => (
             <button key={v} onClick={() => onView(v)}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${view === v ? 'bg-cardBg text-aqua shadow-sm' : 'text-teal hover:text-text'}`}>
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${effectiveView === v ? 'bg-cardBg text-aqua shadow-sm' : 'text-teal hover:text-text'}`}>
               {v === 'pitch' ? tt('الملعب', 'Pitch') : tt('🪪 بطاقات', '🪪 Cards')}
             </button>
           ))}
         </div>
       )}
 
-      {view === 'cards' ? <SheetView m={m} lineups={lineups} canDownload={canDownload} onDownload={onDownload} downloading={downloading} /> : (
+      {effectiveView === 'cards' ? (
+        <SheetView m={m} lineups={lineups} canDownload={canDownload} onDownload={onDownload} downloading={downloading} />
+      ) : (
         <div className="space-y-4">
-          {[m.home_team_id, m.away_team_id].map(tid => {
-            const l = lineups.find(x => x.team_id === tid);
-            if (!l) {
-              return canEdit(tid) ? (
-                <Link key={tid} href={`/lineup?match=${m.id}&team=${tid}`}
-                  className="flex items-center justify-between bg-cardBg border border-dashed border-aqua/40 rounded-2xl px-4 py-4 hover:bg-aqua/5 transition-colors">
-                  <div>
-                    <p className="font-bold text-text text-sm">{teamLabel(m, tid, nm)}</p>
-                    <p className="text-hint text-xs mt-0.5">{tt('لا تشكيلة بعد', 'No lineup yet')}</p>
-                  </div>
-                  <span className="text-aqua text-sm font-bold">{tt('إضافة التشكيلة ←', 'Add lineup →')}</span>
-                </Link>
-              ) : (
-                <div key={tid} className="flex items-center justify-between bg-cardBg border border-bdr rounded-2xl px-4 py-3 opacity-50">
-                  <p className="font-bold text-text text-sm">{teamLabel(m, tid)}</p>
-                  <span className="text-hint text-xs">{tt('لا تشكيلة بعد', 'No lineup yet')}</span>
-                </div>
-              );
-            }
-            const filled: Record<string, SlotView> = {};
-            l.slots.filter(s => !s.is_substitute && s.position_slot).forEach(s => {
-              filled[s.position_slot!] = { playerId: s.player_id, playerName: s.player_name, photoPath: s.photo_path };
-            });
-            const subs = l.slots.filter(s => s.is_substitute && s.player_id != null);
-            const unpositioned = l.slots.filter(s => !s.is_substitute && !s.position_slot && s.player_id != null);
-            const hasFormation = l.formation && Object.keys(filled).length > 0;
-            return (
-              <Card key={tid} className="overflow-hidden">
-                <div className="flex items-center justify-between px-4 pt-4 pb-2">
-                  <div>
-                    <p className="font-black text-text">{l.team_name}</p>
-                    {l.formation && <p className="text-[11px] text-teal">{l.formation}</p>}
-                  </div>
-                  {canEdit(tid) && (
-                    <Link href={`/lineup?match=${m.id}&team=${tid}`}
-                      className="text-xs font-bold text-aqua border border-aqua/40 rounded-lg px-3 py-1">
-                      {tt('تعديل', 'Edit')}
-                    </Link>
-                  )}
-                </div>
-                {hasFormation ? (
-                  <div className="max-w-sm mx-auto px-2 pb-2">
-                    <PitchView formation={l.formation} filled={filled} />
-                  </div>
-                ) : unpositioned.length > 0 ? (
-                  <div className="px-4 pb-3">
-                    <p className="text-[11px] text-teal font-bold mb-2">{tt('الأساسيون', 'Starters')}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {unpositioned.map(s => (
-                        <span key={s.id} className="flex items-center gap-1 bg-cardBg2 border border-bdr rounded-full ps-1 pe-2 py-0.5">
-                          <LogoAvatar src={s.photo_path} name={s.player_name} size={18} />
-                          <span className="text-[11px] font-bold text-text">{s.player_name}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="max-w-sm mx-auto px-2 pb-2">
-                    <PitchView formation={l.formation} filled={filled} />
-                  </div>
-                )}
-                {subs.length > 0 && (
-                  <div className="border-t border-bdr/50 px-4 py-3">
-                    <p className="text-[11px] text-teal font-bold mb-2">{tt('البدلاء', 'Substitutes')}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {subs.map(s => (
-                        <span key={s.id} className="flex items-center gap-1 bg-cardBg2 border border-bdr rounded-full ps-1 pe-2 py-0.5">
-                          <LogoAvatar src={s.photo_path} name={s.player_name} size={18} />
-                          <span className="text-[11px] font-bold text-text">{s.player_name}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+          {/* Team sub-tabs — one team's pitch at a time. */}
+          <div className="flex items-center gap-1 bg-darkBg/60 border border-bdr/50 rounded-xl p-1">
+            {[m.home_team_id, m.away_team_id].map(tid => (
+              <button key={tid} onClick={() => setPitchTeam(tid)}
+                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-bold truncate transition-all ${pitchTeam === tid ? 'bg-cardBg text-aqua shadow-sm' : 'text-teal hover:text-text'}`}>
+                {teamLabel(m, tid, nm)}
+              </button>
+            ))}
+          </div>
+          {renderTeamPitch(pitchTeam)}
         </div>
       )}
     </div>
@@ -1595,7 +1619,7 @@ function MatchContent() {
           {activeTab === 'events'
             ? <EventsTab m={m} />
             : <LineupTab m={m} lineups={lineups} canEdit={canEditSide}
-                view={view} onView={selectView} canDownload={canManage}
+                view={view} onView={selectView} canViewCards={canManage} canDownload={canManage}
                 onDownload={handleDownloadCards} downloading={printing} />}
         </div>
       )}
