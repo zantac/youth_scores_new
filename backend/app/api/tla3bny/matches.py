@@ -116,7 +116,14 @@ def list_matches():
 @tla3bny_bp.get("/matches/<int:match_id>")
 def get_match(match_id: int):
     match = Tla3bnyMatch.query.get_or_404(match_id)
-    return jsonify(match.to_dict(include_events=True))
+    resp = jsonify(match.to_dict(include_events=True))
+    # A match's score and events change during play, so keep the public cache
+    # window short — an organizer's edit should reach the public view within
+    # seconds, not the blueprint-default 30s + 120s stale window. Authed reads
+    # send no-store and bypass caching (handled by the blueprint after_request).
+    if not request.headers.get("Authorization"):
+        resp.headers["Cache-Control"] = "public, max-age=5, stale-while-revalidate=10"
+    return resp
 
 
 def _validate_match_teams(comp_id, age_id, home_id, away_id):
@@ -753,7 +760,11 @@ def eligible_lineup_players(match_id: int, team_id: int):
 @tla3bny_bp.get("/lineups/match/<int:match_id>")
 def get_match_lineups(match_id: int):
     lineups = Tla3bnyLineup.query.filter_by(match_id=match_id).all()
-    return jsonify([l.to_dict() for l in lineups])
+    resp = jsonify([l.to_dict() for l in lineups])
+    # Short public cache so an edited lineup surfaces promptly (see get_match).
+    if not request.headers.get("Authorization"):
+        resp.headers["Cache-Control"] = "public, max-age=5, stale-while-revalidate=10"
+    return resp
 
 
 def _match_timer_state(match: "Tla3bnyMatch") -> dict:
