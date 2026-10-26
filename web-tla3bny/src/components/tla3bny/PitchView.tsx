@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { mediaUrl } from '@/lib/tla3bnyApi';
 import { formationRowLabels, slotBase } from '@/lib/tla3bnyFormations';
 
@@ -12,11 +13,13 @@ export interface SlotView {
 /** Green football pitch with formation circles. Circles are tappable when
  *  `onTapSlot` is given (builder mode); otherwise it is a read-only display. */
 export default function PitchView({
-  formation, filled, onTapSlot,
+  formation, filled, onTapSlot, size = 40,
 }: {
   formation: string | null;
   filled: Record<string, SlotView>;
   onTapSlot?: (slotLabel: string) => void;
+  /** Diameter (px) of each player circle. */
+  size?: number;
 }) {
   const rows = formationRowLabels(formation);
   if (rows.length === 0) {
@@ -51,18 +54,13 @@ export default function PitchView({
               const has = d?.playerId != null;
               const url = mediaUrl(d?.photoPath);
               const tappable = !!onTapSlot;
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={!tappable}
-                  onClick={tappable ? () => onTapSlot!(label) : undefined}
-                  className={`flex flex-col items-center gap-0.5 min-w-0 ${tappable ? 'cursor-pointer' : 'cursor-default'}`}
-                >
+              const cls = 'flex flex-col items-center gap-0.5 min-w-0';
+              const content = (
+                <>
                   <span
                     className="grid place-items-center rounded-full border-2 overflow-hidden"
                     style={{
-                      width: 40, height: 40,
+                      width: size, height: size,
                       borderColor: 'rgba(255,255,255,0.85)',
                       backgroundColor: has ? '#fff' : 'rgba(255,255,255,0.18)',
                       backgroundImage: url ? `url(${url})` : 'none',
@@ -77,13 +75,31 @@ export default function PitchView({
                     )}
                   </span>
                   <span
-                    className="text-white text-[10px] font-semibold text-center truncate max-w-[64px]"
-                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}
+                    className="text-white text-[10px] font-semibold text-center truncate"
+                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)', maxWidth: size + 28 }}
                   >
                     {has ? d?.playerName : label}
                   </span>
-                </button>
+                </>
               );
+              // Builder mode → a tap-to-assign button. Otherwise a filled slot
+              // links to the player's profile; an empty slot is inert.
+              if (tappable) {
+                return (
+                  <button key={label} type="button" onClick={() => onTapSlot!(label)}
+                    className={`${cls} cursor-pointer`}>
+                    {content}
+                  </button>
+                );
+              }
+              if (has && d?.playerId != null) {
+                return (
+                  <Link key={label} href={`/player?id=${d.playerId}`} className={`${cls} cursor-pointer`}>
+                    {content}
+                  </Link>
+                );
+              }
+              return <div key={label} className={cls}>{content}</div>;
             })}
           </div>
         ))}
