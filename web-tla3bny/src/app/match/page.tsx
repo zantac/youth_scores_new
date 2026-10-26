@@ -99,6 +99,10 @@ function teamLabel(
  *  photos where horizontal space is tight. */
 const firstName = (n?: string | null) => (n ?? '').trim().split(/\s+/)[0] ?? '';
 
+/** First two tokens (first + second name) — keeps event rows from overflowing
+ *  on small screens while staying unambiguous. */
+const shortName = (n?: string | null) => (n ?? '').trim().split(/\s+/).slice(0, 2).join(' ');
+
 // ── ── ── PUBLIC TABS ── ── ──
 
 // One player tile used in the sheet/cards view.
@@ -465,26 +469,26 @@ function EventsTab({ m }: { m: TMatch }) {
       const tags = [
         e.is_own_goal && tt('عكسي', 'OG'),
         e.is_penalty && tt('ركلة جزاء', 'pen'),
-        assist && `🅰️ ${assist.player_name}`,
+        assist && `🅰️ ${shortName(assist.player_name)}`,
       ].filter(Boolean).join(' · ');
-      entries.push({ ...base, icon: '⚽', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—', sub: tags || undefined });
+      entries.push({ ...base, icon: '⚽', iconCls: 'bg-gold/15 text-gold', main: shortName(e.player_name) || '—', sub: tags || undefined });
     } else if (e.event_type === 'yellow') {
-      entries.push({ ...base, icon: '🟨', iconCls: 'bg-gold/15 text-gold', main: e.player_name ?? '—' });
+      entries.push({ ...base, icon: '🟨', iconCls: 'bg-gold/15 text-gold', main: shortName(e.player_name) || '—' });
     } else if (e.event_type === 'second_yellow') {
-      entries.push({ ...base, icon: '🟨🟥', iconCls: 'bg-loss/10 text-loss', main: e.player_name ?? '—', sub: tt('صفراء ثانية', '2nd yellow') });
+      entries.push({ ...base, icon: '🟨🟥', iconCls: 'bg-loss/10 text-loss', main: shortName(e.player_name) || '—', sub: tt('صفراء ثانية', '2nd yellow') });
     } else if (e.event_type === 'red') {
-      entries.push({ ...base, icon: '🟥', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—' });
+      entries.push({ ...base, icon: '🟥', iconCls: 'bg-loss/15 text-loss', main: shortName(e.player_name) || '—' });
     } else if (e.event_type === 'substitution_in') {
       const out = outFor.get(e.id);
       entries.push({
         ...base, icon: '🔁', iconCls: 'bg-win/15 text-win',
-        main: `⬆ ${e.player_name ?? '—'}`,
-        sub: out ? `⬇ ${out.player_name}` : undefined,
+        main: `⬆ ${shortName(e.player_name) || '—'}`,
+        sub: out ? `⬇ ${shortName(out.player_name)}` : undefined,
       });
     } else if (e.event_type === 'penalty_scored') {
-      entries.push({ ...base, icon: '✅', iconCls: 'bg-win/15 text-win', main: e.player_name ?? '—', sub: e.kick_order != null ? `#${e.kick_order}${e.is_winning_kick ? ' ★' : ''}` : undefined });
+      entries.push({ ...base, icon: '✅', iconCls: 'bg-win/15 text-win', main: shortName(e.player_name) || '—', sub: e.kick_order != null ? `#${e.kick_order}${e.is_winning_kick ? ' ★' : ''}` : undefined });
     } else if (e.event_type === 'penalty_missed') {
-      entries.push({ ...base, icon: '❌', iconCls: 'bg-loss/15 text-loss', main: e.player_name ?? '—', sub: e.kick_order != null ? `#${e.kick_order}` : undefined });
+      entries.push({ ...base, icon: '❌', iconCls: 'bg-loss/15 text-loss', main: shortName(e.player_name) || '—', sub: e.kick_order != null ? `#${e.kick_order}` : undefined });
     }
   }
 
