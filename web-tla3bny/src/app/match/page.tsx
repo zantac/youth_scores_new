@@ -364,7 +364,7 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
               {subs.map(s => (
                 <div key={s.id} className="flex items-center gap-2">
                   <LogoAvatar src={s.photo_path} name={s.player_name} size={22} />
-                  <span className="text-xs font-bold text-text">{firstName(s.player_name)}</span>
+                  <span className="text-xs font-bold text-text">{s.player_name}</span>
                 </div>
               ))}
             </div>
