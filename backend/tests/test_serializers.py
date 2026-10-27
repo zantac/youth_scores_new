@@ -180,3 +180,49 @@ def test_search_all_resolves_player_club():
         hit = next((pl for pl in res["players"] if pl["id"] == p.id), None)
         assert hit is not None
         assert hit["club"] and hit["club"]["ar"] == "الأهلي"
+
+
+def test_player_career_competition_carries_sector():
+    """A sectored competition's career row names the actual area, not just the
+    shared heading — so two stints under the same "Areas" title read apart."""
+    app, cid, home_id, away_id = _app_with_league()  # season = 2026
+    with app.app_context():
+        from app.models import (
+            Player, PlayerTeam, Competition, Stage, Match, MatchPlayer, Season,
+        )
+        from app.api import serializers
+
+        season = Season.query.first()
+        # Shared heading "Areas" (name) + a per-area sector the player featured in.
+        comp = Competition(
+            season_id=season.id, name_ar="المناطق", name_en="Areas",
+            sector_ar="منطقة القاهرة", sector_en="Cairo", sector_key="cairo",
+        )
+        db.session.add(comp)
+        db.session.flush()
+        stage = Stage(competition_id=comp.id, stage_order=1, type="league")
+        db.session.add(stage)
+        db.session.flush()
+        match = Match(
+            stage_id=stage.id, home_team_id=home_id, away_team_id=away_id,
+            status="completed", home_score=1, away_score=0,
+            match_date=datetime(2026, 4, 1, 15, 0),
+        )
+        db.session.add(match)
+        p = Player(full_name_ar="لاعب المناطق", birth_year=2009)
+        db.session.add(p)
+        db.session.flush()
+        db.session.add_all([
+            PlayerTeam(player_id=p.id, team_id=home_id,
+                       start_date=date(2026, 2, 1), end_date=None),
+            # A starter line-up row is the appearance that puts the comp on his card.
+            MatchPlayer(match_id=match.id, team_id=home_id, player_id=p.id,
+                        role="start", is_starter=True),
+        ])
+        db.session.commit()
+
+        full = serializers.player_full(p)
+        comps = [c for card in full["career"] for c in card["competitions"]]
+        row = next(c for c in comps if c["appearances"] == 1)
+        assert row["name"]["ar"] == "المناطق - منطقة القاهرة"
+        assert row["name"]["en"] == "Areas - Cairo"

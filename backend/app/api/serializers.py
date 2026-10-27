@@ -928,7 +928,12 @@ def player_full(p) -> dict:
     comp_season: dict[int, Season] = {}
     if all_comp_ids:
         for c in Competition.query.filter(Competition.id.in_(all_comp_ids)).all():
-            comp_name[c.id] = _loc(c.name_ar, c.name_en) or {"ar": "", "en": ""}
+            # Append the sector/area so the sectored competitions (whose name is a
+            # shared heading like "Areas") read as the actual area the player
+            # featured in, not the catch-all title. Mirrors _competition_title.
+            name_ar = " - ".join(p for p in (c.name_ar or c.name_en, c.sector_ar) if p)
+            name_en = " - ".join(p for p in (c.name_en or c.name_ar, c.sector_en or c.sector_ar) if p)
+            comp_name[c.id] = _loc(name_ar, name_en) or {"ar": "", "en": ""}
             comp_season[c.id] = c.season
 
     all_seasons = Season.query.order_by(Season.start_date.desc()).all()
