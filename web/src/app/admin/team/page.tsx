@@ -31,7 +31,7 @@ const statusLabel = (v: string) => STATUS.find(s => s.v === v)?.l ?? v;
 const COACH_ROLES = [
   { ar: 'المدير الفني',      en: 'Head Coach' },
   { ar: 'مدرب',              en: 'Coach' },
-  { ar: 'مساعد مدرب',        en: 'Assistant Coach' },
+  { ar: 'مدرب مساعد',        en: 'Assistant Coach' },
   { ar: 'مدرب حراس مرمي',    en: 'Goalkeeping Coach' },
   { ar: 'محلل اداء',         en: 'Performance Analyst' },
   { ar: 'المعد النفسي',      en: 'Sports Psychologist' },
