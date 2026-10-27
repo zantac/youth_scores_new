@@ -42,7 +42,7 @@ const COACH_ROLES = [
   { ar: 'مدلك',              en: 'Masseur' },
   { ar: 'مدرب الاحمال',      en: 'Fitness Coach' },
   { ar: 'اخصائي',            en: 'Specialist' },
-  { ar: 'عامل مهمات',        en: 'Kit Man' },
+  { ar: 'مسئول مهمات',       en: 'Kit Man' },
 ];
 
 // Canonical playing positions, in pitch order (keeper → attack). Offered as a
