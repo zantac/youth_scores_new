@@ -147,7 +147,7 @@ TLA3BNY_PUNISHMENT_TYPE = ("match_ban", "fine", "point_deduction", "disqualifica
 COACH_ROLE_ORDER = (
     "المدير الفني",
     "مدرب",
-    "مساعد مدرب",
+    "مدرب مساعد",
     "مدرب حراس مرمي",
     "اداري",
     "محلل اداء",
@@ -158,13 +158,17 @@ COACH_ROLE_ORDER = (
     "مدلك",
     "مدرب الاحمال",
     "اخصائي",
-    "عامل مهمات",
+    "مسئول مهمات",
 )
 # Existing rows use variant wordings for roles already in the list above; rank
 # them with their canonical equivalent instead of dumping them at the end.
 COACH_ROLE_ALIASES = {
+    # Former wording, renamed to "مدرب مساعد"; keep ranking any rows not yet migrated.
+    "مساعد مدرب": "مدرب مساعد",
     "مدرب الحراس": "مدرب حراس مرمي",
-    "مسئول المهمات": "عامل مهمات",
+    # Former wording, renamed to "مسئول مهمات"; keep ranking any rows not yet migrated.
+    "عامل مهمات": "مسئول مهمات",
+    "مسئول المهمات": "مسئول مهمات",
     "طبيب عظام": "طبيب",
     "محلل الاداء": "محلل اداء",
     "اخصائي الاصابات": "اخصائي اصابات",

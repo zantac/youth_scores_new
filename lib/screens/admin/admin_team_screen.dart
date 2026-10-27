@@ -17,7 +17,7 @@ TextStyle _ts() => TextStyle(color: AppColors.white, fontSize: 13);
 const _coachRoles = <(String, String)>[
   ('المدير الفني', 'Head Coach'),
   ('مدرب', 'Coach'),
-  ('مساعد مدرب', 'Assistant Coach'),
+  ('مدرب مساعد', 'Assistant Coach'),
   ('مدرب حراس مرمي', 'Goalkeeping Coach'),
   ('محلل اداء', 'Performance Analyst'),
   ('المعد النفسي', 'Sports Psychologist'),

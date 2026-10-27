@@ -31,7 +31,7 @@ const statusLabel = (v: string) => STATUS.find(s => s.v === v)?.l ?? v;
 const COACH_ROLES = [
   { ar: 'المدير الفني',      en: 'Head Coach' },
   { ar: 'مدرب',              en: 'Coach' },
-  { ar: 'مساعد مدرب',        en: 'Assistant Coach' },
+  { ar: 'مدرب مساعد',        en: 'Assistant Coach' },
   { ar: 'مدرب حراس مرمي',    en: 'Goalkeeping Coach' },
   { ar: 'محلل اداء',         en: 'Performance Analyst' },
   { ar: 'المعد النفسي',      en: 'Sports Psychologist' },
@@ -42,7 +42,7 @@ const COACH_ROLES = [
   { ar: 'مدلك',              en: 'Masseur' },
   { ar: 'مدرب الاحمال',      en: 'Fitness Coach' },
   { ar: 'اخصائي',            en: 'Specialist' },
-  { ar: 'عامل مهمات',        en: 'Kit Man' },
+  { ar: 'مسئول مهمات',       en: 'Kit Man' },
 ];
 
 // Canonical playing positions, in pitch order (keeper → attack). Offered as a
