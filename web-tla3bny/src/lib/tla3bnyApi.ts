@@ -483,6 +483,8 @@ export interface TMatch {
   age_category_id: number;
   age_category: string | null;
   competition_age_id: number | null;
+  /** The sub-competition's own name (e.g. "Class A"), when the organizer set one. */
+  sub_competition_name: string | null;
   stage_id: number | null;
   stage_name: string | null;
   stage_type: TStageType | null;

@@ -1578,6 +1578,9 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "age_category_id": self.age_category_id,
             "age_category": self.age_category.label if self.age_category else None,
             "competition_age_id": self.competition_age_id,
+            # The sub-competition's own display name (e.g. "Class A"), when set —
+            # distinct from the mother competition name above.
+            "sub_competition_name": rules.name if rules else None,
             "stage_id": self.stage_id,
             "stage_name": self.stage.name if self.stage else None,
             "stage_type": self.stage.type if self.stage else None,

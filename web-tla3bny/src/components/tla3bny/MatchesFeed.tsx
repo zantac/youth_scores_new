@@ -7,23 +7,33 @@ import { formatMatchDate, shiftDay, todayStr } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from './MatchRow';
 import { AdStrip } from './AdCard';
-import { EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { EmptyState, useTT } from './kit';
 
 /**
  * The home matches feed, built the way youthscores builds it: a window of
  * fixtures straddling today — older above, newer below — grouped by date and
  * then by competition, with the nearest date scrolled to on first paint and
  * "older / newer" buttons to widen the window.
- *
- * A featured match sits on top: whatever is live, else the next fixture, else
- * the most recent result.
  */
 
 const STEP = 200; // matches pulled per direction per "load more"
 
+// One row of matches in the feed: a single sub-competition on a given date.
+// Carries both the mother competition name and the sub-competition name so the
+// header can show the full context, and the sub-competition id (cage) so the
+// header links straight to that sub-competition's matches tab.
+interface FeedGroup {
+  key: string;
+  cageId: number | null;
+  competitionId: number;
+  competitionName: string | null;
+  subName: string | null;
+  ageCategory: string | null;
+  matches: TMatch[];
+}
 interface DateGroup {
   date: string;
-  competitions: { id: number; name: string | null; matches: TMatch[] }[];
+  groups: FeedGroup[];
 }
 
 // How many of a day's matches to show before the sponsor strip. The feed opens
@@ -32,66 +42,34 @@ interface DateGroup {
 // *between* matches rather than above them.
 const AD_AFTER_MATCHES = 3;
 
-function groupByDateThenCompetition(matches: TMatch[]): DateGroup[] {
+function groupByDateThenSubCompetition(matches: TMatch[]): DateGroup[] {
   const dates: DateGroup[] = [];
   const dateIdx = new Map<string, DateGroup>();
-  const compIdx = new Map<string, DateGroup['competitions'][number]>();
+  const groupIdx = new Map<string, FeedGroup>();
   for (const m of matches) {
     if (!m.date) continue;
     let dg = dateIdx.get(m.date);
-    if (!dg) { dg = { date: m.date, competitions: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
-    const key = `${m.date}:${m.competition_id}`;
-    let cg = compIdx.get(key);
-    if (!cg) {
-      cg = { id: m.competition_id, name: m.competition_name, matches: [] };
-      compIdx.set(key, cg);
-      dg.competitions.push(cg);
+    if (!dg) { dg = { date: m.date, groups: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
+    // One group per sub-competition (competition_age). Legacy matches with no
+    // sub-competition link fall back to grouping by their mother competition.
+    const key = `${m.date}:${m.competition_age_id ?? `c${m.competition_id}`}`;
+    let g = groupIdx.get(key);
+    if (!g) {
+      g = {
+        key,
+        cageId: m.competition_age_id ?? null,
+        competitionId: m.competition_id,
+        competitionName: m.competition_name,
+        subName: m.sub_competition_name,
+        ageCategory: m.age_category,
+        matches: [],
+      };
+      groupIdx.set(key, g);
+      dg.groups.push(g);
     }
-    cg.matches.push(m);
+    g.matches.push(m);
   }
   return dates;
-}
-
-function HeroCard({ m }: { m: TMatch }) {
-  const tt = useTT();
-  const nm = useName();
-  const { locale } = useApp();
-  const isLive = m.status === 'live';
-  const isFinished = m.status === 'completed' || m.status === 'finished';
-  return (
-    <Link href={`/match?id=${m.id}`}
-      className="relative block w-full overflow-hidden rounded-2xl border border-aqua/25 bg-gradient-to-br from-cardBg to-cardBg2 p-4 hover:border-aqua/50 transition-colors">
-      <div className="absolute inset-0 opacity-60 bg-[radial-gradient(70%_100%_at_100%_0,rgb(var(--gold-rgb)/0.12),transparent_55%),radial-gradient(70%_100%_at_0_0,rgb(var(--accent-rgb)/0.14),transparent_55%)]" />
-      <div className="relative flex items-center gap-2 mb-4">
-        {isLive
-          ? <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white bg-loss px-2.5 py-0.5 rounded-md">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />{tt('مباشرة', 'LIVE')}
-            </span>
-          : <span className="text-[11px] text-gold font-bold bg-gold/10 border border-gold/25 px-2.5 py-0.5 rounded-md">
-              {isFinished ? tt('أبرز مباراة', 'Featured') : tt('قادم', 'Upcoming')}
-            </span>}
-        <span className="text-hint text-[11px] truncate flex-1">
-          {[m.competition_name, m.age_category].filter(Boolean).join(' · ')}
-        </span>
-      </div>
-      <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-center">
-        <div className="flex flex-col items-center gap-2">
-          <LogoAvatar src={m.home_logo} name={nm(m.home_team_name, m.home_team_name_en)} size={56} />
-          <span className="text-sm font-bold leading-tight">{nm(m.home_team_name, m.home_team_name_en)}</span>
-        </div>
-        <div className="flex flex-col items-center min-w-[76px]">
-          {(isFinished || isLive) && m.home_score != null
-            ? <span className="text-3xl font-extrabold tnum">{m.home_score} - {m.away_score}</span>
-            : <span className="text-2xl font-extrabold text-aqua tnum">{m.time || '--:--'}</span>}
-          <span className="text-hint text-[10px] mt-1">{formatMatchDate(m.date ?? '', locale)}</span>
-        </div>
-        <div className="flex flex-col items-center gap-2">
-          <LogoAvatar src={m.away_logo} name={nm(m.away_team_name, m.away_team_name_en)} size={56} />
-          <span className="text-sm font-bold leading-tight">{nm(m.away_team_name, m.away_team_name_en)}</span>
-        </div>
-      </div>
-    </Link>
-  );
 }
 
 export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
@@ -149,13 +127,9 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
 
   // Ascending: oldest → today → newest.
   const ascending = useMemo(() => [...past].reverse().concat(future), [past, future]);
-  const dateGroups = useMemo(() => groupByDateThenCompetition(ascending), [ascending]);
+  const dateGroups = useMemo(() => groupByDateThenSubCompetition(ascending), [ascending]);
 
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
-  const featured = useMemo(
-    () => [...future, ...past].find(m => m.status === 'live') || future[0] || past[0] || null,
-    [future, past],
-  );
 
   // Land on the date nearest today once, after the first load — later loads
   // must not yank the view.
@@ -196,8 +170,6 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
 
   return (
     <div className="space-y-5">
-      {featured && <HeroCard m={featured} />}
-
       {hasMoreOlder && (
         <button onClick={loadOlder} disabled={loading}
           className="w-full bg-cardBg border border-aqua/30 text-aqua font-bold text-sm py-3 rounded-xl active:bg-aqua/10 disabled:opacity-50">
@@ -206,7 +178,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
       )}
 
       {dateGroups.map(dg => {
-        const dayCount = dg.competitions.reduce((s, c) => s + c.matches.length, 0);
+        const dayCount = dg.groups.reduce((s, g) => s + g.matches.length, 0);
         // After how many of this day's matches the strip appears: a few in, or
         // the middle of a short day, but never after the last match.
         const adAfter = ads.length ? Math.min(AD_AFTER_MATCHES, Math.ceil(dayCount / 2)) : -1;
@@ -220,26 +192,35 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
               </h3>
               <span className="flex-1 h-px bg-bdr" />
             </div>
-            {dg.competitions.map(cg => (
-              <div key={cg.id} className="space-y-2">
-                <Link href={`/competitions?comp=${cg.id}${cg.matches[0]?.competition_age_id ? `&cage=${cg.matches[0].competition_age_id}` : ''}&tab=matches`}
-                  className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
-                  <span className="text-base">🏆</span>
-                  <span className="flex-1 text-aqua font-bold text-xs leading-tight">{cg.name}</span>
-                  <span className="text-aqua text-sm">{locale === 'ar' ? '‹' : '›'}</span>
-                </Link>
-                {cg.matches.map(m => {
-                  seen += 1;
-                  const showAd = seen === adAfter;
-                  return (
-                    <Fragment key={m.id}>
-                      <MatchRow m={m} />
-                      {showAd && <AdStrip ads={ads} className="py-1" />}
-                    </Fragment>
-                  );
-                })}
-              </div>
-            ))}
+            {dg.groups.map(g => {
+              // Prefer the sub-competition's own name; fall back to the age so
+              // two unnamed brackets of one competition stay distinguishable.
+              const subtitle = g.subName || g.ageCategory;
+              const href = `/competitions?comp=${g.competitionId}${g.cageId ? `&cage=${g.cageId}` : ''}&tab=matches`;
+              return (
+                <div key={g.key} className="space-y-2">
+                  <Link href={href}
+                    className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
+                    <span className="text-base">🏆</span>
+                    <span className="flex-1 min-w-0 leading-tight">
+                      <span className="block text-aqua font-bold text-xs truncate">{g.competitionName}</span>
+                      {subtitle && <span className="block text-teal text-[11px] truncate">{subtitle}</span>}
+                    </span>
+                    <span className="text-aqua text-sm shrink-0">{locale === 'ar' ? '‹' : '›'}</span>
+                  </Link>
+                  {g.matches.map(m => {
+                    seen += 1;
+                    const showAd = seen === adAfter;
+                    return (
+                      <Fragment key={m.id}>
+                        <MatchRow m={m} />
+                        {showAd && <AdStrip ads={ads} className="py-1" />}
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         );
       })}
