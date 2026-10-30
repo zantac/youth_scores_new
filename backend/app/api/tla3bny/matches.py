@@ -343,6 +343,46 @@ def enter_result(match_id: int):
                 400,
             )
 
+    # Substitution integrity. tla3bny is all friendly football, so every named
+    # bench player may come on — but a player who leaves the pitch can't return,
+    # only bench players may enter, and nobody enters or leaves twice. The manage
+    # tab already filters its pickers this way; re-check here so a direct API call
+    # can't record an impossible swap. Only enforced once a lineup is submitted —
+    # without one there's no field/bench to validate against.
+    sub_evs = [
+        e for e in events
+        if e.get("event_type") in ("substitution_in", "substitution_out")
+    ]
+    if sub_evs:
+        slots_by_team: dict[int, tuple[set[int], set[int]]] = {}
+        for lu in Tla3bnyLineup.query.filter_by(match_id=match.id).all():
+            starters = {s.player_id for s in lu.slots
+                        if s.player_id and not s.is_substitute}
+            bench = {s.player_id for s in lu.slots
+                     if s.player_id and s.is_substitute}
+            slots_by_team[lu.team_id] = (starters, bench)
+        for tid in valid_team_ids:
+            starters, bench = slots_by_team.get(tid, (set(), set()))
+            if not starters and not bench:
+                continue  # no lineup for this team — nothing to validate against
+            ins = [p for p in (
+                _int(e.get("player_id")) for e in sub_evs
+                if e.get("event_type") == "substitution_in"
+                and _int(e.get("team_id")) == tid) if p is not None]
+            outs = [p for p in (
+                _int(e.get("player_id")) for e in sub_evs
+                if e.get("event_type") == "substitution_out"
+                and _int(e.get("team_id")) == tid) if p is not None]
+            if len(set(ins)) != len(ins):
+                return _err("لا يمكن أن يدخل اللاعب أكثر من مرة", 400)
+            if len(set(outs)) != len(outs):
+                return _err("لا يمكن أن يخرج اللاعب أكثر من مرة", 400)
+            if any(pid not in bench for pid in ins):
+                return _err("اللاعب الداخل يجب أن يكون من البدلاء", 400)
+            on_field = starters | set(ins)
+            if any(pid not in on_field for pid in outs):
+                return _err("اللاعب الخارج يجب أن يكون في أرض الملعب", 400)
+
     match.home_score = _clamp_int(data.get("home_score"), 0, 99)
     match.away_score = _clamp_int(data.get("away_score"), 0, 99)
     # Extra time — key present means ET was played; absent means it wasn't.

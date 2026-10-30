@@ -656,6 +656,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // Removing an event saves straight away too, so there's no separate "save" step
   // to remember — every change in the event sections is persisted immediately.
   const removeEv = (id: number) => persistEvents(events.filter(e => e.id !== id));
+  // Remove several events in a single save — used to drop a substitution's
+  // in + out rows together without two round-trips racing on stale state.
+  const removeEvs = (ids: number[]) => persistEvents(events.filter(e => !ids.includes(e.id)));
 
   // Roster for event forms
   const [rosters, setRosters] = useState<Record<number, TCompPlayer[]>>({});
@@ -1048,15 +1051,11 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       )}
 
       {/* 7. Substitutions */}
-      <EventSection
-        title={tt('التبديلات', 'Substitutions')}
-        icon="🔁"
+      <SubSection
         events={events}
-        types={['substitution_in', 'substitution_out']}
         m={m}
-        rosters={rosters}
         lineups={lineups}
-        onRemove={removeEv}
+        onRemove={removeEvs}
         onSave={addAndSaveEvents}
         saving={eventsBusy}
         ok={eventsOk}
@@ -1382,6 +1381,156 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
         <button onClick={save} disabled={saving || !evPlayer}
           className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
           {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ', 'Save')}
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+// A substitution is one action: pick who comes off and who comes on together,
+// then save the matching out + in events in a single click (like youthscores).
+// The two pickers are filtered so the organizer can only pick a legal swap —
+// "out" lists players on the pitch, "in" lists bench players who haven't played,
+// so a player who has left can never be chosen again.
+function SubSection({ events, m, lineups, onRemove, onSave, saving, ok, tt }: {
+  events: TMatchEvent[]; m: TMatch; lineups: TLineup[];
+  onRemove: (ids: number[]) => void;
+  onSave: (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => void;
+  saving: boolean; ok: boolean;
+  tt: (ar: string, en: string) => string;
+}) {
+  const nm = useName();
+  const homeName = nm(m.home_team_name, m.home_team_name_en);
+  const awayName = nm(m.away_team_name, m.away_team_name_en);
+
+  const [evTeam, setEvTeam] = useState(String(m.home_team_id));
+  const [outPlayer, setOutPlayer] = useState('');
+  const [inPlayer, setInPlayer] = useState('');
+  const [evMinute, setEvMinute] = useState('');
+  const [isEvET, setIsEvET] = useState(false);
+
+  const teamId = Number(evTeam);
+  const slots = (lineups.find(l => l.team_id === teamId)?.slots ?? []).filter(s => s.player_id != null);
+  const hasLineup = slots.length > 0;
+
+  // Name lookup across the lineup slots and any already-recorded sub events.
+  const nameById = new Map<number, string>();
+  slots.forEach(s => nameById.set(s.player_id!, s.player_name ?? ''));
+  events.filter(e => e.team_id === teamId && e.player_id != null)
+    .forEach(e => { if (!nameById.has(e.player_id!)) nameById.set(e.player_id!, e.player_name ?? ''); });
+
+  const starterIds = new Set(slots.filter(s => !s.is_substitute).map(s => s.player_id!));
+  const benchIds = slots.filter(s => s.is_substitute).map(s => s.player_id!);
+  const subbedOut = new Set(events.filter(e => e.team_id === teamId && e.event_type === 'substitution_out' && e.player_id != null).map(e => e.player_id!));
+  const subbedIn = new Set(events.filter(e => e.team_id === teamId && e.event_type === 'substitution_in' && e.player_id != null).map(e => e.player_id!));
+
+  // Out: anyone currently on the pitch — a starter or a player who came on —
+  // who hasn't already been taken off.
+  const outOptions = [...new Set([...starterIds, ...subbedIn])]
+    .filter(id => !subbedOut.has(id))
+    .map(id => ({ player_id: id, player_name: nameById.get(id) ?? '' }));
+  // In: bench players who haven't played yet (not on, not already taken off).
+  const inOptions = benchIds
+    .filter(id => !subbedIn.has(id) && !subbedOut.has(id))
+    .map(id => ({ player_id: id, player_name: nameById.get(id) ?? '' }));
+
+  // Pair recorded in/out events for display (by team + minute, as elsewhere).
+  const consumed = new Set<number>();
+  const pairs = events.filter(e => e.event_type === 'substitution_in').map(inEv => {
+    const outEv = events.find(o => o.event_type === 'substitution_out'
+      && o.team_id === inEv.team_id && o.minute === inEv.minute && !consumed.has(o.id));
+    if (outEv) consumed.add(outEv.id);
+    return { inEv, outEv };
+  });
+  // Any out with no matching in (e.g. legacy one-sided entries) still shows.
+  const orphanOuts = events.filter(e => e.event_type === 'substitution_out' && !consumed.has(e.id));
+
+  const save = () => {
+    if (!outPlayer || !inPlayer) return;
+    const minute = evMinute ? Number(evMinute) : null;
+    const mk = (type: EvType, pid: number): Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'> => ({
+      event_type: type, team_id: teamId, player_id: pid, player_name: nameById.get(pid) ?? '',
+      minute, is_extra_time: isEvET, is_own_goal: false, is_penalty: false,
+      kick_order: null, is_winning_kick: false,
+    });
+    onSave([mk('substitution_out', Number(outPlayer)), mk('substitution_in', Number(inPlayer))]);
+    setOutPlayer(''); setInPlayer(''); setEvMinute(''); setIsEvET(false);
+  };
+
+  const teamName = (tid: number | null) => (tid === m.home_team_id ? homeName : awayName);
+
+  return (
+    <Card className="p-4 space-y-3">
+      <p className="font-black text-text text-sm border-b border-bdr/50 pb-2">🔁 {tt('التبديلات', 'Substitutions')}</p>
+
+      {(pairs.length > 0 || orphanOuts.length > 0) && (
+        <div className="space-y-1">
+          {pairs.map(({ inEv, outEv }) => (
+            <div key={inEv.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+              <span className="text-base">🔁</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-win text-xs font-bold truncate">⬆ {inEv.player_name}</p>
+                {outEv && <p className="text-loss text-[11px] font-bold truncate">⬇ {outEv.player_name}</p>}
+              </div>
+              {inEv.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+              <span className="text-[11px] text-hint tabular-nums">
+                {teamName(inEv.team_id).slice(0, 8)}
+                {inEv.minute != null && ` · ${inEv.minute}'`}
+              </span>
+              <button onClick={() => onRemove([inEv.id, outEv?.id].filter((x): x is number => x != null))}
+                className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+            </div>
+          ))}
+          {orphanOuts.map(o => (
+            <div key={o.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+              <span className="text-base">🔻</span>
+              <span className="text-loss text-xs flex-1 truncate font-bold">⬇ {o.player_name}</span>
+              <span className="text-[11px] text-hint tabular-nums">
+                {teamName(o.team_id).slice(0, 8)}
+                {o.minute != null && ` · ${o.minute}'`}
+              </span>
+              <button onClick={() => onRemove([o.id])} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={tt('الفريق', 'Team')}>
+            <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setOutPlayer(''); setInPlayer(''); }} className={inputCls}>
+              <option value={m.home_team_id}>{homeName}</option>
+              <option value={m.away_team_id}>{awayName}</option>
+            </select>
+          </Field>
+          <Field label={tt('الدقيقة', 'Minute')}>
+            <input type="number" value={evMinute} onChange={e => setEvMinute(e.target.value)} min={1} max={120} placeholder="45" className={inputCls} />
+          </Field>
+          <Field label={tt('خارج ⬇', 'Out ⬇')}>
+            <select value={outPlayer} onChange={e => setOutPlayer(e.target.value)} disabled={!hasLineup} className={inputCls}>
+              <option value="">—</option>
+              {outOptions.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+            </select>
+          </Field>
+          <Field label={tt('داخل ⬆', 'In ⬆')}>
+            <select value={inPlayer} onChange={e => setInPlayer(e.target.value)} disabled={!hasLineup} className={inputCls}>
+              <option value="">—</option>
+              {inOptions.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <label className="flex items-center gap-1.5 text-[11px] text-teal font-bold cursor-pointer">
+          <input type="checkbox" checked={isEvET} onChange={e => setIsEvET(e.target.checked)} />
+          {tt('في الوقت الإضافي', 'Extra time')}
+        </label>
+        {!hasLineup ? (
+          <p className="text-hint text-[11px]">{tt('أضِف تشكيلة الفريق أولًا لتسجيل التبديلات.', 'Submit the team lineup first to record substitutions.')}</p>
+        ) : inOptions.length === 0 && (
+          <p className="text-hint text-[11px]">{tt('لا يوجد لاعبون على مقاعد البدلاء يمكنهم الدخول.', 'No bench players left to bring on.')}</p>
+        )}
+        <button onClick={save} disabled={saving || !outPlayer || !inPlayer}
+          className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
+          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ التبديل', 'Save substitution')}
         </button>
       </div>
     </Card>
