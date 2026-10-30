@@ -11,7 +11,7 @@ import { LogoAvatar, useTT, useName } from './kit';
  * side, the score (or kick-off time and a live countdown) in the middle, and
  * the winner's name picked out in gold once it is over.
  */
-export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?: boolean }) {
+export default function MatchRow({ m, showComp = false, hideRound = false }: { m: TMatch; showComp?: boolean; hideRound?: boolean }) {
   const { locale } = useApp();
   const tt = useTT();
   const nm = useName();
@@ -42,10 +42,10 @@ export default function MatchRow({ m, showComp = false }: { m: TMatch; showComp?
   return (
     <Link href={`/match?id=${m.id}`}
       className="block bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl px-3 py-3 mb-2 hover:border-aqua/30 hover:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.6)] active:opacity-80 transition-all">
-      {(context || m.round) && (
+      {(context || (!hideRound && m.round)) && (
         <div className="flex items-center justify-between text-[11px] mb-2 gap-2">
           <span className="font-bold text-teal truncate">{context}</span>
-          {m.round && <span className="text-hint shrink-0">{m.round}</span>}
+          {!hideRound && m.round && <span className="text-hint shrink-0">{m.round}</span>}
         </div>
       )}
 
