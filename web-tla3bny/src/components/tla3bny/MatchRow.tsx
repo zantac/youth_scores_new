@@ -36,7 +36,10 @@ export default function MatchRow({ m, showComp = false, hideRound = false }: { m
     return () => clearInterval(id);
   }, [finished, live, postponed, cancelled, m.date, m.time, locale]);
 
-  const context = [m.age_category, showComp ? m.competition_name : null, m.stage_name, m.group_name]
+  // The sub-competition name rides along only where the competition context is
+  // shown (team/player pages); the home feed carries it in the group header, so
+  // it stays off the row there to avoid duplication.
+  const context = [m.age_category, showComp ? m.competition_name : null, showComp ? m.sub_competition_name : null, m.stage_name, m.group_name]
     .filter(Boolean).join(' · ');
 
   return (
