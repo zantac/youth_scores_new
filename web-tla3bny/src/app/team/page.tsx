@@ -1,8 +1,9 @@
 'use client';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { tTeam, tMatches, T_BASE, type TTeam, type TMatch } from '@/lib/tla3bnyApi';
+import { todayStr } from '@/lib/utils';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
@@ -76,6 +77,46 @@ function TeamContent() {
     if (!id) return;
     tMatches({ team_id: id, order: 'asc' }).then(setMatches).catch(() => setMatches([]));
   }, [id]);
+
+  // The match to land on in the Matches tab: the first one today or later, else
+  // the most recent (matches come ascending by date).
+  const [today, setToday] = useState<string | null>(null);
+  useEffect(() => { setToday(todayStr()); }, []);
+  const anchorId = useMemo(() => {
+    if (!today || matches.length === 0) return null;
+    const upcoming = matches.find(m => m.date && m.date >= today);
+    return (upcoming ?? matches[matches.length - 1]).id;
+  }, [today, matches]);
+
+  // Centre that match once the Matches tab is open, and hold it there for a brief
+  // settle window so late layout shifts (team logos, ad-free rows reflowing) can't
+  // park the view elsewhere. Stop as soon as the user scrolls; re-arm on leaving.
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const scrollLocked = useRef(false);
+  useEffect(() => {
+    if (tab !== 'matches') { scrollLocked.current = false; return; }
+    if (scrollLocked.current || anchorId == null) return;
+    const lock = () => { scrollLocked.current = true; };
+    const opts: AddEventListenerOptions = { passive: true };
+    window.addEventListener('wheel', lock, opts);
+    window.addEventListener('touchmove', lock, opts);
+    window.addEventListener('keydown', lock);
+    let frame = 0;
+    let raf = 0;
+    const tick = () => {
+      if (scrollLocked.current) return;
+      anchorRef.current?.scrollIntoView({ block: 'start' });
+      if (++frame < 45) raf = requestAnimationFrame(tick);  // ~0.75s at 60fps
+      else scrollLocked.current = true;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('wheel', lock, opts);
+      window.removeEventListener('touchmove', lock, opts);
+      window.removeEventListener('keydown', lock);
+    };
+  }, [tab, anchorId]);
 
   if (loading) return <Spinner />;
   if (notFound || !t) return <EmptyState icon="🔍" text={tt('الفريق غير موجود', 'Team not found')} />;
@@ -196,7 +237,11 @@ function TeamContent() {
           )}
           {matches.length === 0
             ? <EmptyState icon="📋" text={tt('لا مباريات بعد', 'No matches yet')} />
-            : matches.map(m => <MatchRow key={m.id} m={m} showComp />)
+            : matches.map(m => (
+                <div key={m.id} ref={m.id === anchorId ? anchorRef : undefined} className="scroll-mt-20">
+                  <MatchRow m={m} showComp />
+                </div>
+              ))
           }
         </div>
       )}

@@ -135,15 +135,36 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
 
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
 
-  // Land on the date nearest today once, after the first load — later loads
-  // must not yank the view.
+  // Land on the date nearest today after the first load, and keep it centred for
+  // a brief settle window: content above the feed renders late (the news section
+  // and its images, team logos, ad strips), each shift nudging the anchor — a
+  // single scroll would leave the view parked on older matches. Stop the instant
+  // the user takes over, and never re-centre on later refreshes.
   const anchorRef = useRef<HTMLDivElement | null>(null);
-  const didScroll = useRef(false);
+  const scrollLocked = useRef(false);
   useEffect(() => {
-    if (didScroll.current || loading || !anchorDate || !anchorRef.current) return;
-    didScroll.current = true;
-    const el = anchorRef.current;
-    requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+    if (scrollLocked.current || loading || !anchorDate) return;
+    const lock = () => { scrollLocked.current = true; };
+    const opts: AddEventListenerOptions = { passive: true };
+    window.addEventListener('wheel', lock, opts);
+    window.addEventListener('touchmove', lock, opts);
+    window.addEventListener('keydown', lock);
+    let frame = 0;
+    let raf = 0;
+    const tick = () => {
+      if (scrollLocked.current) return;
+      anchorRef.current?.scrollIntoView({ block: 'start' });
+      // ~0.75s at 60fps — long enough for the news block and images to settle.
+      if (++frame < 45) raf = requestAnimationFrame(tick);
+      else scrollLocked.current = true;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('wheel', lock, opts);
+      window.removeEventListener('touchmove', lock, opts);
+      window.removeEventListener('keydown', lock);
+    };
   }, [loading, anchorDate]);
 
   // Prepending older matches shifts everything down; keep the viewport steady.

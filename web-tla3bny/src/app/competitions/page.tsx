@@ -245,9 +245,9 @@ function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
 
   useEffect(() => { setToday(todayStr()); }, []);
 
-  const didScroll = useRef(false);
+  const scrollLocked = useRef(false);
   useEffect(() => {
-    didScroll.current = false;   // re-scroll when the competition/age changes
+    scrollLocked.current = false;   // re-scroll when the competition/age changes
     setMatches(null);
     tMatches({ competition_id: compId, competition_age_id: cageId, order: 'asc' })
       .then(setMatches).catch(() => setMatches([]));
@@ -290,13 +290,33 @@ function MatchesTab({ compId, cageId }: { compId: number; cageId: number }) {
     return upcoming ? upcoming.date : days[days.length - 1].date;
   }, [today, days]);
 
-  // Scroll that day into view once, after the matches land.
+  // Land on that day after the matches load, and keep it centred for a brief
+  // settle window: ad strips and team logos load in late and nudge the anchor,
+  // so a single scroll would leave the view parked elsewhere. Stop the instant
+  // the user scrolls; re-armed only when the sub-competition changes.
   const anchorRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (didScroll.current || !anchorDate || !anchorRef.current) return;
-    didScroll.current = true;
-    const el = anchorRef.current;
-    requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
+    if (scrollLocked.current || !anchorDate) return;
+    const lock = () => { scrollLocked.current = true; };
+    const opts: AddEventListenerOptions = { passive: true };
+    window.addEventListener('wheel', lock, opts);
+    window.addEventListener('touchmove', lock, opts);
+    window.addEventListener('keydown', lock);
+    let frame = 0;
+    let raf = 0;
+    const tick = () => {
+      if (scrollLocked.current) return;
+      anchorRef.current?.scrollIntoView({ block: 'start' });
+      if (++frame < 45) raf = requestAnimationFrame(tick);  // ~0.75s at 60fps
+      else scrollLocked.current = true;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('wheel', lock, opts);
+      window.removeEventListener('touchmove', lock, opts);
+      window.removeEventListener('keydown', lock);
+    };
   }, [anchorDate]);
 
   if (!matches) return <Spinner />;
