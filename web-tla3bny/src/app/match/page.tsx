@@ -758,19 +758,26 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     setLineupWarnings([]);
     setErr(null); setResultBusy(true);
     try {
-      // 1) Match info first.
-      const info = await tUpdateMatch(token, m.id, {
-        date: date || undefined, time: time || undefined,
-        venue: venue || undefined, round: round || undefined,
-        status, note: note || undefined,
-        stage_id: stageId ? Number(stageId) : null,
-        group_id: groupId ? Number(groupId) : null,
-      });
-      // 2) Score + events — but a cancelled/postponed match rejects a result
-      //    server-side, so only send it otherwise. tEnterResult's response carries
-      //    the events (info's does not), so prefer it; else keep events in state.
-      let updated: TMatch;
-      if (status !== 'cancelled' && status !== 'postponed') {
+      // A cancelled/postponed match rejects a result server-side, so only enter
+      // one otherwise.
+      const hasResult = status !== 'cancelled' && status !== 'postponed';
+      // Convenience auto-finish: entering a final score on a match that is still
+      // scheduled marks it completed. But an explicit status change — e.g.
+      // reverting a completed match back to scheduled — must win, so only
+      // auto-finish when the match was scheduled and left scheduled. (The server
+      // also auto-finishes a scheduled match on result entry; by deciding here
+      // and setting the status last, the organizer's choice is authoritative.)
+      const finalStatus =
+        status === 'scheduled' && m.status === 'scheduled' &&
+        homeScore !== '' && awayScore !== ''
+          ? 'completed'
+          : status;
+
+      // 1) Score + events first. Entering a result can flip a scheduled match to
+      //    completed server-side, so it must run *before* the status update —
+      //    then the explicit status below is the final word.
+      let savedEvents: TMatchEvent[] = m.events ?? [];
+      if (hasResult) {
         const body: Record<string, unknown> = {
           home_score: homeScore === '' ? null : Number(homeScore),
           away_score: awayScore === '' ? null : Number(awayScore),
@@ -784,13 +791,21 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           body.home_score_pen = homePen === '' ? null : Number(homePen);
           body.away_score_pen = awayPen === '' ? null : Number(awayPen);
         }
-        updated = await tEnterResult(token, m.id, body);
-      } else {
-        updated = { ...info, events: m.events };
+        const res = await tEnterResult(token, m.id, body);
+        savedEvents = res.events ?? savedEvents;
       }
+      // 2) Match info + status last, so the organizer's explicit status sticks.
+      //    tUpdateMatch's response omits events, so carry them over from above.
+      const info = await tUpdateMatch(token, m.id, {
+        date: date || undefined, time: time || undefined,
+        venue: venue || undefined, round: round || undefined,
+        status: finalStatus, note: note || undefined,
+        stage_id: stageId ? Number(stageId) : null,
+        group_id: groupId ? Number(groupId) : null,
+      });
       clearDraft(m.id);
       draftRef.current.dirty = false;
-      onUpdate(updated);
+      onUpdate({ ...info, events: savedEvents });
       setMatchOk(true); setTimeout(() => setMatchOk(false), 1500);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setResultBusy(false); }
