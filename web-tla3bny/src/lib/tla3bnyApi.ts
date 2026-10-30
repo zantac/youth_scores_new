@@ -1294,16 +1294,16 @@ export interface TPlayerAchievements {
 export interface TTeamHonours { titles: TAward[]; player_awards: TAward[] }
 
 // public honours reads
-export const tCompetitionAwards = (compId: number) =>
-  get<TAward[]>(`/competitions/${compId}/awards`);
+export const tCompetitionAwards = (compId: number, token?: string | null) =>
+  get<TAward[]>(`/competitions/${compId}/awards`, token);
 export const tPlayerAchievements = (playerId: number) =>
   get<TPlayerAchievements>(`/players/${playerId}/achievements`);
 export const tTeamHonours = (teamId: number) =>
   get<TTeamHonours>(`/teams/${teamId}/honours`);
 export const tAcademyHonours = (academyId: number) =>
   get<TAward[]>(`/academies/${academyId}/honours`);
-export const tTeamOfRoundAll = (compId: number, cageId?: number) =>
-  get<TTeamOfRound[]>(`/competitions/${compId}/team-of-round${qs({ competition_age_id: cageId })}`);
+export const tTeamOfRoundAll = (compId: number, cageId?: number, token?: string | null) =>
+  get<TTeamOfRound[]>(`/competitions/${compId}/team-of-round${qs({ competition_age_id: cageId })}`, token);
 export const tTeamOfRound = (compId: number, round: string, cageId?: number) =>
   get<TTeamOfRound | null>(`/competitions/${compId}/team-of-round${qs({ competition_age_id: cageId, round })}`);
 
