@@ -19,9 +19,10 @@ import { EmptyState, useTT } from './kit';
 const STEP = 200; // matches pulled per direction per "load more"
 
 // One row of matches in the feed: a single sub-competition on a given date.
-// Carries both the mother competition name and the sub-competition name so the
-// header can show the full context, and the sub-competition id (cage) so the
-// header links straight to that sub-competition's matches tab.
+// Carries the mother competition name, the sub-competition name and the round so
+// the header can show the full context, plus the sub-competition id (cage) so the
+// header links straight to that sub-competition's matches tab. One group per
+// (sub-competition, round) so matches are grouped by round within a day.
 interface FeedGroup {
   key: string;
   cageId: number | null;
@@ -29,6 +30,7 @@ interface FeedGroup {
   competitionName: string | null;
   subName: string | null;
   ageCategory: string | null;
+  round: string | null;
   matches: TMatch[];
 }
 interface DateGroup {
@@ -50,9 +52,10 @@ function groupByDateThenSubCompetition(matches: TMatch[]): DateGroup[] {
     if (!m.date) continue;
     let dg = dateIdx.get(m.date);
     if (!dg) { dg = { date: m.date, groups: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
-    // One group per sub-competition (competition_age). Legacy matches with no
-    // sub-competition link fall back to grouping by their mother competition.
-    const key = `${m.date}:${m.competition_age_id ?? `c${m.competition_id}`}`;
+    // One group per (sub-competition, round) so the feed groups a day's matches
+    // by round. Legacy matches with no sub-competition link fall back to their
+    // mother competition.
+    const key = `${m.date}:${m.competition_age_id ?? `c${m.competition_id}`}:${m.round ?? ''}`;
     let g = groupIdx.get(key);
     if (!g) {
       g = {
@@ -62,6 +65,7 @@ function groupByDateThenSubCompetition(matches: TMatch[]): DateGroup[] {
         competitionName: m.competition_name,
         subName: m.sub_competition_name,
         ageCategory: m.age_category,
+        round: m.round ?? null,
         matches: [],
       };
       groupIdx.set(key, g);
@@ -193,9 +197,9 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
               <span className="flex-1 h-px bg-bdr" />
             </div>
             {dg.groups.map(g => {
-              // Prefer the sub-competition's own name; fall back to the age so
-              // two unnamed brackets of one competition stay distinguishable.
-              const subtitle = g.subName || g.ageCategory;
+              // Second line: the sub-competition's own name (falling back to the
+              // age so two unnamed brackets stay distinguishable), then the round.
+              const subtitle = [g.subName || g.ageCategory, g.round].filter(Boolean).join(' · ');
               const href = `/competitions?comp=${g.competitionId}${g.cageId ? `&cage=${g.cageId}` : ''}&tab=matches`;
               return (
                 <div key={g.key} className="space-y-2">
@@ -213,7 +217,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
                     const showAd = seen === adAfter;
                     return (
                       <Fragment key={m.id}>
-                        <MatchRow m={m} />
+                        <MatchRow m={m} hideRound />
                         {showAd && <AdStrip ads={ads} className="py-1" />}
                       </Fragment>
                     );
