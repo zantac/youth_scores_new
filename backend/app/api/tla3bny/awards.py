@@ -379,7 +379,10 @@ def set_player_of_match(match_id: int):
     panel. ``player_id`` null/absent clears it. Returns the updated match so the
     card and detail refresh with the new pick."""
     match = Tla3bnyMatch.query.get_or_404(match_id)
-    if not _admin(match.competition_id):
+    # Player of the match is match data, entered from the match's own edit panel —
+    # so any organizer who may enter results (including a data-entry organizer)
+    # may set it, not only full competition admins.
+    if not auth.can_enter_match_data(auth.current_user(), match.competition_id):
         return _forbid()
     player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
     # A set (non-clearing) pick must be a real participant of this competition —

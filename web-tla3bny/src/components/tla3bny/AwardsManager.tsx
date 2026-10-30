@@ -92,9 +92,12 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
     tCompetitionRounds(comp.id, cageId).then(setRounds).catch(() => setRounds([]));
   }, [comp.id, ageId, cageId, token]);
   const loadHonours = useCallback(() => {
-    tCompetitionAwards(comp.id).then(a => setAwards(a.filter(x => x.competition_age_id === cageId))).catch(() => setAwards([]));
-    tTeamOfRoundAll(comp.id, cageId).then(setTotrs).catch(() => setTotrs([]));
-  }, [comp.id, cageId]);
+    // Pass the token so these reads are no-store — otherwise the short public
+    // HTTP cache serves the stale list and a just-granted/revoked award won't
+    // show until it expires.
+    tCompetitionAwards(comp.id, token).then(a => setAwards(a.filter(x => x.competition_age_id === cageId))).catch(() => setAwards([]));
+    tTeamOfRoundAll(comp.id, cageId, token).then(setTotrs).catch(() => setTotrs([]));
+  }, [comp.id, cageId, token]);
   useEffect(() => { loadScope(); loadHonours(); }, [loadScope, loadHonours]);
 
   if (ages.length === 0) {
@@ -107,7 +110,7 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
 
       <Field label={tt('البطولة الفرعية', 'Sub-competition')}>
         <select value={cageId} onChange={e => setCageId(Number(e.target.value))} className={inputCls}>
-          {ages.map(a => <option key={a.id} value={a.id}>{a.name || a.age_category}</option>)}
+          {ages.map(a => <option key={a.id} value={a.id}>{a.name ? `${a.name} · ${a.age_category}` : a.age_category}</option>)}
         </select>
       </Field>
 
