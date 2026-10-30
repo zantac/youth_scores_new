@@ -8,7 +8,7 @@ import {
   tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tBulkUpdateMatches, tBulkDeleteMatches, tEnterResult,
-  tAddStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tMoveGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
+  tAddStage, tUpdateStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tMoveGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
   type TGroupFixtureSetting, type TGroup,
   tUpdateCompetition, tAddCompAdmin, tRemoveCompAdmin, tSetCompAdminPerms, whatsappLink, mediaUrl,
   type TCompetition, type TCompAge, type TCompDashboard, type TCategory,
@@ -1554,6 +1554,15 @@ function StagesTab({ token, comp, reload }: { token: string; comp: TCompetition;
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
+  // Rename an existing stage. Only the name is editable here — changing a
+  // stage's type after it has groups/fixtures would leave them inconsistent.
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const saveEdit = async () => {
+    if (editId == null) return;
+    await tUpdateStage(token, editId, { name: editName });
+    setEditId(null); reload();
+  };
   return (
     <div className="space-y-3">
       {sortedStageAges.length > 1 && (
@@ -1576,17 +1585,30 @@ function StagesTab({ token, comp, reload }: { token: string; comp: TCompetition;
         const open = expanded.has(s.id);
         return (
           <Card key={s.id} className="p-3">
-            <div className="flex items-center justify-between gap-2">
-              <button onClick={() => toggle(s.id)} className="flex items-center gap-2 text-start flex-1 min-w-0">
-                <span className="text-hint text-sm">{open ? '▾' : '▸'}</span>
-                <span className="font-bold text-text text-sm">
-                  {s.name || tt({ league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب' }[s.type as 'league'|'group'|'knockout'] ?? s.type, s.type)}
-                  <span className="text-[11px] text-hint ms-1">· {s.type}</span>
-                </span>
-              </button>
-              <button onClick={async () => { await tDeleteStage(token, s.id); reload(); }} className="text-hint hover:text-loss shrink-0">🗑</button>
-            </div>
-            {open && <GroupsEditor token={token} stageId={s.id} stageType={s.type} groups={s.groups ?? []} comp={comp} cageId={cage.id} reload={reload} />}
+            {editId === s.id ? (
+              <div className="flex items-end gap-2">
+                <Field label={tt('اسم الدور', 'Stage name')}>
+                  <input value={editName} onChange={e => setEditName(e.target.value)} className={inputCls}
+                    placeholder={tt({ league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب' }[s.type as 'league'|'group'|'knockout'] ?? s.type, s.type)} />
+                </Field>
+                <PrimaryButton onClick={saveEdit} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
+                <button onClick={() => setEditId(null)} className="text-xs text-hint hover:text-text shrink-0 pb-2.5">{tt('إلغاء', 'Cancel')}</button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2">
+                <button onClick={() => toggle(s.id)} className="flex items-center gap-2 text-start flex-1 min-w-0">
+                  <span className="text-hint text-sm">{open ? '▾' : '▸'}</span>
+                  <span className="font-bold text-text text-sm">
+                    {s.name || tt({ league: 'دوري', group: 'مجموعات', knockout: 'خروج المغلوب' }[s.type as 'league'|'group'|'knockout'] ?? s.type, s.type)}
+                    <span className="text-[11px] text-hint ms-1">· {s.type}</span>
+                  </span>
+                </button>
+                <button onClick={() => { setEditId(s.id); setEditName(s.name ?? ''); }}
+                  className="text-teal hover:text-aqua text-xs font-bold shrink-0">{tt('تعديل', 'Edit')}</button>
+                <button onClick={async () => { await tDeleteStage(token, s.id); reload(); }} className="text-hint hover:text-loss shrink-0">🗑</button>
+              </div>
+            )}
+            {open && editId !== s.id && <GroupsEditor token={token} stageId={s.id} stageType={s.type} groups={s.groups ?? []} comp={comp} cageId={cage.id} reload={reload} />}
           </Card>
         );
       })}
