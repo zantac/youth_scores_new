@@ -1080,6 +1080,10 @@ export const tRegisterTeam = (token: string, compId: number, teamId: number, com
   send<TCompTeam>('POST', `/competitions/${compId}/teams`, { team_id: teamId, competition_age_id: competitionAgeId }, token);
 export const tUnregisterTeam = (token: string, entryId: number) =>
   send<{ message: string }>('DELETE', `/competition-teams/${entryId}`, undefined, token);
+/** Move a registered team to a different sub-competition of the same competition
+ *  (carries its roster + papers). Used to fix a wrong-bracket subscription. */
+export const tMoveCompetitionTeam = (token: string, entryId: number, competitionAgeId: number) =>
+  send<TCompTeam>('PUT', `/competition-teams/${entryId}/move`, { competition_age_id: competitionAgeId }, token);
 export const tRoster = (entryId: number, token?: string | null) =>
   get<TCompTeam>(`/competition-teams/${entryId}/roster`, token);
 export const tAddRosterPlayer = (token: string, entryId: number, playerId: number) =>

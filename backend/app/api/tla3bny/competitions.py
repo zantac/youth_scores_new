@@ -1281,6 +1281,78 @@ def unregister_team(entry_id: int):
     return jsonify({"message": "deleted"})
 
 
+@tla3bny_bp.put("/competition-teams/<int:entry_id>/move")
+@auth.login_required
+def move_competition_team(entry_id: int):
+    """Move a registered team to a different sub-competition of the *same*
+    competition, carrying its roster and uploaded papers along.
+
+    Fixes a wrong-bracket subscription — e.g. a 2017 team that was subscribed to
+    the 2013 sub-competition by mistake. The team keeps its entry id, so its
+    ``Tla3bnyCompetitionPlayer`` rows (and their documents) are preserved; they
+    hang off the entry, not the sub-competition, so the players come along.
+    """
+    entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)
+    if not auth.is_competition_admin(auth.current_user(), entry.competition_id):
+        return _forbid()
+    cage_id = _int((request.get_json(silent=True) or {}).get("competition_age_id"))
+    if not cage_id:
+        return _err("competition_age_id is required")
+    if cage_id == entry.competition_age_id:
+        return jsonify(entry.to_dict())  # already there — no-op
+    target = Tla3bnyCompetitionAge.query.filter_by(
+        id=cage_id, competition_id=entry.competition_id
+    ).first()
+    if target is None:
+        return _err("Sub-competition not found in this competition", 404)
+    # Same age rule as registration: the team's age must match the target, or be
+    # younger (younger plays up); an older team may not play down. oldest_birth_year
+    # is higher for younger ages, so the team qualifies when its year >= the target's.
+    team = entry.team
+    team_oby = team.age_category.oldest_birth_year if team and team.age_category else None
+    cage_oby = target.age_category.oldest_birth_year if target.age_category else None
+    if team_oby is not None and cage_oby is not None:
+        if team_oby < cage_oby:
+            return _err("عمر الفريق أكبر من فئة هذه البطولة الفرعية", 409)
+    elif target.age_category_id != entry.age_category_id:
+        return _err("Team age does not match sub-competition age", 409)
+    # Refuse to move a team that already has fixtures in its current
+    # sub-competition — the move would orphan those matches and their results.
+    # The admin must delete them first.
+    old_cage_id = entry.competition_age_id
+    if old_cage_id is not None and Tla3bnyMatch.query.filter(
+        Tla3bnyMatch.competition_age_id == old_cage_id,
+        sa.or_(
+            Tla3bnyMatch.home_team_id == entry.team_id,
+            Tla3bnyMatch.away_team_id == entry.team_id,
+        ),
+    ).first():
+        return _err(
+            "لا يمكن نقل الفريق لأن له مباريات في البطولة الفرعية الحالية. "
+            "احذف مبارياته أولاً ثم انقله.",
+            409,
+        )
+    # Detach the team from any stage/group of the OLD sub-competition (league
+    # pools and named groups are both GroupTeam rows). The roster stays put.
+    if old_cage_id is not None:
+        stale = (
+            Tla3bnyGroupTeam.query.join(
+                Tla3bnyGroup, Tla3bnyGroupTeam.group_id == Tla3bnyGroup.id
+            )
+            .join(Tla3bnyStage, Tla3bnyGroup.stage_id == Tla3bnyStage.id)
+            .filter(
+                Tla3bnyStage.competition_age_id == old_cage_id,
+                Tla3bnyGroupTeam.team_id == entry.team_id,
+            )
+            .all()
+        )
+        for gt in stale:
+            db.session.delete(gt)
+    entry.competition_age_id = target.id
+    db.session.commit()
+    return jsonify(entry.to_dict())
+
+
 @tla3bny_bp.get("/competition-teams/<int:entry_id>/roster")
 def get_roster(entry_id: int):
     entry = Tla3bnyCompetitionTeam.query.get_or_404(entry_id)

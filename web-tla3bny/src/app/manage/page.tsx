@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   tCompetition, tCompDashboard, tCategories,
   tAddCompAge, tUpdateCompAge, tDeleteCompAge, tSetCompAgeOrganizerPhoto,
-  tCompTeams, tUnregisterTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
+  tCompTeams, tUnregisterTeam, tMoveCompetitionTeam, tApproveTeamJoin, tRejectTeamJoin, tRoster,
   tApproveRosterPlayer, tRejectRosterPlayer,
   tMatches, tCreateMatch, tDeleteMatch, tBulkUpdateMatches, tBulkDeleteMatches, tEnterResult,
   tAddStage, tUpdateStage, tDeleteStage, tAddGroup, tUpdateGroup, tDeleteGroup, tMoveGroup, tAddGroupTeam, tRemoveGroupTeam, tAddStageTeam, tRemoveStageTeam, tGenerateFixtures,
@@ -860,6 +860,20 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
   const [filterSubComp, setFilterSubComp] = useState('');
   const [filterTeamAcad, setFilterTeamAcad] = useState('');
 
+  // Fix a wrong-bracket subscription: move a team (and its players) to another
+  // sub-competition of this competition. Backend validates age + blocks a move
+  // once the team has fixtures in its current bracket.
+  const [moveId, setMoveId] = useState<number | null>(null);
+  const [moveTarget, setMoveTarget] = useState('');
+  const [moveErr, setMoveErr] = useState<string | null>(null);
+  const doMove = async (entryId: number) => {
+    if (!moveTarget) return;
+    try {
+      await tMoveCompetitionTeam(token, entryId, Number(moveTarget));
+      setMoveId(null); setMoveTarget(''); setMoveErr(null); reload();
+    } catch (err) { setMoveErr(err instanceof Error ? err.message : String(err)); }
+  };
+
   const pending = entries.filter(e => e.status === 'pending');
   const activeAll = entries.filter(e => e.status !== 'pending');
   const active  = activeAll.filter(e =>
@@ -944,26 +958,52 @@ function TeamsTab({ token, comp }: { token: string; comp: TCompetition }) {
 
       {active.length === 0 && pending.length === 0 && <EmptyState icon="⚽" text={tt('لا فرق مسجلة', 'No teams registered')} />}
       {active.map(e => (
-        <Card key={e.id} className="p-3 flex items-center justify-between gap-2">
-          <Link href={`/team?id=${e.team_id}`} className="min-w-0">
-            <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{nm(e.team_name, e.team_name_en)}</div>
-            <div className="text-[11px] text-hint">
-              {nm(e.academy_name, e.academy_name_en)}
-              {e.sub_competition_name && <span className="ms-1 text-teal font-bold">· {e.sub_competition_name}</span>}
-              {ageLabel[e.age_category_id] && (
-                <span className="ms-1 text-teal">· {ageLabel[e.age_category_id]}</span>
+        <Card key={e.id} className="p-3">
+          <div className="flex items-center justify-between gap-2">
+            <Link href={`/team?id=${e.team_id}`} className="min-w-0">
+              <div className="font-bold text-text text-sm hover:text-aqua transition-colors">{nm(e.team_name, e.team_name_en)}</div>
+              <div className="text-[11px] text-hint">
+                {nm(e.academy_name, e.academy_name_en)}
+                {e.sub_competition_name && <span className="ms-1 text-teal font-bold">· {e.sub_competition_name}</span>}
+                {ageLabel[e.age_category_id] && (
+                  <span className="ms-1 text-teal">· {ageLabel[e.age_category_id]}</span>
+                )}
+              </div>
+            </Link>
+            <div className="flex items-center gap-3 shrink-0">
+              {typeof e.player_count === 'number' && (
+                <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/30 rounded-lg px-2 py-1 whitespace-nowrap"
+                  title={tt('لاعبون مسجّلون', 'Registered players')}>
+                  👥 <span className="tnum">{e.player_count}</span>
+                </span>
               )}
+              {ages.length > 1 && (
+                <button onClick={() => { setMoveId(moveId === e.id ? null : e.id); setMoveTarget(''); setMoveErr(null); }}
+                  className={`${moveId === e.id ? 'text-aqua' : 'text-hint'} hover:text-aqua`}
+                  title={tt('نقل لبطولة فرعية أخرى', 'Move to another sub-competition')}>🔀</button>
+              )}
+              <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
             </div>
-          </Link>
-          <div className="flex items-center gap-3 shrink-0">
-            {typeof e.player_count === 'number' && (
-              <span className="text-[11px] font-bold text-teal bg-teal/10 border border-teal/30 rounded-lg px-2 py-1 whitespace-nowrap"
-                title={tt('لاعبون مسجّلون', 'Registered players')}>
-                👥 <span className="tnum">{e.player_count}</span>
-              </span>
-            )}
-            <button onClick={async () => { if (confirm(tt('إلغاء التسجيل؟', 'Unregister?'))) { await tUnregisterTeam(token, e.id); reload(); } }} className="text-hint hover:text-loss">🗑</button>
           </div>
+          {moveId === e.id && (
+            <div className="mt-2 border-t border-bdr/40 pt-2 space-y-2">
+              <p className="text-[11px] text-hint leading-relaxed">
+                {tt('انقل الفريق ولاعبيه إلى بطولة فرعية أخرى داخل نفس البطولة. لازم تحذف مباريات الفريق في بطولته الفرعية الحالية الأول (لو موجودة).',
+                    'Move the team and its players to another sub-competition in this competition. Delete the team’s fixtures in its current bracket first (if any).')}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={moveTarget} onChange={ev => setMoveTarget(ev.target.value)} className={inputCls + ' text-sm flex-1'}>
+                  <option value="">{tt('اختر البطولة الفرعية…', 'Choose sub-competition…')}</option>
+                  {ages.filter(a => a.id !== e.competition_age_id).map(a => (
+                    <option key={a.id} value={a.id}>{subCompLabel(a)}</option>
+                  ))}
+                </select>
+                <PrimaryButton onClick={() => doMove(e.id)} disabled={!moveTarget} className="text-sm">{tt('نقل', 'Move')}</PrimaryButton>
+                <button onClick={() => { setMoveId(null); setMoveErr(null); }} className="text-hint text-sm font-bold px-2">{tt('إلغاء', 'Cancel')}</button>
+              </div>
+              {moveErr && <ErrorNote>{moveErr}</ErrorNote>}
+            </div>
+          )}
         </Card>
       ))}
     </div>

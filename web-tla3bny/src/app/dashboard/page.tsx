@@ -608,8 +608,13 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
     } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
   };
 
-  // Editing the team's photo / short description (shown on the team hero card).
+  // Editing the team's name / photo / short description (shown on the team hero
+  // card). The name is an optional override: leave it blank to fall back to the
+  // auto-generated "academy + age" label. Setting it is how an academy tells two
+  // teams of the same age apart (e.g. "أكاديمية س ٢٠١٥ - أحمر" / "… - أزرق").
   const [editOpen, setEditOpen] = useState(false);
+  const [nameAr, setNameAr] = useState(team.name ?? '');
+  const [nameEn, setNameEn] = useState(team.name_en ?? '');
   const [photo, setPhoto] = useState<string | null>(team.photo_path);
   const [desc, setDesc] = useState(team.description ?? '');
   const [uploading, setUploading] = useState(false);
@@ -618,7 +623,10 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
     try { setPhoto(await tUploadImage(token, file)); } finally { setUploading(false); }
   };
   const saveEdit = async () => {
-    await tUpdateTeam(token, team.id, { photo_path: photo ?? '', description: desc });
+    await tUpdateTeam(token, team.id, {
+      name: nameAr.trim(), name_en: nameEn.trim(),
+      photo_path: photo ?? '', description: desc,
+    });
     setEditOpen(false); await refresh();
   };
 
@@ -632,7 +640,7 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
           </Link>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button onClick={() => setEditOpen(o => !o)} className="text-aqua hover:text-aqua text-sm" title={tt('تعديل الصورة والنبذة', 'Edit photo & description')}>✎</button>
+          <button onClick={() => setEditOpen(o => !o)} className="text-aqua hover:text-aqua text-sm" title={tt('تعديل الاسم والصورة والنبذة', 'Edit name, photo & description')}>✎</button>
           <button onClick={() => setAccOpen(o => !o)} className="text-xs text-teal font-bold hover:underline">{tt('حساب مدير الفريق', 'Manager login')}</button>
           <button onClick={async () => { if (confirm(tt('حذف الفريق؟', 'Delete team?'))) { await tDeleteTeam(token, team.id); refresh(); } }} className="text-hint hover:text-loss text-sm">🗑</button>
         </div>
@@ -656,6 +664,18 @@ function TeamCard({ team, token, refresh, open, onToggle }: {
             )}
           </div>
           <div className="flex-1 min-w-0 space-y-2">
+            <Field label={tt('اسم الفريق', 'Team name')}>
+              <input value={nameAr} onChange={e => setNameAr(e.target.value)} maxLength={120}
+                placeholder={nm(team.display_name, team.display_name_en)} className={inputCls} />
+            </Field>
+            <Field label={tt('اسم الفريق (إنجليزي)', 'Team name (English)')}>
+              <input value={nameEn} onChange={e => setNameEn(e.target.value)} maxLength={120} dir="ltr"
+                placeholder={team.display_name_en} className={inputCls} />
+            </Field>
+            <p className="text-[11px] text-hint leading-relaxed">
+              {tt('اتركه فاضي علشان يبقى الاسم التلقائي (الأكاديمية + الفئة). حطّ اسم مميّز لو عندك فريقين في نفس الفئة، زي «أحمر» و«أزرق».',
+                  'Leave blank to keep the automatic name (academy + age). Set a distinct name when you have two teams in the same age — e.g. “Red” and “Blue”.')}
+            </p>
             <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} maxLength={500}
               placeholder={tt('نبذة قصيرة عن الفريق…', 'Short blurb…')} className={inputCls} />
             <div className="flex gap-2">
