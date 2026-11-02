@@ -1504,11 +1504,14 @@ def approve_roster_player(cp_id: int):
     player = cp.player
     entry = cp.entry
     if player and entry and entry.competition:
-        cage = next(
-            (a for a in entry.competition.ages
-             if a.age_category_id == entry.age_category_id),
-            None,
-        )
+        # Resolve the entry's OWN sub-competition (fall back to an age match only
+        # for legacy rows with no competition_age_id). Matching by age alone picks
+        # the wrong sub-competition's papers when the team was moved between
+        # sub-competitions, or when two sub-competitions share an age — which made
+        # an uploaded paper read as "missing".
+        cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+            competition_id=entry.competition_id, age_category_id=entry.age_category_id
+        ).first()
         required = cage.documents if cage else entry.competition.documents
         # This registration's papers, plus the player's global identity papers.
         missing = missing_required_documents(
@@ -1663,11 +1666,11 @@ def bulk_approve_roster_players():
         player = cp.player
         entry = cp.entry
         if not force and player and entry and entry.competition:
-            cage = next(
-                (a for a in entry.competition.ages
-                 if a.age_category_id == entry.age_category_id),
-                None,
-            )
+            # The entry's own sub-competition decides its papers; fall back to an
+            # age match only for legacy rows (see approve_roster_player).
+            cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
+                competition_id=entry.competition_id, age_category_id=entry.age_category_id
+            ).first()
             required = cage.documents if cage else entry.competition.documents
             # This registration's papers, plus the player's global identity papers.
             missing = missing_required_documents(
