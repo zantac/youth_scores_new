@@ -1206,6 +1206,8 @@ export interface TGroupFixtureSetting {
   time_interval_minutes?: number;
   /** Odd group: the team to rest in the next round generated for this group. */
   bye_team_id?: number;
+  /** Pairs [teamA, teamB] in this group that should meet in a late round. */
+  late_matchups?: [number, number][];
 }
 export const tGenerateFixtures = (
   token: string,
@@ -1224,6 +1226,8 @@ export const tGenerateFixtures = (
     rounds?: number;
     /** Odd single-group stage: the team to rest in the next round generated. */
     bye_team_id?: number;
+    /** Pairs [teamA, teamB] that should meet in a late round, not early. */
+    late_matchups?: [number, number][];
     group_settings?: TGroupFixtureSetting[];
   },
 ) => send<TGenerateFixturesResult>('POST', `/stages/${stageId}/generate-fixtures`, body, token);
