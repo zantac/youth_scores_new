@@ -1204,6 +1204,8 @@ export interface TGroupFixtureSetting {
   default_time?: string;
   default_venue?: string;
   time_interval_minutes?: number;
+  /** Odd group: the team to rest in the next round generated for this group. */
+  bye_team_id?: number;
 }
 export const tGenerateFixtures = (
   token: string,
@@ -1217,6 +1219,11 @@ export const tGenerateFixtures = (
     default_venue?: string;
     time_interval_minutes?: number;
     force?: boolean;
+    /** How many rounds to create this call (round-robin). Omit = all remaining.
+     *  Without `force` the next rounds are appended after existing ones. */
+    rounds?: number;
+    /** Odd single-group stage: the team to rest in the next round generated. */
+    bye_team_id?: number;
     group_settings?: TGroupFixtureSetting[];
   },
 ) => send<TGenerateFixturesResult>('POST', `/stages/${stageId}/generate-fixtures`, body, token);

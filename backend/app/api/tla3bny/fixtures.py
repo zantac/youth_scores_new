@@ -32,6 +32,8 @@ unless "force": true is sent, which deletes and rebuilds them.
 from __future__ import annotations
 
 import math
+import re
+from collections import defaultdict
 from datetime import date, timedelta
 
 from flask import jsonify, request
@@ -174,6 +176,23 @@ def _rr_label(n: int) -> str:
     return f"الجولة {n}"
 
 
+def _rr_round_num(label: str | None) -> int:
+    """Pull the trailing round number out of a label like "الجولة 3" (0 if none).
+    Used to continue numbering when appending further rounds to a stage."""
+    if not label:
+        return 0
+    m = re.search(r"(\d+)\s*$", label)
+    return int(m.group(1)) if m else 0
+
+
+def _byed_team(team_ids: list[int], round_pairs: list[tuple[int, int]]) -> int | None:
+    """The team sitting out a round (odd team count) — the one in ``team_ids``
+    that appears in none of the round's pairs. None when every team plays."""
+    present = {t for pair in round_pairs for t in pair}
+    missing = [t for t in team_ids if t not in present]
+    return missing[0] if missing else None
+
+
 # ── endpoint ──────────────────────────────────────────────────────────────────
 
 @tla3bny_bp.post("/stages/<int:stage_id>/generate-fixtures")
@@ -189,13 +208,24 @@ def generate_fixtures(stage_id: int):
     matches_per_day  int           — how many matches share one date (global fallback)
     default_time     "HH:MM"       — applied to every created match (global fallback)
     default_venue    str           — applied to every created match (global fallback)
-    force            bool          — delete existing fixtures and regenerate
+    force            bool          — delete existing fixtures and regenerate from round 1
+    rounds           int           — how many rounds to create this call (round-robin
+                                     only).  Omit/0 = all remaining.  Without ``force``
+                                     the engine APPENDS the next ``rounds`` rounds after
+                                     whatever already exists, so an organizer can reveal
+                                     the table round by round instead of all at once.
+    bye_team_id      int           — for an odd-sized group, the team to rest in the next
+                                     round being generated (round-robin only).  The whole
+                                     round where that team byes is swapped into position,
+                                     so the schedule stays a valid round-robin.  Ignored
+                                     when the group is even or the team already rested.
     time_interval_minutes  int     — minutes between consecutive matches on the same day
                                      (global fallback).  Set alongside default_time so the
                                      scheduler can calculate each match's kickoff.
     group_settings   list          — per-group overrides for group-stage scheduling.
                                      Each item: { group_id, match_days, matches_per_day,
-                                     default_time, default_venue, time_interval_minutes }.
+                                     default_time, default_venue, time_interval_minutes,
+                                     bye_team_id }.
                                      When present the groups are scheduled independently
                                      (each on its own calendar) rather than interleaved.
     """
@@ -229,9 +259,11 @@ def generate_fixtures(stage_id: int):
     default_venue: str | None = (data.get("default_venue") or "").strip() or None
     time_interval: int = max(0, _int(data.get("time_interval_minutes"), 0))
     force: bool = bool(data.get("force"))
+    want_rounds: int = max(0, _int(data.get("rounds"), 0))  # 0 = all remaining
+    bye_team_id: int | None = _int(data.get("bye_team_id")) or None
 
     # Per-group scheduling settings (group stage only).
-    # Maps group_id → { match_days, per_day, time, venue, interval }.
+    # Maps group_id → { match_days, per_day, time, venue, interval, bye }.
     per_group: dict[int, dict] = {}
     for gs in (data.get("group_settings") or []):
         gid = _int(gs.get("group_id"))
@@ -242,19 +274,28 @@ def generate_fixtures(stage_id: int):
                 "time": (gs.get("default_time") or "").strip() or None,
                 "venue": (gs.get("default_venue") or "").strip() or None,
                 "interval": max(0, _int(gs.get("time_interval_minutes"), 0)),
+                "bye": _int(gs.get("bye_team_id")) or None,
             }
 
-    # Guard: existing fixtures.
-    existing = Tla3bnyMatch.query.filter_by(stage_id=stage_id).count()
-    if existing and not force:
+    # Existing fixtures. ``force`` wipes the stage and rebuilds from round 1.
+    # Otherwise round-robin APPENDS the next rounds after what already exists (so
+    # the organiser can reveal the table round by round); knockout can't append
+    # — its later rounds depend on results — so it still needs force to redo.
+    existing_matches = Tla3bnyMatch.query.filter_by(stage_id=stage_id).all()
+    if force and existing_matches:
+        Tla3bnyMatch.query.filter_by(stage_id=stage_id).delete()
+        db.session.flush()
+        existing_matches = []
+    if mode == "knockout" and existing_matches:
         return _err(
-            f"{existing} fixture(s) already exist for this stage. "
+            f"{len(existing_matches)} fixture(s) already exist for this stage. "
             'Pass "force": true to delete and regenerate.',
             409,
         )
-    if existing:
-        Tla3bnyMatch.query.filter_by(stage_id=stage_id).delete()
-        db.session.flush()
+
+    existing_by_group: dict[int | None, list[Tla3bnyMatch]] = defaultdict(list)
+    for m in existing_matches:
+        existing_by_group[m.group_id].append(m)
 
     created: list[Tla3bnyMatch] = []
 
@@ -293,44 +334,94 @@ def generate_fixtures(stage_id: int):
 
     # ── round-robin (single or double) ───────────────────────────────────────
     else:
-        # Build per-group schedules.
-        group_schedules: list[tuple[Tla3bnyGroup, list[list[tuple[int, int]]]]] = []
+        # Build each playable group's plan: its canonical schedule, which rounds
+        # are already generated, and the slice to emit now (honouring `rounds`
+        # and an optional bye pick). Plan = (group, rounds_to_emit, start_label,
+        # last_date) where start_label continues the group's round numbering.
+        plans: list[tuple[Tla3bnyGroup, list[list[tuple[int, int]]], int, date | None]] = []
+        any_playable = False
         for group in stage.groups:
             team_ids = [gt.team_id for gt in group.team_entries]
             if len(team_ids) < 2:
                 continue
-            rounds = _round_robin(team_ids)
+            any_playable = True
+            canonical = _round_robin(team_ids)
             if mode == "double_round_robin":
-                rounds = rounds + [[(b, a) for a, b in r] for r in rounds]
-            group_schedules.append((group, rounds))
+                canonical = canonical + [[(b, a) for a, b in r] for r in canonical]
 
-        if not group_schedules:
+            gmatches = existing_by_group.get(group.id, [])
+            existing_pairs = {(m.home_team_id, m.away_team_id) for m in gmatches}
+            # A canonical round is already generated when all its (home, away)
+            # pairs exist. Identifying by pair content (not position) lets a bye
+            # pick reorder emission without us losing track of what's done.
+            remaining = [
+                i for i, r in enumerate(canonical)
+                if r and not all(p in existing_pairs for p in r)
+            ]
+
+            # Bye pick (odd group, single round-robin only): each team byes
+            # exactly once, so pull the round where the chosen team rests to the
+            # front — the whole round is swapped, keeping a valid round-robin.
+            gbye = per_group.get(group.id, {}).get("bye") if per_group else bye_team_id
+            if gbye and len(team_ids) % 2 == 1 and mode == "round_robin":
+                if gbye not in team_ids:
+                    return _err("Bye team is not in this group", 409)
+                target = next(
+                    (i for i in remaining if _byed_team(team_ids, canonical[i]) == gbye),
+                    None,
+                )
+                if target is None:
+                    return _err(
+                        "هذا الفريق استراح بالفعل في جولة سابقة — اختر فريقًا آخر.",
+                        409,
+                    )
+                remaining = [target] + [i for i in remaining if i != target]
+
+            take = remaining[:want_rounds] if want_rounds else remaining
+            # Drop any pair that already exists (e.g. a round was partly deleted
+            # by hand) so a re-emitted round never duplicates a fixture.
+            rounds_to_emit = [
+                [p for p in canonical[i] if p not in existing_pairs] for i in take
+            ]
+            rounds_to_emit = [r for r in rounds_to_emit if r]
+
+            start_label = max((_rr_round_num(m.round) for m in gmatches), default=0)
+            last_date = max((m.date for m in gmatches if m.date), default=None)
+            plans.append((group, rounds_to_emit, start_label, last_date))
+
+        if not any_playable:
             return _err("Need at least 2 teams in at least one group")
 
         if per_group:
             # ── independent per-group scheduling ──────────────────────────────
             # Each group runs on its own calendar so different groups can play
             # on different weekdays / venues without interfering with each other.
-            for group, rounds in group_schedules:
+            for group, rounds, start_label, last_date in plans:
                 gs = per_group.get(group.id, {
                     "match_days": match_days,
                     "per_day": per_day,
                     "time": default_time,
                     "venue": default_venue,
+                    "interval": time_interval,
                 })
                 g_days = gs["match_days"]
                 g_per_day = gs["per_day"]
                 g_time = gs["time"]
                 g_venue = gs["venue"]
-
-                g_date = (
-                    _next_allowed_day(start_date, g_days) if start_date else None
-                )
                 g_interval = gs.get("interval", 0)
+
+                # Continue after this group's last dated fixture when appending;
+                # an explicit start_date overrides.
+                if start_date:
+                    g_date = _next_allowed_day(start_date, g_days)
+                elif last_date:
+                    g_date = _advance(last_date, g_days)
+                else:
+                    g_date = None
                 g_day_count = 0
 
-                for round_idx, round_pairs in enumerate(rounds):
-                    label = _rr_label(round_idx + 1)
+                for j, round_pairs in enumerate(rounds):
+                    label = _rr_label(start_label + j + 1)
                     for home_id, away_id in round_pairs:
                         if g_date is not None and g_day_count >= g_per_day:
                             g_date = _advance(g_date, g_days)
@@ -351,20 +442,25 @@ def generate_fixtures(stage_id: int):
 
         else:
             # ── interleaved scheduling (single set of days for all groups) ────
-            max_rounds = max(len(r) for _, r in group_schedules)
+            max_rounds = max((len(r) for _, r, _, _ in plans), default=0)
 
-            current_date = (
-                _next_allowed_day(start_date, match_days) if start_date else None
+            stage_last_date = max(
+                (m.date for m in existing_matches if m.date), default=None
             )
+            if start_date:
+                current_date = _next_allowed_day(start_date, match_days)
+            elif stage_last_date:
+                current_date = _advance(stage_last_date, match_days)
+            else:
+                current_date = None
             day_count = 0
 
-            for round_idx in range(max_rounds):
-                label = _rr_label(round_idx + 1)
-
-                for group, rounds in group_schedules:
-                    if round_idx >= len(rounds):
+            for j in range(max_rounds):
+                for group, rounds, start_label, last_date in plans:
+                    if j >= len(rounds):
                         continue
-                    for home_id, away_id in rounds[round_idx]:
+                    label = _rr_label(start_label + j + 1)
+                    for home_id, away_id in rounds[j]:
                         if current_date is not None and day_count >= per_day:
                             current_date = _advance(current_date, match_days)
                             day_count = 0
