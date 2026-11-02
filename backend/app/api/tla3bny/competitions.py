@@ -977,21 +977,38 @@ def _stage_comp_id(stage: Tla3bnyStage) -> int:
 
 
 def _validate_stage_team(stage: Tla3bnyStage, team_id: int) -> str | None:
-    """A team may only be placed in a stage/group if it is an active registered
-    entry in that stage's competition *and* its age. Without this, fixtures get
-    generated between teams that never registered / are the wrong age, corrupting
-    standings and the bracket. Returns an error message, or None if valid."""
+    """A team may only be placed in a stage/group if it is an active entry in
+    that stage's sub-competition. Without this, fixtures get generated between
+    teams that never registered, corrupting standings and the bracket. Returns
+    an error message, or None if valid.
+
+    Matches the team by the stage's sub-competition (``competition_age_id``), not
+    by age — a team that plays up/down (or was moved here) keeps its own age on
+    the entry, so an age match would reject it even though the team-list dropdown
+    (which filters by sub-competition) offered it. Falls back to an age match for
+    legacy rows with no competition_age_id, mirroring list_competition_teams."""
     cage = stage.competition_age
     if cage is None:
         return "Stage is not attached to a sub-competition"
-    entry = Tla3bnyCompetitionTeam.query.filter_by(
-        competition_id=cage.competition_id,
-        team_id=team_id,
-        age_category_id=cage.age_category_id,
-        status="active",
-    ).first()
+    entry = (
+        Tla3bnyCompetitionTeam.query.filter_by(
+            competition_id=cage.competition_id,
+            team_id=team_id,
+            status="active",
+        )
+        .filter(
+            sa.or_(
+                Tla3bnyCompetitionTeam.competition_age_id == cage.id,
+                sa.and_(
+                    Tla3bnyCompetitionTeam.competition_age_id.is_(None),
+                    Tla3bnyCompetitionTeam.age_category_id == cage.age_category_id,
+                ),
+            )
+        )
+        .first()
+    )
     if entry is None:
-        return "Team is not an active registered entry in this competition/age"
+        return "Team is not an active registered entry in this sub-competition"
     return None
 
 

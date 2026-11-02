@@ -1984,7 +1984,15 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
   const [groupName, setGroupName] = useState('');
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => { tCompTeams(comp.id, undefined, false, undefined, cageId).then(setEntries); }, [comp.id, cageId]);
+
+  // Run a stage/group mutation, surfacing any rejection instead of failing
+  // silently (e.g. the server declining to add a team to the stage).
+  const guard = async (fn: () => Promise<unknown>) => {
+    try { setErr(null); await fn(); reload(); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
 
   // team_id → name, so the fixture generator's bye picker can label teams.
   const teamNames: Record<number, string> = Object.fromEntries(
@@ -1998,12 +2006,13 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
       <div className="mt-2 space-y-2">
         {available.length > 0 && (
           <select
-            onChange={async e => { if (e.target.value) { await tAddStageTeam(token, stageId, Number(e.target.value)); reload(); } }}
+            onChange={e => { if (e.target.value) guard(() => tAddStageTeam(token, stageId, Number(e.target.value))); }}
             className={`${inputCls} text-xs`} value="">
             <option value="">+ {tt('أضف فريقًا للدور', 'Add team to stage')}</option>
             {available.map(en => <option key={en.id} value={en.team_id}>{en.team_name}</option>)}
           </select>
         )}
+        {err && <ErrorNote>{err}</ErrorNote>}
         <p className="text-[11px] font-bold text-teal">{tt('فرق الدور', 'Teams in this stage')}</p>
         {stageTeamIds.length === 0 && (
           <p className="text-[11px] text-hint">{tt('لا فرق بعد.', 'No teams yet.')}</p>
@@ -2046,6 +2055,7 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
         <input value={groupName} onChange={e => setGroupName(e.target.value)} placeholder={tt('مجموعة أ', 'Group A')} className={`${inputCls} text-sm`} />
         <PrimaryButton onClick={async () => { if (groupName) { await tAddGroup(token, stageId, { name: groupName }); setGroupName(''); reload(); } }} className="text-sm">{tt('مجموعة', 'Group')}</PrimaryButton>
       </div>
+      {err && <ErrorNote>{err}</ErrorNote>}
       {(groups ?? []).map((g, i, gs) => (
         <div key={g.id} className="border-t border-bdr pt-2">
           {editingGroupId === g.id ? (
@@ -2075,7 +2085,7 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
                 className="text-hint hover:text-loss text-sm leading-none">🗑</button>
             </div>
           )}
-          <select onChange={async e => { if (e.target.value) { await tAddGroupTeam(token, g.id, Number(e.target.value)); reload(); } }} className={`${inputCls} mt-1 text-xs`} value="">
+          <select onChange={e => { if (e.target.value) guard(() => tAddGroupTeam(token, g.id, Number(e.target.value))); }} className={`${inputCls} mt-1 text-xs`} value="">
             <option value="">+ {tt('أضف فريقًا', 'Add team')}</option>
             {unassigned.map(en => <option key={en.id} value={en.team_id}>{en.team_name}</option>)}
           </select>
