@@ -8,7 +8,12 @@ from itertools import combinations
 
 import pytest
 
-from app.api.tla3bny.fixtures import _knockout_pairs, _round_robin
+from app.api.tla3bny.fixtures import (
+    _byed_team,
+    _knockout_pairs,
+    _round_robin,
+    _rr_round_num,
+)
 
 
 # ── round robin ──────────────────────────────────────────────────────────────
@@ -44,6 +49,34 @@ def test_round_robin_round_count():
     assert len(_round_robin([1, 2, 3])) == 3
     assert len(_round_robin([1, 2, 3, 4, 5])) == 5
     assert len(_round_robin([1, 2])) == 1
+
+
+@pytest.mark.parametrize("n", [3, 5, 7, 9])
+def test_each_team_byes_exactly_once_odd(n):
+    # The bye feature relies on every team resting exactly once across the
+    # schedule — that bijection is what lets the organiser pick who sits out a
+    # round by swapping whole rounds.
+    teams = list(range(1, n + 1))
+    rounds = _round_robin(teams)
+    byes = [_byed_team(teams, rnd) for rnd in rounds]
+    assert sorted(byes) == teams
+
+
+def test_no_bye_when_even():
+    teams = [1, 2, 3, 4]
+    assert all(_byed_team(teams, rnd) is None for rnd in _round_robin(teams))
+
+
+def test_byed_team_is_the_absent_one():
+    assert _byed_team([1, 2, 3, 4, 5], [(1, 2), (3, 4)]) == 5
+    assert _byed_team([1, 2, 3, 4], [(1, 2), (3, 4)]) is None
+
+
+def test_rr_round_num_parses_trailing_number():
+    assert _rr_round_num("الجولة 1") == 1
+    assert _rr_round_num("الجولة 12") == 12
+    assert _rr_round_num(None) == 0
+    assert _rr_round_num("") == 0
 
 
 def test_round_robin_home_away_roughly_balanced():

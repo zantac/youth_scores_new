@@ -1686,18 +1686,24 @@ function DayPicker({ value, onChange }: { value: number[]; onChange: (v: number[
   );
 }
 
-function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, onDone }: {
+function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, teamNames, onDone }: {
   token: string; stageId: number; stageType: string; teamCount: number;
-  groups: TGroup[]; onDone: () => void;
+  groups: TGroup[]; teamNames: Record<number, string>; onDone: () => void;
 }) {
   const tt = useTT();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<'round_robin' | 'double_round_robin' | 'knockout'>('round_robin');
   const [startDate, setStartDate] = useState('');
+  // How many rounds to generate this time ('' = all remaining). Rounds are
+  // appended after whatever already exists, so the organizer can reveal the
+  // table round by round.
+  const [rounds, setRounds] = useState('');
   // Global (used for non-group stages, or as the single-group setting)
   const [globalSetting, setGlobalSetting] = useState<GrpSetting>(DEFAULT_GRP_SETTING);
   // Per-group settings keyed by group id (only used for multi-group stages)
   const [grpSettings, setGrpSettings] = useState<Record<number, GrpSetting>>({});
+  // Chosen bye team (odd groups). Keyed by group id; '' = let the algorithm pick.
+  const [byes, setByes] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1706,13 +1712,17 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
   // Groups that have ≥ 2 teams (can actually play)
   const playableGroups = groups.filter(g => g.team_ids.length >= 2);
   const isMultiGroup = stageType === 'group' && playableGroups.length > 1;
+  // For the single/global path there is effectively one playable pool.
+  const soloGroup = !isMultiGroup ? playableGroups[0] : undefined;
+  // The bye picker only makes sense for a single round-robin with an odd pool.
+  const showByes = mode === 'round_robin';
 
   if (teamCount < 2) return null;
 
   const openPanel = () => {
     setOpen(true);
     setMode(stageType === 'knockout' ? 'knockout' : 'round_robin');
-    setResult(null); setErr(null); setNeedsForce(false);
+    setResult(null); setErr(null); setNeedsForce(false); setRounds(''); setByes({});
     // Initialise per-group settings from global defaults
     const init: Record<number, GrpSetting> = {};
     playableGroups.forEach(g => { init[g.id] = { ...DEFAULT_GRP_SETTING }; });
@@ -1728,6 +1738,8 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
     try {
       const body: Parameters<typeof tGenerateFixtures>[2] = { mode, force };
       if (startDate) body.start_date = startDate;
+      const rn = parseInt(rounds);
+      if (!isNaN(rn) && rn > 0) body.rounds = rn;
 
       if (isMultiGroup) {
         // Send per-group settings; each group manages its own calendar
@@ -1735,6 +1747,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
           const gs = grpSettings[g.id] ?? DEFAULT_GRP_SETTING;
           const pd = parseInt(gs.matches_per_day);
           const iv = parseInt(gs.interval);
+          const bye = parseInt(byes[g.id] ?? '');
           return {
             group_id: g.id,
             match_days: gs.match_days.length ? gs.match_days : undefined,
@@ -1742,6 +1755,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
             default_time: gs.time || undefined,
             default_venue: gs.venue || undefined,
             time_interval_minutes: !isNaN(iv) && iv > 0 ? iv : undefined,
+            bye_team_id: showByes && !isNaN(bye) ? bye : undefined,
           };
         });
         body.group_settings = group_settings;
@@ -1754,10 +1768,14 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
         if (globalSetting.venue) body.default_venue = globalSetting.venue;
         const iv = parseInt(globalSetting.interval);
         if (!isNaN(iv) && iv > 0) body.time_interval_minutes = iv;
+        const bye = parseInt(soloGroup ? (byes[soloGroup.id] ?? '') : '');
+        if (showByes && !isNaN(bye)) body.bye_team_id = bye;
       }
 
       const r = await tGenerateFixtures(token, stageId, body);
-      setResult(tt(`تم إنشاء ${r.created} مباراة بنجاح`, `${r.created} matches created`));
+      setResult(r.created > 0
+        ? tt(`تم إنشاء ${r.created} مباراة بنجاح`, `${r.created} matches created`)
+        : tt('لا جولات جديدة — تم توليد كل الجولات بالفعل', 'No new rounds — all rounds are already generated'));
       setOpen(false);
       onDone();
     } catch (e: unknown) {
@@ -1768,6 +1786,22 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
         setErr(msg);
       }
     } finally { setBusy(false); }
+  };
+
+  // A dropdown to rest one team of an odd group in the next generated round.
+  const renderByePicker = (group: TGroup | undefined) => {
+    if (!group || !showByes || group.team_ids.length % 2 === 0) return null;
+    return (
+      <Field label={tt('يرتاح هذه الجولة (اختياري)', 'Rests this round (optional)')}>
+        <select value={byes[group.id] ?? ''} onChange={e => setByes(b => ({ ...b, [group.id]: e.target.value }))}
+          className={inputCls + ' text-sm'}>
+          <option value="">{tt('تلقائي', 'Automatic')}</option>
+          {group.team_ids.map(id => (
+            <option key={id} value={id}>{teamNames[id] ?? id}</option>
+          ))}
+        </select>
+      </Field>
+    );
   };
 
   return (
@@ -1797,6 +1831,16 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
           <Field label={tt('تاريخ البداية', 'Start date')}>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls + ' text-sm'} />
           </Field>
+          {mode !== 'knockout' && (
+            <Field label={tt('عدد الجولات (اختياري)', 'Number of rounds (optional)')}>
+              <input type="number" min="1" max="99" value={rounds} onChange={e => setRounds(e.target.value)}
+                placeholder={tt('كل الجولات', 'All rounds')} className={inputCls + ' text-sm'} />
+              <p className="text-[11px] text-hint mt-1 leading-relaxed">
+                {tt('اتركه فارغًا لتوليد كل الجولات، أو اكتب عددًا لإظهارها جولة بجولة — تُضاف الجولات الجديدة بعد الموجودة.',
+                    'Leave blank to generate every round, or enter a number to reveal them round by round — new rounds are appended after existing ones.')}
+              </p>
+            </Field>
+          )}
 
           {isMultiGroup ? (
             /* ── Per-group settings ── */
@@ -1809,6 +1853,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
                 return (
                   <div key={g.id} className="border border-bdr rounded-lg p-2.5 space-y-2">
                     <p className="text-xs font-black text-text">{g.name || tt('مجموعة', 'Group')}</p>
+                    {renderByePicker(g)}
                     <Field label={tt('أيام اللعب', 'Match days')}>
                       <DayPicker value={gs.match_days} onChange={v => setGrp(g.id, { match_days: v })} />
                     </Field>
@@ -1851,6 +1896,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
           ) : (
             /* ── Single / global settings ── */
             <>
+              {renderByePicker(soloGroup)}
               <Field label={tt('أيام اللعب', 'Match days')}>
                 <DayPicker value={globalSetting.match_days}
                   onChange={v => setGlobalSetting(s => ({ ...s, match_days: v }))} />
@@ -1909,9 +1955,18 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, o
               </div>
             </div>
           ) : (
-            <PrimaryButton onClick={() => run(false)} disabled={busy} className="w-full">
-              {busy ? tt('جارٍ التوليد…', 'Generating…') : tt('توليد الجدول', 'Generate')}
-            </PrimaryButton>
+            <div className="space-y-2">
+              <PrimaryButton onClick={() => run(false)} disabled={busy} className="w-full">
+                {busy ? tt('جارٍ التوليد…', 'Generating…')
+                      : (rounds.trim() ? tt('توليد الجولات', 'Generate rounds') : tt('توليد الجدول', 'Generate'))}
+              </PrimaryButton>
+              <button
+                onClick={() => { if (confirm(tt('سيُحذف كل جدول هذا الدور ويُعاد توليده من الجولة الأولى. متابعة؟', 'This deletes the whole stage schedule and rebuilds from round 1. Continue?'))) run(true); }}
+                disabled={busy}
+                className="w-full py-1 text-[12px] font-bold text-hint hover:text-loss disabled:opacity-50">
+                ↻ {tt('إعادة التوليد من البداية (يحذف الموجود)', 'Regenerate from scratch (deletes existing)')}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -1930,6 +1985,11 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
   useEffect(() => { tCompTeams(comp.id, undefined, false, undefined, cageId).then(setEntries); }, [comp.id, cageId]);
+
+  // team_id → name, so the fixture generator's bye picker can label teams.
+  const teamNames: Record<number, string> = Object.fromEntries(
+    entries.map(e => [e.team_id, e.team_name ?? String(e.team_id)]),
+  );
 
   if (stageType === 'league' || stageType === 'knockout') {
     const stageTeamIds = Array.from(new Set((groups ?? []).flatMap(g => g.team_ids)));
@@ -1960,7 +2020,7 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
         {/* Knockout rounds are created by hand as results come in (no auto-draw),
             so the fixture generator is only offered for a league stage. */}
         {stageType !== 'knockout' && (
-          <GenerateFixturesPanel token={token} stageId={stageId} stageType={stageType} teamCount={stageTeamIds.length} groups={groups ?? []} onDone={reload} />
+          <GenerateFixturesPanel token={token} stageId={stageId} stageType={stageType} teamCount={stageTeamIds.length} groups={groups ?? []} teamNames={teamNames} onDone={reload} />
         )}
       </div>
     );
@@ -2034,6 +2094,7 @@ function GroupsEditor({ token, stageId, stageType, groups, comp, cageId, reload 
         token={token} stageId={stageId} stageType={stageType}
         teamCount={(groups ?? []).reduce((acc, g) => acc + g.team_ids.length, 0)}
         groups={groups ?? []}
+        teamNames={teamNames}
         onDone={reload}
       />
     </div>
