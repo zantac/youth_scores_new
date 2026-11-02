@@ -158,11 +158,13 @@ def player_registrations(player_id: int):
             )
         ):
             continue
-        # Papers are per registration: this competition's own required set,
-        # matched against the papers uploaded for *this* entry.
+        # Papers are per registration: this entry's own sub-competition's set,
+        # matched against the papers uploaded for *this* entry. Fall back to an
+        # age match only for legacy rows without a competition_age_id (matching by
+        # age alone picks the wrong sub-competition when two share an age).
         cage = None
         if comp:
-            cage = next(
+            cage = entry.competition_age or next(
                 (a for a in comp.ages
                  if a.age_category_id == entry.age_category_id),
                 None,

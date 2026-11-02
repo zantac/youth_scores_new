@@ -305,6 +305,7 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
         .options(
             selectinload(Tla3bnyCompetitionTeam.competition)
             .selectinload(Tla3bnyCompetition.ages),
+            selectinload(Tla3bnyCompetitionTeam.competition_age),
         )
         .filter_by(team_id=team.id)
         .join(Tla3bnyCompetitionTeam.competition)
@@ -315,8 +316,11 @@ def _team_required_documents(team: Tla3bnyTeam) -> tuple[list[str], list[dict]]:
     for e in entries:
         if not e.competition:
             continue
-        # Use per-age docs when available, fall back to competition-wide list.
-        cage = next(
+        # Use the entry's own sub-competition's papers; fall back to an age match
+        # only for legacy rows without a competition_age_id. Matching by age alone
+        # picks the wrong sub-competition when two of them share an age, so the
+        # academy would be shown — and upload — the wrong paper list.
+        cage = e.competition_age or next(
             (a for a in e.competition.ages if a.age_category_id == e.age_category_id),
             None,
         )

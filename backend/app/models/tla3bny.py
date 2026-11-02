@@ -1409,10 +1409,13 @@ class Tla3bnyCompetitionPlayer(TimestampMixin, db.Model):
             # This registration's own papers plus the player's global identity
             # papers — either satisfies a required document.
             files = self.effective_files
-            # Per-age documents take precedence over the competition's global list.
+            # Resolve the entry's OWN sub-competition (fall back to an age match
+            # only for legacy rows without a competition_age_id). Matching by age
+            # alone picks the wrong sub-competition's papers when the team was
+            # moved between sub-competitions, or when two share an age.
             required = []
             if self.entry and self.entry.competition:
-                cage = next(
+                cage = self.entry.competition_age or next(
                     (a for a in self.entry.competition.ages
                      if a.age_category_id == self.entry.age_category_id),
                     None,
