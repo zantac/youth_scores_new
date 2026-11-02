@@ -178,6 +178,36 @@ def test_force_regenerates_from_round_one(client):
     assert len(_stage_matches(db, s["stage_id"])) == 2
 
 
+def _round_num(m):
+    return int(m.round.split()[-1])
+
+
+def test_late_matchup_pushes_the_pair_to_the_last_round(client):
+    app, db = client
+    c = app.test_client()
+    s = _seed(db, 5)  # 5 teams → 5 rounds, every pair meets once
+    a, b = s["teams"][0], s["teams"][1]
+    r = _gen(c, s, late_matchups=[[a, b]])
+    assert r.status_code == 201
+    ms = _stage_matches(db, s["stage_id"])
+    meet = [m for m in ms if {m.home_team_id, m.away_team_id} == {a, b}]
+    assert len(meet) == 1  # they meet exactly once…
+    assert _round_num(meet[0]) == max(_round_num(m) for m in ms)  # …in the final round
+
+
+def test_late_matchup_keeps_the_pair_out_of_early_rounds(client):
+    app, db = client
+    c = app.test_client()
+    s = _seed(db, 5)
+    a, b = s["teams"][0], s["teams"][1]
+    # Reveal only the first two rounds: the delayed pair must not appear yet.
+    r = _gen(c, s, rounds=2, late_matchups=[[a, b]])
+    assert r.status_code == 201
+    ms = _stage_matches(db, s["stage_id"])
+    assert all(_round_num(m) <= 2 for m in ms)
+    assert not any({m.home_team_id, m.away_team_id} == {a, b} for m in ms)
+
+
 def test_full_odd_schedule_rests_each_team_once(client):
     app, db = client
     c = app.test_client()

@@ -1704,6 +1704,10 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
   const [grpSettings, setGrpSettings] = useState<Record<number, GrpSetting>>({});
   // Chosen bye team (odd groups). Keyed by group id; '' = let the algorithm pick.
   const [byes, setByes] = useState<Record<number, string>>({});
+  // Pairs that should meet in a late round, keyed by group id, plus the draft
+  // pair being picked (two team dropdowns) before it's added to the list.
+  const [latePairs, setLatePairs] = useState<Record<number, [number, number][]>>({});
+  const [lateDraft, setLateDraft] = useState<Record<number, { a: string; b: string }>>({});
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1716,13 +1720,16 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
   const soloGroup = !isMultiGroup ? playableGroups[0] : undefined;
   // The bye picker only makes sense for a single round-robin with an odd pool.
   const showByes = mode === 'round_robin';
+  // Late matchups apply to any round-robin (single or double), not knockout.
+  const showLate = mode === 'round_robin' || mode === 'double_round_robin';
 
   if (teamCount < 2) return null;
 
   const openPanel = () => {
     setOpen(true);
     setMode(stageType === 'knockout' ? 'knockout' : 'round_robin');
-    setResult(null); setErr(null); setNeedsForce(false); setRounds(''); setByes({});
+    setResult(null); setErr(null); setNeedsForce(false); setRounds('');
+    setByes({}); setLatePairs({}); setLateDraft({});
     // Initialise per-group settings from global defaults
     const init: Record<number, GrpSetting> = {};
     playableGroups.forEach(g => { init[g.id] = { ...DEFAULT_GRP_SETTING }; });
@@ -1756,6 +1763,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
             default_venue: gs.venue || undefined,
             time_interval_minutes: !isNaN(iv) && iv > 0 ? iv : undefined,
             bye_team_id: showByes && !isNaN(bye) ? bye : undefined,
+            late_matchups: showLate && latePairs[g.id]?.length ? latePairs[g.id] : undefined,
           };
         });
         body.group_settings = group_settings;
@@ -1770,6 +1778,8 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
         if (!isNaN(iv) && iv > 0) body.time_interval_minutes = iv;
         const bye = parseInt(soloGroup ? (byes[soloGroup.id] ?? '') : '');
         if (showByes && !isNaN(bye)) body.bye_team_id = bye;
+        const lp = soloGroup ? latePairs[soloGroup.id] : undefined;
+        if (showLate && lp?.length) body.late_matchups = lp;
       }
 
       const r = await tGenerateFixtures(token, stageId, body);
@@ -1800,6 +1810,58 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
             <option key={id} value={id}>{teamNames[id] ?? id}</option>
           ))}
         </select>
+      </Field>
+    );
+  };
+
+  // Pick pairs of teams that should meet in a late round (not early). Needs ≥ 3
+  // teams for "late" to mean anything.
+  const renderLateMatchups = (group: TGroup | undefined) => {
+    if (!group || !showLate || group.team_ids.length < 3) return null;
+    const pairs = latePairs[group.id] ?? [];
+    const draft = lateDraft[group.id] ?? { a: '', b: '' };
+    const setDraft = (patch: Partial<{ a: string; b: string }>) =>
+      setLateDraft(d => ({ ...d, [group.id]: { ...draft, ...patch } }));
+    const addPair = () => {
+      const a = Number(draft.a), b = Number(draft.b);
+      if (!a || !b || a === b) return;
+      if (pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a))) return;
+      setLatePairs(p => ({ ...p, [group.id]: [...pairs, [a, b]] }));
+      setDraft({ a: '', b: '' });
+    };
+    const removePair = (i: number) =>
+      setLatePairs(p => ({ ...p, [group.id]: pairs.filter((_, k) => k !== i) }));
+    return (
+      <Field label={tt('مواجهات في جولة متأخرة (اختياري)', 'Late matchups (optional)')}>
+        {pairs.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-1">
+            {pairs.map(([a, b], i) => (
+              <span key={i} className="inline-flex items-center gap-1 text-[11px] font-bold bg-aqua/10 border border-aqua/30 text-text rounded-lg px-2 py-0.5">
+                {teamNames[a] ?? a} <span className="text-hint">⚔</span> {teamNames[b] ?? b}
+                <button type="button" onClick={() => removePair(i)} className="text-hint hover:text-loss ms-0.5">✕</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-1">
+          <select value={draft.a} onChange={e => setDraft({ a: e.target.value })} className={inputCls + ' text-xs flex-1'}>
+            <option value="">{tt('فريق', 'Team')}</option>
+            {group.team_ids.map(id => <option key={id} value={id}>{teamNames[id] ?? id}</option>)}
+          </select>
+          <span className="text-hint text-xs">⚔</span>
+          <select value={draft.b} onChange={e => setDraft({ b: e.target.value })} className={inputCls + ' text-xs flex-1'}>
+            <option value="">{tt('فريق', 'Team')}</option>
+            {group.team_ids.filter(id => String(id) !== draft.a).map(id => <option key={id} value={id}>{teamNames[id] ?? id}</option>)}
+          </select>
+          <button type="button" onClick={addPair} disabled={!draft.a || !draft.b}
+            className="text-xs font-bold text-aqua border border-aqua/40 rounded px-2 py-1 hover:bg-aqua/10 disabled:opacity-40">
+            {tt('إضافة', 'Add')}
+          </button>
+        </div>
+        <p className="text-[11px] text-hint mt-1 leading-relaxed">
+          {tt('مباراة كل زوج تتأجل لآخر الجولات، فلا يلتقيان مبكرًا.',
+              'Each pair’s game is pushed to the final rounds, so they don’t meet early.')}
+        </p>
       </Field>
     );
   };
@@ -1854,6 +1916,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
                   <div key={g.id} className="border border-bdr rounded-lg p-2.5 space-y-2">
                     <p className="text-xs font-black text-text">{g.name || tt('مجموعة', 'Group')}</p>
                     {renderByePicker(g)}
+                    {renderLateMatchups(g)}
                     <Field label={tt('أيام اللعب', 'Match days')}>
                       <DayPicker value={gs.match_days} onChange={v => setGrp(g.id, { match_days: v })} />
                     </Field>
@@ -1897,6 +1960,7 @@ function GenerateFixturesPanel({ token, stageId, stageType, teamCount, groups, t
             /* ── Single / global settings ── */
             <>
               {renderByePicker(soloGroup)}
+              {renderLateMatchups(soloGroup)}
               <Field label={tt('أيام اللعب', 'Match days')}>
                 <DayPicker value={globalSetting.match_days}
                   onChange={v => setGlobalSetting(s => ({ ...s, match_days: v }))} />

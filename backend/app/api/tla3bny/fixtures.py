@@ -193,6 +193,22 @@ def _byed_team(team_ids: list[int], round_pairs: list[tuple[int, int]]) -> int |
     return missing[0] if missing else None
 
 
+def _parse_pairs(raw) -> list[frozenset]:
+    """Parse ``[[a, b], ...]`` into unordered team pairs, dropping junk and
+    self-pairs. Used for 'these two teams should meet late' constraints."""
+    out: list[frozenset] = []
+    for pr in (raw or []):
+        if isinstance(pr, (list, tuple)) and len(pr) == 2:
+            a, b = _int(pr[0]), _int(pr[1])
+            if a and b and a != b and frozenset((a, b)) not in out:
+                out.append(frozenset((a, b)))
+    return out
+
+
+def _round_has_pair(round_pairs: list[tuple[int, int]], pair: frozenset) -> bool:
+    return any(frozenset(p) == pair for p in round_pairs)
+
+
 # ── endpoint ──────────────────────────────────────────────────────────────────
 
 @tla3bny_bp.post("/stages/<int:stage_id>/generate-fixtures")
@@ -219,6 +235,11 @@ def generate_fixtures(stage_id: int):
                                      round where that team byes is swapped into position,
                                      so the schedule stays a valid round-robin.  Ignored
                                      when the group is even or the team already rested.
+    late_matchups    list          — pairs [[team_id, team_id], ...] that should meet in a
+                                     LATE round, not early (e.g. keep the two strongest
+                                     apart until the end).  The round where each pair meets
+                                     is moved to the back of the schedule; whole-round moves
+                                     keep a valid round-robin.  Per-group in group_settings.
     time_interval_minutes  int     — minutes between consecutive matches on the same day
                                      (global fallback).  Set alongside default_time so the
                                      scheduler can calculate each match's kickoff.
@@ -261,9 +282,12 @@ def generate_fixtures(stage_id: int):
     force: bool = bool(data.get("force"))
     want_rounds: int = max(0, _int(data.get("rounds"), 0))  # 0 = all remaining
     bye_team_id: int | None = _int(data.get("bye_team_id")) or None
+    # Pairs that should meet in a LATE round, not early (e.g. keep the two
+    # strongest apart until the end). Each is [team_id, team_id].
+    late_pairs: list[frozenset] = _parse_pairs(data.get("late_matchups"))
 
     # Per-group scheduling settings (group stage only).
-    # Maps group_id → { match_days, per_day, time, venue, interval, bye }.
+    # Maps group_id → { match_days, per_day, time, venue, interval, bye, late }.
     per_group: dict[int, dict] = {}
     for gs in (data.get("group_settings") or []):
         gid = _int(gs.get("group_id"))
@@ -275,6 +299,7 @@ def generate_fixtures(stage_id: int):
                 "venue": (gs.get("default_venue") or "").strip() or None,
                 "interval": max(0, _int(gs.get("time_interval_minutes"), 0)),
                 "bye": _int(gs.get("bye_team_id")) or None,
+                "late": _parse_pairs(gs.get("late_matchups")),
             }
 
     # Existing fixtures. ``force`` wipes the stage and rebuilds from round 1.
@@ -358,6 +383,24 @@ def generate_fixtures(stage_id: int):
                 i for i, r in enumerate(canonical)
                 if r and not all(p in existing_pairs for p in r)
             ]
+
+            # Late matchups: push the round where a chosen pair meets to the back
+            # of the emission order, so the two teams don't meet early. Each pair
+            # meets once (single RR) / twice (double), and moving whole rounds
+            # keeps the schedule a valid round-robin. Order among late rounds
+            # follows the canonical order (so the latest canonical round ends up
+            # last). A pair whose teams aren't both here simply matches no round.
+            glate = per_group.get(group.id, {}).get("late") if per_group else late_pairs
+            if glate:
+                late_set = {
+                    i for i in remaining
+                    if any(_round_has_pair(canonical[i], pr) for pr in glate)
+                }
+                if late_set:
+                    remaining = (
+                        [i for i in remaining if i not in late_set]
+                        + [i for i in remaining if i in late_set]
+                    )
 
             # Bye pick (odd group, single round-robin only): each team byes
             # exactly once, so pull the round where the chosen team rests to the
