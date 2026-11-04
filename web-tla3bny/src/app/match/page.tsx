@@ -608,6 +608,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // Events state (all in one array, sectioned in UI)
   const [events, setEvents] = useState<TMatchEvent[]>(m.events ?? []);
 
+  // The manage panel is long, so split it into sub-tabs — one part at a time.
+  const [subTab, setSubTab] = useState<'info' | 'potm' | 'goals' | 'cards' | 'subs' | 'lineup'>('info');
+
   // Player of the match — picked here and saved alongside the result.
   const [potm, setPotm] = useState<number | ''>(m.player_of_match?.player_id ?? '');
   useEffect(() => { setPotm(m.player_of_match?.player_id ?? ''); }, [m.player_of_match?.player_id]);
@@ -853,7 +856,35 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
 
       <ErrorNote>{err}</ErrorNote>
 
+      {/* Sub-tabs: the manage panel is long, so show one part at a time. */}
+      {(() => {
+        const goalCount = events.filter(e => e.event_type === 'goal').length;
+        const cardCount = events.filter(e => (['yellow', 'second_yellow', 'red'] as EvType[]).includes(e.event_type)).length;
+        const subCount = events.filter(e => e.event_type === 'substitution_in').length;
+        const tabs: { k: typeof subTab; label: string; count?: number }[] = [
+          { k: 'info',   label: tt('📋 البيانات', '📋 Info') },
+          { k: 'potm',   label: tt('🎖️ الأفضل', '🎖️ POTM') },
+          { k: 'goals',  label: tt('⚽ الأهداف', '⚽ Goals'), count: goalCount },
+          { k: 'cards',  label: tt('🟨 البطاقات', '🟨 Cards'), count: cardCount },
+          { k: 'subs',   label: tt('🔁 التبديلات', '🔁 Subs'), count: subCount },
+          { k: 'lineup', label: tt('👥 التشكيلة', '👥 Lineup') },
+        ];
+        return (
+          <div className="flex gap-1 overflow-x-auto -mx-1 px-1 pb-1">
+            {tabs.map(t => (
+              <button key={t.k} onClick={() => setSubTab(t.k)}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                  subTab === t.k ? 'bg-aqua text-on-accent border-aqua' : 'text-hint border-bdr hover:border-aqua/50'
+                }`}>
+                {t.label}{t.count ? ` (${t.count})` : ''}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* 1. Match result & info — one save for the score, events and all match details */}
+      {subTab === 'info' && (
       <Section title={tt('نتيجة وبيانات المباراة', 'Match result & info')}>
         {/* Regular time */}
         <p className="text-hint text-[11px] font-bold">{tt('الوقت الأصلي (90 دقيقة)', 'Regular time (90 min)')}</p>
@@ -980,10 +1011,12 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           {matchOk && <span className="text-win text-lg font-bold">✓</span>}
         </div>
       </Section>
+      )}
 
       {/* 2. Player of the match — its own save. The pickable players are the ones
           who actually played (the submitted lineup); falls back to the full
           approved roster if no lineup was posted, like the goal/card pickers. */}
+      {subTab === 'potm' && (
       <Section title={tt('🎖️ رجل المباراة', '🎖️ Player of the match')}>
         <Field label={tt('اختر اللاعب', 'Pick the player')}>
           <select value={potm}
@@ -1017,8 +1050,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           {potmOk && <span className="text-win text-sm font-bold">✓</span>}
         </div>
       </Section>
+      )}
 
       {/* 4. Goals */}
+      {subTab === 'goals' && (
       <GoalSection
         events={events}
         m={m}
@@ -1031,8 +1066,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         ok={eventsOk}
         tt={tt}
       />
+      )}
 
       {/* 5. Cards */}
+      {subTab === 'cards' && (
       <EventSection
         title={tt('البطاقات', 'Cards')}
         icon="🟨"
@@ -1048,9 +1085,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         ok={eventsOk}
         tt={tt}
       />
+      )}
 
-      {/* 6. Penalty shootout takers — only shown when a shootout was recorded */}
-      {hasPen && (
+      {/* 6. Penalty shootout takers — only shown when a shootout was recorded (Goals tab) */}
+      {subTab === 'goals' && hasPen && (
         <EventSection
           title={tt('ضاربو الجزاء', 'Penalty takers')}
           icon="🎯"
@@ -1069,6 +1107,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       )}
 
       {/* 7. Substitutions */}
+      {subTab === 'subs' && (
       <SubSection
         events={events}
         m={m}
@@ -1080,8 +1119,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         ok={eventsOk}
         tt={tt}
       />
+      )}
 
       {/* 7. Lineup links */}
+      {subTab === 'lineup' && (
       <Section title={tt('التشكيلة', 'Lineup')}>
         <div className="space-y-2">
           {[m.home_team_id, m.away_team_id].map(tid => {
@@ -1098,8 +1139,10 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           })}
         </div>
       </Section>
+      )}
 
-      {/* 8. Delete */}
+      {/* 8. Delete (Info tab) */}
+      {subTab === 'info' && (
       <Section title={tt('حذف المباراة', 'Delete match')} danger>
         <p className="text-hint text-[11px]">
           {tt('يحذف المباراة وجميع أحداثها وتشكيلاتها نهائيًا.', 'Permanently deletes the match and all its events and lineups.')}
@@ -1119,6 +1162,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           </div>
         )}
       </Section>
+      )}
     </div>
   );
 }
