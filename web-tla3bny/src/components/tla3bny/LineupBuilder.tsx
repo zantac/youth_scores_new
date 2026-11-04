@@ -34,6 +34,9 @@ export default function LineupBuilder({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Whether a lineup already exists on the server — so an emptied selection can
+  // be saved to CLEAR it (the organizer removed everyone and wants it blank).
+  const [hadLineup, setHadLineup] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +52,7 @@ export default function LineupBuilder({
         const lineups = await tMatchLineups(matchId, token).catch(() => []);
         if (!alive) return;
         const mine = lineups.find(l => l.team_id === teamId);
+        setHadLineup(!!mine);
         const playersOnPitch = m.rules?.players_on_pitch ?? 11;
         const validForms = FORMATION_NAMES.filter(f => FORMATIONS[f].length === playersOnPitch);
         const defaultForm = validForms[0] ?? FORMATION_NAMES[0];
@@ -190,6 +194,8 @@ export default function LineupBuilder({
         slots,
       });
       setSaved(true);
+      // An empty save clears the lineup — there's nothing left to clear after.
+      setHadLineup(slots.length > 0);
       onSaved?.();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -217,7 +223,11 @@ export default function LineupBuilder({
   const startersOverLimit = starters.length > playersOnPitch;
   const subsOverLimit = maxSubs != null && subs.length > maxSubs;
   const step1Complete = starters.length === playersOnPitch && !subsOverLimit;
-  const canSaveStep1 = !formationRequired && starters.length > 0;
+  const isEmpty = starters.length === 0 && subs.length === 0;
+  // Save is available when there are starters (no formation required), or when
+  // the selection is empty but a saved lineup exists — saving empty clears it.
+  // Clearing needs no formation, so it bypasses the formation requirement.
+  const canSaveStep1 = isEmpty ? hadLineup : (!formationRequired && starters.length > 0);
 
   // Players available for slot assignment in step 2 (only from selected starters).
   const starterPoolIds = new Set(starters);
@@ -364,7 +374,9 @@ export default function LineupBuilder({
           <div className="flex items-center gap-3 flex-wrap">
             {canSaveStep1 && (
               <PrimaryButton onClick={save} disabled={busy || startersOverLimit || subsOverLimit}>
-                {busy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ بدون خطة', 'Save without formation')}
+                {busy ? tt('جارٍ الحفظ…', 'Saving…')
+                      : isEmpty ? tt('مسح التشكيلة', 'Clear lineup')
+                      : tt('حفظ بدون خطة', 'Save without formation')}
               </PrimaryButton>
             )}
             <button
