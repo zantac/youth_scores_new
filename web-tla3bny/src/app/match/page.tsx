@@ -1074,6 +1074,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         m={m}
         lineups={lineups}
         onRemove={removeEvs}
+        onReplace={persistEvents}
         onSave={addAndSaveEvents}
         saving={eventsBusy}
         ok={eventsOk}
@@ -1511,9 +1512,10 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
 // The two pickers are filtered so the organizer can only pick a legal swap —
 // "out" lists players on the pitch, "in" lists bench players who haven't played,
 // so a player who has left can never be chosen again.
-function SubSection({ events, m, lineups, onRemove, onSave, saving, ok, tt }: {
+function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, ok, tt }: {
   events: TMatchEvent[]; m: TMatch; lineups: TLineup[];
   onRemove: (ids: number[]) => void;
+  onReplace: (list: TMatchEvent[]) => void;
   onSave: (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => void;
   saving: boolean; ok: boolean;
   tt: (ar: string, en: string) => string;
@@ -1527,6 +1529,45 @@ function SubSection({ events, m, lineups, onRemove, onSave, saving, ok, tt }: {
   const [inPlayer, setInPlayer] = useState('');
   const [evMinute, setEvMinute] = useState('');
   const [isEvET, setIsEvET] = useState(false);
+
+  // Every known player of a team (lineup squad + anyone already named in an
+  // event) — the pool the inline edit pickers draw from.
+  const teamOptions = (tid: number) => {
+    const map = new Map<number, string>();
+    (lineups.find(l => l.team_id === tid)?.slots ?? [])
+      .filter(s => s.player_id != null)
+      .forEach(s => map.set(s.player_id!, s.player_name ?? ''));
+    events.filter(e => e.team_id === tid && e.player_id != null)
+      .forEach(e => { if (!map.has(e.player_id!)) map.set(e.player_id!, e.player_name ?? ''); });
+    return [...map.entries()].map(([player_id, player_name]) => ({ player_id, player_name }));
+  };
+
+  // Inline edit of a recorded substitution — fix who went off/on, or the minute.
+  // Both the paired in + out events are updated (and kept on the same minute).
+  const [editKey, setEditKey] = useState<number | null>(null);
+  const [editIn, setEditIn] = useState('');
+  const [editOut, setEditOut] = useState('');
+  const [editMin, setEditMin] = useState('');
+  const startEdit = (inEv: TMatchEvent | null, outEv?: TMatchEvent) => {
+    const anchor = inEv ?? outEv!;
+    setEditKey(anchor.id);
+    setEditIn(inEv?.player_id != null ? String(inEv.player_id) : '');
+    setEditOut(outEv?.player_id != null ? String(outEv.player_id) : '');
+    setEditMin(anchor.minute != null ? String(anchor.minute) : '');
+  };
+  const saveEdit = (inEv: TMatchEvent | null, outEv?: TMatchEvent) => {
+    const anchor = inEv ?? outEv!;
+    const minute = editMin ? Number(editMin) : null;
+    const opts = teamOptions(anchor.team_id!);
+    const inP = opts.find(p => String(p.player_id) === editIn);
+    const outP = opts.find(p => String(p.player_id) === editOut);
+    onReplace(events.map(e => {
+      if (inEv && e.id === inEv.id) return { ...e, player_id: inP?.player_id ?? e.player_id, player_name: inP?.player_name ?? e.player_name, minute };
+      if (outEv && e.id === outEv.id) return { ...e, player_id: outP?.player_id ?? e.player_id, player_name: outP?.player_name ?? e.player_name, minute };
+      return e;
+    }));
+    setEditKey(null);
+  };
 
   const teamId = Number(evTeam);
   const slots = (lineups.find(l => l.team_id === teamId)?.slots ?? []).filter(s => s.player_id != null);
@@ -1586,29 +1627,69 @@ function SubSection({ events, m, lineups, onRemove, onSave, saving, ok, tt }: {
         <div className="space-y-1">
           {pairs.map(({ inEv, outEv }) => (
             <div key={inEv.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              <span className="text-base">🔁</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-win text-xs font-bold truncate">⬆ {inEv.player_name}</p>
-                {outEv && <p className="text-loss text-[11px] font-bold truncate">⬇ {outEv.player_name}</p>}
-              </div>
-              {inEv.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
-              <span className="text-[11px] text-hint tabular-nums">
-                {teamName(inEv.team_id).slice(0, 8)}
-                {inEv.minute != null && ` · ${inEv.minute}'`}
-              </span>
-              <button onClick={() => onRemove([inEv.id, outEv?.id].filter((x): x is number => x != null))}
-                className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+              {editKey === inEv.id ? (
+                <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-base">🔁</span>
+                  <span className="text-win text-[11px] font-bold">⬆</span>
+                  <select value={editIn} onChange={e => setEditIn(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
+                    {inEv.player_id != null && !teamOptions(inEv.team_id!).some(p => String(p.player_id) === editIn) && <option value={editIn}>{inEv.player_name}</option>}
+                    {teamOptions(inEv.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+                  </select>
+                  <span className="text-loss text-[11px] font-bold">⬇</span>
+                  <select value={editOut} onChange={e => setEditOut(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
+                    <option value="">—</option>
+                    {outEv?.player_id != null && !teamOptions(inEv.team_id!).some(p => String(p.player_id) === editOut) && <option value={editOut}>{outEv.player_name}</option>}
+                    {teamOptions(inEv.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+                  </select>
+                  <input type="number" value={editMin} onChange={e => setEditMin(e.target.value)} min={1} max={120} placeholder="45" className={inputCls + ' text-xs w-14'} />
+                  <button onClick={() => saveEdit(inEv, outEv)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
+                  <button onClick={() => setEditKey(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
+                </div>
+              ) : (
+                <>
+                  <span className="text-base">🔁</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-win text-xs font-bold truncate">⬆ {inEv.player_name}</p>
+                    {outEv && <p className="text-loss text-[11px] font-bold truncate">⬇ {outEv.player_name}</p>}
+                  </div>
+                  {inEv.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+                  <span className="text-[11px] text-hint tabular-nums">
+                    {teamName(inEv.team_id).slice(0, 8)}
+                    {inEv.minute != null && ` · ${inEv.minute}'`}
+                  </span>
+                  <button onClick={() => startEdit(inEv, outEv)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
+                  <button onClick={() => onRemove([inEv.id, outEv?.id].filter((x): x is number => x != null))}
+                    className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+                </>
+              )}
             </div>
           ))}
           {orphanOuts.map(o => (
             <div key={o.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              <span className="text-base">🔻</span>
-              <span className="text-loss text-xs flex-1 truncate font-bold">⬇ {o.player_name}</span>
-              <span className="text-[11px] text-hint tabular-nums">
-                {teamName(o.team_id).slice(0, 8)}
-                {o.minute != null && ` · ${o.minute}'`}
-              </span>
-              <button onClick={() => onRemove([o.id])} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+              {editKey === o.id ? (
+                <div className="flex-1 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-base">🔻</span>
+                  <span className="text-loss text-[11px] font-bold">⬇</span>
+                  <select value={editOut} onChange={e => setEditOut(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
+                    {o.player_id != null && !teamOptions(o.team_id!).some(p => String(p.player_id) === editOut) && <option value={editOut}>{o.player_name}</option>}
+                    {teamOptions(o.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+                  </select>
+                  <input type="number" value={editMin} onChange={e => setEditMin(e.target.value)} min={1} max={120} placeholder="45" className={inputCls + ' text-xs w-14'} />
+                  <button onClick={() => saveEdit(null, o)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
+                  <button onClick={() => setEditKey(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
+                </div>
+              ) : (
+                <>
+                  <span className="text-base">🔻</span>
+                  <span className="text-loss text-xs flex-1 truncate font-bold">⬇ {o.player_name}</span>
+                  <span className="text-[11px] text-hint tabular-nums">
+                    {teamName(o.team_id).slice(0, 8)}
+                    {o.minute != null && ` · ${o.minute}'`}
+                  </span>
+                  <button onClick={() => startEdit(null, o)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
+                  <button onClick={() => onRemove([o.id])} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
+                </>
+              )}
             </div>
           ))}
         </div>
