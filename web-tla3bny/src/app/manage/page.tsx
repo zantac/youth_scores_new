@@ -113,11 +113,25 @@ function DashboardTab({ token, comp, onNavigate }: {
 }) {
   const tt = useTT();
   const [d, setD] = useState<TCompDashboard | null>(null);
+  // Separate "failed" from "still loading": without it a failed request left
+  // `d` null forever, so the Overview tab spun an endless spinner with no way to
+  // retry (the other tabs kept working on the same token).
+  const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    tCompDashboard(token, comp.id).then(setD).catch(() => setD(null));
+  const load = useCallback(() => {
+    setFailed(false); setD(null);
+    tCompDashboard(token, comp.id).then(setD).catch(() => setFailed(true));
   }, [token, comp.id]);
+  useEffect(() => { load(); }, [load]);
 
+  if (failed) return (
+    <Card className="p-4 space-y-2 text-center">
+      <p className="text-sm text-hint">{tt('تعذّر تحميل النظرة العامة.', 'Couldn’t load the overview.')}</p>
+      <button onClick={load} className="text-sm font-bold text-aqua hover:underline">
+        {tt('إعادة المحاولة', 'Retry')}
+      </button>
+    </Card>
+  );
   if (!d) return <Spinner />;
 
   const { counts } = d;
