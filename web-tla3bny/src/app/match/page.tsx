@@ -1173,68 +1173,63 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
   const [isPenalty, setIsPenalty] = useState(false);
   const [isGoalET,  setIsGoalET]  = useState(false);
 
-  // Inline edit of an existing goal — fix a wrong scorer / assist / minute
-  // without deleting and re-adding. Persists the whole list (events are replaced
-  // on save).
+  // Edit an existing goal by loading it into the form below (youthscores-style),
+  // with the full field set — team, scorer, assist, minute, own-goal, penalty.
+  // Save then replaces the goal (and its old assist) instead of appending.
   const [editId, setEditId] = useState<number | null>(null);
-  const [editScorer, setEditScorer] = useState('');
-  const [editAssist, setEditAssist] = useState('');
-  const [editMinute, setEditMinute] = useState('');
-  const startEdit = (g: TMatchEvent, assist?: TMatchEvent) => {
-    setEditId(g.id);
-    setEditScorer(g.player_id != null ? String(g.player_id) : '');
-    setEditAssist(assist?.player_id != null ? String(assist.player_id) : '');
-    setEditMinute(g.minute != null ? String(g.minute) : '');
+  const [editAssistId, setEditAssistId] = useState<number | null>(null);
+  const resetForm = () => {
+    setEvScorer(''); setEvAssist(''); setEvMinute('');
+    setIsOwnGoal(false); setIsPenalty(false); setIsGoalET(false);
   };
-  const saveEdit = (g: TMatchEvent, scorerTeam: number, assist?: TMatchEvent) => {
-    const pool = rosterFor(scorerTeam);
-    const scorer = pool.find(p => String(p.player_id) === editScorer);
-    const minute = editMinute ? Number(editMinute) : null;
-    // No assist on an own goal; an assister can't be the scorer.
-    const assistP = (!g.is_own_goal && editAssist && editAssist !== editScorer)
-      ? pool.find(p => String(p.player_id) === editAssist) : null;
-
-    let list = events.map(e => e.id === g.id ? {
-      ...e,
-      player_id: scorer?.player_id ?? e.player_id,
-      player_name: scorer?.player_name ?? e.player_name,
-      minute,
-    } : e);
-
-    if (assist) {
-      // Had an assist: update it (new assister + synced minute), or drop it if
-      // the organizer cleared the assist picker.
-      list = assistP
-        ? list.map(e => e.id === assist.id
-            ? { ...e, player_id: assistP.player_id, player_name: assistP.player_name ?? '', minute } : e)
-        : list.filter(e => e.id !== assist.id);
-    } else if (assistP) {
-      // No assist before — add one, credited to the goal's team on the same minute.
-      list = [...list, {
-        id: Date.now(), match_id: g.match_id, related_event_id: null,
-        event_type: 'assist', team_id: g.team_id,
-        player_id: assistP.player_id, player_name: assistP.player_name ?? '', minute,
-        is_extra_time: g.is_extra_time, is_own_goal: false, is_penalty: false,
-        kick_order: null, is_winning_kick: false,
-      }];
-    }
-    onReplace(list);
-    setEditId(null);
+  const cancelEdit = () => { setEditId(null); setEditAssistId(null); resetForm(); };
+  const startEdit = (g: TMatchEvent, assist?: TMatchEvent) => {
+    const scorerTeam = g.is_own_goal
+      ? (g.team_id === m.home_team_id ? m.away_team_id : m.home_team_id)
+      : g.team_id!;
+    setEvTeam(String(scorerTeam));
+    setEvScorer(g.player_id != null ? String(g.player_id) : '');
+    setEvAssist(assist?.player_id != null ? String(assist.player_id) : '');
+    setEvMinute(g.minute != null ? String(g.minute) : '');
+    setIsOwnGoal(g.is_own_goal); setIsPenalty(g.is_penalty); setIsGoalET(g.is_extra_time);
+    setEditId(g.id); setEditAssistId(assist?.id ?? null);
   };
 
   const teamId = Number(evTeam);
   const roster = rosterFor(teamId);
 
-  // Build the goal (+ optional assist) and save it straight to the match.
+  // Build the goal (+ optional assist) — append a new one, or replace the goal
+  // being edited (and its old assist) in place.
   const save = () => {
     if (!evScorer) return;
     const scorer   = roster.find(p => String(p.player_id) === evScorer);
-    const assister = evAssist && !isOwnGoal ? roster.find(p => String(p.player_id) === evAssist) : null;
+    const assister = evAssist && !isOwnGoal && evAssist !== evScorer ? roster.find(p => String(p.player_id) === evAssist) : null;
     const minute   = evMinute ? Number(evMinute) : null;
     // Own goal: credit the opposing team.
     const creditTeam = isOwnGoal
       ? (Number(evTeam) === m.home_team_id ? m.away_team_id : m.home_team_id)
       : Number(evTeam);
+    if (editId != null) {
+      const base = events.filter(e => e.id !== editId && e.id !== editAssistId);
+      const goal: TMatchEvent = {
+        id: editId, match_id: m.id, related_event_id: null,
+        event_type: 'goal', team_id: creditTeam,
+        player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
+        is_extra_time: isGoalET, is_own_goal: isOwnGoal, is_penalty: isPenalty,
+        kick_order: null, is_winning_kick: false,
+      };
+      const list = [...base, goal];
+      if (assister) list.push({
+        id: editAssistId ?? Date.now(), match_id: m.id, related_event_id: null,
+        event_type: 'assist', team_id: Number(evTeam),
+        player_id: assister.player_id, player_name: assister.player_name ?? '', minute,
+        is_extra_time: isGoalET, is_own_goal: false, is_penalty: false,
+        kick_order: null, is_winning_kick: false,
+      });
+      onReplace(list);
+      cancelEdit();
+      return;
+    }
     const bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[] = [{
       event_type: 'goal', team_id: creditTeam,
       player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
@@ -1248,8 +1243,7 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
         kick_order: null, is_winning_kick: false });
     }
     onSave(bare);
-    setEvScorer(''); setEvAssist(''); setEvMinute('');
-    setIsOwnGoal(false); setIsPenalty(false); setIsGoalET(false);
+    resetForm();
   };
 
   return (
@@ -1260,39 +1254,8 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
         <div className="space-y-1">
           {goalEvs.map(g => {
             const assist = assistEvs.find(a => a.team_id === g.team_id && a.minute === g.minute);
-            // For an own goal the scorer is on the opposing team, even though the
-            // goal is credited to g.team_id — so edit from the scorer's real team.
-            const scorerTeam = g.is_own_goal
-              ? (g.team_id === m.home_team_id ? m.away_team_id : m.home_team_id)
-              : g.team_id!;
             return (
-              <div key={g.id} className="bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-                {editId === g.id ? (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-base">⚽</span>
-                    <select value={editScorer} onChange={e => setEditScorer(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[8rem]'}>
-                      {g.player_id != null && !rosterFor(scorerTeam).some(p => String(p.player_id) === editScorer) && (
-                        <option value={editScorer}>{g.player_name}</option>
-                      )}
-                      {rosterFor(scorerTeam).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-                    </select>
-                    {!g.is_own_goal && (
-                      <select value={editAssist} onChange={e => setEditAssist(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[7rem]'}
-                        title={tt('صناعة', 'Assist')}>
-                        <option value="">🅰️ {tt('لا صناعة', 'No assist')}</option>
-                        {assist?.player_id != null && !rosterFor(scorerTeam).some(p => String(p.player_id) === editAssist) && (
-                          <option value={editAssist}>{assist.player_name}</option>
-                        )}
-                        {rosterFor(scorerTeam).filter(p => String(p.player_id) !== editScorer).map(p =>
-                          <option key={p.player_id} value={String(p.player_id)}>🅰️ {p.player_name}</option>)}
-                      </select>
-                    )}
-                    <input type="number" value={editMinute} onChange={e => setEditMinute(e.target.value)} min={1} max={120}
-                      placeholder="45" className={inputCls + ' text-xs w-16'} />
-                    <button onClick={() => saveEdit(g, scorerTeam, assist)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
-                    <button onClick={() => setEditId(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
-                  </div>
-                ) : (
+              <div key={g.id} className={`border rounded-lg px-3 py-1.5 ${editId === g.id ? 'bg-aqua/10 border-aqua/50' : 'bg-darkBg/60 border-bdr'}`}>
                 <div className="flex items-center gap-2">
                   <span className="text-base">⚽</span>
                   <span className="text-text text-xs flex-1 font-bold">{g.player_name}</span>
@@ -1305,12 +1268,11 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
                     {(g.team_id === m.home_team_id ? homeName : awayName).slice(0, 10)}
                     {g.minute != null && ` · ${g.minute}'`}
                   </span>
-                  <button onClick={() => startEdit(g, assist)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
+                  <button onClick={() => startEdit(g, assist)} className="text-aqua hover:underline text-[11px] font-bold shrink-0">{tt('تعديل', 'Edit')}</button>
                   <button onClick={() => { onRemove(g.id); if (assist) onRemove(assist.id); }}
                     className="text-hint hover:text-loss text-xs shrink-0">✕</button>
                 </div>
-                )}
-                {assist && editId !== g.id && (
+                {assist && (
                   <p className="text-[11px] text-teal ps-7 mt-0.5">🅰️ {tt('صناعة', 'Assist')}: {assist.player_name}</p>
                 )}
               </div>
@@ -1320,6 +1282,12 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
       )}
 
       <div className="border-t border-bdr/50 pt-3 space-y-2">
+        {editId != null && (
+          <div className="flex items-center justify-between">
+            <span className="text-aqua text-[11px] font-bold">✎ {tt('تعديل هدف', 'Editing goal')}</span>
+            <button onClick={cancelEdit} className="text-hint hover:text-text text-[11px] font-bold">{tt('إلغاء التعديل', 'Cancel edit')}</button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('الفريق', 'Team')}>
             <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvScorer(''); setEvAssist(''); }} className={inputCls}>
@@ -1361,7 +1329,7 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
         </div>
         <button onClick={save} disabled={saving || !evScorer}
           className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
-          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ الهدف', 'Save goal')}
+          {ok ? '✓' : saving ? tt('…', '…') : editId != null ? tt('حفظ التعديل', 'Save edit') : tt('حفظ الهدف', 'Save goal')}
         </button>
       </div>
     </Card>
@@ -1400,35 +1368,36 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
       : (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
   };
 
-  // Inline edit of an existing event — fix a wrong player / minute in place.
+  // Edit an existing event by loading it into the form below (youthscores-style),
+  // with the full field set — type, team, player, minute, flags. Save then
+  // replaces it in place instead of appending.
   const [editId, setEditId] = useState<number | null>(null);
-  const [editPlayer, setEditPlayer] = useState('');
-  const [editMinute, setEditMinute] = useState('');
-  const startEdit = (e: TMatchEvent) => {
-    setEditId(e.id);
-    setEditPlayer(e.player_id != null ? String(e.player_id) : '');
-    setEditMinute(e.minute != null ? String(e.minute) : '');
+  const resetForm = () => {
+    setEvPlayer(''); setEvMinute(''); setIsEvET(false);
+    if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
   };
-  const saveEdit = (e0: TMatchEvent) => {
-    const player = rosterFor(e0.team_id!).find(p => String(p.player_id) === editPlayer);
-    const minute = editMinute ? Number(editMinute) : null;
-    onReplace(events.map(e => e.id === e0.id ? {
-      ...e,
-      player_id: player?.player_id ?? e.player_id,
-      player_name: player?.player_name ?? e.player_name,
-      minute,
-    } : e));
-    setEditId(null);
+  const cancelEdit = () => { setEditId(null); resetForm(); };
+  const startEdit = (e: TMatchEvent) => {
+    setEvType(e.event_type);
+    setEvTeam(e.team_id != null ? String(e.team_id) : String(m.home_team_id));
+    setEvPlayer(e.player_id != null ? String(e.player_id) : '');
+    setEvMinute(e.minute != null ? String(e.minute) : '');
+    setIsEvET(e.is_extra_time);
+    if (isPenSection) {
+      setKickOrder(e.kick_order != null ? String(e.kick_order) : '');
+      setIsWinningKick(e.is_winning_kick);
+    }
+    setEditId(e.id);
   };
 
   const teamId = Number(evTeam);
   const roster = rosterFor(teamId);
 
-  // Build the event and save it straight to the match.
+  // Build the event — append a new one, or replace the one being edited.
   const save = () => {
     if (!evPlayer) return;
     const player = roster.find(p => String(p.player_id) === evPlayer);
-    onSave([{
+    const fields = {
       event_type: evType as EvType,
       team_id: Number(evTeam),
       player_id: player?.player_id ?? null,
@@ -1439,9 +1408,14 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
       is_penalty: false,
       kick_order: isPenSection && kickOrder ? Number(kickOrder) : null,
       is_winning_kick: isPenSection ? isWinningKick : false,
-    }]);
-    setEvPlayer(''); setEvMinute(''); setIsEvET(false);
-    if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
+    };
+    if (editId != null) {
+      onReplace(events.map(e => e.id === editId ? { ...e, ...fields } : e));
+      cancelEdit();
+      return;
+    }
+    onSave([fields]);
+    resetForm();
   };
 
   return (
@@ -1451,43 +1425,32 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
       {shown.length > 0 && (
         <div className="space-y-1">
           {shown.map(e => (
-            <div key={e.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
+            <div key={e.id} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${editId === e.id ? 'bg-aqua/10 border-aqua/50' : 'bg-darkBg/60 border-bdr'}`}>
               <span className="text-base">{EV_ICON[e.event_type] ?? '•'}</span>
-              {editId === e.id ? (
-                <>
-                  <select value={editPlayer} onChange={ev => setEditPlayer(ev.target.value)} className={inputCls + ' text-xs flex-1 min-w-[8rem]'}>
-                    {e.player_id != null && !rosterFor(e.team_id!).some(p => String(p.player_id) === editPlayer) && (
-                      <option value={editPlayer}>{e.player_name}</option>
-                    )}
-                    {rosterFor(e.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-                  </select>
-                  <input type="number" value={editMinute} onChange={ev => setEditMinute(ev.target.value)} min={1} max={120}
-                    placeholder="45" className={inputCls + ' text-xs w-16'} />
-                  <button onClick={() => saveEdit(e)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
-                  <button onClick={() => setEditId(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
-                </>
-              ) : (
-                <>
-                  <span className="text-text text-xs flex-1 truncate font-bold">{e.player_name}</span>
-                  <div className="flex items-center gap-1">
-                    {e.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
-                    {e.kick_order != null && <span className="text-[9px] text-hint">#{e.kick_order}</span>}
-                    {e.is_winning_kick && <span className="text-[9px] text-gold">★</span>}
-                  </div>
-                  <span className="text-[11px] text-hint tabular-nums">
-                    {(e.team_id === m.home_team_id ? homeName : awayName).slice(0, 8)}
-                    {e.minute != null && ` · ${e.minute}'`}
-                  </span>
-                  <button onClick={() => startEdit(e)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
-                  <button onClick={() => onRemove(e.id)} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
-                </>
-              )}
+              <span className="text-text text-xs flex-1 truncate font-bold">{e.player_name}</span>
+              <div className="flex items-center gap-1">
+                {e.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+                {e.kick_order != null && <span className="text-[9px] text-hint">#{e.kick_order}</span>}
+                {e.is_winning_kick && <span className="text-[9px] text-gold">★</span>}
+              </div>
+              <span className="text-[11px] text-hint tabular-nums">
+                {(e.team_id === m.home_team_id ? homeName : awayName).slice(0, 8)}
+                {e.minute != null && ` · ${e.minute}'`}
+              </span>
+              <button onClick={() => startEdit(e)} className="text-aqua hover:underline text-[11px] font-bold shrink-0">{tt('تعديل', 'Edit')}</button>
+              <button onClick={() => onRemove(e.id)} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
             </div>
           ))}
         </div>
       )}
 
       <div className="border-t border-bdr/50 pt-3 space-y-2">
+        {editId != null && (
+          <div className="flex items-center justify-between">
+            <span className="text-aqua text-[11px] font-bold">✎ {tt('تعديل', 'Editing')}</span>
+            <button onClick={cancelEdit} className="text-hint hover:text-text text-[11px] font-bold">{tt('إلغاء التعديل', 'Cancel edit')}</button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('النوع', 'Type')}>
             <select value={evType} onChange={e => setEvType(e.target.value)} className={inputCls}>
@@ -1533,7 +1496,7 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
         )}
         <button onClick={save} disabled={saving || !evPlayer}
           className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
-          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ', 'Save')}
+          {ok ? '✓' : saving ? tt('…', '…') : editId != null ? tt('حفظ التعديل', 'Save edit') : tt('حفظ', 'Save')}
         </button>
       </div>
     </Card>
@@ -1575,31 +1538,24 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
     return [...map.entries()].map(([player_id, player_name]) => ({ player_id, player_name }));
   };
 
-  // Inline edit of a recorded substitution — fix who went off/on, or the minute.
-  // Both the paired in + out events are updated (and kept on the same minute).
-  const [editKey, setEditKey] = useState<number | null>(null);
-  const [editIn, setEditIn] = useState('');
-  const [editOut, setEditOut] = useState('');
-  const [editMin, setEditMin] = useState('');
+  // Edit a recorded substitution by loading it into the form below — change who
+  // went off/on, the team, or the minute. Save replaces the paired events.
+  const [editInId, setEditInId] = useState<number | null>(null);
+  const [editOutId, setEditOutId] = useState<number | null>(null);
+  const editing = editInId != null || editOutId != null;
+  const cancelEdit = () => {
+    setEditInId(null); setEditOutId(null);
+    setOutPlayer(''); setInPlayer(''); setEvMinute(''); setIsEvET(false);
+  };
   const startEdit = (inEv: TMatchEvent | null, outEv?: TMatchEvent) => {
     const anchor = inEv ?? outEv!;
-    setEditKey(anchor.id);
-    setEditIn(inEv?.player_id != null ? String(inEv.player_id) : '');
-    setEditOut(outEv?.player_id != null ? String(outEv.player_id) : '');
-    setEditMin(anchor.minute != null ? String(anchor.minute) : '');
-  };
-  const saveEdit = (inEv: TMatchEvent | null, outEv?: TMatchEvent) => {
-    const anchor = inEv ?? outEv!;
-    const minute = editMin ? Number(editMin) : null;
-    const opts = teamOptions(anchor.team_id!);
-    const inP = opts.find(p => String(p.player_id) === editIn);
-    const outP = opts.find(p => String(p.player_id) === editOut);
-    onReplace(events.map(e => {
-      if (inEv && e.id === inEv.id) return { ...e, player_id: inP?.player_id ?? e.player_id, player_name: inP?.player_name ?? e.player_name, minute };
-      if (outEv && e.id === outEv.id) return { ...e, player_id: outP?.player_id ?? e.player_id, player_name: outP?.player_name ?? e.player_name, minute };
-      return e;
-    }));
-    setEditKey(null);
+    setEvTeam(String(anchor.team_id ?? m.home_team_id));
+    setInPlayer(inEv?.player_id != null ? String(inEv.player_id) : '');
+    setOutPlayer(outEv?.player_id != null ? String(outEv.player_id) : '');
+    setEvMinute(anchor.minute != null ? String(anchor.minute) : '');
+    setIsEvET(anchor.is_extra_time);
+    setEditInId(inEv?.id ?? null);
+    setEditOutId(outEv?.id ?? null);
   };
 
   const teamId = Number(evTeam);
@@ -1627,6 +1583,11 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
     .filter(id => !subbedIn.has(id) && !subbedOut.has(id))
     .map(id => ({ player_id: id, player_name: nameById.get(id) ?? '' }));
 
+  // While editing, the pickers show the whole squad (the sub's own players are
+  // excluded from the add-form's legal-swap filters above); adding keeps them.
+  const outChoices = editing ? teamOptions(teamId) : outOptions;
+  const inChoices = editing ? teamOptions(teamId) : inOptions;
+
   // Pair recorded in/out events for display (by team + minute, as elsewhere).
   const consumed = new Set<number>();
   const pairs = events.filter(e => e.event_type === 'substitution_in').map(inEv => {
@@ -1639,8 +1600,31 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
   const orphanOuts = events.filter(e => e.event_type === 'substitution_out' && !consumed.has(e.id));
 
   const save = () => {
-    if (!outPlayer || !inPlayer) return;
+    if (!outPlayer) return;
+    if (!editing && !inPlayer) return;
     const minute = evMinute ? Number(evMinute) : null;
+    const opts = teamOptions(teamId);
+    const nameFor = (pid: number) => opts.find(p => p.player_id === pid)?.player_name ?? nameById.get(pid) ?? '';
+    if (editing) {
+      // Replace this sub's in/out events (new players / team / minute). The "in"
+      // is optional so a one-sided "out" can be fixed without inventing one.
+      const base = events.filter(e => e.id !== editInId && e.id !== editOutId);
+      const list: TMatchEvent[] = [...base, {
+        id: editOutId ?? Date.now(), match_id: m.id, related_event_id: null,
+        event_type: 'substitution_out', team_id: teamId,
+        player_id: Number(outPlayer), player_name: nameFor(Number(outPlayer)), minute,
+        is_extra_time: isEvET, is_own_goal: false, is_penalty: false, kick_order: null, is_winning_kick: false,
+      }];
+      if (inPlayer) list.push({
+        id: editInId ?? Date.now() + 1, match_id: m.id, related_event_id: null,
+        event_type: 'substitution_in', team_id: teamId,
+        player_id: Number(inPlayer), player_name: nameFor(Number(inPlayer)), minute,
+        is_extra_time: isEvET, is_own_goal: false, is_penalty: false, kick_order: null, is_winning_kick: false,
+      });
+      onReplace(list);
+      cancelEdit();
+      return;
+    }
     const mk = (type: EvType, pid: number): Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'> => ({
       event_type: type, team_id: teamId, player_id: pid, player_name: nameById.get(pid) ?? '',
       minute, is_extra_time: isEvET, is_own_goal: false, is_penalty: false,
@@ -1659,76 +1643,44 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
       {(pairs.length > 0 || orphanOuts.length > 0) && (
         <div className="space-y-1">
           {pairs.map(({ inEv, outEv }) => (
-            <div key={inEv.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              {editKey === inEv.id ? (
-                <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-base">🔁</span>
-                  <span className="text-win text-[11px] font-bold">⬆</span>
-                  <select value={editIn} onChange={e => setEditIn(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
-                    {inEv.player_id != null && !teamOptions(inEv.team_id!).some(p => String(p.player_id) === editIn) && <option value={editIn}>{inEv.player_name}</option>}
-                    {teamOptions(inEv.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-                  </select>
-                  <span className="text-loss text-[11px] font-bold">⬇</span>
-                  <select value={editOut} onChange={e => setEditOut(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
-                    <option value="">—</option>
-                    {outEv?.player_id != null && !teamOptions(inEv.team_id!).some(p => String(p.player_id) === editOut) && <option value={editOut}>{outEv.player_name}</option>}
-                    {teamOptions(inEv.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-                  </select>
-                  <input type="number" value={editMin} onChange={e => setEditMin(e.target.value)} min={1} max={120} placeholder="45" className={inputCls + ' text-xs w-14'} />
-                  <button onClick={() => saveEdit(inEv, outEv)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
-                  <button onClick={() => setEditKey(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
-                </div>
-              ) : (
-                <>
-                  <span className="text-base">🔁</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-win text-xs font-bold truncate">⬆ {inEv.player_name}</p>
-                    {outEv && <p className="text-loss text-[11px] font-bold truncate">⬇ {outEv.player_name}</p>}
-                  </div>
-                  {inEv.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
-                  <span className="text-[11px] text-hint tabular-nums">
-                    {teamName(inEv.team_id).slice(0, 8)}
-                    {inEv.minute != null && ` · ${inEv.minute}'`}
-                  </span>
-                  <button onClick={() => startEdit(inEv, outEv)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
-                  <button onClick={() => onRemove([inEv.id, outEv?.id].filter((x): x is number => x != null))}
-                    className="text-hint hover:text-loss text-xs shrink-0">✕</button>
-                </>
-              )}
+            <div key={inEv.id} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${editInId === inEv.id ? 'bg-aqua/10 border-aqua/50' : 'bg-darkBg/60 border-bdr'}`}>
+              <span className="text-base">🔁</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-win text-xs font-bold truncate">⬆ {inEv.player_name}</p>
+                {outEv && <p className="text-loss text-[11px] font-bold truncate">⬇ {outEv.player_name}</p>}
+              </div>
+              {inEv.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
+              <span className="text-[11px] text-hint tabular-nums">
+                {teamName(inEv.team_id).slice(0, 8)}
+                {inEv.minute != null && ` · ${inEv.minute}'`}
+              </span>
+              <button onClick={() => startEdit(inEv, outEv)} className="text-aqua hover:underline text-[11px] font-bold shrink-0">{tt('تعديل', 'Edit')}</button>
+              <button onClick={() => onRemove([inEv.id, outEv?.id].filter((x): x is number => x != null))}
+                className="text-hint hover:text-loss text-xs shrink-0">✕</button>
             </div>
           ))}
           {orphanOuts.map(o => (
-            <div key={o.id} className="flex items-center gap-2 bg-darkBg/60 border border-bdr rounded-lg px-3 py-1.5">
-              {editKey === o.id ? (
-                <div className="flex-1 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-base">🔻</span>
-                  <span className="text-loss text-[11px] font-bold">⬇</span>
-                  <select value={editOut} onChange={e => setEditOut(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[6rem]'}>
-                    {o.player_id != null && !teamOptions(o.team_id!).some(p => String(p.player_id) === editOut) && <option value={editOut}>{o.player_name}</option>}
-                    {teamOptions(o.team_id!).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-                  </select>
-                  <input type="number" value={editMin} onChange={e => setEditMin(e.target.value)} min={1} max={120} placeholder="45" className={inputCls + ' text-xs w-14'} />
-                  <button onClick={() => saveEdit(null, o)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
-                  <button onClick={() => setEditKey(null)} className="text-hint hover:text-text text-xs px-1">{tt('إلغاء', 'Cancel')}</button>
-                </div>
-              ) : (
-                <>
-                  <span className="text-base">🔻</span>
-                  <span className="text-loss text-xs flex-1 truncate font-bold">⬇ {o.player_name}</span>
-                  <span className="text-[11px] text-hint tabular-nums">
-                    {teamName(o.team_id).slice(0, 8)}
-                    {o.minute != null && ` · ${o.minute}'`}
-                  </span>
-                  <button onClick={() => startEdit(null, o)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
-                  <button onClick={() => onRemove([o.id])} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
-                </>
-              )}
+            <div key={o.id} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${editOutId === o.id ? 'bg-aqua/10 border-aqua/50' : 'bg-darkBg/60 border-bdr'}`}>
+              <span className="text-base">🔻</span>
+              <span className="text-loss text-xs flex-1 truncate font-bold">⬇ {o.player_name}</span>
+              <span className="text-[11px] text-hint tabular-nums">
+                {teamName(o.team_id).slice(0, 8)}
+                {o.minute != null && ` · ${o.minute}'`}
+              </span>
+              <button onClick={() => startEdit(null, o)} className="text-aqua hover:underline text-[11px] font-bold shrink-0">{tt('تعديل', 'Edit')}</button>
+              <button onClick={() => onRemove([o.id])} className="text-hint hover:text-loss text-xs shrink-0">✕</button>
             </div>
           ))}
         </div>
       )}
 
       <div className="border-t border-bdr/50 pt-3 space-y-2">
+        {editing && (
+          <div className="flex items-center justify-between">
+            <span className="text-aqua text-[11px] font-bold">✎ {tt('تعديل تبديل', 'Editing substitution')}</span>
+            <button onClick={cancelEdit} className="text-hint hover:text-text text-[11px] font-bold">{tt('إلغاء التعديل', 'Cancel edit')}</button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('الفريق', 'Team')}>
             <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setOutPlayer(''); setInPlayer(''); }} className={inputCls}>
@@ -1740,15 +1692,15 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
             <input type="number" value={evMinute} onChange={e => setEvMinute(e.target.value)} min={1} max={120} placeholder="45" className={inputCls} />
           </Field>
           <Field label={tt('خارج ⬇', 'Out ⬇')}>
-            <select value={outPlayer} onChange={e => setOutPlayer(e.target.value)} disabled={!hasLineup} className={inputCls}>
+            <select value={outPlayer} onChange={e => setOutPlayer(e.target.value)} disabled={!hasLineup && !editing} className={inputCls}>
               <option value="">—</option>
-              {outOptions.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+              {outChoices.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
             </select>
           </Field>
           <Field label={tt('داخل ⬆', 'In ⬆')}>
-            <select value={inPlayer} onChange={e => setInPlayer(e.target.value)} disabled={!hasLineup} className={inputCls}>
+            <select value={inPlayer} onChange={e => setInPlayer(e.target.value)} disabled={!hasLineup && !editing} className={inputCls}>
               <option value="">—</option>
-              {inOptions.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+              {inChoices.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
             </select>
           </Field>
         </div>
@@ -1756,14 +1708,14 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
           <input type="checkbox" checked={isEvET} onChange={e => setIsEvET(e.target.checked)} />
           {tt('في الوقت الإضافي', 'Extra time')}
         </label>
-        {!hasLineup ? (
+        {!editing && (!hasLineup ? (
           <p className="text-hint text-[11px]">{tt('أضِف تشكيلة الفريق أولًا لتسجيل التبديلات.', 'Submit the team lineup first to record substitutions.')}</p>
         ) : inOptions.length === 0 && (
           <p className="text-hint text-[11px]">{tt('لا يوجد لاعبون على مقاعد البدلاء يمكنهم الدخول.', 'No bench players left to bring on.')}</p>
-        )}
-        <button onClick={save} disabled={saving || !outPlayer || !inPlayer}
+        ))}
+        <button onClick={save} disabled={saving || !outPlayer || (!editing && !inPlayer)}
           className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
-          {ok ? '✓' : saving ? tt('…', '…') : tt('حفظ التبديل', 'Save substitution')}
+          {ok ? '✓' : saving ? tt('…', '…') : editing ? tt('حفظ التعديل', 'Save edit') : tt('حفظ التبديل', 'Save substitution')}
         </button>
       </div>
     </Card>
