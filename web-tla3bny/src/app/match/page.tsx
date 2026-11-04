@@ -1173,30 +1173,52 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
   const [isPenalty, setIsPenalty] = useState(false);
   const [isGoalET,  setIsGoalET]  = useState(false);
 
-  // Inline edit of an existing goal — fix a wrong scorer / minute without
-  // deleting and re-adding. Persists the whole list (events are replaced on save).
+  // Inline edit of an existing goal — fix a wrong scorer / assist / minute
+  // without deleting and re-adding. Persists the whole list (events are replaced
+  // on save).
   const [editId, setEditId] = useState<number | null>(null);
   const [editScorer, setEditScorer] = useState('');
+  const [editAssist, setEditAssist] = useState('');
   const [editMinute, setEditMinute] = useState('');
-  const startEdit = (g: TMatchEvent) => {
+  const startEdit = (g: TMatchEvent, assist?: TMatchEvent) => {
     setEditId(g.id);
     setEditScorer(g.player_id != null ? String(g.player_id) : '');
+    setEditAssist(assist?.player_id != null ? String(assist.player_id) : '');
     setEditMinute(g.minute != null ? String(g.minute) : '');
   };
   const saveEdit = (g: TMatchEvent, scorerTeam: number, assist?: TMatchEvent) => {
-    const scorer = rosterFor(scorerTeam).find(p => String(p.player_id) === editScorer);
+    const pool = rosterFor(scorerTeam);
+    const scorer = pool.find(p => String(p.player_id) === editScorer);
     const minute = editMinute ? Number(editMinute) : null;
-    onReplace(events.map(e => {
-      if (e.id === g.id) return {
-        ...e,
-        player_id: scorer?.player_id ?? e.player_id,
-        player_name: scorer?.player_name ?? e.player_name,
-        minute,
-      };
-      // Keep the paired assist on the same minute (goals + assists match by it).
-      if (assist && e.id === assist.id) return { ...e, minute };
-      return e;
-    }));
+    // No assist on an own goal; an assister can't be the scorer.
+    const assistP = (!g.is_own_goal && editAssist && editAssist !== editScorer)
+      ? pool.find(p => String(p.player_id) === editAssist) : null;
+
+    let list = events.map(e => e.id === g.id ? {
+      ...e,
+      player_id: scorer?.player_id ?? e.player_id,
+      player_name: scorer?.player_name ?? e.player_name,
+      minute,
+    } : e);
+
+    if (assist) {
+      // Had an assist: update it (new assister + synced minute), or drop it if
+      // the organizer cleared the assist picker.
+      list = assistP
+        ? list.map(e => e.id === assist.id
+            ? { ...e, player_id: assistP.player_id, player_name: assistP.player_name ?? '', minute } : e)
+        : list.filter(e => e.id !== assist.id);
+    } else if (assistP) {
+      // No assist before — add one, credited to the goal's team on the same minute.
+      list = [...list, {
+        id: Date.now(), match_id: g.match_id, related_event_id: null,
+        event_type: 'assist', team_id: g.team_id,
+        player_id: assistP.player_id, player_name: assistP.player_name ?? '', minute,
+        is_extra_time: g.is_extra_time, is_own_goal: false, is_penalty: false,
+        kick_order: null, is_winning_kick: false,
+      }];
+    }
+    onReplace(list);
     setEditId(null);
   };
 
@@ -1254,6 +1276,17 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
                       )}
                       {rosterFor(scorerTeam).map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
                     </select>
+                    {!g.is_own_goal && (
+                      <select value={editAssist} onChange={e => setEditAssist(e.target.value)} className={inputCls + ' text-xs flex-1 min-w-[7rem]'}
+                        title={tt('صناعة', 'Assist')}>
+                        <option value="">🅰️ {tt('لا صناعة', 'No assist')}</option>
+                        {assist?.player_id != null && !rosterFor(scorerTeam).some(p => String(p.player_id) === editAssist) && (
+                          <option value={editAssist}>{assist.player_name}</option>
+                        )}
+                        {rosterFor(scorerTeam).filter(p => String(p.player_id) !== editScorer).map(p =>
+                          <option key={p.player_id} value={String(p.player_id)}>🅰️ {p.player_name}</option>)}
+                      </select>
+                    )}
                     <input type="number" value={editMinute} onChange={e => setEditMinute(e.target.value)} min={1} max={120}
                       placeholder="45" className={inputCls + ' text-xs w-16'} />
                     <button onClick={() => saveEdit(g, scorerTeam, assist)} disabled={saving} className="text-win font-bold text-xs px-1 disabled:opacity-50">{tt('حفظ', 'Save')}</button>
@@ -1272,7 +1305,7 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
                     {(g.team_id === m.home_team_id ? homeName : awayName).slice(0, 10)}
                     {g.minute != null && ` · ${g.minute}'`}
                   </span>
-                  <button onClick={() => startEdit(g)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
+                  <button onClick={() => startEdit(g, assist)} className="text-hint hover:text-aqua text-xs shrink-0" title={tt('تعديل', 'Edit')}>✎</button>
                   <button onClick={() => { onRemove(g.id); if (assist) onRemove(assist.id); }}
                     className="text-hint hover:text-loss text-xs shrink-0">✕</button>
                 </div>
