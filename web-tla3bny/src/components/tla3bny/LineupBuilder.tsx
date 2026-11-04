@@ -209,6 +209,16 @@ export default function LineupBuilder({
     } finally { setBusy(false); }
   };
 
+  // Clear the whole selection at once (starters + subs + positions) instead of
+  // removing players one by one. Confirmed first so an accidental tap is undone;
+  // this only clears the local selection — the empty state is persisted via the
+  // "Clear lineup" save button.
+  const clearAll = () => {
+    if (starters.length + subs.length === 0) return;
+    if (!confirm(tt('مسح كل اللاعبين المختارين من التشكيلة؟', 'Remove all selected players from the lineup?'))) return;
+    setStarters([]); setSubs([]); setAssign({}); setStep(1); setErr(null); setSaved(false);
+  };
+
   if (loading) return <Spinner />;
   if (!match) return <EmptyState icon="🔍" text={tt('المباراة غير موجودة', 'Match not found')} />;
 
@@ -391,6 +401,11 @@ export default function LineupBuilder({
                 ? tt('التالي: الخطة ←', 'Next: Formation →')
                 : tt('إضافة خطة (اختياري) ←', 'Add formation (optional) →')}
             </button>
+            {starters.length + subs.length > 0 && (
+              <button onClick={clearAll} className="text-xs font-bold text-hint hover:text-loss">
+                🗑 {tt('مسح الكل', 'Clear all')}
+              </button>
+            )}
             {saved && <span className="text-win text-sm font-bold">✓ {tt('تم الحفظ', 'Saved')}</span>}
           </div>
         </div>
