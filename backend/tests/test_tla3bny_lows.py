@@ -127,6 +127,32 @@ def test_duplicate_player_in_lineup_is_rejected(client):
     assert r2.status_code == 200
 
 
+def test_saving_an_empty_lineup_clears_it(client):
+    app, db = client
+    s = _seed(db)
+    c = app.test_client()
+    hdr = {"Authorization": f"Bearer {s['token']}"}
+    url = f"/api/tla3bny/lineups/match/{s['match_id']}/team/{s['home_id']}"
+
+    # Save a lineup, then clear it by saving an empty slot list (the organizer
+    # removed everyone and wants the lineup blank).
+    r1 = c.put(url, json={"slots": [
+        {"player_id": s["player_id"], "position_slot": "GK", "is_substitute": False}]},
+        headers=hdr)
+    assert r1.status_code == 200
+
+    r2 = c.put(url, json={"formation": None, "slots": []}, headers=hdr)
+    assert r2.status_code == 200
+    assert r2.get_json()["slots"] == []
+
+    from app.models import Tla3bnyLineup, Tla3bnyLineupSlot
+    db.session.expire_all()
+    lineup = Tla3bnyLineup.query.filter_by(
+        match_id=s["match_id"], team_id=s["home_id"]).first()
+    assert lineup is not None
+    assert Tla3bnyLineupSlot.query.filter_by(lineup_id=lineup.id).count() == 0
+
+
 def test_search_escapes_like_wildcards(client):
     app, db = client
     from app.models import Tla3bnyAcademy
