@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, useLayoutEffect } from 
 import Link from 'next/link';
 import { tMatches, type TMatch, type TAd } from '@/lib/tla3bnyApi';
 import { useApp } from '@/context/AppContext';
+import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import { formatMatchDate, shiftDay, todayStr } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from './MatchRow';
@@ -79,6 +80,10 @@ function groupByDateThenSubCompetition(matches: TMatch[]): DateGroup[] {
 export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
   const tt = useTT();
   const { locale } = useApp();
+  // A logged-in organizer/academy reads with their token, which the API serves
+  // no-store — so their own edits (a match going live, a result) show the
+  // moment they come back to the feed, instead of the public 30s HTTP cache.
+  const { token } = useTla3bnyAuth();
 
   // Resolved on the client: a static export has no idea what "today" is at
   // build time.
@@ -97,14 +102,14 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
     let alive = true;
     setLoading(true); setError(false);
     Promise.all([
-      tMatches({ from: today, order: 'asc', limit: futureLimit }),
-      tMatches({ to: shiftDay(today, -1), limit: pastLimit }),
+      tMatches({ from: today, order: 'asc', limit: futureLimit }, token),
+      tMatches({ to: shiftDay(today, -1), limit: pastLimit }, token),
     ])
       .then(([f, p]) => { if (alive) { setFuture(f); setPast(p); } })
       .catch(() => { if (alive) setError(true); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [today, pastLimit, futureLimit]);
+  }, [today, pastLimit, futureLimit, token]);
 
   // Live auto-refresh: while a today fixture is still unfinished, quietly
   // re-fetch every 45s (no spinner, no scroll jump) so scores stay current
@@ -117,8 +122,8 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
   useEffect(() => {
     if (!today) return;
     const refetch = () => Promise.all([
-      tMatches({ from: today, order: 'asc', limit: futureLimit }),
-      tMatches({ to: shiftDay(today, -1), limit: pastLimit }),
+      tMatches({ from: today, order: 'asc', limit: futureLimit }, token),
+      tMatches({ to: shiftDay(today, -1), limit: pastLimit }, token),
     ]).then(([f, p]) => { setFuture(f); setPast(p); }).catch(() => {});
     const onVisible = () => { if (document.visibilityState === 'visible') refetch(); };
     document.addEventListener('visibilitychange', onVisible);
@@ -127,7 +132,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
       document.removeEventListener('visibilitychange', onVisible);
       if (id) clearInterval(id);
     };
-  }, [today, futureLimit, pastLimit, hasLiveToday]);
+  }, [today, futureLimit, pastLimit, hasLiveToday, token]);
 
   // Ascending: oldest → today → newest.
   const ascending = useMemo(() => [...past].reverse().concat(future), [past, future]);
