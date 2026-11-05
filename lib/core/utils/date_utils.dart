@@ -108,4 +108,15 @@ class AppDateUtils {
       return null;
     }
   }
+
+  /// A fixture whose kickoff time isn't set yet. The backend stores a midnight
+  /// (00:00) time to mean "date known, kick-off TBD", so treat that and an
+  /// empty string alike. Shared by the home feed (these sort last in their day)
+  /// and the match card (labelled instead of printing a misleading 00:00).
+  static bool isKickoffTbd(String time) => time.isEmpty || time == '00:00';
+
+  /// What to print where a kickoff time goes: the HH:MM, or a short TBD label
+  /// when the time isn't known yet.
+  static String kickoffTimeLabel(String time, String locale) =>
+      isKickoffTbd(time) ? (locale == 'ar' ? 'الوقت غير محدد' : 'Time TBD') : time;
 }
