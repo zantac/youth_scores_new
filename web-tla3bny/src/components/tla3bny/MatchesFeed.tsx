@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { tMatches, type TMatch, type TAd } from '@/lib/tla3bnyApi';
 import { useApp } from '@/context/AppContext';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
-import { formatMatchDate, shiftDay, todayStr } from '@/lib/utils';
+import { formatMatchDate, shiftDay, todayStr, isKickoffTbd } from '@/lib/utils';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from './MatchRow';
 import { AdStrip } from './AdCard';
@@ -12,31 +12,17 @@ import { EmptyState, useTT } from './kit';
 
 /**
  * The home matches feed, built the way youthscores builds it: a window of
- * fixtures straddling today — older above, newer below — grouped by date and
- * then by competition, with the nearest date scrolled to on first paint and
- * "older / newer" buttons to widen the window.
+ * fixtures straddling today — older above, newer below — grouped by date, with
+ * each day a single flat list sorted by kickoff time. The nearest date is
+ * scrolled to on first paint and "older / newer" buttons widen the window.
  */
 
 const STEP = 200; // matches pulled per direction per "load more"
 
-// One row of matches in the feed: a single sub-competition on a given date.
-// Carries the mother competition name, the sub-competition name and the round so
-// the header can show the full context, plus the sub-competition id (cage) so the
-// header links straight to that sub-competition's matches tab. One group per
-// (sub-competition, round) so matches are grouped by round within a day.
-interface FeedGroup {
-  key: string;
-  cageId: number | null;
-  competitionId: number;
-  competitionName: string | null;
-  subName: string | null;
-  ageCategory: string | null;
-  round: string | null;
-  matches: TMatch[];
-}
+// One day of the feed: a flat list of its matches, ordered by kickoff time.
 interface DateGroup {
   date: string;
-  groups: FeedGroup[];
+  matches: TMatch[];
 }
 
 // How many of a day's matches to show before the sponsor strip. The feed opens
@@ -45,36 +31,32 @@ interface DateGroup {
 // *between* matches rather than above them.
 const AD_AFTER_MATCHES = 3;
 
-function groupByDateThenSubCompetition(matches: TMatch[]): DateGroup[] {
+// Group into one flat list per day, each day sorted by kickoff time ascending.
+// Timeless (TBD) fixtures sort last. Array.sort is stable (ES2019+), so equal
+// times — and the whole TBD cluster — keep the server order (date, id).
+function groupByDateSortedByTime(matches: TMatch[]): DateGroup[] {
   const dates: DateGroup[] = [];
   const dateIdx = new Map<string, DateGroup>();
-  const groupIdx = new Map<string, FeedGroup>();
   for (const m of matches) {
     if (!m.date) continue;
     let dg = dateIdx.get(m.date);
-    if (!dg) { dg = { date: m.date, groups: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
-    // One group per (sub-competition, round) so the feed groups a day's matches
-    // by round. Legacy matches with no sub-competition link fall back to their
-    // mother competition.
-    const key = `${m.date}:${m.competition_age_id ?? `c${m.competition_id}`}:${m.round ?? ''}`;
-    let g = groupIdx.get(key);
-    if (!g) {
-      g = {
-        key,
-        cageId: m.competition_age_id ?? null,
-        competitionId: m.competition_id,
-        competitionName: m.competition_name,
-        subName: m.sub_competition_name,
-        ageCategory: m.age_category,
-        round: m.round ?? null,
-        matches: [],
-      };
-      groupIdx.set(key, g);
-      dg.groups.push(g);
-    }
-    g.matches.push(m);
+    if (!dg) { dg = { date: m.date, matches: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
+    dg.matches.push(m);
+  }
+  for (const dg of dates) {
+    dg.matches.sort((a, b) => {
+      const aNo = isKickoffTbd(a.time), bNo = isKickoffTbd(b.time);
+      if (aNo || bNo) return aNo === bNo ? 0 : aNo ? 1 : -1;  // TBD after timed
+      return (a.time ?? '') < (b.time ?? '') ? -1 : (a.time ?? '') > (b.time ?? '') ? 1 : 0;
+    });
   }
   return dates;
+}
+
+// The sub-competition a match belongs to, as a stable key: its sub-competition
+// (cage) id, or the mother competition for legacy matches with no cage link.
+function subCompKey(m: TMatch): string {
+  return m.competition_age_id != null ? `cage${m.competition_age_id}` : `comp${m.competition_id}`;
 }
 
 export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
@@ -136,7 +118,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
 
   // Ascending: oldest → today → newest.
   const ascending = useMemo(() => [...past].reverse().concat(future), [past, future]);
-  const dateGroups = useMemo(() => groupByDateThenSubCompetition(ascending), [ascending]);
+  const dateGroups = useMemo(() => groupByDateSortedByTime(ascending), [ascending]);
 
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
 
@@ -208,13 +190,12 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
       )}
 
       {dateGroups.map(dg => {
-        const dayCount = dg.groups.reduce((s, g) => s + g.matches.length, 0);
+        const dayCount = dg.matches.length;
         // After how many of this day's matches the strip appears: a few in, or
         // the middle of a short day, but never after the last match.
         const adAfter = ads.length ? Math.min(AD_AFTER_MATCHES, Math.ceil(dayCount / 2)) : -1;
-        let seen = 0;
         return (
-          <div key={dg.date} ref={dg.date === anchorDate ? anchorRef : undefined} className="space-y-3 scroll-mt-20">
+          <div key={dg.date} ref={dg.date === anchorDate ? anchorRef : undefined} className="space-y-2 scroll-mt-20">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${dg.date === today ? 'text-aqua' : 'text-text'}`}>
@@ -222,33 +203,41 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
               </h3>
               <span className="flex-1 h-px bg-bdr" />
             </div>
-            {dg.groups.map(g => {
-              // Second line: the sub-competition's own name (falling back to the
-              // age so two unnamed brackets stay distinguishable), then the round.
-              const subtitle = [g.subName || g.ageCategory, g.round].filter(Boolean).join(' · ');
-              const href = `/competitions?comp=${g.competitionId}${g.cageId ? `&cage=${g.cageId}` : ''}&tab=matches`;
+
+            {/* Flat per-day list ordered by kickoff time. A sub-competition
+                header (tap → its matches tab) and a round sub-header are
+                re-printed only when they change from the preceding match, so a
+                run of the same sub-competition isn't repeated needlessly. */}
+            {dg.matches.map((m, i) => {
+              const prev = i > 0 ? dg.matches[i - 1] : null;
+              const compChanged  = !prev || subCompKey(prev) !== subCompKey(m);
+              const roundChanged = compChanged || (prev!.round ?? '') !== (m.round ?? '');
+              // Sub-competition's own name (falling back to the age so two
+              // unnamed brackets stay distinguishable).
+              const subName = m.sub_competition_name || m.age_category;
+              const href = `/competitions?comp=${m.competition_id}${m.competition_age_id ? `&cage=${m.competition_age_id}` : ''}&tab=matches`;
               return (
-                <div key={g.key} className="space-y-2">
-                  <Link href={href}
-                    className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
-                    <span className="text-base">🏆</span>
-                    <span className="flex-1 min-w-0 leading-tight">
-                      <span className="block text-aqua font-bold text-xs truncate">{g.competitionName}</span>
-                      {subtitle && <span className="block text-teal text-[11px] truncate">{subtitle}</span>}
-                    </span>
-                    <span className="text-aqua text-sm shrink-0">{locale === 'ar' ? '‹' : '›'}</span>
-                  </Link>
-                  {g.matches.map(m => {
-                    seen += 1;
-                    const showAd = seen === adAfter;
-                    return (
-                      <Fragment key={m.id}>
-                        <MatchRow m={m} hideRound />
-                        {showAd && <AdStrip ads={ads} className="py-1" />}
-                      </Fragment>
-                    );
-                  })}
-                </div>
+                <Fragment key={m.id}>
+                  {compChanged && (
+                    <Link href={href}
+                      className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
+                      <span className="text-base">🏆</span>
+                      <span className="flex-1 min-w-0 leading-tight">
+                        <span className="block text-aqua font-bold text-xs truncate">{m.competition_name}</span>
+                        {subName && <span className="block text-teal text-[11px] truncate">{subName}</span>}
+                      </span>
+                      <span className="text-aqua text-sm shrink-0">{locale === 'ar' ? '‹' : '›'}</span>
+                    </Link>
+                  )}
+                  {roundChanged && m.round && (
+                    <div className="flex items-center gap-2 px-0.5">
+                      <span className="text-teal text-[11px] font-bold">{m.round}</span>
+                      <span className="flex-1 h-px bg-bdr/60" />
+                    </div>
+                  )}
+                  <MatchRow m={m} hideRound />
+                  {i + 1 === adAfter && <AdStrip ads={ads} className="py-1" />}
+                </Fragment>
               );
             })}
           </div>
