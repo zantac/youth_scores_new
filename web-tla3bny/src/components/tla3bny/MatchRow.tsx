@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import type { TMatch } from '@/lib/tla3bnyApi';
-import { formatMatchDate, countdownLabel } from '@/lib/utils';
+import { formatMatchDate, countdownLabel, isKickoffTbd, kickoffTimeLabel } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { LogoAvatar, useTT, useName } from './kit';
 
@@ -113,7 +113,9 @@ export default function MatchRow({ m, showComp = false, hideRound = false }: { m
             </>
           ) : (
             <div className="flex flex-col items-center">
-              <span className="text-aqua font-bold text-base tnum">{m.time || '--:--'}</span>
+              <span className={`font-bold tnum ${isKickoffTbd(m.time) ? 'text-hint text-[11px]' : 'text-aqua text-base'}`}>
+                {m.date ? kickoffTimeLabel(m.time, locale) : '--:--'}
+              </span>
               {countdown && <span className="text-gold text-[9px] text-center">{countdown}</span>}
               <span className="text-hint text-[9px]">{formatMatchDate(m.date ?? '', locale)}</span>
             </div>

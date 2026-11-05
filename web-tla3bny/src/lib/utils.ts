@@ -12,9 +12,24 @@ export function shiftDay(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// A fixture whose kickoff time isn't set yet. The backend stores a midnight
+// (00:00) time to mean "date known, kick-off TBD", so treat that and an empty
+// string alike. Shared by the home feed (these sort last in their day) and the
+// match row (labelled instead of printing a misleading 00:00).
+export function isKickoffTbd(time: string | undefined | null): boolean {
+  return !time || time === '00:00' || time === '00:00:00';
+}
+
+/** What to print where a kickoff time goes: the HH:MM, or a short TBD label
+ *  when the time isn't known yet. */
+export function kickoffTimeLabel(time: string | null | undefined, locale: string): string {
+  return isKickoffTbd(time) ? (locale === 'ar' ? 'الوقت غير محدد' : 'Time TBD') : time!;
+}
+
 /** "in 3d" / "بعد ٣ أيام" until kickoff, or null once it has started. */
 export function countdownLabel(date: string, time: string, locale: string): string | null {
   if (!date) return null;  // no date yet (TBD) — nothing to count down to
+  if (isKickoffTbd(time)) return null;  // date known but kickoff TBD — don't count to midnight
   try {
     const [y, mo, d] = date.split('-').map(Number);
     const [h = 0, mi = 0] = (time || '').split(':').map(Number);
