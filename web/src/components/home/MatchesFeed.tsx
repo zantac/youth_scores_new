@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useLayoutEffect, Fragment } from 
 import { useRouter } from 'next/navigation';
 import { fetchAllMatches } from '@/lib/api';
 import { hrefFor } from '@/lib/links';
-import { formatMatchDate, todayStr, localize, adNotExpired, groupLabel, matchesByGroup } from '@/lib/utils';
+import { formatMatchDate, todayStr, localize, adNotExpired, groupLabel, isKickoffTbd } from '@/lib/utils';
 import MatchCard from '@/components/competition/MatchCard';
 import FeedAdCard from '@/components/ui/FeedAdCard';
 import FeedAdRail from '@/components/ui/FeedAdRail';
@@ -29,20 +29,26 @@ function toTeam(t?: HomeMatch['homeTeam']): Team | undefined {
 
 interface DateGroup {
   date: string;
-  competitions: { competition: HomeMatch['competition']; matches: HomeMatch[] }[];
+  matches: HomeMatch[];   // one flat list per day, ordered by kickoff time
 }
 
-function groupByDateThenCompetition(matches: HomeMatch[]): DateGroup[] {
+// Group into one flat list per day, each day sorted by kickoff time ascending.
+// Timeless (TBD) fixtures sort last. Array.sort is stable (ES2019+), so equal
+// times — and the whole TBD cluster — keep the server order (match_date, id).
+function groupByDateSortedByTime(matches: HomeMatch[]): DateGroup[] {
   const dates: DateGroup[] = [];
   const dateIdx = new Map<string, DateGroup>();
-  const compIdx = new Map<string, { competition: HomeMatch['competition']; matches: HomeMatch[] }>();
   for (const m of matches) {
     let dg = dateIdx.get(m.date);
-    if (!dg) { dg = { date: m.date, competitions: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
-    const key = `${m.date}:${m.competition.id}`;
-    let cg = compIdx.get(key);
-    if (!cg) { cg = { competition: m.competition, matches: [] }; compIdx.set(key, cg); dg.competitions.push(cg); }
-    cg.matches.push(m);
+    if (!dg) { dg = { date: m.date, matches: [] }; dateIdx.set(m.date, dg); dates.push(dg); }
+    dg.matches.push(m);
+  }
+  for (const dg of dates) {
+    dg.matches.sort((a, b) => {
+      const aNo = isKickoffTbd(a.time), bNo = isKickoffTbd(b.time);
+      if (aNo || bNo) return aNo === bNo ? 0 : aNo ? 1 : -1;  // TBD after timed
+      return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
+    });
   }
   return dates;
 }
@@ -66,12 +72,10 @@ function feedSlotIds(dateGroups: DateGroup[], anchorDate: string | null, n: numb
   let lastId: string | null = null;
   for (const dg of dateGroups) {
     if (dg.date < anchorDate) continue;   // skip older matches above the anchor
-    for (const cg of dg.competitions) {
-      for (const m of cg.matches) {
-        lastId = m.id;
-        count++;
-        if (count === n || (r && count > n && (count - n) % r === 0)) ids.add(m.id);
-      }
+    for (const m of dg.matches) {
+      lastId = m.id;
+      count++;
+      if (count === n || (r && count > n && (count - n) % r === 0)) ids.add(m.id);
     }
   }
   if (ids.size === 0 && lastId) ids.add(lastId);  // fewer than N: still show once
@@ -183,7 +187,7 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
       || (!!m.homeTeam && favTeams.has(m.homeTeam.id))
       || (!!m.awayTeam && favTeams.has(m.awayTeam.id)));
   }, [ascending, favouritesOnly, favComps, favTeams]);
-  const dateGroups = useMemo(() => groupByDateThenCompetition(visible), [visible]);
+  const dateGroups = useMemo(() => groupByDateSortedByTime(visible), [visible]);
 
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
@@ -319,7 +323,7 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
         return (
           <Fragment key={dg.date}>
           <div ref={isAnchor ? anchorRef : undefined}
-            className="space-y-3 scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]">
+            className="space-y-2 scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${isToday || isAnchor ? 'text-aqua' : 'text-text'}`}>
@@ -328,33 +332,36 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
               <span className="flex-1 h-px bg-bdr" />
             </div>
 
-            {dg.competitions.map(cg => (
-              <div key={cg.competition.id} className="space-y-2">
-                <button onClick={() => openCompetition(cg.competition)}
-                  className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 text-start active:bg-aqua/10 transition-colors">
-                  <span className="text-base">🏆</span>
-                  <span className="flex-1 text-aqua font-bold text-xs leading-tight">{localize(cg.competition.title, locale)}</span>
-                  <span className="text-aqua text-sm">{isAr ? '‹' : '›'}</span>
-                </button>
-                {matchesByGroup(cg.matches).map(([g, gms]) => (
-                  <div key={g || '__'} className="space-y-2">
-                    {g && (
-                      <div className="flex items-center gap-2 px-0.5">
-                        <span className="text-teal text-[11px] font-bold">{groupLabel(g, locale)}</span>
-                        <span className="flex-1 h-px bg-bdr/60" />
-                      </div>
-                    )}
-                    {gms.map(m => (
-                      <Fragment key={m.id}>
-                        <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} showGroup={false} onClick={() => router.push(hrefFor('match', m.id))} />
-                        {feedAd && adAfterMatchIds.has(m.id) && <FeedAdCard ad={feedAd} />}
-                        {railAfterMatchIds.has(m.id) && <FeedAdRail ads={feedSquareAds} />}
-                      </Fragment>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ))}
+            {/* Flat per-day list ordered by kickoff time. Each card carries its own
+                competition label (tap → that competition) and group header, re-shown
+                only when it differs from the preceding match so a run of the same
+                competition isn't repeated needlessly. */}
+            {dg.matches.map((m, i) => {
+              const prev = i > 0 ? dg.matches[i - 1] : null;
+              const compChanged  = !prev || prev.competition.id !== m.competition.id;
+              const groupChanged = compChanged || (prev!.group || '') !== (m.group || '');
+              return (
+                <Fragment key={m.id}>
+                  {compChanged && (
+                    <button onClick={() => openCompetition(m.competition)}
+                      className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 text-start active:bg-aqua/10 transition-colors">
+                      <span className="text-base">🏆</span>
+                      <span className="flex-1 text-aqua font-bold text-xs leading-tight">{localize(m.competition.title, locale)}</span>
+                      <span className="text-aqua text-sm">{isAr ? '‹' : '›'}</span>
+                    </button>
+                  )}
+                  {groupChanged && m.group && (
+                    <div className="flex items-center gap-2 px-0.5">
+                      <span className="text-teal text-[11px] font-bold">{groupLabel(m.group, locale)}</span>
+                      <span className="flex-1 h-px bg-bdr/60" />
+                    </div>
+                  )}
+                  <MatchCard match={toMatch(m)} homeTeam={toTeam(m.homeTeam)} awayTeam={toTeam(m.awayTeam)} locale={locale} showGroup={false} onClick={() => router.push(hrefFor('match', m.id))} />
+                  {feedAd && adAfterMatchIds.has(m.id) && <FeedAdCard ad={feedAd} />}
+                  {railAfterMatchIds.has(m.id) && <FeedAdRail ads={feedSquareAds} />}
+                </Fragment>
+              );
+            })}
           </div>
           </Fragment>
         );
