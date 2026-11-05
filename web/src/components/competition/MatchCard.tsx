@@ -2,7 +2,7 @@
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import type { Match, Team } from '@/lib/types';
-import { formatMatchDate, countdownLabel, localize, teamNameLines, cloudinaryUrl } from '@/lib/utils';
+import { formatMatchDate, countdownLabel, localize, teamNameLines, cloudinaryUrl, isKickoffTbd, kickoffTimeLabel } from '@/lib/utils';
 
 interface Props {
   match: Match;
@@ -29,6 +29,7 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick, 
   const isLive      = match.status.toLowerCase() === 'live';
   const isPostponed = match.status.toLowerCase() === 'postponed';
   const isCancelled = match.status.toLowerCase() === 'cancelled';
+  const tbd = isKickoffTbd(match.time);  // kickoff time unknown (empty or 00:00)
   const homeWon = isCompleted && match.homeScore != null &&
     (match.homeScore > match.awayScore! ||
      (match.homeScore === match.awayScore && match.homePenalty != null && match.homePenalty > match.awayPenalty!));
@@ -38,12 +39,12 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick, 
 
   const [countdown, setCountdown] = useState<string | null>(null);
   useEffect(() => {
-    if (isCompleted || isLive) return;
+    if (isCompleted || isLive || tbd) return;  // no countdown without a kickoff time
     const update = () => setCountdown(countdownLabel(match.date, match.time, locale));
     update();
     const id = setInterval(update, 60_000);
     return () => clearInterval(id);
-  }, [isCompleted, isLive, match.date, match.time, locale]);
+  }, [isCompleted, isLive, tbd, match.date, match.time, locale]);
 
   return (
     <div onClick={onClick} className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-xl p-3 mb-2 cursor-pointer transition-all hover:border-aqua/30 hover:shadow-[0_10px_30px_-18px_rgba(0,0,0,0.6)] active:opacity-80">
@@ -102,8 +103,10 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick, 
                     </span>
                   )}
                 </>
+              ) : tbd ? (
+                <span className="text-hint font-bold text-[11px] text-center leading-tight">{kickoffTimeLabel(match.time, locale)}</span>
               ) : (
-                <span className="text-aqua font-bold text-base tnum">{match.time || '--:--'}</span>
+                <span className="text-aqua font-bold text-base tnum">{match.time}</span>
               )}
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
             </>
@@ -123,8 +126,12 @@ export default function MatchCard({ match, homeTeam, awayTeam, locale, onClick, 
             </>
           ) : (
             <div className="flex flex-col items-center">
-              <span className="text-aqua font-bold text-base tnum">{match.time || '--:--'}</span>
-              {countdown && <span className="text-gold text-[9px] text-center">{countdown}</span>}
+              {tbd ? (
+                <span className="text-hint font-bold text-[11px] text-center leading-tight">{kickoffTimeLabel(match.time, locale)}</span>
+              ) : (
+                <span className="text-aqua font-bold text-base tnum">{match.time}</span>
+              )}
+              {!tbd && countdown && <span className="text-gold text-[9px] text-center">{countdown}</span>}
               <span className="text-hint text-[9px]">{formatMatchDate(match.date, locale)}</span>
             </div>
           )}

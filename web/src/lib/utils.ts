@@ -58,6 +58,20 @@ export function countdownLabel(date: string, time: string, locale: string): stri
   } catch { return null; }
 }
 
+// A fixture whose kickoff time isn't set yet. The backend stores a midnight
+// (00:00) time to mean "date known, kick-off TBD", so treat that and an empty
+// string alike. Shared by the home feed (these sort last in their day) and the
+// match card (labelled instead of printing a misleading 00:00).
+export function isKickoffTbd(time: string | undefined | null): boolean {
+  return !time || time === '00:00';
+}
+
+// What to print where a kickoff time goes: the HH:MM, or a short TBD label when
+// the time isn't known yet.
+export function kickoffTimeLabel(time: string, locale: string): string {
+  return isKickoffTbd(time) ? (locale === 'ar' ? 'الوقت غير محدد' : 'Time TBD') : time;
+}
+
 // ── Standings ─────────────────────────────────────────────────────────────────
 
 export function calcStandings(matches: Match[], teams: Team[], groupId?: string): Standing[] {
