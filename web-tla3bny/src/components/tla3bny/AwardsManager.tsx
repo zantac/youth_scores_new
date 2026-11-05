@@ -8,7 +8,7 @@ import {
   type TCompetition, type TCompTeam, type TMatch, type TAward, type TAwardType,
   type TTeamOfRound, type TAwardSuggestions, type TCoachPool,
 } from '@/lib/tla3bnyApi';
-import { formationRowLabels, FORMATIONS, FORMATION_NAMES } from '@/lib/tla3bnyFormations';
+import { formationRowLabels, FORMATIONS, FORMATION_NAMES, TOTR_SUB_SLOTS } from '@/lib/tla3bnyFormations';
 import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
 const AWARD_META: Record<TAwardType, [string, string, string]> = {
@@ -413,12 +413,16 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
   const save = async () => {
     onError(null); setBusy(true);
     try {
-      const payloadSlots = labels
+      const starters = labels
         .filter(l => slots[l])
         .map((l, i) => ({ player_id: Number(slots[l]), position_slot: l, sort_order: i }));
+      // Substitutes sit after the starters in sort order so the bench renders last.
+      const subs = TOTR_SUB_SLOTS
+        .filter(l => slots[l])
+        .map((l, i) => ({ player_id: Number(slots[l]), position_slot: l, sort_order: starters.length + i }));
       await tSaveTeamOfRound(token, compId, {
         competition_age_id: cageId, round, formation,
-        slots: payloadSlots,
+        slots: [...starters, ...subs],
       });
       onSaved();
     } catch (e) { onError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -471,6 +475,24 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
               </select>
             </label>
           ))}
+        </div>
+      )}
+
+      {labels.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[11px] font-black text-teal">{tt('البدلاء (4)', 'Substitutes (4)')}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {TOTR_SUB_SLOTS.map((label, i) => (
+              <label key={label} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+                <span className="text-[11px] font-bold text-hint w-10 shrink-0">{tt('بديل', 'Sub')} {i + 1}</span>
+                <select value={slots[label] ?? ''} onChange={e => setSlots(prev => ({ ...prev, [label]: e.target.value ? Number(e.target.value) : '' }))}
+                  className="flex-1 min-w-0 bg-darkBg text-text text-xs outline-none">
+                  <option value="">{tt('—', '—')}</option>
+                  {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
         </div>
       )}
 
