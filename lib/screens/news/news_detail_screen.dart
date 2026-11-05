@@ -417,13 +417,9 @@ class _NewsShareCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Cap a long article to a readable preview so the exported image stays a
-    // sensible height; the full text lives in the app.
-    final body = details == null
-        ? null
-        : (details!.length > 600
-            ? '${details!.substring(0, 600).trimRight()}…'
-            : details!);
+    // The full article body is exported — no preview cap — so the image is the
+    // complete story.
+    final body = details;
 
     return Directionality(
       textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
