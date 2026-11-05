@@ -184,9 +184,19 @@ class MatchCard extends StatelessWidget {
               ),
             ),
             ?pens,
-          ] else
+          ] else if (AppDateUtils.isKickoffTbd(match.time))
             Text(
-              match.time.isNotEmpty ? match.time : '--:--',
+              AppDateUtils.kickoffTimeLabel(match.time, locale),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.hint,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            )
+          else
+            Text(
+              match.time,
               style: TextStyle(
                 color: AppColors.aqua,
                 fontSize: 16,
@@ -224,18 +234,32 @@ class MatchCard extends StatelessWidget {
     }
 
     // Upcoming
-    final countdown = AppDateUtils.countdownLabel(match.date, match.time, locale);
+    final tbd = AppDateUtils.isKickoffTbd(match.time);
+    // No countdown without a kickoff time (00:00 would count to midnight).
+    final countdown =
+        tbd ? null : AppDateUtils.countdownLabel(match.date, match.time, locale);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          match.time.isNotEmpty ? match.time : '--:--',
-          style: TextStyle(
-            color: AppColors.aqua,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+        if (tbd)
+          Text(
+            AppDateUtils.kickoffTimeLabel(match.time, locale),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.hint,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          )
+        else
+          Text(
+            match.time,
+            style: TextStyle(
+              color: AppColors.aqua,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
         if (countdown != null)
           Text(
             countdown,

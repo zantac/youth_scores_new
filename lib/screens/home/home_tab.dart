@@ -231,6 +231,42 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     return ids;
   }
 
+  /// Order each day's matches by kickoff time ascending; fixtures whose time
+  /// isn't set yet (empty, or the backend's midnight 00:00 sentinel) sink to
+  /// the bottom of their day. Cross-day order (the incoming ascending-by-date
+  /// list) is preserved. Dart's List.sort isn't guaranteed stable, so the
+  /// original index breaks ties — equal times and the whole TBD cluster keep
+  /// the server order (match_date, id).
+  List<HomeMatch> _sortedByKickoff(List<HomeMatch> matches) {
+    final byDate = <String, List<int>>{};
+    final dateOrder = <String>[];
+    for (var i = 0; i < matches.length; i++) {
+      final d = matches[i].date;
+      final bucket = byDate[d];
+      if (bucket == null) {
+        byDate[d] = [i];
+        dateOrder.add(d);
+      } else {
+        bucket.add(i);
+      }
+    }
+    final out = <HomeMatch>[];
+    for (final d in dateOrder) {
+      final idx = byDate[d]!;
+      idx.sort((a, b) {
+        final aNo = AppDateUtils.isKickoffTbd(matches[a].time);
+        final bNo = AppDateUtils.isKickoffTbd(matches[b].time);
+        if (aNo || bNo) return aNo == bNo ? a - b : (aNo ? 1 : -1); // TBD last
+        final cmp = matches[a].time.compareTo(matches[b].time);
+        return cmp != 0 ? cmp : a - b;
+      });
+      for (final i in idx) {
+        out.add(matches[i]);
+      }
+    }
+    return out;
+  }
+
   List<_Row> _buildRows(
     List<NewsItem> news, {
     required bool favOnly,
@@ -256,20 +292,25 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
       if (favOnly && _hasMoreNewer) rows.add(const _LoadRow(older: false));
     } else {
       if (_hasMoreOlder) rows.add(const _LoadRow(older: true));
+      // Within each day, lay matches out as one flat list ordered by kickoff
+      // time; the header-on-change loop below then re-prints a competition /
+      // group header only when it changes. Compute ad slots off the same sorted
+      // list so placement matches the rendered order.
+      final sorted = _sortedByKickoff(matches);
       // Banner placed by its own position/repeat; the square rail placed as one
       // unit by its lead (highest-weight) tile's. Both sit in the feed loop, so
       // they appear on the Favourites tab too (matches is already filtered there).
       final bannerAfterIds = _feedAd != null
-          ? _slotIds(matches, _feedAd!.feedPosition, _feedAd!.feedRepeat ?? 0)
+          ? _slotIds(sorted, _feedAd!.feedPosition, _feedAd!.feedRepeat ?? 0)
           : const <String>{};
       final railAfterIds = _squareAds.isNotEmpty
-          ? _slotIds(matches, _squareAds.first.feedPosition,
+          ? _slotIds(sorted, _squareAds.first.feedPosition,
               _squareAds.first.feedRepeat ?? 0)
           : const <String>{};
       String? date;
       String? comp;
       String? group;
-      for (final m in matches) {
+      for (final m in sorted) {
         if (m.date != date) {
           date = m.date;
           comp = null;
