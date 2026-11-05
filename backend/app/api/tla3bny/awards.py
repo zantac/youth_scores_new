@@ -182,27 +182,38 @@ def _announce_award(award):
     ))
 
 
+def _is_sub_slot(slot: str | None) -> bool:
+    """A team-of-the-round bench slot (SUB1..SUB4), as set by the web builder."""
+    return bool(slot) and slot.upper().startswith("SUB")
+
+
 def _announce_team_of_round(totr):
     """Publish a news item for a team-of-the-round best XI, listing every player
-    and the team they play for."""
-    lines = []
+    and the team they play for. Substitutes are listed separately on the bench."""
+    starters, subs = [], []
     for s in sorted(totr.slots, key=lambda x: x.sort_order):
         p = s.player
         if not p:
             continue
         cur = p.current_membership()
         team_name = cur.team.display_name() if cur and cur.team else "—"
-        pos = f"{s.position_slot}: " if s.position_slot else ""
-        lines.append(f"{pos}{p.name} ({team_name})")
-    if not lines:
+        if _is_sub_slot(s.position_slot):
+            subs.append(f"{p.name} ({team_name})")
+        else:
+            pos = f"{s.position_slot}: " if s.position_slot else ""
+            starters.append(f"{pos}{p.name} ({team_name})")
+    if not starters and not subs:
         return
     scope = totr.competition_age.name if totr.competition_age else ""
     header = f"تشكيلة {totr.round}" + (f" — {scope}" if scope else "")
+    body = header + ":\n" + "\n".join(starters)
+    if subs:
+        body += "\n\nالبدلاء:\n" + "\n".join(subs)
     user = auth.current_user()
     db.session.add(Tla3bnyNews(
         competition_id=totr.competition_id,
-        title=f"👕 {header} — أفضل {len(lines)}"[:255],
-        body=header + ":\n" + "\n".join(lines),
+        title=f"👕 {header} — أفضل {len(starters)}"[:255],
+        body=body,
         news_date=_utcnow().date(), is_published=True,
         author_user_id=user.id if user else None,
     ))

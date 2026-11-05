@@ -4,9 +4,9 @@ import Link from 'next/link';
 import {
   tPlayerAchievements, tTeamHonours, tAcademyHonours, tCompetitionAwards, tTeamOfRoundAll,
   type TAward, type TAwardType, type TPlayerAchievements, type TTeamHonours,
-  type TTeamOfRound,
+  type TTeamOfRound, type TTotrSlot,
 } from '@/lib/tla3bnyApi';
-import { formationRowLabels } from '@/lib/tla3bnyFormations';
+import { formationRowLabels, isSubSlot } from '@/lib/tla3bnyFormations';
 import PitchView, { type SlotView } from './PitchView';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
@@ -73,32 +73,66 @@ function AwardChip({ a, showRecipient = true }: { a: TAward; showRecipient?: boo
   );
 }
 
-/** Best XI of a round on a pitch (falls back to a plain list if unpositioned). */
+/** The substitutes bench of a team-of-the-round, below the pitch / list. */
+function SubBench({ subs }: { subs: TTotrSlot[] }) {
+  const nm = useName();
+  const tt = useTT();
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] font-bold text-hint px-1">{tt('البدلاء', 'Substitutes')}</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {subs.map(s => (
+          <Link key={s.id} href={`/player?id=${s.player_id}`} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-2 py-1.5">
+            <LogoAvatar src={s.photo_path} name={nm(s.player_name, s.player_name_en)} size={24} />
+            <div className="text-[11px] font-bold text-text truncate min-w-0">{nm(s.player_name, s.player_name_en)}</div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Best XI of a round on a pitch (falls back to a plain list if unpositioned),
+ *  with any substitutes shown on a bench below. */
 export function TeamOfRoundPitch({ totr }: { totr: TTeamOfRound }) {
   const nm = useName();
   const labels = formationRowLabels(totr.formation).flat();
   const bySlot: Record<string, SlotView> = {};
   let positioned = 0;
+  const subs: TTotrSlot[] = [];
+  const starters: TTotrSlot[] = [];
   for (const s of totr.slots) {
+    if (isSubSlot(s.position_slot)) { subs.push(s); continue; }
+    starters.push(s);
     if (s.position_slot && labels.includes(s.position_slot)) {
       bySlot[s.position_slot] = { playerId: s.player_id, playerName: nm(s.player_name, s.player_name_en), photoPath: s.photo_path };
       positioned++;
     }
   }
+  subs.sort((a, b) => a.sort_order - b.sort_order);
+  const bench = subs.length > 0 ? <SubBench subs={subs} /> : null;
   if (totr.formation && positioned > 0) {
-    return <PitchView formation={totr.formation} filled={bySlot} />;
+    return (
+      <div className="space-y-2">
+        <PitchView formation={totr.formation} filled={bySlot} />
+        {bench}
+      </div>
+    );
   }
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-      {totr.slots.map(s => (
-        <Link key={s.id} href={`/player?id=${s.player_id}`} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-2 py-1.5">
-          <LogoAvatar src={s.photo_path} name={nm(s.player_name, s.player_name_en)} size={28} />
-          <div className="min-w-0">
-            <div className="text-xs font-bold text-text truncate">{nm(s.player_name, s.player_name_en)}</div>
-            {s.position_slot && <div className="text-[10px] text-hint">{s.position_slot}</div>}
-          </div>
-        </Link>
-      ))}
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        {starters.map(s => (
+          <Link key={s.id} href={`/player?id=${s.player_id}`} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-2 py-1.5">
+            <LogoAvatar src={s.photo_path} name={nm(s.player_name, s.player_name_en)} size={28} />
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-text truncate">{nm(s.player_name, s.player_name_en)}</div>
+              {s.position_slot && <div className="text-[10px] text-hint">{s.position_slot}</div>}
+            </div>
+          </Link>
+        ))}
+      </div>
+      {bench}
     </div>
   );
 }
@@ -116,17 +150,23 @@ export function PlayerAchievements({ playerId }: { playerId: number }) {
       <div className="space-y-2">
         {d.team_titles.map(a => <AwardChip key={`t${a.id}`} a={a} showRecipient={false} />)}
         {d.individual_awards.map(a => <AwardChip key={`i${a.id}`} a={a} showRecipient={false} />)}
-        {d.team_of_round.map((s, i) => (
-          <Card key={`r${i}`} className="p-2.5 flex items-center gap-3">
-            <span className="text-2xl shrink-0" aria-hidden>👕</span>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-black text-text truncate">{tt('ضمن تشكيلة الجولة', 'In the team of the round')}</div>
-              <div className="text-[11px] text-hint truncate">
-                {[s.sub_competition_name, s.round, s.position_slot].filter(Boolean).join(' · ')}
+        {d.team_of_round.map((s, i) => {
+          const sub = isSubSlot(s.position_slot);
+          const slotLabel = sub ? tt('بديل', 'Substitute') : s.position_slot;
+          return (
+            <Card key={`r${i}`} className="p-2.5 flex items-center gap-3">
+              <span className="text-2xl shrink-0" aria-hidden>👕</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-black text-text truncate">
+                  {sub ? tt('ضمن بدلاء تشكيلة الجولة', 'On the team of the round bench') : tt('ضمن تشكيلة الجولة', 'In the team of the round')}
+                </div>
+                <div className="text-[11px] text-hint truncate">
+                  {[s.sub_competition_name, s.round, slotLabel].filter(Boolean).join(' · ')}
+                </div>
               </div>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
       </div>
     </CollapsibleSection>
   );

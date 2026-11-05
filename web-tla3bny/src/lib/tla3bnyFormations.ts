@@ -36,6 +36,16 @@ export const FORMATIONS: Record<string, string[]> = {
 
 export const FORMATION_NAMES = Object.keys(FORMATIONS);
 
+/** Bench of a team-of-the-round: a fixed set of 4 substitute slots. They sit
+ *  outside the formation grid (stored with these `position_slot` labels) and
+ *  render on a bench below the pitch. */
+export const TOTR_SUB_SLOTS = ['SUB1', 'SUB2', 'SUB3', 'SUB4'];
+
+/** Whether a stored slot label is one of the team-of-the-round bench slots. */
+export function isSubSlot(label: string | null | undefined): boolean {
+  return !!label && /^SUB\d+$/i.test(label);
+}
+
 /** Selectable player positions, bilingual. The stored `code` matches the base
  *  slot labels used by the pitch/lineup ({@link slotBase}), e.g. "CB"/"ST",
  *  so a player's position keeps feeding the formation-aware sort there.
