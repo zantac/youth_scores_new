@@ -9,6 +9,7 @@ import '../../core/models/config_model.dart';
 import '../../core/providers/app_provider.dart';
 import '../../core/utils/cloudinary.dart';
 import '../../core/utils/date_utils.dart';
+import '../../core/utils/share_image.dart';
 
 class NewsDetailScreen extends StatelessWidget {
   final NewsItem item;
@@ -26,12 +27,7 @@ class NewsDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(l10n.news),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: () => SharePlus.instance.share(ShareParams(
-              text: '$title\n\n${details ?? ''}\n\nبطولات الناشئين | Youth Scores\nyouthscores.org',
-            )),
-          ),
+          _NewsShareButton(item: item, l10n: l10n),
         ],
       ),
       // Mirror the website: text first (title, date, details), photos at the
@@ -330,6 +326,186 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Share-as-image button ─────────────────────────────────────────────────────
+
+/// Shares the article as a styled PNG (title, date, lead photo and a body
+/// preview) instead of plain text — matching the standings/rounds share cards.
+/// Stateful only to show a spinner while the off-screen frame is captured.
+class _NewsShareButton extends StatefulWidget {
+  final NewsItem item;
+  final L10n l10n;
+
+  const _NewsShareButton({required this.item, required this.l10n});
+
+  @override
+  State<_NewsShareButton> createState() => _NewsShareButtonState();
+}
+
+class _NewsShareButtonState extends State<_NewsShareButton> {
+  bool _sharing = false;
+
+  Future<void> _share() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    final l10n = widget.l10n;
+    final item = widget.item;
+    final photos = item.allImages;
+    // Render and precache the SAME (transformed) URL, or the off-screen frame
+    // paints before it decodes and the photo comes out blank.
+    final leadImg =
+        photos.isNotEmpty ? cloudinaryUrl(photos.first, width: 800) : null;
+    await shareWidgetImage(
+      context,
+      filePrefix: 'news_${item.id ?? item.date.hashCode}',
+      errorText: l10n.isAr ? 'تعذّر مشاركة الخبر' : 'Could not share the news',
+      preloadLogos: [?leadImg],
+      card: _NewsShareCard(
+        title: item.getTitle(l10n.locale),
+        details: item.getDetails(l10n.locale),
+        dateLabel: AppDateUtils.formatNewsDate(item.date, l10n.locale),
+        imageUrl: leadImg,
+        isAr: l10n.isAr,
+      ),
+    );
+    if (mounted) setState(() => _sharing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_sharing) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return IconButton(
+      icon: const Icon(Icons.share),
+      tooltip: widget.l10n.share,
+      onPressed: _share,
+    );
+  }
+}
+
+// ── Off-screen share card ─────────────────────────────────────────────────────
+
+/// The article rendered for image export: brand-coloured header, lead photo,
+/// title, a capped body preview and the shared branding footer. Fixed 420px
+/// wide like the other share cards so every export looks consistent.
+class _NewsShareCard extends StatelessWidget {
+  final String title;
+  final String? details;
+  final String dateLabel;
+  final String? imageUrl;
+  final bool isAr;
+
+  const _NewsShareCard({
+    required this.title,
+    required this.details,
+    required this.dateLabel,
+    required this.imageUrl,
+    required this.isAr,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The full article body is exported — no preview cap — so the image is the
+    // complete story.
+    final body = details;
+
+    return Directionality(
+      textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+      child: Container(
+        width: 420,
+        decoration: BoxDecoration(color: ShareColors.bg),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Header ───────────────────────────────────────────────────────
+            Row(
+              children: [
+                const Text('📰', style: TextStyle(fontSize: 22)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isAr ? 'أخبار' : 'News',
+                        style: TextStyle(
+                          color: ShareColors.teal,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (dateLabel.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            dateLabel,
+                            style:
+                                TextStyle(color: ShareColors.hint, fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+
+            // ── Lead photo ───────────────────────────────────────────────────
+            if (imageUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image(
+                    image: NetworkImage(imageUrl!),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) =>
+                        Container(color: ShareColors.surface),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            // ── Title ────────────────────────────────────────────────────────
+            Text(
+              title,
+              style: TextStyle(
+                color: ShareColors.aqua,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                height: 1.35,
+              ),
+            ),
+
+            // ── Body preview ─────────────────────────────────────────────────
+            if (body != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                body,
+                style:
+                    TextStyle(color: ShareColors.white, fontSize: 14, height: 1.7),
+              ),
+            ],
+
+            const SizedBox(height: 14),
+            const ShareBrandFooter(),
+          ],
+        ),
       ),
     );
   }
