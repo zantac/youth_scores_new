@@ -173,7 +173,12 @@ export interface TPlayer {
   sub_position: string | null;
   photo_path: string | null;
   current_team_id: number | null;
+  current_team_name: string | null;
+  current_team_name_en: string | null;
   current_academy_id: number | null;
+  current_academy_name: string | null;
+  current_academy_name_en: string | null;
+  current_academy_logo: string | null;
   jersey_number: number | null;
   // National ID (الرقم القومي) — PII, present only for callers the API lets see
   // the private shape (owning academy/team login, or a competition admin).

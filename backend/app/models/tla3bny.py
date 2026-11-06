@@ -578,6 +578,8 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
         ``with_files=True`` only for a caller the API has authorised (the owning
         academy/team, or an admin of a competition the player is entered in)."""
         cur = self.current_membership()
+        team = cur.team if cur else None
+        academy = team.academy if team else None
         data = {
             "id": self.id,
             "name": self.name,
@@ -587,9 +589,14 @@ class Tla3bnyPlayer(TimestampMixin, db.Model):
             "sub_position": self.sub_position,
             "photo_path": self.photo_path,
             "current_team_id": cur.team_id if cur else None,
-            "current_academy_id": (
-                cur.team.academy_id if cur and cur.team else None
-            ),
+            # The team/academy the player plays for right now, so a profile reader
+            # can see it without opening the team page.
+            "current_team_name": team.display_name() if team else None,
+            "current_team_name_en": team.display_name("en") if team else None,
+            "current_academy_id": academy.id if academy else None,
+            "current_academy_name": academy.name if academy else None,
+            "current_academy_name_en": academy.name_en if academy else None,
+            "current_academy_logo": academy.logo_path if academy else None,
             "jersey_number": cur.jersey_number if cur else None,
         }
         if with_files:

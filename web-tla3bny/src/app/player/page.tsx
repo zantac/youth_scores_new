@@ -12,10 +12,12 @@ import AdCard from '@/components/tla3bny/AdCard';
 import FollowPlayerButton from '@/components/tla3bny/FollowPlayerButton';
 import { PapersUploader, PapersReview, PapersProgress } from '@/components/tla3bny/PlayerPapers';
 import { PlayerAchievements } from '@/components/tla3bny/Honours';
-import { Card, EmptyState, LogoAvatar, StatusBadge, ZoomableImage, useTT } from '@/components/tla3bny/kit';
+import Link from 'next/link';
+import { Card, EmptyState, LogoAvatar, StatusBadge, ZoomableImage, useTT, useName } from '@/components/tla3bny/kit';
 
 function PlayerContent() {
   const tt = useTT();
+  const nm = useName();
   const params = useSearchParams();
   const id = Number(params.get('id'));
   const { user, token, academy, team, isSuperAdmin } = useTla3bnyAuth();
@@ -132,8 +134,19 @@ function PlayerContent() {
         <div className="p-4 flex items-center gap-4">
           {!p.photo_path && <LogoAvatar src={null} name={p.name} size={72} />}
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-black text-text">{p.name}</h1>
-            <p className="text-sm text-teal font-bold">{p.position}</p>
+            <h1 className="text-xl font-black text-text">{nm(p.name, p.name_en)}</h1>
+            {p.position && <p className="text-sm text-teal font-bold">{p.position}</p>}
+            {/* Current team/academy — so a reader knows who the player plays for.
+                The team's display name already carries the academy + age bracket. */}
+            {p.current_team_id && (p.current_team_name || p.current_academy_name) && (
+              <Link href={`/team?id=${p.current_team_id}`}
+                className="mt-1 inline-flex items-center gap-1.5 text-aqua hover:underline max-w-full">
+                <LogoAvatar src={p.current_academy_logo} name={nm(p.current_academy_name, p.current_academy_name_en)} size={18} />
+                <span className="text-xs font-bold truncate">
+                  {nm(p.current_team_name, p.current_team_name_en) || nm(p.current_academy_name, p.current_academy_name_en)}
+                </span>
+              </Link>
+            )}
           </div>
           <FollowPlayerButton playerId={p.id} />
           {canSeePapers && <PapersProgress required={docs.documents} files={p.files ?? []} />}
