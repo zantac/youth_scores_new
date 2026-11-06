@@ -59,6 +59,16 @@ function subCompKey(m: TMatch): string {
   return m.competition_age_id != null ? `cage${m.competition_age_id}` : `comp${m.competition_id}`;
 }
 
+// A match's kickoff as an epoch ms, for finding the one nearest to "now". A
+// timeless (TBD) fixture is pinned to the end of its day so it never counts as
+// the next kickoff ahead of a real one; a dateless match sinks to the very end.
+function kickoffTs(m: TMatch): number {
+  if (!m.date) return Number.POSITIVE_INFINITY;
+  const [y, mo, d] = m.date.split('-').map(Number);
+  const [h, mi] = isKickoffTbd(m.time) ? [23, 59] : (m.time ?? '').split(':').map(Number);
+  return new Date(y, (mo ?? 1) - 1, d, h || 0, mi || 0).getTime();
+}
+
 export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
   const tt = useTT();
   const { locale } = useApp();
@@ -120,17 +130,30 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
   const ascending = useMemo(() => [...past].reverse().concat(future), [past, future]);
   const dateGroups = useMemo(() => groupByDateSortedByTime(ascending), [ascending]);
 
-  const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
+  // The single match to land on: one that's live right now, else the next about
+  // to kick off, else (everything played) the most recent. Scrolling to this —
+  // rather than the day header — puts the match nearest in time on screen, not
+  // just the top of today. Display order is oldest→newest, each day by kickoff,
+  // so the first match at/after now is the next one up.
+  const anchorMatchId = useMemo<number | null>(() => {
+    const ordered = dateGroups.flatMap(dg => dg.matches);
+    if (ordered.length === 0) return null;
+    const now = Date.now();
+    const live = ordered.find(m => m.status === 'live');
+    if (live) return live.id;
+    const next = ordered.find(m => kickoffTs(m) >= now);
+    return (next ?? ordered[ordered.length - 1]).id;
+  }, [dateGroups]);
 
-  // Land on the date nearest today after the first load, and keep it centred for
-  // a brief settle window: content above the feed renders late (the news section
+  // Land on the nearest match after the first load, and keep it centred for a
+  // brief settle window: content above the feed renders late (the news section
   // and its images, team logos, ad strips), each shift nudging the anchor — a
   // single scroll would leave the view parked on older matches. Stop the instant
   // the user takes over, and never re-centre on later refreshes.
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const scrollLocked = useRef(false);
   useEffect(() => {
-    if (scrollLocked.current || loading || !anchorDate) return;
+    if (scrollLocked.current || loading || anchorMatchId == null) return;
     const lock = () => { scrollLocked.current = true; };
     const opts: AddEventListenerOptions = { passive: true };
     window.addEventListener('wheel', lock, opts);
@@ -152,7 +175,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
       window.removeEventListener('touchmove', lock, opts);
       window.removeEventListener('keydown', lock);
     };
-  }, [loading, anchorDate]);
+  }, [loading, anchorMatchId]);
 
   // Prepending older matches shifts everything down; keep the viewport steady.
   const pendingOlder = useRef<number | null>(null);
@@ -195,7 +218,7 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
         // the middle of a short day, but never after the last match.
         const adAfter = ads.length ? Math.min(AD_AFTER_MATCHES, Math.ceil(dayCount / 2)) : -1;
         return (
-          <div key={dg.date} ref={dg.date === anchorDate ? anchorRef : undefined} className="space-y-2 scroll-mt-20">
+          <div key={dg.date} className="space-y-2 scroll-mt-20">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${dg.date === today ? 'text-aqua' : 'text-text'}`}>
@@ -218,6 +241,9 @@ export default function MatchesFeed({ ads = [] }: { ads?: TAd[] }) {
               const href = `/competitions?comp=${m.competition_id}${m.competition_age_id ? `&cage=${m.competition_age_id}` : ''}&tab=matches`;
               return (
                 <Fragment key={m.id}>
+                  {/* Scroll anchor sits just above this match (and its headers)
+                      so the first paint lands on the nearest match in time. */}
+                  {m.id === anchorMatchId && <div ref={anchorRef} aria-hidden className="scroll-mt-20" />}
                   {compChanged && (
                     <Link href={href}
                       className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 active:bg-aqua/10 transition-colors">
