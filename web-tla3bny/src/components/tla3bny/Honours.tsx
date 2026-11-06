@@ -219,14 +219,13 @@ export function CompetitionHonours({ compId, cageId }: { compId: number; cageId?
   const titles = inScope.filter(a => titleTypes.includes(a.award_type));
   const overall = inScope.filter(a => overallTypes.includes(a.award_type));
   const playerOfRound = inScope.filter(a => a.award_type === 'player_of_round');
+  const playerOfMatch = inScope.filter(a => a.award_type === 'player_of_match');
   const bestCoach = inScope.filter(a => a.award_type === 'best_coach');
   const coachOfRound = inScope.filter(a => a.award_type === 'coach_of_round');
   const scopedTotr = cageId ? totr.filter(t => t.competition_age_id === cageId) : totr;
 
-  // Player of the match is intentionally omitted here — it already shows on each
-  // match card, so listing it again in the competition honours is redundant.
-  if (titles.length + overall.length + playerOfRound.length + bestCoach.length
-      + coachOfRound.length + scopedTotr.length === 0) {
+  if (titles.length + overall.length + playerOfRound.length + playerOfMatch.length
+      + bestCoach.length + coachOfRound.length + scopedTotr.length === 0) {
     return <EmptyState icon="🏆" text={tt('لم تُمنح جوائز بعد', 'No honours awarded yet')} />;
   }
   return (
@@ -256,6 +255,11 @@ export function CompetitionHonours({ compId, cageId }: { compId: number; cageId?
       {playerOfRound.length > 0 && (
         <CollapsibleSection title={<>🌟 {tt('لاعب الجولة', 'Player of the round')}</>} count={playerOfRound.length}>
           <div className="space-y-2">{playerOfRound.map(a => <AwardChip key={a.id} a={a} />)}</div>
+        </CollapsibleSection>
+      )}
+      {playerOfMatch.length > 0 && (
+        <CollapsibleSection title={<>🎖️ {tt('رجل المباراة', 'Player of the match')}</>} count={playerOfMatch.length}>
+          <div className="space-y-2">{playerOfMatch.map(a => <AwardChip key={a.id} a={a} />)}</div>
         </CollapsibleSection>
       )}
       {bestCoach.length > 0 && (
