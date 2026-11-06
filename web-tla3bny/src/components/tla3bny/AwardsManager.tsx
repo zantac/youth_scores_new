@@ -394,6 +394,18 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
   const labels = useMemo(() => formationRowLabels(formation).flat(), [formation]);
   const size = playersOnPitch ?? (labels.length || 0);
 
+  // Round options = the match rounds plus any round that already has a saved best
+  // XI — so an old/test best XI whose matches are gone is still selectable (and
+  // therefore deletable) from the dropdown, not stranded.
+  const roundOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of [...rounds, ...totrs.map(t => t.round)]) {
+      if (r && !seen.has(r)) { seen.add(r); out.push(r); }
+    }
+    return out;
+  }, [rounds, totrs]);
+
   // Prefill from an existing best XI, or default to a formation that fits the pitch.
   useEffect(() => {
     const existing = totrs.find(t => t.round === round);
@@ -434,10 +446,10 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
       <p className="text-[11px] text-hint">{tt(`اختر أفضل لاعب في كل مركز من كل الفرق التي لعبت في الجولة (عدد اللاعبين حسب قواعد البطولة الفرعية: ${size}).`, `Pick the best player in each position from all teams that played the round (player count follows the sub-competition rules: ${size}).`)}</p>
       <div className="grid grid-cols-2 gap-3">
         <Field label={tt('الجولة', 'Round')}>
-          {rounds.length > 0 ? (
+          {roundOptions.length > 0 ? (
             <select value={round} onChange={e => setRound(e.target.value)} className={inputCls}>
               <option value="">{tt('اختر…', 'Select…')}</option>
-              {rounds.map(r => <option key={r} value={r}>{r}</option>)}
+              {roundOptions.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           ) : (
             <input value={round} onChange={e => setRound(e.target.value)} className={inputCls} placeholder={tt('مثال: الجولة 1', 'e.g. Round 1')} />
@@ -507,6 +519,32 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
           </button>
         )}
       </div>
+
+      {/* Every saved best XI in this sub-competition, each removable on its own —
+          so an old/test one can be deleted even if its round is no longer played
+          (and thus wouldn't surface via the round picker above). */}
+      {totrs.length > 0 && (
+        <div className="border-t border-bdr pt-3 space-y-2">
+          <div className="text-[11px] font-bold text-hint">{tt('التشكيلات المحفوظة', 'Saved best XIs')}</div>
+          {totrs.map(t => (
+            <div key={t.id} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+              <span className="flex-1 min-w-0 text-xs font-bold text-text truncate">
+                {t.round}{t.formation ? ` · ${t.formation}` : ''}
+                <span className="text-hint font-normal"> · {t.slots.length} {tt('لاعب', 'players')}</span>
+              </span>
+              <button onClick={() => setRound(t.round)}
+                className="text-[11px] font-bold text-aqua border border-aqua/40 rounded-lg px-2.5 py-1 hover:bg-aqua/10 shrink-0">
+                {tt('تعديل', 'Edit')}
+              </button>
+              <button onClick={async () => {
+                if (confirm(tt('حذف هذه التشكيلة؟', 'Delete this best XI?'))) { await tDeleteTeamOfRound(token, t.id); onSaved(); }
+              }} className="text-[11px] font-bold text-loss border border-loss/40 rounded-lg px-2.5 py-1 hover:bg-loss/10 shrink-0">
+                {tt('حذف', 'Delete')}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
