@@ -166,10 +166,14 @@ def _announce_award(award):
     title = f"{emoji} {name} — {role_full}"
     if award.award_type == "player_of_match" and award.match_id:
         mt = Tla3bnyMatch.query.get(award.match_id)
+        # The sub-competition (with its age bracket) the match belongs to, so the
+        # item reads which bracket the man of the match was picked in.
+        sub = award.competition_age.display_name if award.competition_age else None
         if mt and mt.home_team and mt.away_team:
-            body = f"{name} رجل مباراة {mt.home_team.display_name()} × {mt.away_team.display_name()}."
+            body = f"{name} رجل مباراة {mt.home_team.display_name()} × {mt.away_team.display_name()}"
         else:
-            body = f"{name} رجل المباراة."
+            body = f"{name} رجل المباراة"
+        body += f" — {sub}." if sub else "."
     else:
         body = f"حصل {name} على لقب «{role_full}»"
         body += f" في {scope}." if scope else "."
