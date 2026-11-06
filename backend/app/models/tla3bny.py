@@ -2043,6 +2043,7 @@ class Tla3bnyAward(TimestampMixin, db.Model):
     player: Mapped["Tla3bnyPlayer | None"] = relationship()
     team: Mapped["Tla3bnyTeam | None"] = relationship()
     coach: Mapped["Tla3bnyCoach | None"] = relationship()
+    match: Mapped["Tla3bnyMatch | None"] = relationship()
 
     __table_args__ = (
         sa.Index("ix_tla3bny_awards_player", "player_id"),
@@ -2056,6 +2057,9 @@ class Tla3bnyAward(TimestampMixin, db.Model):
         t = self.team
         comp = self.competition
         cage = self.competition_age
+        # The match a player-of-the-match was given in, so the honours surfaces can
+        # show which game it was (teams + date). Null for every other award type.
+        m = self.match
         return {
             "id": self.id,
             "competition_id": self.competition_id,
@@ -2066,6 +2070,11 @@ class Tla3bnyAward(TimestampMixin, db.Model):
             "award_type": self.award_type,
             "round": self.round,
             "match_id": self.match_id,
+            "match_date": m.date.isoformat() if m and m.date else None,
+            "match_home_team": m.home_team.display_name() if m and m.home_team else None,
+            "match_home_team_en": m.home_team.display_name("en") if m and m.home_team else None,
+            "match_away_team": m.away_team.display_name() if m and m.away_team else None,
+            "match_away_team_en": m.away_team.display_name("en") if m and m.away_team else None,
             "note": self.note,
             "player_id": self.player_id,
             "player_name": p.name if p else None,

@@ -1273,6 +1273,12 @@ export interface TAward {
   award_type: TAwardType;
   round: string | null;
   match_id: number | null;
+  // The match a player-of-the-match was given in (teams + date); null otherwise.
+  match_date: string | null;
+  match_home_team: string | null;
+  match_home_team_en: string | null;
+  match_away_team: string | null;
+  match_away_team_en: string | null;
   note: string | null;
   player_id: number | null;
   player_name: string | null;

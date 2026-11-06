@@ -239,6 +239,8 @@ def list_competition_awards(comp_id: int):
             joinedload(Tla3bnyAward.competition),
             joinedload(Tla3bnyAward.competition_age).joinedload(
                 Tla3bnyCompetitionAge.age_category),
+            joinedload(Tla3bnyAward.match).joinedload(Tla3bnyMatch.home_team),
+            joinedload(Tla3bnyAward.match).joinedload(Tla3bnyMatch.away_team),
         )
         .order_by(Tla3bnyAward.competition_age_id, Tla3bnyAward.award_type)
         .all()

@@ -7,6 +7,8 @@ import {
   type TTeamOfRound, type TTotrSlot,
 } from '@/lib/tla3bnyApi';
 import { formationRowLabels, isSubSlot } from '@/lib/tla3bnyFormations';
+import { formatMatchDate } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 import PitchView, { type SlotView } from './PitchView';
 import { Card, EmptyState, LogoAvatar, useTT, useName } from './kit';
 
@@ -47,8 +49,17 @@ function CollapsibleSection({ title, count, children }: {
 function AwardChip({ a, showRecipient = true }: { a: TAward; showRecipient?: boolean }) {
   const tt = useTT();
   const nm = useName();
+  const { locale } = useApp();
   const meta = AWARD_META[a.award_type];
   const scope = [a.sub_competition_name, a.round].filter(Boolean).join(' · ');
+  // For a player-of-the-match, name the game it was given in: the two teams and
+  // the date, so the honour isn't just an untethered "Player of the match".
+  const matchTeams = (a.match_home_team || a.match_away_team)
+    ? `${nm(a.match_home_team, a.match_home_team_en) || '—'} × ${nm(a.match_away_team, a.match_away_team_en) || '—'}`
+    : null;
+  const matchLine = matchTeams
+    ? [matchTeams, a.match_date ? formatMatchDate(a.match_date, locale) : null].filter(Boolean).join(' · ')
+    : null;
   const recipient = a.team_id
     ? { href: `/team?id=${a.team_id}`, name: a.team_name, logo: a.team_logo }
     : a.coach_id
@@ -62,6 +73,11 @@ function AwardChip({ a, showRecipient = true }: { a: TAward; showRecipient?: boo
         <div className="text-[11px] text-hint truncate">
           {a.competition_name}{scope ? ` · ${scope}` : ''}
         </div>
+        {matchLine && (
+          <div className="text-[11px] text-teal truncate">
+            {a.match_id ? <Link href={`/match?id=${a.match_id}`} className="hover:underline">{matchLine}</Link> : matchLine}
+          </div>
+        )}
       </div>
       {showRecipient && (recipient.name) && (
         <Link href={recipient.href} className="flex items-center gap-2 shrink-0 max-w-[45%]">
