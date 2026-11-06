@@ -188,9 +188,7 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
         return;
       }
       if (_didScroll) return;
-      final a = _anchorDate;
-      if (a == null) return;
-      final i = _dateIndex(a);
+      final i = _anchorScrollIndex();
       if (i != null) {
         _didScroll = true;
         _itemCtrl.jumpTo(index: i);
@@ -205,6 +203,63 @@ class _HomeTabState extends State<HomeTab> with WidgetsBindingObserver {
     }
     return null;
   }
+
+  // The single match to land on: one that's live right now, else the next about
+  // to kick off, else (everything played) the most recent. Mirrors the web home
+  // feed — lands on the match nearest in time, not merely the top of today. Read
+  // straight off the built rows so it matches exactly what's shown (same filter
+  // on the Favourites tab, same kickoff order).
+  String? _anchorMatchId() {
+    final ordered = [
+      for (final r in _rows)
+        if (r is _MatchRow) r.m,
+    ];
+    if (ordered.isEmpty) return null;
+    for (final m in ordered) {
+      if (m.status.toLowerCase() == 'live') return m.id;
+    }
+    final now = DateTime.now();
+    for (final m in ordered) {
+      if (!_kickoff(m).isBefore(now)) return m.id; // kickoff at/after now
+    }
+    return ordered.last.id;
+  }
+
+  // A match's kickoff as a local DateTime, for picking the one nearest to now. A
+  // timeless (TBD) fixture is pinned to end-of-day so it never counts as the next
+  // kickoff ahead of a real one; a dateless match sorts to the very end.
+  DateTime _kickoff(HomeMatch m) {
+    if (m.date.isEmpty) return DateTime(9999);
+    final t = AppDateUtils.isKickoffTbd(m.time) ? '23:59' : m.time;
+    return DateTime.tryParse('${m.date}T$t:00') ?? DateTime(9999);
+  }
+
+  // The row to scroll to: the anchor match's row, pulled up to include the
+  // date / competition / group headers printed right above it, so the match
+  // keeps its context on screen. Falls back to the anchor date's header.
+  int? _anchorScrollIndex() {
+    final id = _anchorMatchId();
+    if (id == null) {
+      final a = _anchorDate;
+      return a == null ? null : _dateIndex(a);
+    }
+    var mi = -1;
+    for (var i = 0; i < _rows.length; i++) {
+      final r = _rows[i];
+      if (r is _MatchRow && r.m.id == id) {
+        mi = i;
+        break;
+      }
+    }
+    if (mi < 0) return null;
+    var start = mi;
+    while (start > 0 && _isHeaderRow(_rows[start - 1])) {
+      start--;
+    }
+    return start;
+  }
+
+  bool _isHeaderRow(_Row r) => r is _DateRow || r is _CompRow || r is _GroupRow;
 
   /// Match ids an inline ad unit renders after, given its 1-based slot [position]
   /// (counted from the anchor date downward, so it sits in the natural
