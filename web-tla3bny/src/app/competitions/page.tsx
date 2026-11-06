@@ -491,7 +491,7 @@ function StatsTab({ compId, ageId, cageId }: { compId: number; ageId: number; ca
 
   useEffect(() => {
     setA(null); setMatches(null);
-    tAnalysis(compId, ageId).then(setA).catch(() => setA(null));
+    tAnalysis(compId, ageId, cageId).then(setA).catch(() => setA(null));
     tMatches({ competition_id: compId, ...(cageId ? { competition_age_id: cageId } : { age_category_id: ageId }), order: 'asc' })
       .then(setMatches).catch(() => setMatches([]));
   }, [compId, ageId, cageId]);

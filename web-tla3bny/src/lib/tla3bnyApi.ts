@@ -1241,8 +1241,12 @@ export const tStandings = (compId: number, ageId: number, cageId?: number) =>
   })}`);
 export const tBracket = (compId: number, ageId: number) =>
   get<TBracketStage[]>(`/bracket${qs({ competition_id: compId, age_category_id: ageId })}`);
-export const tAnalysis = (compId: number, ageId: number) =>
-  get<TAnalysis>(`/analysis${qs({ competition_id: compId, age_category_id: ageId })}`);
+export const tAnalysis = (compId: number, ageId: number, cageId?: number) =>
+  get<TAnalysis>(`/analysis${qs({
+    competition_id: compId,
+    competition_age_id: cageId,
+    age_category_id: cageId ? undefined : ageId,
+  })}`);
 
 // ── honours: titles, individual awards, team of the round ──────────────────
 export type TAwardType =
