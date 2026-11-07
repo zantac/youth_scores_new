@@ -53,6 +53,16 @@ function groupByDateSortedByTime(matches: HomeMatch[]): DateGroup[] {
   return dates;
 }
 
+// A match's kickoff as epoch ms, for finding the one nearest to "now". A timeless
+// (TBD) fixture is pinned to end-of-day so it never counts as the next kickoff
+// ahead of a real one; a dateless match sinks to the very end.
+function kickoffTs(m: HomeMatch): number {
+  if (!m.date) return Number.POSITIVE_INFINITY;
+  const [y, mo, d] = m.date.split('-').map(Number);
+  const [h, mi] = isKickoffTbd(m.time) ? [23, 59] : (m.time || '').split(':').map(Number);
+  return new Date(y, (mo ?? 1) - 1, d, h || 0, mi || 0).getTime();
+}
+
 function shiftDay(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + days);
@@ -190,7 +200,23 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
   const dateGroups = useMemo(() => groupByDateSortedByTime(visible), [visible]);
 
   // The date to land on: today/nearest-upcoming if any, otherwise nearest past.
+  // Still used for ad-slot placement and the date-header highlight.
   const anchorDate = future.length ? future[0].date : (past.length ? past[0].date : null);
+
+  // The single match to land on: one that's live right now, else the next about
+  // to kick off, else (everything played) the most recent. Scrolling to this —
+  // rather than the day header — puts the match nearest in time on screen, not
+  // just the top of today. Display order is oldest→newest, each day by kickoff,
+  // so the first match at/after now is the next one up.
+  const anchorMatchId = useMemo<string | null>(() => {
+    const ordered = dateGroups.flatMap(dg => dg.matches);
+    if (ordered.length === 0) return null;
+    const now = Date.now();
+    const live = ordered.find(m => m.status.toLowerCase() === 'live');
+    if (live) return live.id;
+    const next = ordered.find(m => kickoffTs(m) >= now);
+    return (next ?? ordered[ordered.length - 1]).id;
+  }, [dateGroups]);
 
   // Slots the sponsored card/rail render after, counted from the anchor date (where
   // the feed lands) downward so they sit in the natural forward-scroll path. The
@@ -213,16 +239,16 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
 
   const anchorRef = useRef<HTMLDivElement | null>(null);
 
-  // Land on the date nearest to today once, after the first load. `scroll-mt`
-  // on the anchor keeps it clear of the pinned controls + CTA bars. Only the
-  // first render scrolls, so loading older/newer matches never yanks the view.
+  // Land on the nearest match once, after the first load. `scroll-mt` on the
+  // anchor keeps it clear of the pinned controls + CTA bars. Only the first
+  // render scrolls, so loading older/newer matches never yanks the view.
   const didScroll = useRef(false);
   useEffect(() => {
-    if (didScroll.current || loading || !anchorDate || !anchorRef.current) return;
+    if (didScroll.current || loading || anchorMatchId == null || !anchorRef.current) return;
     didScroll.current = true;
     const el = anchorRef.current;
     requestAnimationFrame(() => el.scrollIntoView({ block: 'start' }));
-  }, [loading, anchorDate]);
+  }, [loading, anchorMatchId]);
 
   // Prepending older matches shifts everything down; keep the viewport steady.
   const pendingOlder = useRef<number | null>(null);
@@ -322,8 +348,7 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
         const isToday = today != null && dg.date === today;
         return (
           <Fragment key={dg.date}>
-          <div ref={isAnchor ? anchorRef : undefined}
-            className="space-y-2 scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]">
+          <div className="space-y-2 scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]">
             <div className="flex items-center gap-2 py-1.5">
               <span className="text-aqua">📅</span>
               <h3 className={`font-bold text-sm ${isToday || isAnchor ? 'text-aqua' : 'text-text'}`}>
@@ -342,6 +367,10 @@ export default function MatchesFeed({ locale, favouritesOnly = false }: { locale
               const groupChanged = compChanged || (prev!.group || '') !== (m.group || '');
               return (
                 <Fragment key={m.id}>
+                  {/* Scroll anchor sits just above this match (and its headers)
+                      so the first paint lands on the nearest match in time. */}
+                  {m.id === anchorMatchId && <div ref={anchorRef} aria-hidden
+                    className="scroll-mt-[calc(var(--header-h,9rem)_+_3.5rem)]" />}
                   {compChanged && (
                     <button onClick={() => openCompetition(m.competition)}
                       className="w-full flex items-center gap-2 bg-cardBg border border-aqua/30 rounded-xl px-3 py-2.5 text-start active:bg-aqua/10 transition-colors">
