@@ -9,7 +9,7 @@ import {
   type TTeamOfRound, type TAwardSuggestions, type TCoachPool,
 } from '@/lib/tla3bnyApi';
 import { formationRowLabels, FORMATIONS, FORMATION_NAMES, TOTR_SUB_SLOTS } from '@/lib/tla3bnyFormations';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from './kit';
 
 const AWARD_META: Record<TAwardType, [string, string, string]> = {
   champion:        ['🏆', 'بطل', 'Champion'],
@@ -391,6 +391,7 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
   onSaved: () => void; onError: (e: string | null) => void; onNotice: (m: string) => void;
 }) {
   const tt = useTT();
+  const pos = usePositionLabel();
   const [round, setRound] = useState('');
   const [formation, setFormation] = useState('');
   const [slots, setSlots] = useState<Record<string, number | ''>>({});
@@ -485,9 +486,15 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
         <p className="text-[11px] text-loss">{tt('اختر خطة صحيحة', 'Choose a valid formation')}</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {labels.map(label => (
+          {labels.map(label => {
+            // Localized position name + the slot's index (CB1 → "قلب دفاع 1"),
+            // so two same-position slots stay distinct. Raw code on hover.
+            const num = label.replace(/\D/g, '');
+            return (
             <label key={label} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
-              <span className="text-[11px] font-bold text-teal w-10 shrink-0">{label}</span>
+              <span className="text-[11px] font-bold text-teal w-24 shrink-0 truncate" title={label}>
+                {pos(label)}{num ? ` ${num}` : ''}
+              </span>
               {/* Solid dark bg (not transparent): the native option popup inherits
                   the select's background, so a transparent one renders white in the
                   dark theme and hides the names. */}
@@ -497,7 +504,8 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
                 {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
               </select>
             </label>
-          ))}
+            );
+          })}
         </div>
       )}
 
