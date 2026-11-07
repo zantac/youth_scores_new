@@ -8,12 +8,11 @@ import {
   mediaUrl, T_BASE,
   type TMatch, type TLineup, type TLineupSlot, type TMatchEvent, type TCompPlayer, type TCompAge,
 } from '@/lib/tla3bnyApi';
-import { slotBase } from '@/lib/tla3bnyFormations';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import PitchView, { type SlotView } from '@/components/tla3bny/PitchView';
 import MatchTimer from '@/components/tla3bny/MatchTimer';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from '@/components/tla3bny/kit';
 
 // ── draft auto-save ───────────────────────────────────────────────────────────
 const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
@@ -107,6 +106,7 @@ const shortName = (n?: string | null) => (n ?? '').trim().split(/\s+/).slice(0, 
 
 // One player tile used in the sheet/cards view.
 function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolean }) {
+  const pos = usePositionLabel();
   const url = mediaUrl(slot.photo_path);
   const initials = (slot.player_name ?? '?').trim().slice(0, 2).toUpperCase();
   const aspect = small ? 'aspect-square' : 'aspect-[3/4]';
@@ -125,7 +125,7 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
       )}
       <span className="text-xs font-bold text-text leading-tight line-clamp-2">{slot.player_name}</span>
       <span className="flex items-center gap-1.5 text-[10px] font-bold text-teal">
-        {!slot.is_substitute && slot.position_slot && <span>{slotBase(slot.position_slot)}</span>}
+        {!slot.is_substitute && slot.position_slot && <span>{pos(slot.position_slot)}</span>}
         {birthYear && <span className="text-hint">🎂 {birthYear}</span>}
       </span>
     </div>
@@ -197,9 +197,10 @@ function SheetView({ m, lineups, canDownload = false, onDownload, downloading = 
 // One player on the printable (Save-as-PDF) sheet. Explicit light colours: the
 // app is dark-themed, but the print sheet is black-on-white.
 function PrintCard({ slot }: { slot: TLineupSlot }) {
+  const pos = usePositionLabel();
   const url = mediaUrl(slot.photo_path);
   const year = slot.player_dob ? slot.player_dob.slice(0, 4) : null;
-  const meta = [slot.position_slot ? slotBase(slot.position_slot) : null, year ? `🎂 ${year}` : null]
+  const meta = [slot.position_slot ? pos(slot.position_slot) : null, year ? `🎂 ${year}` : null]
     .filter(Boolean).join(' · ');
   return (
     <div className="text-center border border-black/20 rounded p-1 break-inside-avoid">

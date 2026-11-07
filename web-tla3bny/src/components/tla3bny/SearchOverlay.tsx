@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { tSearch, type TSearchResults } from '@/lib/tla3bnyApi';
-import { LogoAvatar, useName, useTT } from './kit';
+import { LogoAvatar, useName, useTT, usePositionLabel } from './kit';
 
 const EMPTY: TSearchResults = { academies: [], players: [], coaches: [] };
 
@@ -14,6 +14,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
   const { locale } = useApp();
   const tt = useTT();
   const name = useName();
+  const pos = usePositionLabel();
   const router = useRouter();
   const isAr = locale === 'ar';
   const [q, setQ] = useState('');
@@ -60,7 +61,7 @@ export default function SearchOverlay({ onClose }: { onClose: () => void }) {
       label: tt('اللاعبون', 'Players'),
       rows: res.players.map(p => ({
         id: p.id, path: `/player?id=${p.id}`, img: p.photo_path,
-        title: name(p.name, p.name_en), sub: p.position || '',
+        title: name(p.name, p.name_en), sub: pos(p.position) || '',
       })),
     },
     {

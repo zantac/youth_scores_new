@@ -6,7 +6,7 @@ import {
   type TCompetitionRegistration, type TRegistrationPlayer, type LabeledDoc,
 } from '@/lib/tla3bnyApi';
 import Spinner from '@/components/ui/Spinner';
-import { Card, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { Card, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from './kit';
 
 const STATUS_META: Record<string, { ar: string; en: string; cls: string }> = {
   pending:  { ar: 'بانتظار الاعتماد', en: 'Pending',  cls: 'text-gold bg-gold/10 border-gold/30' },
@@ -24,6 +24,7 @@ export default function CompetitionRegistration({ token, entryId, onChange }: {
 }) {
   const tt = useTT();
   const nm = useName();
+  const pos = usePositionLabel();
   const [reg, setReg] = useState<TCompetitionRegistration | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -130,7 +131,7 @@ export default function CompetitionRegistration({ token, entryId, onChange }: {
               <div className="min-w-0 flex-1">
                 <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
                 <div className="text-[11px] text-hint">
-                  {[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}
+                  {[pos(p.position), p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}
                 </div>
               </div>
               {meta ? (

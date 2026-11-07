@@ -26,7 +26,7 @@ import AwardsManager from '@/components/tla3bny/AwardsManager';
 import PunishmentsManager from '@/components/tla3bny/PunishmentsManager';
 import MessagesManager from '@/components/tla3bny/MessagesManager';
 import { PapersReview } from '@/components/tla3bny/PlayerPapers';
-import { Card, Field, inputCls, PhoneInput, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PhoneInput, PrimaryButton, ErrorNote, StatusBadge, EmptyState, useTT, useName, usePositionLabel, useUnsavedGuard, UnsavedBadge } from '@/components/tla3bny/kit';
 
 type Tab = 'dashboard' | 'info' | 'ages' | 'teams' | 'approvals' | 'matches' | 'stages' | 'awards' | 'punishments' | 'messages' | 'news' | 'ads' | 'organizers';
 
@@ -1116,6 +1116,7 @@ function ApprovalsTab({ token, comp }: { token: string; comp: TCompetition }) {
 function RosterPlayerRow({ token, p, onDone }: { token: string; p: TCompPlayer; onDone: () => void }) {
   const tt = useTT();
   const nm = useName();
+  const pos = usePositionLabel();
   const [reason, setReason] = useState(p.rejection_reason ?? '');
   const [rejecting, setRejecting] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1132,7 +1133,7 @@ function RosterPlayerRow({ token, p, onDone }: { token: string; p: TCompPlayer; 
     <div className="border-t border-bdr pt-2 first:border-t-0 first:pt-0">
       <div className="flex items-center justify-between gap-2">
         <Link href={`/player?id=${p.player_id}`} className="text-text text-sm font-bold hover:text-aqua truncate">
-          {nm(p.player_name, p.player_name_en)} <span className="text-[11px] text-hint font-normal">{p.position}</span>
+          {nm(p.player_name, p.player_name_en)} <span className="text-[11px] text-hint font-normal">{pos(p.position)}</span>
         </Link>
         <div className="flex items-center gap-2 shrink-0">
           <StatusBadge status={p.status} label={{

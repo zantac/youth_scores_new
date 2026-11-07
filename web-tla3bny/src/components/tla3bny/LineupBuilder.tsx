@@ -4,10 +4,10 @@ import {
   tMatch, tMatchLineups, tSaveLineup, tEligibleLineupPlayers,
   type TMatch, type TEligiblePlayer,
 } from '@/lib/tla3bnyApi';
-import { FORMATIONS, FORMATION_NAMES, slotBase } from '@/lib/tla3bnyFormations';
+import { FORMATIONS, FORMATION_NAMES } from '@/lib/tla3bnyFormations';
 import Spinner from '@/components/ui/Spinner';
 import PitchView, { type SlotView } from './PitchView';
-import { Card, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT } from './kit';
+import { Card, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, usePositionLabel } from './kit';
 
 type PickerTarget = { kind: 'starters' } | { kind: 'subs' } | { kind: 'slot'; slot: string };
 
@@ -17,6 +17,7 @@ export default function LineupBuilder({
   token: string; matchId: number; teamId: number; onSaved?: () => void;
 }) {
   const tt = useTT();
+  const pos = usePositionLabel();
   const [match, setMatch] = useState<TMatch | null>(null);
   const [players, setPlayers] = useState<TEligiblePlayer[]>([]);
 
@@ -493,7 +494,7 @@ export default function LineupBuilder({
             undefined
           }
           currentId={picker.kind === 'slot' ? assign[picker.slot] : undefined}
-          slotHint={picker.kind === 'slot' ? slotBase(picker.slot) : null}
+          slotHint={picker.kind === 'slot' ? pos(picker.slot) : null}
           oldestBirthYear={oldestBirthYear}
           title={
             picker.kind === 'starters' ? tt('اختر الأساسيين', 'Select starters') :
@@ -529,6 +530,7 @@ function PlayerPicker({
   onClose: () => void;
 }) {
   const tt = useTT();
+  const pos = usePositionLabel();
   const sorted = useMemo(() => {
     const score = (p: TEligiblePlayer) => {
       if (!slotHint) return p.guest ? 1 : 0;
@@ -613,7 +615,7 @@ function PlayerPicker({
                   </div>
                   <div className="text-[11px] text-hint truncate">
                     {[
-                      p.position,
+                      pos(p.position),
                       p.dob ? new Date(p.dob).getFullYear() : null,
                       p.guest ? `↑ ${p.guest_team ?? tt('فريق أصغر', 'younger team')}` : null,
                       used ? tt('مختار في المجموعة الأخرى', 'selected in other group') : null,
