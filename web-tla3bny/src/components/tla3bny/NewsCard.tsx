@@ -57,9 +57,15 @@ export default function NewsCard({ item, isNew = false, showCompetition = true }
         {item.body && <p className="text-teal text-xs line-clamp-2 leading-relaxed">{item.body}</p>}
         <div className="flex items-center gap-3 text-hint text-xs flex-wrap">
           <span className="flex items-center gap-1.5">📅 {formatNewsDate(item.date, locale)}</span>
-          {showCompetition && item.competition_name && (
-            <span className="flex items-center gap-1.5 truncate">🏆 {item.competition_name}</span>
-          )}
+          {/* Competition · sub-competition · age bracket — so a reader sees which
+              age an auto-published honour belongs to, not just the competition. */}
+          {(() => {
+            const scope = [
+              showCompetition ? item.competition_name : null,
+              item.sub_competition_label,
+            ].filter(Boolean).join(' · ');
+            return scope ? <span className="flex items-center gap-1.5 truncate">🏆 {scope}</span> : null;
+          })()}
         </div>
       </div>
     </div>

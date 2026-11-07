@@ -604,6 +604,14 @@ export interface TNews {
   /** Null for site-wide news the super admin posts. */
   competition_id: number | null;
   competition_name: string | null;
+  /** Sub-competition + age bracket of an auto-published honour (e.g.
+   *  "LEAGUE 1 · تحت 10"), so the card shows the age next to the competition.
+   *  Null for ordinary editor news. */
+  competition_age_id?: number | null;
+  sub_competition_label?: string | null;
+  /** The best XI of a team-of-the-round announcement, drawn on a pitch in the
+   *  article (the honours-page design). Null for every other news item. */
+  team_of_round?: TTeamOfRound | null;
   title: string;
   body: string | null;
   /** The cover — always the first entry of `images`. */

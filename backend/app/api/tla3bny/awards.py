@@ -160,7 +160,9 @@ def _announce_award(award):
     name, photo = _award_recipient(award)
     if not name:
         return
-    scope = (award.competition_age.name if award.competition_age else None) \
+    # Include the age bracket, not just the competition (display_name is
+    # "<sub-comp> · <age>"), so the reader sees which age the honour is in.
+    scope = (award.competition_age.display_name if award.competition_age else None) \
         or (award.competition.name if award.competition else "")
     role_full = f"{role} — {award.round}" if award.round else role
     title = f"{emoji} {name} — {role_full}"
@@ -180,6 +182,7 @@ def _announce_award(award):
     user = auth.current_user()
     db.session.add(Tla3bnyNews(
         competition_id=award.competition_id,
+        competition_age_id=award.competition_age_id,
         title=title[:255], body=body, image_path=photo,
         news_date=_utcnow().date(), is_published=True,
         author_user_id=user.id if user else None,
@@ -208,7 +211,8 @@ def _announce_team_of_round(totr):
             starters.append(f"{pos}{p.name} ({team_name})")
     if not starters and not subs:
         return
-    scope = totr.competition_age.name if totr.competition_age else ""
+    # Age bracket included (display_name is "<sub-comp> · <age>"), not just name.
+    scope = totr.competition_age.display_name if totr.competition_age else ""
     header = f"تشكيلة {totr.round}" + (f" — {scope}" if scope else "")
     body = header + ":\n" + "\n".join(starters)
     if subs:
@@ -216,6 +220,8 @@ def _announce_team_of_round(totr):
     user = auth.current_user()
     db.session.add(Tla3bnyNews(
         competition_id=totr.competition_id,
+        competition_age_id=totr.competition_age_id,
+        team_of_round_id=totr.id,
         title=f"👕 {header} — أفضل {len(starters)}"[:255],
         body=body,
         news_date=_utcnow().date(), is_published=True,

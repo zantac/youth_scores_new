@@ -6,8 +6,9 @@ import { useApp } from '@/context/AppContext';
 import Spinner from '@/components/ui/Spinner';
 import PhotoGalleryViewer from './PhotoGalleryViewer';
 import NewsCard, { formatNewsDate } from './NewsCard';
+import { TeamOfRoundPitch } from './Honours';
 import { getReadNews, markNewsRead, seedReadNewsIfFirstRun } from '@/lib/seen';
-import { EmptyState, useTT } from './kit';
+import { Card, EmptyState, useTT } from './kit';
 
 /**
  * The public news feed, presented like youthscores': a cover-photo card that
@@ -73,7 +74,11 @@ function NewsDetail({ item, onClose }: { item: TNews; onClose: () => void }) {
         <h1 className="text-aqua font-bold text-xl leading-relaxed">{item.title}</h1>
         <div className="flex items-center gap-3 text-hint text-sm flex-wrap">
           <span className="flex items-center gap-1.5">📅 {formatNewsDate(item.date, locale)}</span>
-          {item.competition_name && <span className="flex items-center gap-1.5">🏆 {item.competition_name}</span>}
+          {/* Competition · sub-competition · age bracket. */}
+          {(() => {
+            const scope = [item.competition_name, item.sub_competition_label].filter(Boolean).join(' · ');
+            return scope ? <span className="flex items-center gap-1.5">🏆 {scope}</span> : null;
+          })()}
           {!item.is_published && (
             <span className="text-gold text-[11px] border border-gold/40 bg-gold/10 rounded px-1.5 py-0.5 font-bold">
               {tt('مسودة', 'Draft')}
@@ -81,6 +86,13 @@ function NewsDetail({ item, onClose }: { item: TNews; onClose: () => void }) {
           )}
         </div>
         <hr className="border-bdr" />
+        {/* Team of the round: draw the best XI on a pitch, as on the honours page. */}
+        {item.team_of_round && (
+          <Card className="p-3">
+            <div className="text-sm font-black text-text mb-2">👕 {item.team_of_round.round}</div>
+            <TeamOfRoundPitch totr={item.team_of_round} />
+          </Card>
+        )}
         {item.body && <p className="text-text text-base leading-[1.9] whitespace-pre-line">{item.body}</p>}
       </div>
 
