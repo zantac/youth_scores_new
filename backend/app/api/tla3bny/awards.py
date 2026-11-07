@@ -183,10 +183,20 @@ def _announce_award(award):
     db.session.add(Tla3bnyNews(
         competition_id=award.competition_id,
         competition_age_id=award.competition_age_id,
+        award_id=award.id,
         title=title[:255], body=body, image_path=photo,
         news_date=_utcnow().date(), is_published=True,
         author_user_id=user.id if user else None,
     ))
+
+
+def _delete_award_news(award_ids) -> None:
+    """Remove the auto-published announcements for these awards, so re-granting or
+    re-publishing an honour replaces its news instead of stacking duplicates."""
+    ids = [i for i in award_ids if i]
+    if ids:
+        Tla3bnyNews.query.filter(Tla3bnyNews.award_id.in_(ids)).delete(
+            synchronize_session=False)
 
 
 def _is_sub_slot(slot: str | None) -> bool:
@@ -368,6 +378,10 @@ def grant_award(comp_id: int):
         o.player_id == new_player and o.team_id == new_team and o.coach_id == new_coach
         for o in existing
     )
+    # Replacing the winner: drop the previous holder's announcement so the feed
+    # doesn't keep a stale news next to the new one (same-winner re-grant keeps it).
+    if not same_winner:
+        _delete_award_news([o.id for o in existing])
     for old in existing:
         db.session.delete(old)
 
@@ -447,9 +461,28 @@ def revoke_award(award_id: int):
         return _forbid()
     _log("award_revoked", "award", award.id, {"award_type": award.award_type},
          competition_id=award.competition_id)
+    # The honour is gone, so its auto-published announcement should go with it.
+    _delete_award_news([award.id])
     db.session.delete(award)
     db.session.commit()
     return jsonify({"message": "revoked"})
+
+
+@tla3bny_bp.post("/awards/<int:award_id>/republish")
+@auth.login_required
+def republish_award(award_id: int):
+    """Re-publish an award's news: drop its previous announcement and generate a
+    fresh one from the current data (and the current design). For honours granted
+    before a news-format change, or whenever the organizer wants to re-push it."""
+    award = Tla3bnyAward.query.get_or_404(award_id)
+    if not _admin(award.competition_id):
+        return _forbid()
+    _delete_award_news([award.id])
+    _announce_award(award)
+    _log("award_news_republished", "award", award.id,
+         {"award_type": award.award_type}, competition_id=award.competition_id)
+    db.session.commit()
+    return jsonify({"message": "republished"})
 
 
 # ── suggestions (admin) ──────────────────────────────────────────────────────
@@ -585,12 +618,45 @@ def upsert_team_of_round(comp_id: int):
     return jsonify(totr.to_dict())
 
 
+def _delete_team_of_round_news(totr) -> None:
+    """Remove this best XI's announcement(s): the linked one, plus any legacy
+    text-only item published before the pitch link existed — matched by the
+    auto-generated 👕 title for the same competition + round."""
+    Tla3bnyNews.query.filter_by(team_of_round_id=totr.id).delete(
+        synchronize_session=False)
+    Tla3bnyNews.query.filter(
+        Tla3bnyNews.team_of_round_id.is_(None),
+        Tla3bnyNews.competition_id == totr.competition_id,
+        Tla3bnyNews.title.like(f"👕 تشكيلة {totr.round} —%"),
+    ).delete(synchronize_session=False)
+
+
+@tla3bny_bp.post("/team-of-round/<int:totr_id>/republish")
+@auth.login_required
+def republish_team_of_round(totr_id: int):
+    """Re-publish a best XI's news: drop the old announcement (including a legacy
+    text-only one from before the pitch design) and generate a fresh one that
+    renders on the pitch. Used after editing the XI, or to upgrade an old item."""
+    totr = Tla3bnyTeamOfRound.query.get_or_404(totr_id)
+    if not _admin(totr.competition_id):
+        return _forbid()
+    _delete_team_of_round_news(totr)
+    _announce_team_of_round(totr)
+    _log("team_of_round_news_republished", "team_of_round", totr.id,
+         {"round": totr.round}, competition_id=totr.competition_id)
+    db.session.commit()
+    return jsonify({"message": "republished"})
+
+
 @tla3bny_bp.delete("/team-of-round/<int:totr_id>")
 @auth.login_required
 def delete_team_of_round(totr_id: int):
     totr = Tla3bnyTeamOfRound.query.get_or_404(totr_id)
     if not _admin(totr.competition_id):
         return _forbid()
+    # Take its announcement down with it, so the feed doesn't keep a pitch news
+    # pointing at a best XI that no longer exists.
+    _delete_team_of_round_news(totr)
     db.session.delete(totr)
     db.session.commit()
     return jsonify({"message": "deleted"})

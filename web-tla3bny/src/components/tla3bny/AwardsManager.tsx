@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   tCompTeams, tMatches, tCompetitionRounds, tCompetitionAwards, tTeamOfRoundAll,
-  tGrantAward, tRevokeAward, tAwardSuggestions, tSaveTeamOfRound, tDeleteTeamOfRound,
+  tGrantAward, tRevokeAward, tRepublishAward, tAwardSuggestions, tSaveTeamOfRound, tDeleteTeamOfRound, tRepublishTeamOfRound,
   tCompetitionCoaches,
   TEAM_AWARD_TYPES, COACH_AWARD_TYPES,
   type TCompetition, type TCompTeam, type TMatch, type TAward, type TAwardType,
@@ -45,6 +45,9 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const [awards, setAwards] = useState<TAward[]>([]);
   const [totrs, setTotrs] = useState<TTeamOfRound[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  // Transient confirmation after a republish (so the organizer sees it worked).
+  const [notice, setNotice] = useState<string | null>(null);
+  const flash = (m: string) => { setNotice(m); setTimeout(() => setNotice(null), 2500); };
   // Granted awards are grouped by type, each group collapsed by default.
   const [openTypes, setOpenTypes] = useState<Set<TAwardType>>(new Set());
   const toggleType = (t: TAwardType) =>
@@ -107,6 +110,7 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   return (
     <div className="space-y-5">
       <ErrorNote>{err}</ErrorNote>
+      {notice && <p className="text-win text-xs bg-win/10 border border-win/30 rounded-lg px-3 py-2">{notice}</p>}
 
       <Field label={tt('البطولة الفرعية', 'Sub-competition')}>
         <select value={cageId} onChange={e => setCageId(Number(e.target.value))} className={inputCls}>
@@ -191,6 +195,13 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                             </div>
                             <button onClick={() => startEdit(a)}
                               className="text-teal hover:text-aqua text-xs font-bold px-1 shrink-0">{tt('تعديل', 'Edit')}</button>
+                            {/* Re-publish this honour's news with the current design. */}
+                            <button onClick={async () => {
+                              setErr(null);
+                              try { await tRepublishAward(token, a.id); flash(tt('تم إعادة نشر الخبر', 'News republished')); }
+                              catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+                            }} title={tt('إعادة نشر الخبر', 'Republish news')}
+                              className="text-hint hover:text-aqua text-sm px-1 shrink-0">📣</button>
                             <button onClick={async () => { await tRevokeAward(token, a.id); loadHonours(); }}
                               className="text-hint hover:text-loss text-sm px-1 shrink-0">🗑</button>
                           </div>
@@ -209,7 +220,7 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
         token={token} compId={comp.id} cageId={cageId}
         players={players} rounds={rounds} totrs={totrs}
         playersOnPitch={selectedAge?.players_on_pitch}
-        onSaved={loadHonours} onError={setErr} />
+        onSaved={loadHonours} onError={setErr} onNotice={flash} />
     </div>
   );
 }
@@ -374,10 +385,10 @@ function GrantAward({ token, compId, cageId, players, teams, coaches, matches, r
 }
 
 // ── team of the round: best XI builder ───────────────────────────────────────
-function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, playersOnPitch, onSaved, onError }: {
+function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, playersOnPitch, onSaved, onError, onNotice }: {
   token: string; compId: number; cageId?: number; players: PoolPlayer[];
   rounds: string[]; totrs: TTeamOfRound[]; playersOnPitch?: number;
-  onSaved: () => void; onError: (e: string | null) => void;
+  onSaved: () => void; onError: (e: string | null) => void; onNotice: (m: string) => void;
 }) {
   const tt = useTT();
   const [round, setRound] = useState('');
@@ -535,6 +546,15 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
               <button onClick={() => setRound(t.round)}
                 className="text-[11px] font-bold text-aqua border border-aqua/40 rounded-lg px-2.5 py-1 hover:bg-aqua/10 shrink-0">
                 {tt('تعديل', 'Edit')}
+              </button>
+              {/* Re-publish this XI's news so it shows on the pitch (upgrades a
+                  pre-pitch text item, or refreshes it after editing). */}
+              <button onClick={async () => {
+                onError(null);
+                try { await tRepublishTeamOfRound(token, t.id); onNotice(tt('تم إعادة نشر الخبر', 'News republished')); }
+                catch (e) { onError(e instanceof Error ? e.message : String(e)); }
+              }} className="text-[11px] font-bold text-teal border border-teal/40 rounded-lg px-2.5 py-1 hover:bg-teal/10 shrink-0">
+                📣 {tt('نشر الخبر', 'Republish')}
               </button>
               <button onClick={async () => {
                 if (confirm(tt('حذف هذه التشكيلة؟', 'Delete this best XI?'))) { await tDeleteTeamOfRound(token, t.id); onSaved(); }

@@ -131,3 +131,55 @@ def test_team_of_round_news_carries_pitch(client):
     # And the age is present here too.
     assert d["competition_age_id"] == s["cage_id"]
     assert d["sub_competition_label"] == "LEAGUE 1 · 2011"
+
+
+def _news_count(db, comp_id, like=None):
+    from app.models import Tla3bnyNews
+    q = Tla3bnyNews.query.filter_by(competition_id=comp_id)
+    if like is not None:
+        q = q.filter(Tla3bnyNews.title.like(like))
+    return q.count()
+
+
+def test_republish_award_keeps_one_news(client):
+    app, db = client
+    c = app.test_client()
+    s = _seed(db)
+    r = c.post(f"/api/tla3bny/competitions/{s['comp_id']}/awards",
+               json={"award_type": "best_player", "player_id": s["player_id"],
+                     "competition_age_id": s["cage_id"]}, headers=_auth(s))
+    assert r.status_code == 201
+    award_id = r.get_json()["id"]
+    assert _news_count(db, s["comp_id"]) == 1
+    # Re-publishing drops the old announcement and writes a fresh one — still one.
+    r2 = c.post(f"/api/tla3bny/awards/{award_id}/republish", headers=_auth(s))
+    assert r2.status_code == 200
+    assert _news_count(db, s["comp_id"]) == 1
+
+
+def test_republish_totr_replaces_legacy_text_news(client):
+    app, db = client
+    from app.models import Tla3bnyNews
+    c = app.test_client()
+    s = _seed(db)
+    # A legacy, text-only announcement from before the pitch link existed.
+    db.session.add(Tla3bnyNews(
+        competition_id=s["comp_id"], team_of_round_id=None,
+        title="👕 تشكيلة الجولة 1 — LEAGUE 1 · 2011 — أفضل 1",
+        body="old", is_published=True))
+    db.session.commit()
+    r = c.put(f"/api/tla3bny/competitions/{s['comp_id']}/team-of-round",
+              json={"round": "الجولة 1", "competition_age_id": s["cage_id"],
+                    "formation": "1-2-1", "slots": [
+                        {"player_id": s["player_id"], "position_slot": "ST", "sort_order": 0}]},
+              headers=_auth(s))
+    totr_id = r.get_json()["id"]
+    # Now both a legacy text item and the new linked one exist.
+    assert _news_count(db, s["comp_id"], like="👕%") == 2
+    r2 = c.post(f"/api/tla3bny/team-of-round/{totr_id}/republish", headers=_auth(s))
+    assert r2.status_code == 200
+    # Exactly one 👕 news remains, and it is the pitch-linked one.
+    remaining = Tla3bnyNews.query.filter_by(competition_id=s["comp_id"]).filter(
+        Tla3bnyNews.title.like("👕%")).all()
+    assert len(remaining) == 1
+    assert remaining[0].team_of_round_id == totr_id

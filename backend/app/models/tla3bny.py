@@ -1808,6 +1808,11 @@ class Tla3bnyNews(TimestampMixin, db.Model):
     team_of_round_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_team_of_round.id", ondelete="SET NULL")
     )
+    # Set on an award announcement, so the organizer can re-publish it — regenerate
+    # the news with the current winner / the new design — without piling duplicates.
+    award_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_awards.id", ondelete="SET NULL")
+    )
     title: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(sa.Text)
     # The cover image — kept as its own column (rather than images[0]) because
@@ -1833,6 +1838,7 @@ class Tla3bnyNews(TimestampMixin, db.Model):
     )
     competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
     team_of_round: Mapped["Tla3bnyTeamOfRound | None"] = relationship()
+    award: Mapped["Tla3bnyAward | None"] = relationship()
 
     @property
     def gallery(self) -> list[str]:
