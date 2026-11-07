@@ -27,9 +27,16 @@ export default function NewsCard({ item, isNew = false, showCompetition = true }
   return (
     <div className="bg-gradient-to-b from-cardBg to-cardBg2 border border-bdr rounded-2xl overflow-hidden transition-all hover:border-aqua/30 hover:shadow-[0_14px_34px_-20px_rgba(0,0,0,0.7)]">
       {thumb && (
-        <div className="relative">
+        <div className="relative h-40 overflow-hidden">
+          {/* A blurred, zoomed copy of the cover fills the band so a portrait
+              image — e.g. a player's/coach's profile photo on an "of the round"
+              award item — can be shown whole (object-contain) and centered with
+              no black bars, instead of a wide crop that cuts off the face. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={thumb} alt={item.title} className="w-full h-40 object-cover" />
+          <img src={thumb} alt="" aria-hidden
+            className="absolute inset-0 w-full h-full object-cover scale-110 blur-xl opacity-60" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumb} alt={item.title} className="relative w-full h-full object-contain" />
           <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-cardBg to-transparent" />
           {item.images.length > 1 && (
             <span className="absolute top-2 end-2 text-[10px] text-white bg-black/60 rounded-md px-1.5 py-0.5 font-bold tnum">
