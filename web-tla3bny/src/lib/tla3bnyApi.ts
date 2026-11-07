@@ -604,6 +604,14 @@ export interface TNews {
   /** Null for site-wide news the super admin posts. */
   competition_id: number | null;
   competition_name: string | null;
+  /** Sub-competition + age bracket of an auto-published honour (e.g.
+   *  "LEAGUE 1 · تحت 10"), so the card shows the age next to the competition.
+   *  Null for ordinary editor news. */
+  competition_age_id?: number | null;
+  sub_competition_label?: string | null;
+  /** The best XI of a team-of-the-round announcement, drawn on a pitch in the
+   *  article (the honours-page design). Null for every other news item. */
+  team_of_round?: TTeamOfRound | null;
   title: string;
   body: string | null;
   /** The cover — always the first entry of `images`. */
@@ -1375,6 +1383,10 @@ export const tCompetitionCoaches = (compId: number, cageId?: number, token?: str
   get<TCoachPool[]>(`/competitions/${compId}/coaches${qs({ competition_age_id: cageId })}`, token);
 export const tRevokeAward = (token: string, awardId: number) =>
   send<{ message: string }>('DELETE', `/awards/${awardId}`, undefined, token);
+/** Re-publish an award's auto-news: drop the old item, write a fresh one with the
+ *  current data/design (for honours published before a news-format change). */
+export const tRepublishAward = (token: string, awardId: number) =>
+  send<{ message: string }>('POST', `/awards/${awardId}/republish`, undefined, token);
 /** Set (playerId) or clear (null) the player of the match from its edit panel. */
 export const tSetPlayerOfMatch = (token: string, matchId: number, playerId: number | null) =>
   send<TMatch>('PUT', `/matches/${matchId}/player-of-match`, { player_id: playerId }, token);
@@ -1398,6 +1410,10 @@ export const tSaveTeamOfRound = (token: string, compId: number, body: TTotrInput
   send<TTeamOfRound>('PUT', `/competitions/${compId}/team-of-round`, body, token);
 export const tDeleteTeamOfRound = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/team-of-round/${id}`, undefined, token);
+/** Re-publish a best XI's news so it renders on the pitch (replaces any legacy
+ *  text-only item). Use after editing the XI, or to upgrade an old announcement. */
+export const tRepublishTeamOfRound = (token: string, id: number) =>
+  send<{ message: string }>('POST', `/team-of-round/${id}/republish`, undefined, token);
 
 // ── punishments (العقوبات) ───────────────────────────────────────────────────
 export type TPunishmentType = 'match_ban' | 'fine' | 'point_deduction' | 'disqualification';

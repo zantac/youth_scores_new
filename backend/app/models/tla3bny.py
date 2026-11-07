@@ -1797,6 +1797,22 @@ class Tla3bnyNews(TimestampMixin, db.Model):
     competition_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_competitions.id", ondelete="CASCADE")
     )
+    # The sub-competition (age bracket) an auto-published honour news belongs to,
+    # so the card can show the age next to the competition name. NULL for ordinary
+    # editor news, which is posted to a whole competition, not one age.
+    competition_age_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_competition_ages.id", ondelete="SET NULL")
+    )
+    # Set on a team-of-the-round announcement, so the article can render the best
+    # XI on a pitch (the honours-page design) instead of a plain player list.
+    team_of_round_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_team_of_round.id", ondelete="SET NULL")
+    )
+    # Set on an award announcement, so the organizer can re-publish it — regenerate
+    # the news with the current winner / the new design — without piling duplicates.
+    award_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("tla3bny_awards.id", ondelete="SET NULL")
+    )
     title: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     body: Mapped[str | None] = mapped_column(sa.Text)
     # The cover image — kept as its own column (rather than images[0]) because
@@ -1820,6 +1836,9 @@ class Tla3bnyNews(TimestampMixin, db.Model):
     competition: Mapped["Tla3bnyCompetition | None"] = relationship(
         back_populates="news"
     )
+    competition_age: Mapped["Tla3bnyCompetitionAge | None"] = relationship()
+    team_of_round: Mapped["Tla3bnyTeamOfRound | None"] = relationship()
+    award: Mapped["Tla3bnyAward | None"] = relationship()
 
     @property
     def gallery(self) -> list[str]:
@@ -1828,10 +1847,19 @@ class Tla3bnyNews(TimestampMixin, db.Model):
         return ([self.image_path] if self.image_path else []) + rest
 
     def to_dict(self) -> dict:
+        cage = self.competition_age
+        totr = self.team_of_round
         return {
             "id": self.id,
             "competition_id": self.competition_id,
             "competition_name": self.competition.name if self.competition else None,
+            # The sub-competition with its age bracket (e.g. "LEAGUE 1 · تحت 10"),
+            # so the card/article shows the age next to the competition name.
+            "competition_age_id": self.competition_age_id,
+            "sub_competition_label": cage.display_name if cage else None,
+            # The best XI (formation + placed players) for a team-of-the-round item,
+            # which the article renders on a pitch. None for every other news item.
+            "team_of_round": totr.to_dict() if totr else None,
             "title": self.title,
             "body": self.body,
             "image_path": self.image_path,
