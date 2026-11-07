@@ -87,6 +87,11 @@ export interface TAcademy {
   branches: TBranch[];
   teams?: TTeam[];
   created_at?: string;
+  /** Admin-only totals (from /academies/manage): number of teams the academy
+   *  owns, and distinct players across its current squads. Help spot an empty,
+   *  likely-fake account. */
+  team_count?: number;
+  player_count?: number;
 }
 
 export interface TCoach {
