@@ -250,3 +250,76 @@ def test_flag_false_for_public_viewer(client):
     app, db = client
     s = _seed(db)
     assert _can_set_photo(app, s["player_id"]) is False
+
+
+# ── organizer profile edit — PUT /players/<id>/organizer-edit ─────────────────
+# Same organizer authority as the photo endpoints, so an organizer can fix a
+# typo (name/position/jersey/DOB/national id) after the academy's edit is frozen.
+
+
+def _edit(app, pid, tok, body):
+    return app.test_client().put(
+        f"/api/tla3bny/players/{pid}/organizer-edit",
+        json=body,
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+
+
+def test_organizer_edits_profile(client):
+    app, db = client
+    s = _seed(db)
+    r = _edit(app, s["player_id"], s["collab"],
+              {"name": "New Name", "position": "ST", "jersey_number": 9})
+    assert r.status_code == 200
+    from app.models import Tla3bnyPlayer, Tla3bnyPlayerTeam
+    db.session.expire_all()
+    p = db.session.get(Tla3bnyPlayer, s["player_id"])
+    assert p.name == "New Name"
+    assert p.position == "ST"
+    mem = Tla3bnyPlayerTeam.query.filter_by(player_id=s["player_id"]).first()
+    assert mem.jersey_number == 9
+
+
+def test_data_entry_organizer_edits_profile(client):
+    app, db = client
+    s = _seed(db)
+    assert _edit(app, s["player_id"], s["de"], {"position": "GK"}).status_code == 200
+
+
+def test_edit_keeps_approval(client):
+    app, db = client
+    s = _seed(db)
+    from app.models import Tla3bnyCompetitionPlayer, Tla3bnyPlayer
+    cp = db.session.get(Tla3bnyCompetitionPlayer, s["cp_id"])
+    cp.status = "approved"
+    db.session.commit()
+    assert _edit(app, s["player_id"], s["collab"], {"position": "CB"}).status_code == 200
+    db.session.expire_all()
+    # The whole point: a trusted organizer's correction must not knock it back.
+    assert db.session.get(Tla3bnyCompetitionPlayer, s["cp_id"]).status == "approved"
+    assert db.session.get(Tla3bnyPlayer, s["player_id"]).position == "CB"
+
+
+def test_edit_denied_for_outsider_and_owner(client):
+    app, db = client
+    s = _seed(db)
+    # Organizer of an unrelated competition, and the academy owner (not an organizer).
+    assert _edit(app, s["player_id"], s["other"], {"position": "ST"}).status_code == 403
+    assert _edit(app, s["player_id"], s["owner"], {"position": "ST"}).status_code == 403
+    from app.models import Tla3bnyPlayer
+    db.session.expire_all()
+    assert db.session.get(Tla3bnyPlayer, s["player_id"]).position is None
+
+
+def test_edit_rejects_duplicate_jersey(client):
+    app, db = client
+    s = _seed(db)
+    from app.models import Tla3bnyPlayer, Tla3bnyPlayerTeam
+    # A second player on the same team already wears #7.
+    team_id = Tla3bnyPlayerTeam.query.filter_by(player_id=s["player_id"]).first().team_id
+    other = Tla3bnyPlayer(name="Q", dob=date(2012, 2, 2), national_id="29002021234567")
+    db.session.add(other)
+    db.session.flush()
+    db.session.add(Tla3bnyPlayerTeam(player_id=other.id, team_id=team_id, jersey_number=7))
+    db.session.commit()
+    assert _edit(app, s["player_id"], s["collab"], {"jersey_number": 7}).status_code == 409

@@ -81,6 +81,10 @@ export default function Tla3bnyLoginPage() {
           {tt('ليس لديك حساب؟', 'No account?')}{' '}
           <Link href="/register" className="text-aqua font-bold hover:underline">{tt('سجّل أكاديميتك', 'Register')}</Link>
         </p>
+        <p className="text-center text-xs text-hint/80 mt-1">
+          {tt('إنشاء الحساب مخصّص لأصحاب الأكاديميات فقط، وليس للاعبين.',
+              'Account creation is for academy owners only, not for players.')}
+        </p>
       </div>
     </div>
   );

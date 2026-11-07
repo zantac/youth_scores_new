@@ -846,6 +846,97 @@ def organizer_rotate_player_photo(player_id: int):
     return jsonify(player.to_dict(with_files=True))
 
 
+@tla3bny_bp.put("/players/<int:player_id>/organizer-edit")
+@auth.login_required
+def organizer_update_player(player_id: int):
+    """Let a competition organizer correct a player's profile — name, position,
+    jersey number, DOB, national ID — the same way they already can the photo.
+
+    Academies enter this data themselves, and a typo (wrong name, position or
+    shirt number) is common. But once the competition starts, or the
+    registration deadline passes, the academy's own edit is frozen
+    (``_player_edit_locked``), so there is no way for them to fix it. The
+    organizer verifying players on match day is the one who still can.
+
+    Same authority as the photo endpoints (any organizer of a competition the
+    player is entered in). Like the photo swap it:
+
+      * bypasses the post-approval / past-deadline academy edit freeze, and
+      * keeps existing approvals intact — a correction by a trusted organizer
+        must not knock an approved player back to pending.
+
+    Scoped to profile fields only (no papers). Audit-logged so there is always a
+    record of who changed what.
+    """
+    player = Tla3bnyPlayer.query.get_or_404(player_id)
+    user = auth.current_user()
+    if not _organizer_may_set_photo(user, player):
+        return _forbid()
+    team_id = _player_team_id(player)
+    data, _files = _read_payload()
+
+    if data.get("name"):
+        new_name = data.get("name").strip()
+        if len(new_name) > 200:
+            return _err("اسم اللاعب طويل جدًا (الحد الأقصى 200 حرف)")
+        player.name = new_name
+    if "name_en" in data:
+        player.name_en = _clip(data.get("name_en"), 255)
+    if "dob" in data:
+        dob, dob_err = _parse_date_or_error(data.get("dob"))
+        if dob_err:
+            return _err(dob_err, 400)
+        player.dob = dob
+    if _normalize_national_id(data.get("national_id")):
+        # Same validation + per-academy uniqueness as the academy's own edit; an
+        # empty value means "leave as-is" so a mandatory ID can't be cleared.
+        national_id, nid_err = _national_id_or_error(data.get("national_id"))
+        if nid_err:
+            return _err(nid_err, 400)
+        cur_mem = player.current_membership()
+        academy_id = cur_mem.team.academy_id if cur_mem and cur_mem.team else None
+        if academy_id is not None:
+            db.session.query(Tla3bnyAcademy.id).filter_by(
+                id=academy_id).with_for_update().first()
+        dup = (
+            _national_id_in_academy(national_id, academy_id, player_id)
+            if academy_id is not None else None
+        )
+        if dup is not None:
+            return _err(
+                f"لاعب بنفس الرقم القومي مسجّل بالفعل في هذه الأكاديمية ({dup.name})",
+                409,
+            )
+        player.national_id = national_id
+    if "position" in data:
+        player.position = _clip(data.get("position"), 50)
+    if "sub_position" in data:
+        player.sub_position = _clip(data.get("sub_position"), 50)
+    if "jersey_number" in data:
+        cur = player.current_membership()
+        if cur:
+            new_num = _int(data.get("jersey_number"))
+            if new_num is not None and team_id is not None:
+                conflict = Tla3bnyPlayerTeam.query.filter(
+                    Tla3bnyPlayerTeam.team_id == team_id,
+                    Tla3bnyPlayerTeam.jersey_number == new_num,
+                    Tla3bnyPlayerTeam.end_date == None,  # noqa: E711
+                    Tla3bnyPlayerTeam.player_id != player_id,
+                ).first()
+                if conflict:
+                    return _err(f"رقم القميص {new_num} مستخدم بالفعل في هذا الفريق", 409)
+            cur.jersey_number = new_num
+
+    _log("player_edited_by_organizer", "player", player.id, {
+        "player_name": player.name,
+        "team_id": team_id,
+    })
+    db.session.commit()
+    # The organizer may see the private shape (papers/national id) — same rule as
+    # the profile fetch.
+    return jsonify(player.to_dict(with_files=_can_view_player_files(player)))
+
+
 @tla3bny_bp.post("/players/<int:player_id>/move")
 @auth.login_required
 def move_player(player_id: int):
