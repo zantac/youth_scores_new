@@ -11,6 +11,8 @@ from app.models import (
     Tla3bnyCompetitionTeam,
     Tla3bnyMatch,
     Tla3bnyPlayer,
+    Tla3bnyPlayerTeam,
+    Tla3bnyTeam,
     Tla3bnyUser,
 )
 from app.services import storage
@@ -59,7 +61,34 @@ def manage_academies():
     if status:
         q = q.filter_by(status=status)
     academies = q.order_by(Tla3bnyAcademy.created_at.desc()).all()
-    return jsonify([a.to_dict(with_teams=True) for a in academies])
+
+    # Team and player totals per academy, so the admin can spot an empty (likely
+    # fake) account at a glance. Two grouped aggregates — not an N+1 per row.
+    # Players are counted distinctly across the academy's current squads (an open
+    # membership, end_date NULL); a player on two of its teams still counts once.
+    team_counts = dict(
+        db.session.query(Tla3bnyTeam.academy_id, sa.func.count(Tla3bnyTeam.id))
+        .group_by(Tla3bnyTeam.academy_id)
+        .all()
+    )
+    player_counts = dict(
+        db.session.query(
+            Tla3bnyTeam.academy_id,
+            sa.func.count(sa.func.distinct(Tla3bnyPlayerTeam.player_id)),
+        )
+        .join(Tla3bnyPlayerTeam, Tla3bnyPlayerTeam.team_id == Tla3bnyTeam.id)
+        .filter(Tla3bnyPlayerTeam.end_date.is_(None))
+        .group_by(Tla3bnyTeam.academy_id)
+        .all()
+    )
+
+    out = []
+    for a in academies:
+        data = a.to_dict(with_teams=True)
+        data["team_count"] = team_counts.get(a.id, 0)
+        data["player_count"] = player_counts.get(a.id, 0)
+        out.append(data)
+    return jsonify(out)
 
 
 @tla3bny_bp.get("/academies/<int:academy_id>")

@@ -621,16 +621,28 @@ function Academies({ token }: { token: string }) {
   const tt = useTT();
   const [items, setItems] = useState<TAcademy[]>([]);
   const [q, setQ] = useState('');
+  // Quick filter to surface likely-fake accounts: no teams and no players.
+  const [emptyOnly, setEmptyOnly] = useState(false);
   const reload = useCallback(() => { tManageAcademies(token).then(setItems).catch(() => setItems([])); }, [token]);
   useEffect(reload, [reload]);
 
-  const shown = items.filter(a => !q || a.name.toLowerCase().includes(q.toLowerCase()));
+  const isEmpty = (a: TAcademy) => (a.team_count ?? 0) === 0 && (a.player_count ?? 0) === 0;
+  const shown = items.filter(a =>
+    (!q || a.name.toLowerCase().includes(q.toLowerCase())) && (!emptyOnly || isEmpty(a)));
   const suspended = items.filter(a => a.status === 'suspended' || a.status === 'rejected').length;
+  const emptyCount = items.filter(isEmpty).length;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder={tt('بحث بالاسم…', 'Search by name…')} className={inputCls} />
+        {/* One tap to list only empty (0 teams · 0 players) accounts — the fakes. */}
+        <button onClick={() => setEmptyOnly(v => !v)}
+          className={`shrink-0 text-xs font-bold rounded-lg border px-3 py-2 transition-colors ${
+            emptyOnly ? 'border-loss/60 bg-loss/10 text-loss' : 'border-bdr text-hint hover:text-text'
+          }`}>
+          {tt(`فارغة${emptyCount ? ` (${emptyCount})` : ''}`, `Empty${emptyCount ? ` (${emptyCount})` : ''}`)}
+        </button>
       </div>
       <p className="text-hint text-[11px]">
         {tt(`${items.length} أكاديمية${suspended ? ` · ${suspended} موقوفة` : ''} — التسجيل مفتوح للجميع.`,
@@ -650,6 +662,9 @@ function AcademyRow({ a, token, reload }: { a: TAcademy; token: string; reload: 
   const [acc, setAcc] = useState({ username: '', password: '' });
   const [msg, setMsg] = useState<string | null>(null);
   const isOff = a.status === 'suspended' || a.status === 'rejected';
+  const teams = a.team_count ?? 0;
+  const players = a.player_count ?? 0;
+  const isFake = teams === 0 && players === 0;
 
   const saveAcc = async () => {
     try {
@@ -666,6 +681,12 @@ function AcademyRow({ a, token, reload }: { a: TAcademy; token: string; reload: 
         <div className="min-w-0 flex-1">
           <Link href={`/academy?id=${a.id}`} className="font-bold text-text truncate hover:text-aqua">{a.name}</Link>
           <div className="text-[11px] text-hint" dir="ltr">{a.phone}</div>
+          {/* Teams / players — an empty account (0 · 0) is highlighted as a
+              likely fake the admin may want to delete. */}
+          <div className={`text-[11px] font-bold mt-0.5 ${isFake ? 'text-loss' : 'text-hint'}`}>
+            🏟️ {tt(`${teams} فرق`, `${teams} teams`)} · 👤 {tt(`${players} لاعب`, `${players} players`)}
+            {isFake && <span className="ms-1">— {tt('حساب فارغ', 'empty account')}</span>}
+          </div>
         </div>
         <StatusBadge status={isOff ? 'rejected' : 'approved'}
           label={isOff ? tt('موقوفة', 'Suspended') : tt('نشطة', 'Active')} />
