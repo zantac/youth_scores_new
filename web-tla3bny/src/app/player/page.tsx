@@ -14,10 +14,11 @@ import FollowPlayerButton from '@/components/tla3bny/FollowPlayerButton';
 import { PapersUploader, PapersReview, PapersProgress } from '@/components/tla3bny/PlayerPapers';
 import { PlayerAchievements } from '@/components/tla3bny/Honours';
 import Link from 'next/link';
-import { Card, EmptyState, Field, inputCls, LogoAvatar, PrimaryButton, StatusBadge, ZoomableImage, useTT, useName } from '@/components/tla3bny/kit';
+import { Card, EmptyState, Field, inputCls, LogoAvatar, PrimaryButton, StatusBadge, ZoomableImage, useTT, useName, usePositionLabel } from '@/components/tla3bny/kit';
 
 function PlayerContent() {
   const tt = useTT();
+  const pos = usePositionLabel();
   const nm = useName();
   const params = useSearchParams();
   const id = Number(params.get('id'));
@@ -139,7 +140,7 @@ function PlayerContent() {
   };
 
   const info: [string, string | null][] = [
-    [tt('المركز', 'Position'), p.position],
+    [tt('المركز', 'Position'), pos(p.position)],
     [tt('القدم/المركز الفرعي', 'Sub-position'), p.sub_position],
     [tt('تاريخ الميلاد', 'Date of birth'), p.dob],
     // Only present for an authorised viewer (owning academy/team or an admin) —
@@ -173,7 +174,7 @@ function PlayerContent() {
           {!p.photo_path && <LogoAvatar src={null} name={p.name} size={72} />}
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-black text-text">{nm(p.name, p.name_en)}</h1>
-            {p.position && <p className="text-sm text-teal font-bold">{p.position}</p>}
+            {p.position && <p className="text-sm text-teal font-bold">{pos(p.position)}</p>}
             {/* Current team/academy — so a reader knows who the player plays for.
                 The team's display name already carries the academy + age bracket. */}
             {p.current_team_id && (p.current_team_name || p.current_academy_name) && (

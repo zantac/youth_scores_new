@@ -9,7 +9,7 @@ import {
 import Spinner from '@/components/ui/Spinner';
 import CompetitionRegistration from './CompetitionRegistration';
 import ChatThread from './ChatThread';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from './kit';
 import { PLAYER_POSITIONS } from '@/lib/tla3bnyFormations';
 
 /** Fixed-list position picker. Stores the canonical code (e.g. "CB"/"ST") so
@@ -60,6 +60,7 @@ export default function TeamManage({
 }) {
   const tt = useTT();
   const nm = useName();
+  const pos = usePositionLabel();
   // Active sub-tab: URL-controlled when `section` is passed, else local state.
   const [internalSection, setInternalSection] = useState<ManageSection>('players');
   const sub: ManageSection =
@@ -234,7 +235,7 @@ export default function TeamManage({
                 <LogoAvatar src={p.photo_path} name={nm(p.player_name, p.player_name_en)} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
-                  <div className="text-[11px] text-hint">{[p.position, p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
+                  <div className="text-[11px] text-hint">{[pos(p.position), p.jersey_number != null ? `#${p.jersey_number}` : null].filter(Boolean).join(' · ')}</div>
                 </div>
                 {!editLocked && (
                   <button onClick={() => editingId === p.player_id ? setEditingId(null) : startEdit(p)}

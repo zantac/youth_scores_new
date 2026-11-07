@@ -10,7 +10,7 @@ import { formationRowLabels, isSubSlot } from '@/lib/tla3bnyFormations';
 import { formatMatchDate } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import PitchView, { type SlotView } from './PitchView';
-import { Card, EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { Card, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from './kit';
 
 /** [emoji, arabic, english] per award type. */
 const AWARD_META: Record<TAwardType, [string, string, string]> = {
@@ -112,6 +112,7 @@ function SubBench({ subs }: { subs: TTotrSlot[] }) {
  *  with any substitutes shown on a bench below. */
 export function TeamOfRoundPitch({ totr }: { totr: TTeamOfRound }) {
   const nm = useName();
+  const pos = usePositionLabel();
   const labels = formationRowLabels(totr.formation).flat();
   const bySlot: Record<string, SlotView> = {};
   let positioned = 0;
@@ -143,7 +144,7 @@ export function TeamOfRoundPitch({ totr }: { totr: TTeamOfRound }) {
             <LogoAvatar src={s.photo_path} name={nm(s.player_name, s.player_name_en)} size={28} />
             <div className="min-w-0">
               <div className="text-xs font-bold text-text truncate">{nm(s.player_name, s.player_name_en)}</div>
-              {s.position_slot && <div className="text-[10px] text-hint">{s.position_slot}</div>}
+              {s.position_slot && <div className="text-[10px] text-hint">{pos(s.position_slot)}</div>}
             </div>
           </Link>
         ))}
@@ -156,6 +157,7 @@ export function TeamOfRoundPitch({ totr }: { totr: TTeamOfRound }) {
 // ── player achievements ──────────────────────────────────────────────────────
 export function PlayerAchievements({ playerId }: { playerId: number }) {
   const tt = useTT();
+  const pos = usePositionLabel();
   const [d, setD] = useState<TPlayerAchievements | null>(null);
   useEffect(() => { tPlayerAchievements(playerId).then(setD).catch(() => setD(null)); }, [playerId]);
   if (!d) return null;
@@ -168,7 +170,7 @@ export function PlayerAchievements({ playerId }: { playerId: number }) {
         {d.individual_awards.map(a => <AwardChip key={`i${a.id}`} a={a} showRecipient={false} />)}
         {d.team_of_round.map((s, i) => {
           const sub = isSubSlot(s.position_slot);
-          const slotLabel = sub ? tt('بديل', 'Substitute') : s.position_slot;
+          const slotLabel = sub ? tt('بديل', 'Substitute') : pos(s.position_slot);
           return (
             <Card key={`r${i}`} className="p-2.5 flex items-center gap-3">
               <span className="text-2xl shrink-0" aria-hidden>👕</span>

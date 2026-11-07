@@ -8,7 +8,7 @@ import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import TeamManage from '@/components/tla3bny/TeamManage';
 import Spinner from '@/components/ui/Spinner';
 import MatchRow from '@/components/tla3bny/MatchRow';
-import { Card, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
+import { Card, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from '@/components/tla3bny/kit';
 import TeamHero from '@/components/tla3bny/TeamHero';
 import FollowTeamButton from '@/components/tla3bny/FollowTeamButton';
 import { TeamHonours } from '@/components/tla3bny/Honours';
@@ -17,6 +17,7 @@ import PrintableCards from '@/components/tla3bny/PrintableCards';
 function TeamContent() {
   const tt = useTT();
   const nm = useName();
+  const pos = usePositionLabel();
   const router = useRouter();
   const params = useSearchParams();
   const id = Number(params.get('id'));
@@ -136,7 +137,7 @@ function TeamContent() {
     key: p.id,
     photoPath: p.photo_path,
     name: nm(p.player_name, p.player_name_en),
-    meta: [p.position, p.jersey_number != null ? `#${p.jersey_number}` : null]
+    meta: [pos(p.position), p.jersey_number != null ? `#${p.jersey_number}` : null]
       .filter(Boolean).join(' · ') || null,
   }));
 
@@ -210,7 +211,7 @@ function TeamContent() {
                       <LogoAvatar src={p.photo_path} name={nm(p.player_name, p.player_name_en)} size={40} />
                       <div className="min-w-0 flex-1">
                         <div className="font-bold text-text text-sm truncate">{nm(p.player_name, p.player_name_en)}</div>
-                        <div className="text-[11px] text-hint">{p.position}</div>
+                        <div className="text-[11px] text-hint">{pos(p.position)}</div>
                       </div>
                       {p.jersey_number != null && (
                         <span className="font-black text-teal tnum">#{p.jersey_number}</span>

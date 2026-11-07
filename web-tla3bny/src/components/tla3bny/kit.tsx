@@ -2,11 +2,29 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { mediaUrl } from '@/lib/tla3bnyApi';
+import { PLAYER_POSITIONS, slotBase } from '@/lib/tla3bnyFormations';
 
 /** Bilingual literal helper: tt('عربي', 'English') → the active locale's text. */
 export function useTT() {
   const { locale } = useApp();
   return (ar: string, en: string) => (locale === 'ar' ? ar : en);
+}
+
+const POSITION_BY_CODE: Record<string, { ar: string; en: string }> =
+  Object.fromEntries(PLAYER_POSITIONS.map(p => [p.code, { ar: p.ar, en: p.en }]));
+
+/** Localized label for a stored position code: pos('ST') → "مهاجم" / "Striker".
+ *  Positions are stored as canonical codes (GK/CB/CM/ST…) so the pitch/lineup
+ *  matching keeps working; this renders them in the active language. Strips a
+ *  slot's index ("CB1" → "CB"); an unknown / legacy free-text value is returned
+ *  unchanged so a custom position still shows. */
+export function usePositionLabel() {
+  const { locale } = useApp();
+  return (code?: string | null): string => {
+    if (!code) return '';
+    const m = POSITION_BY_CODE[slotBase(code).toUpperCase()];
+    return m ? (locale === 'ar' ? m.ar : m.en) : code;
+  };
 }
 
 /** Bilingual *data* helper for user-entered names. Pass the primary (Arabic)
