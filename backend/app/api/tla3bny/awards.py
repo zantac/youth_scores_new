@@ -204,6 +204,25 @@ def _is_sub_slot(slot: str | None) -> bool:
     return bool(slot) and slot.upper().startswith("SUB")
 
 
+# Arabic position names for the team-of-round news body, which is Arabic prose.
+# Positions are stored as canonical codes (ST/CB/…); mirror PLAYER_POSITIONS on
+# the web so the body reads "مهاجم: …" instead of "ST: …".
+_POSITION_AR = {
+    "GK": "حارس مرمى", "RB": "ظهير أيمن", "LB": "ظهير أيسر", "CB": "قلب دفاع",
+    "CDM": "وسط مدافع", "CM": "وسط", "CAM": "صانع ألعاب", "RM": "وسط أيمن",
+    "LM": "وسط أيسر", "RW": "جناح أيمن", "LW": "جناح أيسر", "ST": "مهاجم",
+}
+
+
+def _position_ar(slot: str | None) -> str:
+    """Arabic label for a position slot, stripping its index (CB1 → CB). An
+    unknown / legacy free-text slot is returned unchanged."""
+    if not slot:
+        return ""
+    base = "".join(ch for ch in slot if not ch.isdigit()).upper()
+    return _POSITION_AR.get(base, slot)
+
+
 def _announce_team_of_round(totr):
     """Publish a news item for a team-of-the-round best XI, listing every player
     and the team they play for. Substitutes are listed separately on the bench."""
@@ -217,7 +236,7 @@ def _announce_team_of_round(totr):
         if _is_sub_slot(s.position_slot):
             subs.append(f"{p.name} ({team_name})")
         else:
-            pos = f"{s.position_slot}: " if s.position_slot else ""
+            pos = f"{_position_ar(s.position_slot)}: " if s.position_slot else ""
             starters.append(f"{pos}{p.name} ({team_name})")
     if not starters and not subs:
         return

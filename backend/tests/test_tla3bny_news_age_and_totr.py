@@ -131,6 +131,9 @@ def test_team_of_round_news_carries_pitch(client):
     # And the age is present here too.
     assert d["competition_age_id"] == s["cage_id"]
     assert d["sub_competition_label"] == "LEAGUE 1 · 2011"
+    # The body lists the position in Arabic (مهاجم), not the raw "ST" code.
+    assert "مهاجم:" in (d["body"] or "")
+    assert "ST:" not in (d["body"] or "")
 
 
 def _news_count(db, comp_id, like=None):
