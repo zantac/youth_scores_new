@@ -3,17 +3,18 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   tPlayer, tPlayerRegistrations, tTeamRequiredDocs, tPlayerStats, tPlayerAds, tPlayerBans,
-  tOrganizerSetPlayerPhoto, tOrganizerRotatePlayerPhoto, mediaUrl, docSupplied,
+  tOrganizerSetPlayerPhoto, tOrganizerRotatePlayerPhoto, tOrganizerUpdatePlayer, mediaUrl, docSupplied,
   type TPlayer, type TPlayerRegistration, type TRequiredDocs, type TPlayerStatTotals, type TPlayerStatRow, type TAd, type TPlayerBan,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
+import { PLAYER_POSITIONS } from '@/lib/tla3bnyFormations';
 import Spinner from '@/components/ui/Spinner';
 import AdCard from '@/components/tla3bny/AdCard';
 import FollowPlayerButton from '@/components/tla3bny/FollowPlayerButton';
 import { PapersUploader, PapersReview, PapersProgress } from '@/components/tla3bny/PlayerPapers';
 import { PlayerAchievements } from '@/components/tla3bny/Honours';
 import Link from 'next/link';
-import { Card, EmptyState, LogoAvatar, StatusBadge, ZoomableImage, useTT, useName } from '@/components/tla3bny/kit';
+import { Card, EmptyState, Field, inputCls, LogoAvatar, PrimaryButton, StatusBadge, ZoomableImage, useTT, useName } from '@/components/tla3bny/kit';
 
 function PlayerContent() {
   const tt = useTT();
@@ -33,6 +34,11 @@ function PlayerContent() {
   const [notFound, setNotFound] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState<string | null>(null);
+  // Organizer-only inline profile correction (name/position/jersey/DOB/national id).
+  const [editOpen, setEditOpen] = useState(false);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [ef, setEf] = useState({ name: '', name_en: '', position: '', sub_position: '', jersey_number: '', dob: '', national_id: '' });
 
   // The token decides what comes back: papers and rejection reasons are sent
   // only to the owning academy/team and to the competition's admins.
@@ -98,6 +104,38 @@ function PlayerContent() {
     try { setP(await tOrganizerRotatePlayerPhoto(token, p.id, direction)); }
     catch (e) { setPhotoErr(e instanceof Error ? e.message : String(e)); }
     finally { setPhotoBusy(false); }
+  };
+
+  const openEdit = () => {
+    setEf({
+      name: p.name ?? '',
+      name_en: p.name_en ?? '',
+      position: p.position ?? '',
+      sub_position: p.sub_position ?? '',
+      jersey_number: p.jersey_number != null ? String(p.jersey_number) : '',
+      dob: p.dob ?? '',
+      // national_id rides along only for an authorised viewer; '' means leave as-is.
+      national_id: p.national_id ?? '',
+    });
+    setEditErr(null); setEditOpen(true);
+  };
+
+  const onSaveEdit = async () => {
+    if (!token) return;
+    setEditErr(null); setEditBusy(true);
+    try {
+      setP(await tOrganizerUpdatePlayer(token, p.id, {
+        name: ef.name.trim(),
+        name_en: ef.name_en.trim(),
+        position: ef.position,
+        sub_position: ef.sub_position,
+        jersey_number: ef.jersey_number,
+        dob: ef.dob,
+        national_id: ef.national_id.trim(),
+      }));
+      setEditOpen(false);
+    } catch (e) { setEditErr(e instanceof Error ? e.message : String(e)); }
+    finally { setEditBusy(false); }
   };
 
   const info: [string, string | null][] = [
@@ -180,6 +218,68 @@ function PlayerContent() {
                   'Organizer only — updates the photo without affecting the player’s approval.')}
             </p>
             {photoErr && <p className="text-loss text-[11px] mt-1">{photoErr}</p>}
+
+            {/* Organizer-only: fix a typo in the player's data when the academy's
+                own edit is frozen (competition started / deadline passed). Scoped
+                to the profile; the backend keeps the approval as-is. */}
+            <div className="mt-3 pt-3 border-t border-bdr/60">
+              {!editOpen ? (
+                <button onClick={openEdit}
+                  className="inline-flex items-center gap-2 text-xs font-bold rounded-lg border border-aqua/40 text-aqua hover:bg-aqua/10 px-3 py-2 transition-colors">
+                  ✏️ {tt('تعديل بيانات اللاعب', 'Edit player data')}
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <Field label={tt('اسم اللاعب', 'Player name')}>
+                    <input value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })} className={inputCls} />
+                  </Field>
+                  <Field label={tt('الاسم بالإنجليزية', 'Name (English)')}>
+                    <input value={ef.name_en} onChange={e => setEf({ ...ef, name_en: e.target.value })} dir="ltr" className={inputCls} />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={tt('المركز', 'Position')}>
+                      <select value={ef.position} onChange={e => setEf({ ...ef, position: e.target.value })} className={inputCls}>
+                        <option value="">{tt('اختر المركز', 'Select position')}</option>
+                        {PLAYER_POSITIONS.map(pos => (
+                          <option key={pos.code} value={pos.code}>{tt(pos.ar, pos.en)} ({pos.code})</option>
+                        ))}
+                        {ef.position && !PLAYER_POSITIONS.some(pos => pos.code === ef.position) && (
+                          <option value={ef.position}>{ef.position}</option>
+                        )}
+                      </select>
+                    </Field>
+                    <Field label={tt('رقم القميص', 'Jersey number')}>
+                      <input value={ef.jersey_number} onChange={e => setEf({ ...ef, jersey_number: e.target.value })} inputMode="numeric" className={inputCls} />
+                    </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label={tt('تاريخ الميلاد', 'Date of birth')}>
+                      <input type="date" value={ef.dob} onChange={e => setEf({ ...ef, dob: e.target.value })} className={inputCls} />
+                    </Field>
+                    {/* Only meaningful for an authorised viewer; sent blank = leave as-is. */}
+                    {p.national_id != null && (
+                      <Field label={tt('الرقم القومي', 'National ID')}>
+                        <input value={ef.national_id} onChange={e => setEf({ ...ef, national_id: e.target.value })} dir="ltr" inputMode="numeric" className={inputCls} />
+                      </Field>
+                    )}
+                  </div>
+                  {editErr && <p className="text-loss text-[11px]">{editErr}</p>}
+                  <div className="flex items-center gap-2">
+                    <PrimaryButton onClick={onSaveEdit} disabled={editBusy || !ef.name.trim()}>
+                      {editBusy ? tt('جارٍ الحفظ…', 'Saving…') : tt('حفظ', 'Save')}
+                    </PrimaryButton>
+                    <button onClick={() => setEditOpen(false)} disabled={editBusy}
+                      className="text-xs font-bold rounded-lg border border-bdr text-hint hover:text-text px-3 py-2 disabled:opacity-40">
+                      {tt('إلغاء', 'Cancel')}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-hint">
+                    {tt('للمنظّم فقط — لتصحيح خطأ بعد بدء البطولة دون التأثير على اعتماد اللاعب.',
+                        'Organizer only — fix a mistake after the competition starts without affecting the player’s approval.')}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Card>

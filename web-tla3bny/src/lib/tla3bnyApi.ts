@@ -935,6 +935,11 @@ export function tOrganizerSetPlayerPhoto(token: string, id: number, photo: File)
  *  uploads). Same approval-preserving behaviour as the photo replace. */
 export const tOrganizerRotatePlayerPhoto = (token: string, id: number, direction: 'left' | 'right') =>
   send<TPlayer>('POST', `/players/${id}/photo/rotate`, { direction }, token);
+/** Organizer-only: correct a player's profile (name/position/jersey/DOB/national
+ *  id) when the academy's own edit is frozen. Bypasses the edit freeze and keeps
+ *  existing approvals as-is, same as the photo endpoints. */
+export const tOrganizerUpdatePlayer = (token: string, id: number, fd: Record<string, string | number | undefined>) =>
+  send<TPlayer>('PUT', `/players/${id}/organizer-edit`, fd, token);
 export const tMovePlayer = (token: string, id: number, b: Record<string, unknown>) =>
   send<TPlayer>('POST', `/players/${id}/move`, b, token);
 export const tDeletePlayer = (token: string, id: number) =>
