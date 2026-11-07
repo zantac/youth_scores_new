@@ -320,8 +320,8 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
     }
     const filled: Record<string, SlotView> = {};
     l.slots.filter(s => !s.is_substitute && s.position_slot).forEach(s => {
-      // First name only under the pitch photo — full names overflow the circle.
-      filled[s.position_slot!] = { playerId: s.player_id, playerName: firstName(s.player_name), photoPath: s.photo_path };
+      // Pass the full name; PitchView shows the first two words under the circle.
+      filled[s.position_slot!] = { playerId: s.player_id, playerName: s.player_name, photoPath: s.photo_path };
     });
     const subs = l.slots.filter(s => s.is_substitute && s.player_id != null);
     const unpositioned = l.slots.filter(s => !s.is_substitute && !s.position_slot && s.player_id != null);
@@ -342,7 +342,7 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
         </div>
         {hasFormation ? (
           <div className="max-w-sm mx-auto px-2 pb-2">
-            <PitchView formation={l.formation} filled={filled} size={52} />
+            <PitchView formation={l.formation} filled={filled} size={62} />
           </div>
         ) : unpositioned.length > 0 ? (
           <div className="px-4 pb-3">
@@ -358,7 +358,7 @@ function LineupTab({ m, lineups, canEdit, view, onView, canViewCards = false, ca
           </div>
         ) : (
           <div className="max-w-sm mx-auto px-2 pb-2">
-            <PitchView formation={l.formation} filled={filled} size={52} />
+            <PitchView formation={l.formation} filled={filled} size={62} />
           </div>
         )}
         {l.head_coach && (

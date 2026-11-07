@@ -10,10 +10,15 @@ export interface SlotView {
   photoPath?: string | null;
 }
 
+/** The label under a circle: the player's first two name words (first + second
+ *  name), so "محمد أحمد علي" reads as "محمد أحمد". Keeps the pitch legible
+ *  without cramming a full name under a small circle. */
+const twoWords = (n?: string | null) => (n ?? '').trim().split(/\s+/).slice(0, 2).join(' ');
+
 /** Green football pitch with formation circles. Circles are tappable when
  *  `onTapSlot` is given (builder mode); otherwise it is a read-only display. */
 export default function PitchView({
-  formation, filled, onTapSlot, size = 40,
+  formation, filled, onTapSlot, size = 52,
 }: {
   formation: string | null;
   filled: Record<string, SlotView>;
@@ -75,10 +80,10 @@ export default function PitchView({
                     )}
                   </span>
                   <span
-                    className="text-white text-[10px] font-semibold text-center truncate"
-                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)', maxWidth: size + 28 }}
+                    className="text-white text-[10px] font-semibold text-center leading-tight line-clamp-2"
+                    style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)', maxWidth: size + 32 }}
                   >
-                    {has ? d?.playerName : label}
+                    {has ? twoWords(d?.playerName) : label}
                   </span>
                 </>
               );
