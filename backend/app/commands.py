@@ -212,7 +212,10 @@ def register_commands(app):
         for team in list(src.teams):
             twin = dst_by_age.get(team.age_group_id)
             if twin is None:
-                team.club_id = dst.id
+                # Assign through the relationship, not the raw FK: it moves the
+                # team off src.teams so deleting src doesn't try to NULL its
+                # club_id (which is NOT NULL) to orphan it.
+                team.club = dst
                 dst_by_age[team.age_group_id] = team
                 click.echo(
                     f"  MOVE  team {team.id} (age {age_label(team)}) -> club {dst.id}"
@@ -229,7 +232,9 @@ def register_commands(app):
                 db.session.delete(s)
                 dropped += 1
             else:
-                s.club_id = dst.id
+                # Relationship assignment (see teams above): moves the row off
+                # src.staff so the club's delete-orphan cascade can't delete it.
+                s.club = dst
                 dst_staff.add(s.coach_id)
                 moved += 1
         if moved or dropped:
