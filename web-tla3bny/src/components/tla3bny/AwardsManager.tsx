@@ -9,7 +9,8 @@ import {
   type TTeamOfRound, type TAwardSuggestions, type TCoachPool,
 } from '@/lib/tla3bnyApi';
 import { formationRowLabels, FORMATIONS, FORMATION_NAMES, TOTR_SUB_SLOTS } from '@/lib/tla3bnyFormations';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from './kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, SearchableSelect, useTT, useName, usePositionLabel } from './kit';
+import type { SelectOption } from './kit';
 
 const AWARD_META: Record<TAwardType, [string, string, string]> = {
   champion:        ['🏆', 'بطل', 'Champion'],
@@ -26,7 +27,30 @@ const AWARD_META: Record<TAwardType, [string, string, string]> = {
 };
 const ALL_TYPES = Object.keys(AWARD_META) as TAwardType[];
 
-interface PoolPlayer { player_id: number; player_name: string | null; team_id: number | null; team_name: string | null }
+interface PoolPlayer { player_id: number; player_name: string | null; player_name_en: string | null; photo_path: string | null; team_id: number | null; team_name: string | null }
+
+type NameFn = (primary?: string | null, en?: string | null) => string;
+
+// Build the searchable-combobox options. Each folds both language names into
+// `keywords` so typing in either Arabic or English finds the person/team.
+const playerOption = (p: PoolPlayer, nm: NameFn): SelectOption => ({
+  value: p.player_id,
+  label: nm(p.player_name, p.player_name_en) || p.player_name || '',
+  sublabel: p.team_name,
+  photo: p.photo_path,
+  keywords: `${p.player_name ?? ''} ${p.player_name_en ?? ''}`,
+});
+const coachOption = (c: TCoachPool, nm: NameFn): SelectOption => ({
+  value: c.id,
+  label: nm(c.name, c.name_en) || c.name || '',
+  sublabel: c.team_name,
+  keywords: `${c.name ?? ''} ${c.name_en ?? ''}`,
+});
+const teamOption = (t: TCompTeam, nm: NameFn): SelectOption => ({
+  value: t.team_id,
+  label: nm(t.team_name, t.team_name_en) || t.team_name || '',
+  keywords: `${t.team_name ?? ''} ${t.team_name_en ?? ''}`,
+});
 
 /** Competition organizer's honours desk: grant titles & individual awards (with
  *  one-tap stat suggestions) and build each round's best XI. */
@@ -83,7 +107,10 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const players: PoolPlayer[] = useMemo(() =>
     teams.flatMap(t => (t.roster ?? [])
       .filter(r => r.status === 'approved')
-      .map(r => ({ player_id: r.player_id, player_name: r.player_name, team_id: t.team_id, team_name: t.team_name }))),
+      .map(r => ({
+        player_id: r.player_id, player_name: r.player_name, player_name_en: r.player_name_en ?? null,
+        photo_path: r.photo_path, team_id: t.team_id, team_name: t.team_name,
+      }))),
     [teams]);
 
   const loadScope = useCallback(() => {
@@ -161,26 +188,33 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
                                 {tt(meta[1], meta[2])}{a.round ? ` · ${a.round}` : ''}
                               </p>
                               {isTeam ? (
-                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
-                                  <option value="">{tt('اختر الفريق…', 'Select team…')}</option>
-                                  {teams.map(tm => <option key={tm.team_id} value={tm.team_id}>{nm(tm.team_name, tm.team_name_en)}</option>)}
-                                </select>
+                                <SearchableSelect
+                                  value={editWho === '' ? null : Number(editWho)}
+                                  onChange={v => setEditWho(v ?? '')}
+                                  options={teams.map(tm => teamOption(tm, nm))}
+                                  placeholder={tt('اختر الفريق…', 'Select team…')}
+                                />
                               ) : isCoach ? (
-                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
-                                  <option value="">{tt('اختر المدرب…', 'Select coach…')}</option>
-                                  {coaches.map(c => <option key={c.id} value={c.id}>{nm(c.name, c.name_en)}{c.team_name ? ` — ${c.team_name}` : ''}</option>)}
-                                </select>
-                              ) : (
-                                <select value={editWho} onChange={e => setEditWho(Number(e.target.value))} className={inputCls}>
-                                  <option value="">{tt('اختر اللاعب…', 'Select player…')}</option>
-                                  {(() => {
-                                    // Player of the match: restrict to the match's two teams.
-                                    const m = a.match_id ? matches.find(x => x.id === a.match_id) : undefined;
-                                    const pool = m ? players.filter(p => p.team_id === m.home_team_id || p.team_id === m.away_team_id) : players;
-                                    return pool.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>);
-                                  })()}
-                                </select>
-                              )}
+                                <SearchableSelect
+                                  value={editWho === '' ? null : Number(editWho)}
+                                  onChange={v => setEditWho(v ?? '')}
+                                  options={coaches.map(c => coachOption(c, nm))}
+                                  placeholder={tt('اختر المدرب…', 'Select coach…')}
+                                />
+                              ) : (() => {
+                                // Player of the match: restrict to the match's two teams.
+                                const m = a.match_id ? matches.find(x => x.id === a.match_id) : undefined;
+                                const pool = m ? players.filter(p => p.team_id === m.home_team_id || p.team_id === m.away_team_id) : players;
+                                return (
+                                  <SearchableSelect
+                                    withPhoto
+                                    value={editWho === '' ? null : Number(editWho)}
+                                    onChange={v => setEditWho(v ?? '')}
+                                    options={pool.map(p => playerOption(p, nm))}
+                                    placeholder={tt('اختر اللاعب…', 'Select player…')}
+                                  />
+                                );
+                              })()}
                               <input value={editNote} onChange={e => setEditNote(e.target.value)} className={inputCls} placeholder={tt('ملاحظة (اختياري)', 'Note (optional)')} />
                               <div className="flex items-center gap-2">
                                 <PrimaryButton onClick={() => saveEdit(a)} disabled={!editWho} className="text-sm">{tt('حفظ', 'Save')}</PrimaryButton>
@@ -329,20 +363,27 @@ function GrantAward({ token, compId, cageId, players, teams, coaches, matches, r
 
       <Field label={isTeam ? tt('الفريق', 'Team') : isCoach ? tt('المدرب', 'Coach') : tt('اللاعب', 'Player')}>
         {isTeam ? (
-          <select value={teamId} onChange={e => setTeamId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {teams.map(t => <option key={t.team_id} value={t.team_id}>{nm(t.team_name, t.team_name_en)}</option>)}
-          </select>
+          <SearchableSelect
+            value={teamId === '' ? null : Number(teamId)}
+            onChange={v => setTeamId(v ?? '')}
+            options={teams.map(t => teamOption(t, nm))}
+            placeholder={tt('ابحث عن فريق…', 'Search team…')}
+          />
         ) : isCoach ? (
-          <select value={coachId} onChange={e => setCoachId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {coaches.map(c => <option key={c.id} value={c.id}>{nm(c.name, c.name_en)}{c.team_name ? ` — ${c.team_name}` : ''}</option>)}
-          </select>
+          <SearchableSelect
+            value={coachId === '' ? null : Number(coachId)}
+            onChange={v => setCoachId(v ?? '')}
+            options={coaches.map(c => coachOption(c, nm))}
+            placeholder={tt('ابحث عن مدرب…', 'Search coach…')}
+          />
         ) : (
-          <select value={playerId} onChange={e => setPlayerId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {pickPlayers.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
-          </select>
+          <SearchableSelect
+            withPhoto
+            value={playerId === '' ? null : Number(playerId)}
+            onChange={v => setPlayerId(v ?? '')}
+            options={pickPlayers.map(p => playerOption(p, nm))}
+            placeholder={tt('ابحث عن لاعب…', 'Search player…')}
+          />
         )}
       </Field>
       {needsMatch && !matchId && (
@@ -395,6 +436,7 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
   onSaved: () => void; onError: (e: string | null) => void; onNotice: (m: string) => void;
 }) {
   const tt = useTT();
+  const nm = useName();
   const pos = usePositionLabel();
   const [round, setRound] = useState('');
   const [formation, setFormation] = useState('');
@@ -495,19 +537,20 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
             // so two same-position slots stay distinct. Raw code on hover.
             const num = label.replace(/\D/g, '');
             return (
-            <label key={label} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+            <div key={label} className="flex items-center gap-2">
               <span className="text-[11px] font-bold text-teal w-24 shrink-0 truncate" title={label}>
                 {pos(label)}{num ? ` ${num}` : ''}
               </span>
-              {/* Solid dark bg (not transparent): the native option popup inherits
-                  the select's background, so a transparent one renders white in the
-                  dark theme and hides the names. */}
-              <select value={slots[label] ?? ''} onChange={e => setSlots(prev => ({ ...prev, [label]: e.target.value ? Number(e.target.value) : '' }))}
-                className="flex-1 min-w-0 bg-darkBg text-text text-xs outline-none">
-                <option value="">{tt('—', '—')}</option>
-                {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
-              </select>
-            </label>
+              <div className="flex-1 min-w-0">
+                <SearchableSelect
+                  withPhoto
+                  value={slots[label] ? Number(slots[label]) : null}
+                  onChange={v => setSlots(prev => ({ ...prev, [label]: v ?? '' }))}
+                  options={players.map(p => playerOption(p, nm))}
+                  placeholder={tt('اختر لاعبًا…', 'Pick a player…')}
+                />
+              </div>
+            </div>
             );
           })}
         </div>
@@ -518,14 +561,18 @@ function TeamOfRoundBuilder({ token, compId, cageId, players, rounds, totrs, pla
           <div className="text-[11px] font-black text-teal">{tt('البدلاء (4)', 'Substitutes (4)')}</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {TOTR_SUB_SLOTS.map((label, i) => (
-              <label key={label} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
+              <div key={label} className="flex items-center gap-2">
                 <span className="text-[11px] font-bold text-hint w-10 shrink-0">{tt('بديل', 'Sub')} {i + 1}</span>
-                <select value={slots[label] ?? ''} onChange={e => setSlots(prev => ({ ...prev, [label]: e.target.value ? Number(e.target.value) : '' }))}
-                  className="flex-1 min-w-0 bg-darkBg text-text text-xs outline-none">
-                  <option value="">{tt('—', '—')}</option>
-                  {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
-                </select>
-              </label>
+                <div className="flex-1 min-w-0">
+                  <SearchableSelect
+                    withPhoto
+                    value={slots[label] ? Number(slots[label]) : null}
+                    onChange={v => setSlots(prev => ({ ...prev, [label]: v ?? '' }))}
+                    options={players.map(p => playerOption(p, nm))}
+                    placeholder={tt('اختر لاعبًا…', 'Pick a player…')}
+                  />
+                </div>
+              </div>
             ))}
           </div>
         </div>
