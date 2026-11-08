@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { mediaUrl } from '@/lib/tla3bnyApi';
 import { PLAYER_POSITIONS, slotBase } from '@/lib/tla3bnyFormations';
@@ -190,6 +190,130 @@ export function Field({
 
 export const inputCls =
   'w-full bg-darkBg border border-bdr rounded-xl px-4 py-2.5 text-text text-sm outline-none focus:border-aqua transition-colors';
+
+export interface SelectOption {
+  value: number;
+  /** The visible, locale-resolved name. */
+  label: string;
+  /** Secondary text shown muted on the right (e.g. the player's team). */
+  sublabel?: string | null;
+  /** Avatar source, shown when the select is used with ``withPhoto``. */
+  photo?: string | null;
+  /** Extra text folded into the search (e.g. the other-language name), never shown. */
+  keywords?: string | null;
+}
+
+/** Normalize Arabic/Latin text for a forgiving type-ahead match: drop tashkeel,
+ *  unify the alef / ya / ta-marbuta variants, and lowercase. So "احمد" matches
+ *  "أحمد" and "ahmed" matches "Ahmed". */
+function normalizeSearch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[ً-ْٰ]/g, '')  // tashkeel + dagger alef
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Single-select combobox with type-ahead filtering: the user types a name and
+ * the list narrows with each letter until they pick a match. Matching is
+ * Arabic-friendly and searches the label, sublabel and keywords. Keyboard: ↑/↓
+ * to move the highlight, Enter to pick, Esc to close. When something is chosen
+ * an ✕ clears it. Use this in place of a <select> over a long people list.
+ */
+export function SearchableSelect({
+  options, value, onChange, placeholder, emptyText, withPhoto = false, disabled = false,
+}: {
+  options: SelectOption[];
+  value: number | null;
+  onChange: (value: number | null) => void;
+  placeholder?: string;
+  emptyText?: string;
+  withPhoto?: boolean;
+  disabled?: boolean;
+}) {
+  const tt = useTT();
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  const selected = options.find(o => o.value === value) ?? null;
+  const q = normalizeSearch(query);
+  const filtered = q
+    ? options.filter(o => normalizeSearch(`${o.label} ${o.sublabel ?? ''} ${o.keywords ?? ''}`).includes(q))
+    : options;
+
+  // Close when the user clicks anywhere outside the control.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  // Keep the highlight on the first row as the visible list changes.
+  useEffect(() => { setActive(0); }, [query, open]);
+
+  const pick = (o: SelectOption) => { onChange(o.value); setQuery(''); setOpen(false); };
+
+  // Open: show what they're typing. Closed: show the chosen name (or nothing).
+  const display = open ? query : (selected?.label ?? '');
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        type="text"
+        value={display}
+        disabled={disabled}
+        placeholder={placeholder ?? tt('ابحث…', 'Search…')}
+        onFocus={() => setOpen(true)}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, filtered.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
+          else if (e.key === 'Enter') { if (open && filtered[active]) { e.preventDefault(); pick(filtered[active]); } }
+          else if (e.key === 'Escape') { setOpen(false); }
+        }}
+        className={`${inputCls} ${selected && !open ? 'pe-9' : ''}`}
+      />
+      {selected && !open && (
+        <button
+          type="button"
+          onClick={() => { onChange(null); setQuery(''); }}
+          className="absolute inset-y-0 end-2 my-auto h-5 w-5 grid place-items-center rounded-full text-hint hover:text-text hover:bg-cardBg2"
+          aria-label={tt('مسح', 'Clear')}
+        >✕</button>
+      )}
+      {open && (
+        <div className="absolute z-30 mt-1 w-full max-h-64 overflow-auto bg-darkBg border border-bdr rounded-xl shadow-xl">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2.5 text-xs text-hint">{emptyText ?? tt('لا نتائج', 'No matches')}</div>
+          ) : filtered.map((o, i) => (
+            <button
+              type="button"
+              key={o.value}
+              onMouseDown={e => { e.preventDefault(); pick(o); }}
+              onMouseEnter={() => setActive(i)}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-start text-sm transition-colors ${
+                i === active ? 'bg-cardBg2' : 'hover:bg-cardBg2/60'
+              } ${o.value === value ? 'text-aqua font-bold' : 'text-text'}`}
+            >
+              {withPhoto && <LogoAvatar src={o.photo} name={o.label} size={22} />}
+              <span className="flex-1 min-w-0 truncate">{o.label}</span>
+              {o.sublabel && <span className="text-[11px] text-hint truncate shrink-0 max-w-[45%]">{o.sublabel}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Arab-League dialing codes, Egypt first (the default). */
 export const ARAB_DIAL_CODES: { code: string; ar: string; en: string; flag: string }[] = [
