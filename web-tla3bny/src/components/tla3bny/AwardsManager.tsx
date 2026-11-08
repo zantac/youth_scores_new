@@ -36,7 +36,6 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
   const ages = comp.ages ?? [];
   const [cageId, setCageId] = useState<number | undefined>(ages[0]?.id);
   const selectedAge = ages.find(a => a.id === cageId);
-  const ageId = selectedAge?.age_category_id;
 
   const [teams, setTeams] = useState<TCompTeam[]>([]);
   const [coaches, setCoaches] = useState<TCoachPool[]>([]);
@@ -88,12 +87,17 @@ export default function AwardsManager({ token, comp }: { token: string; comp: TC
     [teams]);
 
   const loadScope = useCallback(() => {
-    if (!ageId || !cageId) { setTeams([]); setCoaches([]); setMatches([]); setRounds([]); return; }
-    tCompTeams(comp.id, ageId, true, token, cageId).then(setTeams).catch(() => setTeams([]));
+    if (!cageId) { setTeams([]); setCoaches([]); setMatches([]); setRounds([]); return; }
+    // Scope the pool by the sub-competition (cageId) only — NOT by age. A team may
+    // enter a sub-competition of a different age than its own (e.g. a 2016 team
+    // playing the 2015 bracket); filtering by age_category_id too would drop that
+    // team's players from the awards pool. cageId already means "teams in this
+    // sub-competition".
+    tCompTeams(comp.id, undefined, true, token, cageId).then(setTeams).catch(() => setTeams([]));
     tCompetitionCoaches(comp.id, cageId, token).then(setCoaches).catch(() => setCoaches([]));
     tMatches({ competition_id: comp.id, competition_age_id: cageId }).then(setMatches).catch(() => setMatches([]));
     tCompetitionRounds(comp.id, cageId).then(setRounds).catch(() => setRounds([]));
-  }, [comp.id, ageId, cageId, token]);
+  }, [comp.id, cageId, token]);
   const loadHonours = useCallback(() => {
     // Pass the token so these reads are no-store — otherwise the short public
     // HTTP cache serves the stale list and a just-granted/revoked award won't

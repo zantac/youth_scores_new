@@ -667,7 +667,14 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // Roster for event forms
   const [rosters, setRosters] = useState<Record<number, TCompPlayer[]>>({});
   useEffect(() => {
-    tCompTeams(m.competition_id, m.age_category_id).then(entries => {
+    // Scope by the sub-competition (competition_age_id) when the match has one —
+    // NOT by age. A team may play a sub-competition of a different age than its
+    // own (e.g. a 2016 team in the 2015 bracket); its entry carries the team's
+    // own age_category_id, so an age filter would drop it and its roster would
+    // never load. Fall back to the age filter only for legacy matches with no
+    // sub-competition assigned.
+    const ageArg = m.competition_age_id ? undefined : m.age_category_id;
+    tCompTeams(m.competition_id, ageArg, false, undefined, m.competition_age_id ?? undefined).then(entries => {
       [m.home_team_id, m.away_team_id].forEach(tid => {
         const entry = entries.find(x => x.team_id === tid);
         if (entry) tRoster(entry.id).then(r =>
@@ -675,7 +682,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         );
       });
     }).catch(() => {});
-  }, [m.competition_id, m.age_category_id, m.home_team_id, m.away_team_id]);
+  }, [m.competition_id, m.competition_age_id, m.age_category_id, m.home_team_id, m.away_team_id]);
 
   // Busy / ok / err states
   const [resultBusy, setResultBusy] = useState(false);
