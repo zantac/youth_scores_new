@@ -30,6 +30,7 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
   String _filter = '';
   String _week = '';
   String _date = '';
+  String _status = '';
 
   // Bulk mode: tick several shown matches (e.g. a whole round) and edit their
   // date/time/venue/stage/group or delete them together. Editor-only — the
@@ -125,15 +126,26 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
           (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0) == 0
               ? a.compareTo(b)
               : (int.tryParse(a) ?? 0).compareTo(int.tryParse(b) ?? 0));
+    // Statuses present in this competition's matches, in the canonical order —
+    // only offer the ones that actually occur (mirrors the website + the weeks
+    // list above), so a flat list with no postponed/cancelled fixtures doesn't
+    // show empty choices.
+    final presentStatuses = {for (final m in active) m.status};
+    final statuses =
+        MatchStatus.all.where((s) => presentStatuses.contains(s.value)).toList();
     final shown = active.where((m) {
       final matchesQ = q.isEmpty ||
           m.home.label(locale).toLowerCase().contains(q) ||
           m.away.label(locale).toLowerCase().contains(q);
       final matchesWeek = _week.isEmpty || m.week == _week;
       final matchesDate = _date.isEmpty || m.date == _date;
-      return matchesQ && matchesWeek && matchesDate;
+      final matchesStatus = _status.isEmpty || m.status == _status;
+      return matchesQ && matchesWeek && matchesDate && matchesStatus;
     }).toList();
-    final filtering = _filter.isNotEmpty || _week.isNotEmpty || _date.isNotEmpty;
+    final filtering = _filter.isNotEmpty ||
+        _week.isNotEmpty ||
+        _date.isNotEmpty ||
+        _status.isNotEmpty;
     // Result count, mirroring the website: "X of Y" while filtering, else "Y".
     final countText = filtering
         ? (isAr
@@ -265,6 +277,27 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
                             ),
                           ),
                         ]),
+                        if (statuses.length > 1) ...[
+                          const SizedBox(height: 8),
+                          DropdownButtonFormField<String>(
+                            initialValue: _status.isEmpty ? null : _status,
+                            isExpanded: true,
+                            dropdownColor: AppColors.cardBg,
+                            style: TextStyle(color: AppColors.white, fontSize: 13),
+                            hint: Text(isAr ? 'كل الحالات' : 'All statuses',
+                                style: TextStyle(color: AppColors.hint, fontSize: 13)),
+                            decoration: _filterDec(),
+                            items: [
+                              DropdownMenuItem(
+                                  value: '',
+                                  child: Text(isAr ? 'كل الحالات' : 'All statuses')),
+                              for (final s in statuses)
+                                DropdownMenuItem(
+                                    value: s.value, child: Text(isAr ? s.ar : s.en)),
+                            ],
+                            onChanged: (v) => setState(() => _status = v ?? ''),
+                          ),
+                        ],
                         Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Row(children: [
@@ -280,6 +313,7 @@ class _AdminMatchesScreenState extends State<AdminMatchesScreen> {
                                   _filter = '';
                                   _week = '';
                                   _date = '';
+                                  _status = '';
                                 }),
                                 style: TextButton.styleFrom(
                                     visualDensity: VisualDensity.compact),
