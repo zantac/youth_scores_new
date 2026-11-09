@@ -95,3 +95,73 @@ def test_approved_guest_is_included(db_ctx):
     eligible = _lineup_eligible_players(match, primary_id)
     guest = next((e for e in eligible if e["player_id"] == guest_id), None)
     assert guest is not None and guest["guest"] is True  # approved sibling → eligible guest
+
+
+def _seed_tracks(db):
+    """One competition, two sub-competition tracks ("A" and "B"), each spanning two
+    ages (old 2010 + young 2012). One academy fields four teams — old-A, young-A,
+    old-B, young-B — with an approved player on each young team. Returns
+    (match_old_A, old_A_team_id, young_A_guest_id, young_B_guest_id)."""
+    from app.models import (
+        Tla3bnyAcademy, Tla3bnyAgeCategory, Tla3bnyCompetition,
+        Tla3bnyCompetitionAge, Tla3bnyCompetitionPlayer, Tla3bnyCompetitionTeam,
+        Tla3bnyMatch, Tla3bnyPlayer, Tla3bnyPlayerTeam, Tla3bnySeason, Tla3bnyTeam,
+    )
+    old = Tla3bnyAgeCategory(label="2010", sort_order=0)
+    young = Tla3bnyAgeCategory(label="2012", sort_order=1)
+    season = Tla3bnySeason(name="2026-2027")
+    db.session.add_all([old, young, season])
+    db.session.flush()
+    ac = Tla3bnyAcademy(name="A", status="approved")
+    db.session.add(ac)
+    db.session.flush()
+    comp = Tla3bnyCompetition(name="Cup", season_id=season.id, status="active")
+    db.session.add(comp)
+    db.session.flush()
+    # Four sub-competitions: {A,B} × {old,young}.
+    ca_old_A = Tla3bnyCompetitionAge(competition_id=comp.id, age_category_id=old.id, name="A")
+    ca_young_A = Tla3bnyCompetitionAge(competition_id=comp.id, age_category_id=young.id, name="A")
+    ca_old_B = Tla3bnyCompetitionAge(competition_id=comp.id, age_category_id=old.id, name="B")
+    ca_young_B = Tla3bnyCompetitionAge(competition_id=comp.id, age_category_id=young.id, name="B")
+    db.session.add_all([ca_old_A, ca_young_A, ca_old_B, ca_young_B])
+    db.session.flush()
+
+    def _entry_with_player(age_cat, cage, pname):
+        team = Tla3bnyTeam(academy_id=ac.id, age_category_id=age_cat.id, name=pname)
+        db.session.add(team)
+        db.session.flush()
+        entry = Tla3bnyCompetitionTeam(
+            competition_id=comp.id, team_id=team.id,
+            age_category_id=age_cat.id, competition_age_id=cage.id)
+        db.session.add(entry)
+        db.session.flush()
+        p = Tla3bnyPlayer(name=pname, dob=date(2012, 5, 1))
+        db.session.add(p)
+        db.session.flush()
+        db.session.add(Tla3bnyPlayerTeam(player_id=p.id, team_id=team.id, status="active"))
+        db.session.add(Tla3bnyCompetitionPlayer(
+            competition_team_id=entry.id, player_id=p.id, status="approved"))
+        return team, p
+
+    old_A_team, _ = _entry_with_player(old, ca_old_A, "oldA")
+    _young_A_team, young_A_p = _entry_with_player(young, ca_young_A, "youngA")
+    _old_B_team, _ = _entry_with_player(old, ca_old_B, "oldB")
+    _young_B_team, young_B_p = _entry_with_player(young, ca_young_B, "youngB")
+
+    match = Tla3bnyMatch(
+        competition_id=comp.id, age_category_id=old.id, competition_age_id=ca_old_A.id,
+        home_team_id=old_A_team.id, away_team_id=old_A_team.id, status="scheduled")
+    db.session.add(match)
+    db.session.commit()
+    return match, old_A_team.id, young_A_p.id, young_B_p.id
+
+
+def test_guest_confined_to_same_subcompetition_track(db_ctx):
+    db = db_ctx
+    from app.api.tla3bny.matches import _lineup_eligible_players
+    match_old_A, old_A_team_id, young_A_id, young_B_id = _seed_tracks(db)
+    eligible_ids = {e["player_id"] for e in _lineup_eligible_players(match_old_A, old_A_team_id)}
+    # 2015-"A" player may guest up into a 2013-"A" match…
+    assert young_A_id in eligible_ids
+    # …but a 2015-"B" player may NOT — different sub-competition track.
+    assert young_B_id not in eligible_ids
