@@ -72,6 +72,7 @@ export default function MatchesEntry() {
   const [fWeek, setFWeek] = useState('');
   const [fGroup, setFGroup] = useState('');
   const [fDate, setFDate] = useState('');
+  const [fStatus, setFStatus] = useState('');
   const [venues, setVenues] = useState<string[]>([]);
 
   // Bulk edit: select several matches (e.g. a whole round or a team's fixtures)
@@ -168,17 +169,26 @@ export default function MatchesEntry() {
         || a.name.localeCompare(b.name, 'ar'));
   }, [active, stages]);
 
+  // Status filter options — only the statuses that actually occur in this
+  // competition's matches, in the canonical STATUS order (so a flat list with no
+  // postponed/cancelled fixtures doesn't offer empty choices). Mirrors `groups`.
+  const statuses = useMemo(() => {
+    const present = new Set(active.map(m => m.status));
+    return STATUS.filter(s => present.has(s.v));
+  }, [active]);
+
   const shown = useMemo(() => {
     const q = fold(fTeam);
     return active.filter(m =>
       (!q || fold(teamLabel(m.home)).includes(q) || fold(teamLabel(m.away)).includes(q))
       && (!fWeek || m.week === fWeek)
       && (!fGroup || String(m.group_id) === fGroup)
+      && (!fStatus || m.status === fStatus)
       && (!fDate || m.date === fDate));
-  }, [active, fTeam, fWeek, fGroup, fDate]);
+  }, [active, fTeam, fWeek, fGroup, fStatus, fDate]);
 
-  const filtering = Boolean(fTeam || fWeek || fGroup || fDate);
-  const clear = () => { setFTeam(''); setFWeek(''); setFGroup(''); setFDate(''); };
+  const filtering = Boolean(fTeam || fWeek || fGroup || fDate || fStatus);
+  const clear = () => { setFTeam(''); setFWeek(''); setFGroup(''); setFDate(''); setFStatus(''); };
 
   // Bulk selection works on the currently-shown (filtered) matches: filter to a
   // round or a team, tick them, then change date/time/venue together.
@@ -276,6 +286,12 @@ export default function MatchesEntry() {
               <select value={fGroup} onChange={e => setFGroup(e.target.value)} className={inputCls}>
                 <option value="">كل المجموعات</option>
                 {groups.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+              </select>
+            )}
+            {statuses.length > 1 && (
+              <select value={fStatus} onChange={e => setFStatus(e.target.value)} className={inputCls}>
+                <option value="">كل الحالات</option>
+                {statuses.map(s => <option key={s.v} value={s.v}>{s.l}</option>)}
               </select>
             )}
             <div className="grid grid-cols-2 gap-2">
