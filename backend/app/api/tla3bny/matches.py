@@ -659,7 +659,10 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     Primary roster: all players approved for this competition entry.
     Guest players: active members of any other team at the same academy
       whose birth year is >= the competition age's oldest_birth_year (younger
-      players playing up is allowed; older players playing down is not).
+      players playing up is allowed; older players playing down is not) AND
+      who are approved on an entry in the *same sub-competition track* as this
+      match (same sub-competition name) — a 2015-"Class A" player may guest into
+      2013-"Class A" matches but never 2013-"Class B".
     """
     team = Tla3bnyTeam.query.get_or_404(team_id)
     academy_id = team.academy_id
@@ -708,6 +711,22 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
         Tla3bnyTeam.academy_id == academy_id,
         Tla3bnyTeam.id != team_id,
     ).all()
+    # Guesting is confined to the match's sub-competition "track". Sub-competitions
+    # are identified by name within a competition ("Class A" at 2013 and "Class A"
+    # at 2015 are the same track; "Class B" is a different one). The organizer wants
+    # cross-age only *within* a track: a 2015-A player may play 2013-A matches but
+    # not 2013-B, and vice-versa. track_cage_ids = the sub-competitions sharing the
+    # match's name. Left None (no restriction) for legacy/unnamed matches that don't
+    # resolve to a named sub-competition, preserving the old competition-wide rule.
+    track_cage_ids: set[int] | None = None
+    match_cage = match.rules
+    track_name = (match_cage.name or "").strip() if match_cage else ""
+    if match_cage and track_name and match.competition:
+        track_cage_ids = {
+            a.id for a in match.competition.ages
+            if (a.name or "").strip() == track_name
+        }
+
     # A guest must be an APPROVED player in *this* competition on one of the academy's
     # own entries — guesting is cross-age within the competition, not a way to field a
     # player who was never registered/approved (which would dodge the papers, the
@@ -716,22 +735,26 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     academy_team_ids = [t.id for t in academy_teams]
     approved_guest_ids: set[int] = set()
     if academy_team_ids:
-        approved_guest_ids = {
-            r[0] for r in (
-                db.session.query(Tla3bnyCompetitionPlayer.player_id)
-                .join(
-                    Tla3bnyCompetitionTeam,
-                    Tla3bnyCompetitionPlayer.competition_team_id
-                    == Tla3bnyCompetitionTeam.id,
-                )
-                .filter(
-                    Tla3bnyCompetitionTeam.competition_id == match.competition_id,
-                    Tla3bnyCompetitionTeam.team_id.in_(academy_team_ids),
-                    Tla3bnyCompetitionPlayer.status == "approved",
-                )
-                .all()
+        guest_q = (
+            db.session.query(Tla3bnyCompetitionPlayer.player_id)
+            .join(
+                Tla3bnyCompetitionTeam,
+                Tla3bnyCompetitionPlayer.competition_team_id
+                == Tla3bnyCompetitionTeam.id,
             )
-        }
+            .filter(
+                Tla3bnyCompetitionTeam.competition_id == match.competition_id,
+                Tla3bnyCompetitionTeam.team_id.in_(academy_team_ids),
+                Tla3bnyCompetitionPlayer.status == "approved",
+            )
+        )
+        if track_cage_ids is not None:
+            # Same-track only: the guest's entry must belong to a sub-competition
+            # with the same name as the match's.
+            guest_q = guest_q.filter(
+                Tla3bnyCompetitionTeam.competition_age_id.in_(track_cage_ids)
+            )
+        approved_guest_ids = {r[0] for r in guest_q.all()}
     for other_team in academy_teams:
         team_birth_year: int | None = _oldest_birth_year(other_team.age_category)
         # If the team's own age category is already younger, all its active
