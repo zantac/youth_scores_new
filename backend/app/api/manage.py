@@ -141,10 +141,15 @@ def _delete_plan(kind: str, oid: int):
         stage_ids = [s.id for s in stages]
         groups = Group.query.filter(Group.stage_id.in_(stage_ids)) if stage_ids else None
         group_ids = [g.id for g in groups] if stage_ids else []
+        m_base = Match.query.filter(Match.stage_id.in_(stage_ids)) if stage_ids else None
+        # Only *live* matches block: delete_competition purges soft-deleted ones
+        # (they are never auto-purged), so they belong in cascades, not blockers.
         return (o, "البطولة", o.name_ar or o.name_en, [
-            (Match.query.filter(Match.stage_id.in_(stage_ids)).count() if stage_ids else 0,
+            (m_base.filter(Match.deleted_at.is_(None)).count() if m_base else 0,
              "مباراة"),
         ], [
+            (m_base.filter(Match.deleted_at.isnot(None)).count() if m_base else 0,
+             "مباراة محذوفة مؤقتًا"),
             (len(stage_ids), "مرحلة"),
             (len(group_ids), "مجموعة"),
             (GroupTeam.query.filter(GroupTeam.group_id.in_(group_ids)).count()
@@ -156,10 +161,14 @@ def _delete_plan(kind: str, oid: int):
         o = db.session.get(Team, oid)
         if o is None:
             return None
+        m_team = Match.query.filter(sa.or_(Match.home_team_id == oid,
+                                           Match.away_team_id == oid))
+        # Only *live* matches block: delete_team purges soft-deleted ones (never
+        # auto-purged), so they belong in cascades, not blockers.
         return (o, "الفريق", o.club.name_ar or o.club.name_en, [
-            (Match.query.filter(sa.or_(Match.home_team_id == oid,
-                                       Match.away_team_id == oid)).count(), "مباراة"),
+            (m_team.filter(Match.deleted_at.is_(None)).count(), "مباراة"),
         ], [
+            (m_team.filter(Match.deleted_at.isnot(None)).count(), "مباراة محذوفة مؤقتًا"),
             (TeamCoach.query.filter_by(team_id=oid).count(), "مدرب"),
             (PlayerTeam.query.filter_by(team_id=oid).count(), "لاعب في القائمة"),
             (CompetitionTeam.query.filter_by(team_id=oid).count(), "تسجيل في بطولة"),
