@@ -191,6 +191,15 @@ export default function MatchesEntry() {
   const filtering = Boolean(fTeam || fWeek || fGroup || fDate || fStatus);
   const clear = () => { setFTeam(''); setFWeek(''); setFGroup(''); setFDate(''); setFStatus(''); };
 
+  // The second-half generator is scoped to the selected group only (not the
+  // other transient filters): in a grouped competition each group has its own
+  // rounds and its own teams, so mirroring must stay within the chosen group —
+  // otherwise two groups' "round 1" merge and every group's teams show up.
+  const secondHalfMatches = useMemo(
+    () => (fGroup ? active.filter(m => String(m.group_id) === fGroup) : active),
+    [active, fGroup]);
+  const secondHalfScope = fGroup ? (groups.find(g => String(g.id) === fGroup)?.name ?? null) : null;
+
   // Bulk selection works on the currently-shown (filtered) matches: filter to a
   // round or a team, tick them, then change date/time/venue together.
   const allShownSelected = shown.length > 0 && shown.every(m => selected.has(m.id));
@@ -375,7 +384,8 @@ export default function MatchesEntry() {
           )}
 
           {showSecondHalf && (
-            <SecondHalfGenerator token={token!} cid={cid} matches={active} venues={venues}
+            <SecondHalfGenerator token={token!} cid={cid} matches={secondHalfMatches} venues={venues}
+              scopeLabel={secondHalfScope} hasGroups={groups.length > 0} groupSelected={Boolean(fGroup)}
               onDone={() => { refreshMatches(); refreshVenues(); }}
               onClose={() => setShowSecondHalf(false)} />
           )}
@@ -617,8 +627,9 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
 // already exists (same stage + swapped pair) is skipped, so running it twice is
 // safe — dedup uses the very key the backend's create guard uses.
 type ShRow = { include: boolean; newWeek: string; date: string; time: string };
-function SecondHalfGenerator({ token, cid, matches, venues, onDone, onClose }: {
+function SecondHalfGenerator({ token, cid, matches, venues, scopeLabel, hasGroups, groupSelected, onDone, onClose }: {
   token: string; cid: number; matches: EntryMatchRow[]; venues: string[];
+  scopeLabel?: string | null; hasGroups?: boolean; groupSelected?: boolean;
   onDone: () => void; onClose: () => void;
 }) {
   // Existing rounds, in the same numeric-first order the filters use. Matches
@@ -773,6 +784,17 @@ function SecondHalfGenerator({ token, cid, matches, venues, onDone, onClose }: {
         (من «ملاعب الفرق» أدناه، ويبقى فارغًا إن لم يُحدَّد)، والحالة «مجدولة»،
         ولا تتغيّر مباريات الذهاب. المباريات المُنشأة مسبقًا تُتخطّى تلقائيًا.
       </p>
+      {hasGroups && groupSelected && scopeLabel && (
+        <p className="text-aqua text-[11px] bg-aqua/10 border border-aqua/30 rounded-lg px-3 py-2">
+          النطاق: مجموعة «{scopeLabel}» فقط — الجولات والفرق أدناه تخصّها.
+        </p>
+      )}
+      {hasGroups && !groupSelected && (
+        <p className="text-gold text-[11px] bg-gold/10 border border-gold/30 rounded-lg px-3 py-2 leading-relaxed">
+          ⚠️ هذه البطولة مقسّمة لمجموعات. اختر مجموعة من الفلاتر أعلاه ليقتصر الإنشاء عليها؛
+          وإلا ستُدمج جولات كل المجموعات وتظهر فرقها جميعًا.
+        </p>
+      )}
       {noWeekCount > 0 && (
         <p className="text-gold text-[11px] bg-gold/10 border border-gold/30 rounded-lg px-3 py-2 leading-relaxed">
           ⚠️ {noWeekCount} مباراة بدون رقم جولة لن تُعكَس — أضِف لها رقم الجولة أولاً إن أردت تضمينها.
