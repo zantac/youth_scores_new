@@ -67,6 +67,7 @@ export default function MatchesEntry() {
   const [editing, setEditing] = useState<EntryMatch | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSecondHalf, setShowSecondHalf] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [fTeam, setFTeam] = useState('');
   const [fWeek, setFWeek] = useState('');
@@ -111,7 +112,7 @@ export default function MatchesEntry() {
 
   const loadComp = useCallback((id: number) => {
     if (!token) return;
-    setCid(id); setEditing(null); setShowNew(false); setStages([]);
+    setCid(id); setEditing(null); setShowNew(false); setShowSecondHalf(false); setStages([]);
     // Filters (team/week/group/date) belong to the competition being viewed —
     // clear them on switch so a stale group/week from the previous one doesn't
     // silently hide the new competition's matches. Also drop any bulk selection:
@@ -314,7 +315,7 @@ export default function MatchesEntry() {
               several matches in a row keeps it within reach instead of scrolling
               back up past the filters, especially on small screens. */}
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => { setShowNew(s => !s); setShowImport(false); }}
+            <button onClick={() => { setShowNew(s => !s); setShowImport(false); setShowSecondHalf(false); }}
               className={`font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
                 showNew
                   ? 'border-loss text-loss hover:bg-loss/10'
@@ -322,7 +323,7 @@ export default function MatchesEntry() {
               }`}>
               {showNew ? '✕ إلغاء' : '+ مباراة جديدة'}
             </button>
-            <button onClick={() => { setShowImport(s => !s); setShowNew(false); }}
+            <button onClick={() => { setShowImport(s => !s); setShowNew(false); setShowSecondHalf(false); }}
               className={`font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
                 showImport
                   ? 'border-loss text-loss hover:bg-loss/10'
@@ -346,7 +347,7 @@ export default function MatchesEntry() {
               Mass edit/delete is editor-only (the backend rejects a clerk with
               403), so a clerk never sees the control. */}
           {canEdit && active.length > 0 && (
-            <button onClick={() => (bulkMode ? exitBulk() : setBulkMode(true))}
+            <button onClick={() => (bulkMode ? exitBulk() : (setBulkMode(true), setShowSecondHalf(false)))}
               className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
                 bulkMode
                   ? 'border-loss text-loss hover:bg-loss/10'
@@ -354,6 +355,29 @@ export default function MatchesEntry() {
               }`}>
               {bulkMode ? '✕ إنهاء التحديد الجماعي' : '✎ تحديد جماعي (تعديل / حذف)'}
             </button>
+          )}
+
+          {/* Generate the return leg (second half): mirror every existing round
+              with home/away swapped onto new rounds whose number/date/time the
+              editor sets. Editor-only, like the bulk tools. */}
+          {canEdit && active.length > 0 && (
+            <button onClick={() => {
+                if (showSecondHalf) { setShowSecondHalf(false); return; }
+                setShowSecondHalf(true); setShowNew(false); setShowImport(false); exitBulk();
+              }}
+              className={`w-full font-bold text-xs px-4 py-2.5 rounded-xl border transition-colors ${
+                showSecondHalf
+                  ? 'border-loss text-loss hover:bg-loss/10'
+                  : 'border-dashed border-bdr text-teal hover:border-aqua hover:text-aqua'
+              }`}>
+              {showSecondHalf ? '✕ إلغاء إنشاء النصف الثاني' : '⇄ إنشاء النصف الثاني (عكس الذهاب)'}
+            </button>
+          )}
+
+          {showSecondHalf && (
+            <SecondHalfGenerator token={token!} cid={cid} matches={active}
+              onDone={() => { refreshMatches(); refreshVenues(); }}
+              onClose={() => setShowSecondHalf(false)} />
           )}
 
           {bulkMode && (
@@ -582,6 +606,191 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
         className="w-full bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
         {busy ? 'جارٍ الحفظ…' : 'إنشاء المباراة'}
       </button>
+    </div>
+  );
+}
+
+// Generate the second half (return leg) of a double round-robin: take every
+// existing round and create a mirror round with home/away swapped, under new
+// round numbers and dates the editor sets. Venue is left blank and status is
+// scheduled; first-half matches are never touched. A swapped fixture that
+// already exists (same stage + swapped pair) is skipped, so running it twice is
+// safe — dedup uses the very key the backend's create guard uses.
+type ShRow = { include: boolean; newWeek: string; date: string; time: string };
+function SecondHalfGenerator({ token, cid, matches, onDone, onClose }: {
+  token: string; cid: number; matches: EntryMatchRow[]; onDone: () => void; onClose: () => void;
+}) {
+  // Existing rounds, in the same numeric-first order the filters use. Matches
+  // with no round number can't be placed on a mirror round, so they're excluded
+  // (and flagged below).
+  const rounds = useMemo(() => {
+    const byWeek = new Map<string, EntryMatchRow[]>();
+    for (const m of matches) {
+      if (!m.week) continue;
+      const list = byWeek.get(m.week);
+      if (list) list.push(m); else byWeek.set(m.week, [m]);
+    }
+    return [...byWeek.entries()]
+      .map(([week, ms]) => ({ week, matches: ms }))
+      .sort((a, b) => (Number(a.week) || 0) - (Number(b.week) || 0) || a.week.localeCompare(b.week));
+  }, [matches]);
+  const noWeekCount = useMemo(() => matches.filter(m => !m.week).length, [matches]);
+
+  // The pairings that already exist (stage + ordered pair), so a mirror that was
+  // already created is skipped. Mirror key of a source match is the swapped pair.
+  const existingKeys = useMemo(
+    () => new Set(matches.map(m => `${m.stage_id}|${m.home.id}|${m.away.id}`)), [matches]);
+
+  const [rows, setRows] = useState<Record<string, ShRow>>({});
+  // Seed a row per round once it appears: new round number auto-filled as
+  // (source + number of rounds) when the labels are plain numbers — so 1→8 … 7→14
+  // for a 7-round half — and left blank for non-numeric labels. Date/time blank.
+  useEffect(() => {
+    setRows(prev => {
+      const next = { ...prev };
+      for (const r of rounds) {
+        if (next[r.week]) continue;
+        const n = Number(r.week);
+        const auto = Number.isInteger(n) && String(n) === r.week ? String(n + rounds.length) : '';
+        next[r.week] = { include: true, newWeek: auto, date: '', time: '' };
+      }
+      return next;
+    });
+  }, [rounds]);
+  const setRow = (week: string, patch: Partial<ShRow>) =>
+    setRows(prev => ({ ...prev, [week]: { ...prev[week], ...patch } }));
+
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const included = rounds.filter(r => rows[r.week]?.include);
+  const totalToCreate = included.reduce((s, r) => s + r.matches.length, 0);
+
+  const generate = async () => {
+    setErr(null); setResult(null);
+    // Every included round needs a target number, else its mirror matches would
+    // all land with no round and be impossible to tell apart.
+    if (included.some(r => !rows[r.week]?.newWeek.trim())) {
+      setErr('أدخل رقم الجولة الجديدة لكل جولة محددة'); return;
+    }
+    setBusy(true);
+    const seen = new Set(existingKeys);
+    let created = 0, skipped = 0, failed = 0, done = 0;
+    let firstError: string | null = null;
+    setProgress({ done, total: totalToCreate });
+    for (const r of included) {
+      const cfg = rows[r.week];
+      for (const m of r.matches) {
+        const key = `${m.stage_id}|${m.away.id}|${m.home.id}`; // swapped pair
+        if (seen.has(key)) { skipped++; done++; setProgress({ done, total: totalToCreate }); continue; }
+        try {
+          await apiCreateMatch(token, cid, {
+            home_team_id: m.away.id, away_team_id: m.home.id,
+            date: cfg.date, time: cfg.time, week: cfg.newWeek.trim(),
+            venue: '', status: 'scheduled',
+            stage_id: m.stage_id ?? undefined,
+            group_id: m.group_id ?? undefined,
+          });
+          seen.add(key); created++;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'خطأ';
+          // The backend's duplicate guard is a backstop for the client-side skip.
+          if (msg.includes('موجودة بالفعل')) skipped++;
+          else { failed++; if (!firstError) firstError = msg; }
+        }
+        done++; setProgress({ done, total: totalToCreate });
+      }
+    }
+    setBusy(false); setProgress(null);
+    setResult(`✓ تم إنشاء ${created} مباراة`
+      + (skipped ? ` · تُخطّيت ${skipped} (موجودة بالفعل)` : '')
+      + (failed ? ` · فشل ${failed}` : ''));
+    if (firstError) setErr(firstError);
+    onDone();
+  };
+
+  if (rounds.length === 0) {
+    return (
+      <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-2">
+        <p className="text-text font-bold text-sm">⇄ إنشاء النصف الثاني</p>
+        <p className="text-hint text-[11px] leading-relaxed">
+          لا توجد جولات بأرقام في هذه البطولة بعد. أضِف رقم الجولة لمباريات الذهاب أولاً،
+          ثم أعِد المحاولة لإنشاء الإياب تلقائيًا.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-cardBg2 border border-aqua/30 rounded-2xl p-4 space-y-3">
+      <p className="text-text font-bold text-sm">⇄ إنشاء النصف الثاني (الإياب)</p>
+      <p className="text-hint text-[11px] leading-relaxed">
+        لكل جولة ذهاب، يُنشئ النظام جولة إياب بنفس المباريات مع عكس المضيف والضيف.
+        حدِّد رقم الجولة الجديدة وتاريخها ووقتها. يُترك الملعب فارغًا («غير محدد») والحالة «مجدولة»،
+        ولا تتغيّر مباريات الذهاب. المباريات المُنشأة مسبقًا تُتخطّى تلقائيًا.
+      </p>
+      {noWeekCount > 0 && (
+        <p className="text-gold text-[11px] bg-gold/10 border border-gold/30 rounded-lg px-3 py-2 leading-relaxed">
+          ⚠️ {noWeekCount} مباراة بدون رقم جولة لن تُعكَس — أضِف لها رقم الجولة أولاً إن أردت تضمينها.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {/* Header row */}
+        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center text-hint text-[10px] font-bold px-1">
+          <span>جولة الذهاب</span>
+          <span className="w-16 text-center">الجولة الجديدة</span>
+          <span className="w-[8.5rem] text-center">التاريخ</span>
+          <span className="w-20 text-center">الوقت</span>
+        </div>
+        {rounds.map(r => {
+          const cfg = rows[r.week];
+          if (!cfg) return null;
+          return (
+            <div key={r.week}
+              className={`grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center rounded-lg border px-2 py-1.5 ${
+                cfg.include ? 'border-bdr bg-darkBg/40' : 'border-bdr/40 opacity-50'
+              }`}>
+              <label className="flex items-center gap-2 text-text text-xs cursor-pointer min-w-0">
+                <input type="checkbox" checked={cfg.include}
+                  onChange={e => setRow(r.week, { include: e.target.checked })} />
+                <span className="truncate">الجولة {r.week}
+                  <span className="text-hint"> · {r.matches.length} مباراة</span>
+                </span>
+              </label>
+              <input value={cfg.newWeek} disabled={!cfg.include}
+                onChange={e => setRow(r.week, { newWeek: e.target.value })}
+                placeholder="#" dir="ltr"
+                className={inputCls + ' w-16 text-center' + (cfg.include ? '' : ' opacity-40')} />
+              <input type="date" value={cfg.date} disabled={!cfg.include}
+                onChange={e => setRow(r.week, { date: e.target.value })}
+                className={inputCls + ' w-[8.5rem]' + (cfg.include ? '' : ' opacity-40')} />
+              <input type="time" value={cfg.time} disabled={!cfg.include}
+                onChange={e => setRow(r.week, { time: e.target.value })}
+                className={inputCls + ' w-20' + (cfg.include ? '' : ' opacity-40')} />
+            </div>
+          );
+        })}
+      </div>
+
+      {err && <p className="text-loss text-xs">{err}</p>}
+      {result && <p className="text-win text-[11px] bg-win/10 border border-win/30 rounded-lg px-3 py-2">{result}</p>}
+
+      <div className="flex items-center gap-2">
+        <button onClick={generate}
+          disabled={busy || included.length === 0 || totalToCreate === 0}
+          className="flex-1 bg-aqua text-on-accent font-extrabold py-2.5 rounded-xl disabled:opacity-50">
+          {busy
+            ? `جارٍ الإنشاء… ${progress?.done ?? 0}/${progress?.total ?? 0}`
+            : `إنشاء ${totalToCreate} مباراة في ${included.length} جولة`}
+        </button>
+        <button onClick={onClose} disabled={busy}
+          className="text-hint text-xs font-bold px-4 py-2.5 border border-bdr rounded-xl disabled:opacity-50">
+          إغلاق
+        </button>
+      </div>
     </div>
   );
 }
