@@ -375,7 +375,7 @@ export default function MatchesEntry() {
           )}
 
           {showSecondHalf && (
-            <SecondHalfGenerator token={token!} cid={cid} matches={active}
+            <SecondHalfGenerator token={token!} cid={cid} matches={active} venues={venues}
               onDone={() => { refreshMatches(); refreshVenues(); }}
               onClose={() => setShowSecondHalf(false)} />
           )}
@@ -617,8 +617,9 @@ function NewMatch({ token, cid, teams, stages, venues, onDone }: { token: string
 // already exists (same stage + swapped pair) is skipped, so running it twice is
 // safe — dedup uses the very key the backend's create guard uses.
 type ShRow = { include: boolean; newWeek: string; date: string; time: string };
-function SecondHalfGenerator({ token, cid, matches, onDone, onClose }: {
-  token: string; cid: number; matches: EntryMatchRow[]; onDone: () => void; onClose: () => void;
+function SecondHalfGenerator({ token, cid, matches, venues, onDone, onClose }: {
+  token: string; cid: number; matches: EntryMatchRow[]; venues: string[];
+  onDone: () => void; onClose: () => void;
 }) {
   // Existing rounds, in the same numeric-first order the filters use. Matches
   // with no round number can't be placed on a mirror round, so they're excluded
@@ -635,6 +636,44 @@ function SecondHalfGenerator({ token, cid, matches, onDone, onClose }: {
       .sort((a, b) => (Number(a.week) || 0) - (Number(b.week) || 0) || a.week.localeCompare(b.week));
   }, [matches]);
   const noWeekCount = useMemo(() => matches.filter(m => !m.week).length, [matches]);
+
+  // The teams that play in this competition, derived from the fixtures. Each
+  // gets a home-ground field; when a team is the (new) home side on a mirror
+  // match, that ground fills its venue. Sorted by name for a stable list.
+  const teamsInComp = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const x of matches) {
+      if (!m.has(x.home.id)) m.set(x.home.id, teamLabel(x.home));
+      if (!m.has(x.away.id)) m.set(x.away.id, teamLabel(x.away));
+    }
+    return [...m.entries()].map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [matches]);
+
+  // Prefill each team's ground from the first half: the venue it most often
+  // played on while at home. Saves typing when the ground is already on record;
+  // still editable, and teams with no home venue yet start blank.
+  const defaultVenues = useMemo(() => {
+    const byTeam = new Map<number, Map<string, number>>();
+    for (const x of matches) {
+      const v = (x.venue || '').trim();
+      if (!v) continue;
+      const counts = byTeam.get(x.home.id) ?? new Map<string, number>();
+      counts.set(v, (counts.get(v) || 0) + 1);
+      byTeam.set(x.home.id, counts);
+    }
+    const out: Record<number, string> = {};
+    for (const [tid, counts] of byTeam)
+      out[tid] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return out;
+  }, [matches]);
+
+  // Team ground overrides. User edits (prev) win over the first-half prefill so
+  // a reload can't clobber what was typed.
+  const [teamVenues, setTeamVenues] = useState<Record<number, string>>({});
+  useEffect(() => { setTeamVenues(prev => ({ ...defaultVenues, ...prev })); }, [defaultVenues]);
+  const [venuesOpen, setVenuesOpen] = useState(true);
+  const venuesFilled = teamsInComp.filter(t => (teamVenues[t.id] || '').trim()).length;
 
   // The pairings that already exist (stage + ordered pair), so a mirror that was
   // already created is skipped. Mirror key of a source match is the swapped pair.
@@ -686,10 +725,12 @@ function SecondHalfGenerator({ token, cid, matches, onDone, onClose }: {
         const key = `${m.stage_id}|${m.away.id}|${m.home.id}`; // swapped pair
         if (seen.has(key)) { skipped++; done++; setProgress({ done, total: totalToCreate }); continue; }
         try {
+          // The new home side is the old away team; fill its ground if set.
+          const venue = (teamVenues[m.away.id] || '').trim();
           await apiCreateMatch(token, cid, {
             home_team_id: m.away.id, away_team_id: m.home.id,
             date: cfg.date, time: cfg.time, week: cfg.newWeek.trim(),
-            venue: '', status: 'scheduled',
+            venue, status: 'scheduled',
             stage_id: m.stage_id ?? undefined,
             group_id: m.group_id ?? undefined,
           });
@@ -728,13 +769,38 @@ function SecondHalfGenerator({ token, cid, matches, onDone, onClose }: {
       <p className="text-text font-bold text-sm">⇄ إنشاء النصف الثاني (الإياب)</p>
       <p className="text-hint text-[11px] leading-relaxed">
         لكل جولة ذهاب، يُنشئ النظام جولة إياب بنفس المباريات مع عكس المضيف والضيف.
-        حدِّد رقم الجولة الجديدة وتاريخها ووقتها. يُترك الملعب فارغًا («غير محدد») والحالة «مجدولة»،
+        حدِّد رقم الجولة الجديدة وتاريخها ووقتها. يُملأ الملعب تلقائيًا بملعب الفريق المضيف الجديد
+        (من «ملاعب الفرق» أدناه، ويبقى فارغًا إن لم يُحدَّد)، والحالة «مجدولة»،
         ولا تتغيّر مباريات الذهاب. المباريات المُنشأة مسبقًا تُتخطّى تلقائيًا.
       </p>
       {noWeekCount > 0 && (
         <p className="text-gold text-[11px] bg-gold/10 border border-gold/30 rounded-lg px-3 py-2 leading-relaxed">
           ⚠️ {noWeekCount} مباراة بدون رقم جولة لن تُعكَس — أضِف لها رقم الجولة أولاً إن أردت تضمينها.
         </p>
+      )}
+
+      {/* Team grounds — the venue filled on each team's home matches. */}
+      {teamsInComp.length > 0 && (
+        <div className="rounded-xl border border-bdr bg-darkBg/40">
+          <button onClick={() => setVenuesOpen(o => !o)}
+            className="w-full flex items-center justify-between px-3 py-2 text-teal text-xs font-bold">
+            <span>🏟️ ملاعب الفرق</span>
+            <span className="text-hint text-[11px] font-normal">{venuesFilled}/{teamsInComp.length} · {venuesOpen ? 'إخفاء' : 'عرض'}</span>
+          </button>
+          {venuesOpen && (
+            <div className="px-3 pb-3 space-y-1.5">
+              {teamsInComp.map(t => (
+                <div key={t.id} className="grid grid-cols-[1fr_1.5fr] gap-2 items-center">
+                  <span className="text-text text-xs truncate">{t.name}</span>
+                  <input value={teamVenues[t.id] ?? ''}
+                    onChange={e => setTeamVenues(prev => ({ ...prev, [t.id]: e.target.value }))}
+                    list={VENUES_LIST_ID} placeholder="ملعب المضيف (اختياري)" className={inputCls} />
+                </div>
+              ))}
+              <VenuesDatalist venues={venues} />
+            </div>
+          )}
+        </div>
       )}
 
       <div className="space-y-2">
