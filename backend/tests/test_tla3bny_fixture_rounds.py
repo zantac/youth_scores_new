@@ -208,6 +208,49 @@ def test_late_matchup_keeps_the_pair_out_of_early_rounds(client):
     assert not any({m.home_team_id, m.away_team_id} == {a, b} for m in ms)
 
 
+def test_remaining_rounds_skip_hand_entered_pairings_regardless_of_home_away(client):
+    """An 8-team league whose first two rounds were entered by hand with the
+    home/away the other way round than the canonical schedule assigns. Asking
+    the generator for the rest must NOT re-create those pairings: a single
+    round-robin meeting is the same fixture whoever is home."""
+    app, db = client
+    c = app.test_client()
+    s = _seed(db, 8)  # 8 teams → 7 rounds, C(8,2) = 28 matches
+
+    # Create the first two rounds, then flip each match's sides to mimic an
+    # organiser who entered them with the opposite home/away orientation.
+    _gen(c, s, rounds=2)
+    first_two = _stage_matches(db, s["stage_id"])
+    assert len(first_two) == 8  # 4 matches/round × 2
+    for m in first_two:
+        m.home_team_id, m.away_team_id = m.away_team_id, m.home_team_id
+    db.session.commit()
+
+    # Generate the remaining five rounds.
+    r = _gen(c, s)
+    assert r.status_code == 201
+
+    ms = _stage_matches(db, s["stage_id"])
+    pairs = [frozenset((m.home_team_id, m.away_team_id)) for m in ms]
+    assert len(pairs) == 28          # the whole round-robin, nothing extra
+    assert len(set(pairs)) == 28     # every pairing exactly once — no repeats
+
+
+def test_double_round_robin_still_creates_both_legs(client):
+    """The unordered-pairing dedup must not collapse a double round-robin: each
+    of A-home-vs-B and B-home-vs-A is its own required fixture."""
+    app, db = client
+    c = app.test_client()
+    s = _seed(db, 4)  # 4 teams → double RR = 12 matches (C(4,2) × 2)
+
+    r = _gen(c, s, mode="double_round_robin")
+    assert r.status_code == 201
+    ms = _stage_matches(db, s["stage_id"])
+    ordered = [(m.home_team_id, m.away_team_id) for m in ms]
+    assert len(ordered) == 12
+    assert len(set(ordered)) == 12  # both legs of every pair, each once
+
+
 def test_full_odd_schedule_rests_each_team_once(client):
     app, db = client
     c = app.test_client()

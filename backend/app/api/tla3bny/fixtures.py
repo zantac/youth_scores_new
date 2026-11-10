@@ -365,6 +365,18 @@ def generate_fixtures(stage_id: int):
         # last_date) where start_label continues the group's round numbering.
         plans: list[tuple[Tla3bnyGroup, list[list[tuple[int, int]]], int, date | None]] = []
         any_playable = False
+        # How a meeting of two teams is keyed when deciding "already scheduled".
+        # Single round-robin: a pairing is the SAME fixture whoever is home, so
+        # key it unordered — otherwise a round entered by hand (or with home/away
+        # the other way round than the canonical schedule assigns) isn't
+        # recognised and the pairing gets generated a second time in a later
+        # round. Double round-robin: each leg (home then away) is its own
+        # required fixture, so keep the orientation.
+        unordered_pairs = mode == "round_robin"
+
+        def _pair_key(a: int, b: int):
+            return frozenset((a, b)) if unordered_pairs else (a, b)
+
         for group in stage.groups:
             team_ids = [gt.team_id for gt in group.team_entries]
             if len(team_ids) < 2:
@@ -375,13 +387,13 @@ def generate_fixtures(stage_id: int):
                 canonical = canonical + [[(b, a) for a, b in r] for r in canonical]
 
             gmatches = existing_by_group.get(group.id, [])
-            existing_pairs = {(m.home_team_id, m.away_team_id) for m in gmatches}
-            # A canonical round is already generated when all its (home, away)
-            # pairs exist. Identifying by pair content (not position) lets a bye
-            # pick reorder emission without us losing track of what's done.
+            existing_pairs = {_pair_key(m.home_team_id, m.away_team_id) for m in gmatches}
+            # A canonical round is already generated when all its pairs exist.
+            # Identifying by pair content (not position) lets a bye pick reorder
+            # emission without us losing track of what's done.
             remaining = [
                 i for i, r in enumerate(canonical)
-                if r and not all(p in existing_pairs for p in r)
+                if r and not all(_pair_key(*p) in existing_pairs for p in r)
             ]
 
             # Late matchups: push the round where a chosen pair meets to the back
@@ -421,10 +433,10 @@ def generate_fixtures(stage_id: int):
                 remaining = [target] + [i for i in remaining if i != target]
 
             take = remaining[:want_rounds] if want_rounds else remaining
-            # Drop any pair that already exists (e.g. a round was partly deleted
-            # by hand) so a re-emitted round never duplicates a fixture.
+            # Drop any pair that already exists (e.g. a round was entered by hand
+            # or partly deleted) so a re-emitted round never duplicates a fixture.
             rounds_to_emit = [
-                [p for p in canonical[i] if p not in existing_pairs] for i in take
+                [p for p in canonical[i] if _pair_key(*p) not in existing_pairs] for i in take
             ]
             rounds_to_emit = [r for r in rounds_to_emit if r]
 
