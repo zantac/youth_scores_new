@@ -748,14 +748,16 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     setErr(null); setEventsBusy(true);
     try {
       setEvents(list);
-      // Auto-derive the regular-time score from goal events so the organiser
-      // never has to update the scoreboard manually during a live match.
-      const autoHome = computeGoalScore(list, m.home_team_id);
-      const autoAway = computeGoalScore(list, m.away_team_id);
-      setHomeScore(String(autoHome));
-      setAwayScore(String(autoAway));
+      // Auto-derive the score from goals only when the match is live.
+      // For completed matches the organiser may have entered the final
+      // result manually before logging the events, so the recorded score
+      // must win over the event count in that case.
+      const isLive = m.status === 'live';
+      const scoreHome = isLive ? computeGoalScore(list, m.home_team_id) : (m.home_score ?? null);
+      const scoreAway = isLive ? computeGoalScore(list, m.away_team_id) : (m.away_score ?? null);
+      if (isLive) { setHomeScore(String(scoreHome)); setAwayScore(String(scoreAway)); }
       const updated = await tEnterResult(token, m.id, {
-        home_score: autoHome, away_score: autoAway,
+        home_score: scoreHome, away_score: scoreAway,
         events: eventsPayload(list),
       });
       // Clear the local draft too, so reopening the tab doesn't offer to recover
