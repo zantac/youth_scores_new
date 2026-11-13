@@ -185,7 +185,13 @@ def update_match(match_id: int):
     if "status" in data and data.get("status") not in codes.TLA3BNY_MATCH_STATUS:
         return _err("Invalid match status", 400)
     if "status" in data:
-        match.status = data.get("status")
+        new_status = data.get("status")
+        # First kick-off: auto-seed the score to 0-0 so the live scoreboard
+        # starts at 0 instead of null without the organizer having to type it.
+        if new_status == "live" and match.home_score is None and match.away_score is None:
+            match.home_score = 0
+            match.away_score = 0
+        match.status = new_status
         _stamp_finished(match)
     # Clip the free-text fields to their column lengths — an over-long value
     # would otherwise raise a DataError (500) and poison the session. Column
@@ -733,8 +739,29 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
     # national-ID clash check, and the roster/priced caps). Collect the approved ids
     # across the academy's other entries once (also avoids a per-player lookup).
     academy_team_ids = [t.id for t in academy_teams]
-    approved_guest_ids: set[int] = set()
+    # Batch-fetch competition entries for the academy's other teams so we can
+    # check each team's sub-competition slot without per-team queries.
+    other_team_entries: dict[int, "Tla3bnyCompetitionTeam"] = {}
     if academy_team_ids:
+        for _e in Tla3bnyCompetitionTeam.query.filter(
+            Tla3bnyCompetitionTeam.competition_id == match.competition_id,
+            Tla3bnyCompetitionTeam.team_id.in_(academy_team_ids),
+        ).all():
+            other_team_entries[_e.team_id] = _e
+    # The primary team's sub-competition slot — same cage_id means the same bracket.
+    primary_cage_id = entry.competition_age_id if entry else None
+    # Exclude same-bracket siblings from the approved-guest pool so the pre-fetch
+    # query already reflects the refined set.
+    guest_eligible_team_ids = [
+        tid for tid in academy_team_ids
+        if not (
+            primary_cage_id is not None
+            and other_team_entries.get(tid) is not None
+            and other_team_entries[tid].competition_age_id == primary_cage_id
+        )
+    ]
+    approved_guest_ids: set[int] = set()
+    if guest_eligible_team_ids:
         guest_q = (
             db.session.query(Tla3bnyCompetitionPlayer.player_id)
             .join(
@@ -744,7 +771,7 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
             )
             .filter(
                 Tla3bnyCompetitionTeam.competition_id == match.competition_id,
-                Tla3bnyCompetitionTeam.team_id.in_(academy_team_ids),
+                Tla3bnyCompetitionTeam.team_id.in_(guest_eligible_team_ids),
                 Tla3bnyCompetitionPlayer.status == "approved",
             )
         )
@@ -756,6 +783,14 @@ def _lineup_eligible_players(match: "Tla3bnyMatch", team_id: int) -> list[dict]:
             )
         approved_guest_ids = {r[0] for r in guest_q.all()}
     for other_team in academy_teams:
+        # Two academy teams registered in the same sub-competition bracket are NOT
+        # guest-eligible for each other: guesting is cross-age only, not a way to
+        # pool two same-bracket rosters into one lineup.
+        other_entry = other_team_entries.get(other_team.id)
+        if (primary_cage_id is not None
+                and other_entry is not None
+                and other_entry.competition_age_id == primary_cage_id):
+            continue
         team_birth_year: int | None = _oldest_birth_year(other_team.age_category)
         # If the team's own age category is already younger, all its active
         # members are eligible regardless of individual DOB.

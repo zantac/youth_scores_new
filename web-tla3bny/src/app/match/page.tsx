@@ -8,11 +8,12 @@ import {
   mediaUrl, T_BASE,
   type TMatch, type TLineup, type TLineupSlot, type TMatchEvent, type TCompPlayer, type TCompAge,
 } from '@/lib/tla3bnyApi';
+import { slotBase } from '@/lib/tla3bnyFormations';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
 import PitchView, { type SlotView } from '@/components/tla3bny/PitchView';
 import MatchTimer from '@/components/tla3bny/MatchTimer';
 import Spinner from '@/components/ui/Spinner';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, usePositionLabel } from '@/components/tla3bny/kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from '@/components/tla3bny/kit';
 
 // ── draft auto-save ───────────────────────────────────────────────────────────
 const draftKey = (matchId: number) => `draft_result_match_${matchId}`;
@@ -106,7 +107,6 @@ const shortName = (n?: string | null) => (n ?? '').trim().split(/\s+/).slice(0, 
 
 // One player tile used in the sheet/cards view.
 function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolean }) {
-  const pos = usePositionLabel();
   const url = mediaUrl(slot.photo_path);
   const initials = (slot.player_name ?? '?').trim().slice(0, 2).toUpperCase();
   const aspect = small ? 'aspect-square' : 'aspect-[3/4]';
@@ -125,7 +125,7 @@ function PlayerCard({ slot, small = false }: { slot: TLineupSlot; small?: boolea
       )}
       <span className="text-xs font-bold text-text leading-tight line-clamp-2">{slot.player_name}</span>
       <span className="flex items-center gap-1.5 text-[10px] font-bold text-teal">
-        {!slot.is_substitute && slot.position_slot && <span>{pos(slot.position_slot)}</span>}
+        {!slot.is_substitute && slot.position_slot && <span>{slotBase(slot.position_slot)}</span>}
         {birthYear && <span className="text-hint">🎂 {birthYear}</span>}
       </span>
     </div>
@@ -197,10 +197,9 @@ function SheetView({ m, lineups, canDownload = false, onDownload, downloading = 
 // One player on the printable (Save-as-PDF) sheet. Explicit light colours: the
 // app is dark-themed, but the print sheet is black-on-white.
 function PrintCard({ slot }: { slot: TLineupSlot }) {
-  const pos = usePositionLabel();
   const url = mediaUrl(slot.photo_path);
   const year = slot.player_dob ? slot.player_dob.slice(0, 4) : null;
-  const meta = [slot.position_slot ? pos(slot.position_slot) : null, year ? `🎂 ${year}` : null]
+  const meta = [slot.position_slot ? slotBase(slot.position_slot) : null, year ? `🎂 ${year}` : null]
     .filter(Boolean).join(' · ');
   return (
     <div className="text-center border border-black/20 rounded p-1 break-inside-avoid">
@@ -582,6 +581,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const [status, setStatus] = useState(m.status);
   // Keep status in sync when the parent updates the match (e.g. after saving score).
   useEffect(() => { setStatus(m.status); }, [m.status]);
+  // Keep score fields in sync when the match is updated externally (e.g. backend
+  // auto-seeds 0-0 on live, or goal auto-score updates m via onUpdate). Guard on
+  // dirty so a mid-edit manual value isn't overwritten before the user clicks Save.
+  useEffect(() => {
+    if (!draftRef.current.dirty) setHomeScore(m.home_score != null ? String(m.home_score) : '');
+  }, [m.home_score]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!draftRef.current.dirty) setAwayScore(m.away_score != null ? String(m.away_score) : '');
+  }, [m.away_score]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Info state
   const [date, setDate] = useState(m.date ?? '');
@@ -727,14 +735,27 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     is_winning_kick: e.is_winning_kick,
   }));
 
+  // Count regular-time goals for `tid`, crediting own goals to the opposing team.
+  const computeGoalScore = (list: TMatchEvent[], tid: number) =>
+    list.filter(e =>
+      e.event_type === 'goal' && !e.is_extra_time &&
+      (e.is_own_goal ? e.team_id !== tid : e.team_id === tid)
+    ).length;
+
   // Persist an explicit events list (so a just-added event is saved in the same
   // click, without waiting for a state update to flush).
   const persistEvents = async (list: TMatchEvent[]) => {
     setErr(null); setEventsBusy(true);
     try {
       setEvents(list);
+      // Auto-derive the regular-time score from goal events so the organiser
+      // never has to update the scoreboard manually during a live match.
+      const autoHome = computeGoalScore(list, m.home_team_id);
+      const autoAway = computeGoalScore(list, m.away_team_id);
+      setHomeScore(String(autoHome));
+      setAwayScore(String(autoAway));
       const updated = await tEnterResult(token, m.id, {
-        home_score: m.home_score, away_score: m.away_score,
+        home_score: autoHome, away_score: autoAway,
         events: eventsPayload(list),
       });
       // Clear the local draft too, so reopening the tab doesn't offer to recover
@@ -784,6 +805,22 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           ? 'completed'
           : status;
 
+      const infoPayload = {
+        date: date || undefined, time: time || undefined,
+        venue: venue || undefined, round: round || undefined,
+        status: finalStatus, note: note || undefined,
+        stage_id: stageId ? Number(stageId) : null,
+        group_id: groupId ? Number(groupId) : null,
+      };
+
+      // If the match is currently blocked (cancelled/postponed) but the admin
+      // is un-blocking it and entering a result, the result endpoint rejects
+      // cancelled matches — so update the status first in that case.
+      if (hasResult && (m.status === 'cancelled' || m.status === 'postponed') &&
+          finalStatus !== 'cancelled' && finalStatus !== 'postponed') {
+        await tUpdateMatch(token, m.id, infoPayload);
+      }
+
       // 1) Score + events first. Entering a result can flip a scheduled match to
       //    completed server-side, so it must run *before* the status update —
       //    then the explicit status below is the final word.
@@ -807,13 +844,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       }
       // 2) Match info + status last, so the organizer's explicit status sticks.
       //    tUpdateMatch's response omits events, so carry them over from above.
-      const info = await tUpdateMatch(token, m.id, {
-        date: date || undefined, time: time || undefined,
-        venue: venue || undefined, round: round || undefined,
-        status: finalStatus, note: note || undefined,
-        stage_id: stageId ? Number(stageId) : null,
-        group_id: groupId ? Number(groupId) : null,
-      });
+      const info = await tUpdateMatch(token, m.id, infoPayload);
       clearDraft(m.id);
       draftRef.current.dirty = false;
       onUpdate({ ...info, events: savedEvents });
@@ -995,7 +1026,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           )}
         </div>
         <Field label={tt('الحالة', 'Status')}>
-          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
+          <select value={status} onChange={e => {
+            const s = e.target.value as TMatch['status'];
+            setStatus(s);
+            // Seed score to 0-0 on the first transition to live so the organiser
+            // never sees an empty scoreboard when a match kicks off.
+            if (s === 'live' && homeScore === '' && awayScore === '') {
+              setHomeScore('0'); setAwayScore('0');
+            }
+          }} className={inputCls}>
             <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
             <option value="live">{tt('مباشرة', 'Live')}</option>
             <option value="completed">{tt('انتهت', 'Completed')}</option>
