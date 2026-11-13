@@ -526,7 +526,8 @@ export interface TMatch {
   away_score_pen: number | null;
   note: string | null;
   /** The organizer's player of the match, shown on the card and detail. */
-  player_of_match?: { player_id: number; player_name: string | null; player_name_en: string | null; photo_path: string | null } | null;
+  /** Players of the match — may be more than one. */
+  player_of_match?: { player_id: number; player_name: string | null; player_name_en: string | null; photo_path: string | null }[] | null;
   events?: TMatchEvent[];
 }
 
@@ -1388,8 +1389,8 @@ export const tRevokeAward = (token: string, awardId: number) =>
 export const tRepublishAward = (token: string, awardId: number) =>
   send<{ message: string }>('POST', `/awards/${awardId}/republish`, undefined, token);
 /** Set (playerId) or clear (null) the player of the match from its edit panel. */
-export const tSetPlayerOfMatch = (token: string, matchId: number, playerId: number | null) =>
-  send<TMatch>('PUT', `/matches/${matchId}/player-of-match`, { player_id: playerId }, token);
+export const tSetPlayerOfMatch = (token: string, matchId: number, playerIds: number[]) =>
+  send<TMatch>('PUT', `/matches/${matchId}/player-of-match`, { player_ids: playerIds }, token);
 export interface TAwardSuggestions {
   players?: { player_id: number; player_name: string | null; photo_path: string | null; team_id: number | null; team_name: string | null; count?: number }[];
   teams?: { team_id: number; team_name: string | null; detail?: string }[];

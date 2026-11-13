@@ -431,42 +431,47 @@ def grant_award(comp_id: int):
 @tla3bny_bp.put("/matches/<int:match_id>/player-of-match")
 @auth.login_required
 def set_player_of_match(match_id: int):
-    """Set (or clear) the player of the match, straight from the match's own edit
-    panel. ``player_id`` null/absent clears it. Returns the updated match so the
-    card and detail refresh with the new pick."""
+    """Set (or clear) the players of the match. ``player_ids`` is a list of
+    player IDs; an empty list clears all. Returns the updated match so the
+    card and detail refresh with the new picks."""
     match = Tla3bnyMatch.query.get_or_404(match_id)
-    # Player of the match is match data, entered from the match's own edit panel —
-    # so any organizer who may enter results (including a data-entry organizer)
-    # may set it, not only full competition admins.
     if not auth.can_enter_match_data(auth.current_user(), match.competition_id):
         return _forbid()
-    player_id = _int((request.get_json(silent=True) or {}).get("player_id"))
-    # A set (non-clearing) pick must be a real participant of this competition —
-    # otherwise any player id could be pinned as player of the match and shown on
-    # that player's public achievements.
-    if player_id and not _approved_in_competition(player_id, match.competition_id):
-        return _err("هذا اللاعب غير مسجّل في هذه البطولة", 409)
-    # Serialize so a double-submit can't leave two player-of-the-match rows.
+    data = request.get_json(silent=True) or {}
+    # Accept both the new list form and the legacy single-id form.
+    raw_ids = data.get("player_ids")
+    if raw_ids is None:
+        single = _int(data.get("player_id"))
+        player_ids = [single] if single else []
+    else:
+        player_ids = [x for x in (_int(v) for v in raw_ids) if x]
+    # Every pick must be a real participant so an arbitrary player id can't
+    # be pinned and appear on that player's public achievements.
+    for pid in player_ids:
+        if not _approved_in_competition(pid, match.competition_id):
+            return _err("أحد اللاعبين غير مسجّل في هذه البطولة", 409)
+    # Serialize so a double-submit can't leave duplicate rows.
     _lock_competition(match.competition_id)
-    prev = Tla3bnyAward.query.filter_by(
-        match_id=match_id, award_type="player_of_match"
-    ).first()
-    already = prev is not None and prev.player_id == player_id
+    prev_ids = {
+        a.player_id for a in Tla3bnyAward.query.filter_by(
+            match_id=match_id, award_type="player_of_match"
+        ).all()
+    }
     Tla3bnyAward.query.filter_by(
         match_id=match_id, award_type="player_of_match"
     ).delete(synchronize_session=False)
-    if player_id:
+    for pid in player_ids:
         award = Tla3bnyAward(
             competition_id=match.competition_id,
             competition_age_id=match.competition_age_id,
             award_type="player_of_match",
             match_id=match_id,
-            player_id=player_id,
+            player_id=pid,
             created_by_user_id=auth.current_user().id,
         )
         db.session.add(award)
         db.session.flush()
-        if not already:
+        if pid not in prev_ids:
             _announce_award(award)
     db.session.commit()
     return jsonify(match.to_dict(include_events=True))
