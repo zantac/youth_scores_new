@@ -865,12 +865,12 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate, onTimerSync 
       draftRef.current.dirty = false;
       onUpdate({ ...info, events: savedEvents });
       setMatchOk(true); setTimeout(() => setMatchOk(false), 1500);
-      // Auto-start the timer when the match goes live; auto-pause when it ends.
+      // Auto-start the timer when the match goes live; stop+reset when it ends.
       if (finalStatus === 'live' && m.status !== 'live') {
         tSetMatchTimer(token, m.id, 'start').catch(() => {});
         onTimerSync();
       } else if (finalStatus !== 'live' && m.status === 'live') {
-        tSetMatchTimer(token, m.id, 'pause').catch(() => {});
+        tSetMatchTimer(token, m.id, 'stop').catch(() => {});
         onTimerSync();
       }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
