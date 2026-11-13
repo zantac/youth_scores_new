@@ -12,8 +12,10 @@ function fmt(s: number): string {
 
 /** The live match stopwatch — organizer-only, server-backed so it survives a
  *  refresh and stays in sync across whoever has the match open. Renders in a
- *  sticky bar; ticks locally while running and re-syncs periodically. */
-export default function MatchTimer({ token, matchId }: { token: string; matchId: number }) {
+ *  sticky bar; ticks locally while running and re-syncs periodically.
+ *  Pass a new `syncKey` value to trigger an immediate re-sync (e.g. after a
+ *  status change that auto-started/stopped the timer). */
+export default function MatchTimer({ token, matchId, syncKey }: { token: string; matchId: number; syncKey?: number }) {
   const tt = useTT();
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -25,6 +27,8 @@ export default function MatchTimer({ token, matchId }: { token: string; matchId:
   }, [token, matchId]);
 
   useEffect(() => { sync(); const iv = setInterval(sync, 15000); return () => clearInterval(iv); }, [sync]);
+  // Re-sync when the parent signals a status-driven timer change.
+  useEffect(() => { if (syncKey && syncKey > 0) sync(); }, [syncKey, sync]);
   useEffect(() => {
     if (!running) return;
     const iv = setInterval(() => setElapsed(e => e + 1), 1000);

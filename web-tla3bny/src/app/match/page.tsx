@@ -4,9 +4,9 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   tMatch, tMatchLineups, tUpdateMatch, tDeleteMatch, tEnterResult, tSetPlayerOfMatch,
-  tCompTeams, tRoster, tCompetition,
+  tCompTeams, tRoster, tCompetition, tCompetitionCoaches, tSetMatchTimer,
   mediaUrl, T_BASE,
-  type TMatch, type TLineup, type TLineupSlot, type TMatchEvent, type TCompPlayer, type TCompAge,
+  type TMatch, type TLineup, type TLineupSlot, type TMatchEvent, type TCompPlayer, type TCompAge, type TCoachPool,
 } from '@/lib/tla3bnyApi';
 import { slotBase } from '@/lib/tla3bnyFormations';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
@@ -546,9 +546,10 @@ function EventsTab({ m }: { m: TMatch }) {
 
 
 // ── ── ── ADMIN PANEL ── ── ──
-function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
+function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate, onTimerSync }: {
   token: string; m: TMatch; lineups: TLineup[];
   onUpdate: (m: TMatch) => void; onLineupsUpdate: () => void;
+  onTimerSync: () => void;
 }) {
   const tt = useTT();
   const nm = useName();
@@ -691,6 +692,19 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       });
     }).catch(() => {});
   }, [m.competition_id, m.competition_age_id, m.age_category_id, m.home_team_id, m.away_team_id]);
+
+  // Coaches for the two teams — keyed by team_id, used by the cards form.
+  const [coaches, setCoaches] = useState<Record<number, TCoachPool[]>>({});
+  useEffect(() => {
+    tCompetitionCoaches(m.competition_id, m.competition_age_id ?? undefined).then(all => {
+      const byTeam: Record<number, TCoachPool[]> = {};
+      for (const c of all) {
+        if (!byTeam[c.team_id]) byTeam[c.team_id] = [];
+        byTeam[c.team_id].push(c);
+      }
+      setCoaches(byTeam);
+    }).catch(() => {});
+  }, [m.competition_id, m.competition_age_id]);
 
   // Busy / ok / err states
   const [resultBusy, setResultBusy] = useState(false);
@@ -851,6 +865,14 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
       draftRef.current.dirty = false;
       onUpdate({ ...info, events: savedEvents });
       setMatchOk(true); setTimeout(() => setMatchOk(false), 1500);
+      // Auto-start the timer when the match goes live; auto-pause when it ends.
+      if (finalStatus === 'live' && m.status !== 'live') {
+        tSetMatchTimer(token, m.id, 'start').catch(() => {});
+        onTimerSync();
+      } else if (finalStatus !== 'live' && m.status === 'live') {
+        tSetMatchTimer(token, m.id, 'pause').catch(() => {});
+        onTimerSync();
+      }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setResultBusy(false); }
   };
@@ -1138,6 +1160,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
         types={['yellow', 'second_yellow', 'red']}
         m={m}
         rosters={rosters}
+        coaches={coaches}
         lineups={lineups}
         onRemove={removeEv}
         onReplace={persistEvents}
@@ -1319,7 +1342,8 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
       const goal: TMatchEvent = {
         id: editId, match_id: m.id, related_event_id: null,
         event_type: 'goal', team_id: creditTeam,
-        player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
+        player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer,
+        player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
         is_extra_time: isGoalET, is_own_goal: isOwnGoal, is_penalty: isPenalty,
         kick_order: null, is_winning_kick: false,
       };
@@ -1327,7 +1351,8 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
       if (assister) list.push({
         id: editAssistId ?? Date.now(), match_id: m.id, related_event_id: null,
         event_type: 'assist', team_id: Number(evTeam),
-        player_id: assister.player_id, player_name: assister.player_name ?? '', minute,
+        player_id: assister.player_id, player_name: assister.player_name ?? '',
+        player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
         is_extra_time: isGoalET, is_own_goal: false, is_penalty: false,
         kick_order: null, is_winning_kick: false,
       });
@@ -1337,13 +1362,15 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
     }
     const bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[] = [{
       event_type: 'goal', team_id: creditTeam,
-      player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer, minute,
+      player_id: scorer?.player_id ?? null, player_name: scorer?.player_name ?? evScorer,
+      player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
       is_extra_time: isGoalET, is_own_goal: isOwnGoal, is_penalty: isPenalty,
       kick_order: null, is_winning_kick: false,
     }];
     if (assister) {
       bare.push({ event_type: 'assist', team_id: Number(evTeam),
-        player_id: assister.player_id, player_name: assister.player_name ?? '', minute,
+        player_id: assister.player_id, player_name: assister.player_name ?? '',
+        player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
         is_extra_time: isGoalET, is_own_goal: false, is_penalty: false,
         kick_order: null, is_winning_kick: false });
     }
@@ -1441,10 +1468,11 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
   );
 }
 
-function EventSection({ title, icon, events, types, m, rosters, lineups, onRemove, onReplace, onSave, saving, ok, tt }: {
+function EventSection({ title, icon, events, types, m, rosters, lineups, coaches, onRemove, onReplace, onSave, saving, ok, tt }: {
   title: string; icon: string;
   events: TMatchEvent[]; types: EvType[];
   m: TMatch; rosters: Record<number, TCompPlayer[]>; lineups: TLineup[];
+  coaches?: Record<number, TCoachPool[]>;
   onRemove: (id: number) => void;
   onReplace: (list: TMatchEvent[]) => void;
   onSave: (bare: Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'>[]) => void;
@@ -1458,12 +1486,17 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
   const [evType, setEvType] = useState<string>(types[0]);
   const [evTeam, setEvTeam] = useState(String(m.home_team_id));
   const [evPlayer, setEvPlayer] = useState('');
+  const [evCoach, setEvCoach] = useState('');
   const [evMinute, setEvMinute] = useState('');
   const [isEvET, setIsEvET] = useState(false);
   // Penalty-shootout fields (only used when types includes penalty_scored/missed).
   const isPenSection = types.includes('penalty_scored' as EvType);
   const [kickOrder, setKickOrder] = useState('');
   const [isWinningKick, setIsWinningKick] = useState(false);
+  // Cards section: subject toggle — player or coach.
+  const CARD_EV = new Set(['yellow', 'second_yellow', 'red'] as EvType[]);
+  const isCardSection = types.some(t => CARD_EV.has(t as EvType));
+  const [subject, setSubject] = useState<'player' | 'coach'>('player');
 
   // The lineup (or approved roster) for a team — used by the add form and edit.
   const rosterFor = (tid: number) => {
@@ -1478,14 +1511,22 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
   // replaces it in place instead of appending.
   const [editId, setEditId] = useState<number | null>(null);
   const resetForm = () => {
-    setEvPlayer(''); setEvMinute(''); setIsEvET(false);
+    setEvPlayer(''); setEvCoach(''); setEvMinute(''); setIsEvET(false);
     if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
   };
   const cancelEdit = () => { setEditId(null); resetForm(); };
   const startEdit = (e: TMatchEvent) => {
     setEvType(e.event_type);
     setEvTeam(e.team_id != null ? String(e.team_id) : String(m.home_team_id));
-    setEvPlayer(e.player_id != null ? String(e.player_id) : '');
+    if (isCardSection && e.coach_id != null) {
+      setSubject('coach');
+      setEvCoach(String(e.coach_id));
+      setEvPlayer('');
+    } else {
+      setSubject('player');
+      setEvPlayer(e.player_id != null ? String(e.player_id) : '');
+      setEvCoach('');
+    }
     setEvMinute(e.minute != null ? String(e.minute) : '');
     setIsEvET(e.is_extra_time);
     if (isPenSection) {
@@ -1500,13 +1541,20 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
 
   // Build the event — append a new one, or replace the one being edited.
   const save = () => {
-    if (!evPlayer) return;
-    const player = roster.find(p => String(p.player_id) === evPlayer);
+    const isCoach = isCardSection && subject === 'coach';
+    if (isCoach ? !evCoach : !evPlayer) return;
+    const teamCoaches = (coaches ?? {})[teamId] ?? [];
+    const coach = isCoach ? teamCoaches.find(c => String(c.id) === evCoach) : null;
+    const player = !isCoach ? roster.find(p => String(p.player_id) === evPlayer) : null;
     const fields = {
       event_type: evType as EvType,
       team_id: Number(evTeam),
       player_id: player?.player_id ?? null,
-      player_name: player?.player_name ?? evPlayer,
+      player_name: player?.player_name ?? (!isCoach ? evPlayer : null),
+      player_name_en: null as string | null,
+      coach_id: coach?.id ?? null,
+      coach_name: coach?.name ?? (isCoach ? evCoach : null),
+      coach_name_en: null as string | null,
       minute: evMinute ? Number(evMinute) : null,
       is_extra_time: isEvET,
       is_own_goal: false,
@@ -1532,7 +1580,10 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
           {shown.map(e => (
             <div key={e.id} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${editId === e.id ? 'bg-aqua/10 border-aqua/50' : 'bg-darkBg/60 border-bdr'}`}>
               <span className="text-base">{EV_ICON[e.event_type] ?? '•'}</span>
-              <span className="text-text text-xs flex-1 truncate font-bold">{e.player_name}</span>
+              <span className="text-text text-xs flex-1 truncate font-bold">
+                {e.coach_id ? (nm(e.coach_name, e.coach_name_en) || '—') : (e.player_name ?? '—')}
+                {e.coach_id && <span className="ms-1 text-hint text-[9px] font-normal">{tt('مدرب', 'Coach')}</span>}
+              </span>
               <div className="flex items-center gap-1">
                 {e.is_extra_time && <span className="text-[9px] font-bold text-teal bg-teal/10 rounded px-1">{tt('و.إ', 'ET')}</span>}
                 {e.kick_order != null && <span className="text-[9px] text-hint">#{e.kick_order}</span>}
@@ -1556,6 +1607,18 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
             <button onClick={cancelEdit} className="text-hint hover:text-text text-[11px] font-bold">{tt('إلغاء التعديل', 'Cancel edit')}</button>
           </div>
         )}
+        {isCardSection && coaches && (
+          <div className="flex gap-2">
+            <button onClick={() => { setSubject('player'); setEvCoach(''); }}
+              className={`text-xs px-3 py-1 rounded-full font-bold border transition-colors ${subject === 'player' ? 'bg-aqua text-on-accent border-aqua' : 'border-bdr text-hint hover:text-text'}`}>
+              {tt('لاعب', 'Player')}
+            </button>
+            <button onClick={() => { setSubject('coach'); setEvPlayer(''); }}
+              className={`text-xs px-3 py-1 rounded-full font-bold border transition-colors ${subject === 'coach' ? 'bg-teal text-on-accent border-teal' : 'border-bdr text-hint hover:text-text'}`}>
+              {tt('مدرب', 'Coach')}
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <Field label={tt('النوع', 'Type')}>
             <select value={evType} onChange={e => setEvType(e.target.value)} className={inputCls}>
@@ -1566,17 +1629,28 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
             </select>
           </Field>
           <Field label={tt('الفريق', 'Team')}>
-            <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvPlayer(''); }} className={inputCls}>
+            <select value={evTeam} onChange={e => { setEvTeam(e.target.value); setEvPlayer(''); setEvCoach(''); }} className={inputCls}>
               <option value={m.home_team_id}>{homeName}</option>
               <option value={m.away_team_id}>{awayName}</option>
             </select>
           </Field>
-          <Field label={tt('اللاعب', 'Player')}>
-            <select value={evPlayer} onChange={e => setEvPlayer(e.target.value)} className={inputCls}>
-              <option value="">—</option>
-              {roster.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
-            </select>
-          </Field>
+          {isCardSection && subject === 'coach' ? (
+            <Field label={tt('المدرب', 'Coach')}>
+              <select value={evCoach} onChange={e => setEvCoach(e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {((coaches ?? {})[teamId] ?? []).map(c => (
+                  <option key={c.id} value={String(c.id)}>{nm(c.name, c.name_en)}</option>
+                ))}
+              </select>
+            </Field>
+          ) : (
+            <Field label={tt('اللاعب', 'Player')}>
+              <select value={evPlayer} onChange={e => setEvPlayer(e.target.value)} className={inputCls}>
+                <option value="">—</option>
+                {roster.map(p => <option key={p.player_id} value={String(p.player_id)}>{p.player_name}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label={tt("الدقيقة", "Minute")}>
             <input type="number" value={evMinute} onChange={e => setEvMinute(e.target.value)} min={1} max={120} placeholder="45" className={inputCls} />
           </Field>
@@ -1599,7 +1673,7 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, onRemov
               min={1} max={20} placeholder="1" className={inputCls} />
           </Field>
         )}
-        <button onClick={save} disabled={saving || !evPlayer}
+        <button onClick={save} disabled={saving || (isCardSection && subject === 'coach' ? !evCoach : !evPlayer)}
           className="w-full bg-aqua text-on-accent text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
           {ok ? '✓' : saving ? tt('…', '…') : editId != null ? tt('حفظ التعديل', 'Save edit') : tt('حفظ', 'Save')}
         </button>
@@ -1717,13 +1791,15 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
       const list: TMatchEvent[] = [...base, {
         id: editOutId ?? Date.now(), match_id: m.id, related_event_id: null,
         event_type: 'substitution_out', team_id: teamId,
-        player_id: Number(outPlayer), player_name: nameFor(Number(outPlayer)), minute,
+        player_id: Number(outPlayer), player_name: nameFor(Number(outPlayer)),
+        player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
         is_extra_time: isEvET, is_own_goal: false, is_penalty: false, kick_order: null, is_winning_kick: false,
       }];
       if (inPlayer) list.push({
         id: editInId ?? Date.now() + 1, match_id: m.id, related_event_id: null,
         event_type: 'substitution_in', team_id: teamId,
-        player_id: Number(inPlayer), player_name: nameFor(Number(inPlayer)), minute,
+        player_id: Number(inPlayer), player_name: nameFor(Number(inPlayer)),
+        player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null, minute,
         is_extra_time: isEvET, is_own_goal: false, is_penalty: false, kick_order: null, is_winning_kick: false,
       });
       onReplace(list);
@@ -1732,6 +1808,7 @@ function SubSection({ events, m, lineups, onRemove, onReplace, onSave, saving, o
     }
     const mk = (type: EvType, pid: number): Omit<TMatchEvent, 'id' | 'match_id' | 'related_event_id'> => ({
       event_type: type, team_id: teamId, player_id: pid, player_name: nameById.get(pid) ?? '',
+      player_name_en: null, coach_id: null, coach_name: null, coach_name_en: null,
       minute, is_extra_time: isEvET, is_own_goal: false, is_penalty: false,
       kick_order: null, is_winning_kick: false,
     });
@@ -1895,6 +1972,8 @@ function MatchContent() {
   const [view, setView] = useState<'pitch' | 'cards'>(() =>
     params.get('view') === 'cards' ? 'cards' : 'pitch');
   const [share, setShare] = useState(false);
+  // Incremented after a status-driven timer action so MatchTimer re-syncs immediately.
+  const [timerSyncKey, setTimerSyncKey] = useState(0);
   // Cards → PDF: mount the printable sheet on demand only; it decodes the
   // full-size photos and opens the print dialog, then we unmount it on
   // `afterprint` so the images don't stay resident in memory.
@@ -1976,7 +2055,7 @@ function MatchContent() {
           <span className="flex-1 text-aqua font-bold text-sm truncate">{context || tt('المباراة', 'Match')}</span>
           <button onClick={() => setShare(true)} className="text-gold text-lg leading-none">{'↗'}</button>
         </div>
-        {canManage && token && <MatchTimer token={token} matchId={m.id} />}
+        {canManage && token && <MatchTimer token={token} matchId={m.id} syncKey={timerSyncKey} />}
       </div>
 
       {/* Hero */}
@@ -2063,6 +2142,7 @@ function MatchContent() {
           token={token} m={m} lineups={lineups}
           onUpdate={updated => { setM(updated); }}
           onLineupsUpdate={load}
+          onTimerSync={() => setTimerSyncKey(k => k + 1)}
         />
       ) : (
         <div className="p-4">
