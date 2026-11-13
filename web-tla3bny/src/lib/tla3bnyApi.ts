@@ -470,6 +470,10 @@ export interface TMatchEvent {
   match_id: number;
   player_id: number | null;
   player_name: string | null;
+  player_name_en?: string | null;
+  coach_id: number | null;
+  coach_name: string | null;
+  coach_name_en: string | null;
   team_id: number | null;
   event_type: TEventType;
   minute: number | null;
