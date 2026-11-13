@@ -165,3 +165,69 @@ def test_guest_confined_to_same_subcompetition_track(db_ctx):
     assert young_A_id in eligible_ids
     # …but a 2015-"B" player may NOT — different sub-competition track.
     assert young_B_id not in eligible_ids
+
+
+def _seed_same_bracket_siblings(db):
+    """One academy, two teams BOTH entered in the same sub-competition bracket
+    (same competition_age_id). Each team has an approved player. Returns
+    (match, team_A_id, player_A_id, team_B_id, player_B_id)."""
+    from app.models import (
+        Tla3bnyAcademy, Tla3bnyAgeCategory, Tla3bnyCompetition,
+        Tla3bnyCompetitionAge, Tla3bnyCompetitionPlayer, Tla3bnyCompetitionTeam,
+        Tla3bnyMatch, Tla3bnyPlayer, Tla3bnyPlayerTeam, Tla3bnySeason, Tla3bnyTeam,
+    )
+    age = Tla3bnyAgeCategory(label="2012", sort_order=0)
+    season = Tla3bnySeason(name="2026-2027")
+    db.session.add_all([age, season])
+    db.session.flush()
+    ac = Tla3bnyAcademy(name="BigAcademy", status="approved")
+    db.session.add(ac)
+    db.session.flush()
+    comp = Tla3bnyCompetition(name="Cup", season_id=season.id, status="active")
+    db.session.add(comp)
+    db.session.flush()
+    cage = Tla3bnyCompetitionAge(competition_id=comp.id, age_category_id=age.id, name="A")
+    db.session.add(cage)
+    db.session.flush()
+
+    def _make_team_with_player(pname):
+        team = Tla3bnyTeam(academy_id=ac.id, age_category_id=age.id, name=pname)
+        db.session.add(team)
+        db.session.flush()
+        entry = Tla3bnyCompetitionTeam(
+            competition_id=comp.id, team_id=team.id,
+            age_category_id=age.id, competition_age_id=cage.id)
+        db.session.add(entry)
+        db.session.flush()
+        p = Tla3bnyPlayer(name=pname, dob=date(2012, 3, 1))
+        db.session.add(p)
+        db.session.flush()
+        db.session.add(Tla3bnyPlayerTeam(player_id=p.id, team_id=team.id, status="active"))
+        db.session.add(Tla3bnyCompetitionPlayer(
+            competition_team_id=entry.id, player_id=p.id, status="approved"))
+        return team, p
+
+    team_a, player_a = _make_team_with_player("TeamA")
+    team_b, player_b = _make_team_with_player("TeamB")
+    match = Tla3bnyMatch(
+        competition_id=comp.id, age_category_id=age.id, competition_age_id=cage.id,
+        home_team_id=team_a.id, away_team_id=team_b.id, status="scheduled")
+    db.session.add(match)
+    db.session.commit()
+    return match, team_a.id, player_a.id, team_b.id, player_b.id
+
+
+def test_same_bracket_sibling_players_not_guests(db_ctx):
+    """An academy with two teams in the same sub-competition bracket must NOT
+    offer each other's players as guests — guesting is cross-age only."""
+    db = db_ctx
+    from app.api.tla3bny.matches import _lineup_eligible_players
+    match, team_a_id, player_a_id, team_b_id, player_b_id = _seed_same_bracket_siblings(db)
+    # From team A's perspective: player B should NOT appear as a guest.
+    eligible_a = {e["player_id"] for e in _lineup_eligible_players(match, team_a_id)}
+    assert player_a_id in eligible_a       # own player is on the roster
+    assert player_b_id not in eligible_a   # sibling team, same bracket → not a guest option
+    # Symmetric: from team B's perspective: player A should NOT appear as a guest.
+    eligible_b = {e["player_id"] for e in _lineup_eligible_players(match, team_b_id)}
+    assert player_b_id in eligible_b
+    assert player_a_id not in eligible_b
