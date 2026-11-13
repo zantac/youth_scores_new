@@ -5,7 +5,7 @@ import {
   type TCompetition, type TCompTeam, type TCoachPool, type TPunishment, type TPunishmentType,
 } from '@/lib/tla3bnyApi';
 import { useTla3bnyAuth } from '@/context/Tla3bnyAuthContext';
-import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName } from './kit';
+import { Card, Field, inputCls, PrimaryButton, ErrorNote, EmptyState, LogoAvatar, useTT, useName, SearchableSelect, type SelectOption } from './kit';
 
 type Kind = 'player' | 'coach' | 'team';
 
@@ -26,7 +26,7 @@ const KINDS: Record<TPunishmentType, Kind[]> = {
 // Disqualification carries no numeric value (just a reason).
 const NEEDS_VALUE = (t: TPunishmentType) => t !== 'disqualification';
 
-interface PoolPlayer { player_id: number; player_name: string | null; team_name: string | null }
+interface PoolPlayer { player_id: number; player_name: string | null; player_name_en?: string | null; photo_path?: string | null; team_name: string | null }
 
 /** Competition organizer's discipline desk: record match bans, fines and point
  *  deductions in one place. Point deductions feed the standings; fines are private. */
@@ -46,7 +46,7 @@ export default function PunishmentsManager({ token, comp }: { token: string; com
   const players: PoolPlayer[] = useMemo(() =>
     teams.flatMap(t => (t.roster ?? [])
       .filter(r => r.status === 'approved')
-      .map(r => ({ player_id: r.player_id, player_name: r.player_name, team_name: t.team_name }))),
+      .map(r => ({ player_id: r.player_id, player_name: r.player_name, player_name_en: r.player_name_en, photo_path: r.photo_path, team_name: t.team_name }))),
     [teams]);
 
   const loadPuns = useCallback(() => {
@@ -131,9 +131,9 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
   const nm = useName();
   const [ptype, setPtype] = useState<TPunishmentType>('match_ban');
   const [kind, setKind] = useState<Kind>('player');
-  const [playerId, setPlayerId] = useState<number | ''>('');
-  const [coachId, setCoachId] = useState<number | ''>('');
-  const [teamId, setTeamId] = useState<number | ''>('');
+  const [playerId, setPlayerId] = useState<number | null>(null);
+  const [coachId, setCoachId] = useState<number | null>(null);
+  const [teamId, setTeamId] = useState<number | null>(null);
   const [num, setNum] = useState('');   // matches / points / amount
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -142,10 +142,10 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
   const allowedKinds = KINDS[ptype];
   useEffect(() => {
     setKind(allowedKinds[0]);
-    setPlayerId(''); setCoachId(''); setTeamId(''); setNum('');
+    setPlayerId(null); setCoachId(null); setTeamId(null); setNum('');
   }, [ptype]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const recipientReady = kind === 'player' ? !!playerId : kind === 'coach' ? !!coachId : !!teamId;
+  const recipientReady = kind === 'player' ? playerId !== null : kind === 'coach' ? coachId !== null : teamId !== null;
   const ready = recipientReady && (!NEEDS_VALUE(ptype) || Number(num) > 0);
 
   const submit = async () => {
@@ -153,15 +153,15 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
     try {
       await tCreatePunishment(token, compId, {
         punishment_type: ptype,
-        player_id: kind === 'player' && playerId ? Number(playerId) : undefined,
-        coach_id: kind === 'coach' && coachId ? Number(coachId) : undefined,
-        team_id: kind === 'team' && teamId ? Number(teamId) : undefined,
+        player_id: kind === 'player' && playerId !== null ? playerId : undefined,
+        coach_id: kind === 'coach' && coachId !== null ? coachId : undefined,
+        team_id: kind === 'team' && teamId !== null ? teamId : undefined,
         matches: ptype === 'match_ban' ? Number(num) : undefined,
         points: ptype === 'point_deduction' ? Number(num) : undefined,
         amount: ptype === 'fine' ? Number(num) : undefined,
         reason: reason.trim() || undefined,
       });
-      setNum(''); setReason(''); setPlayerId(''); setCoachId(''); setTeamId('');
+      setNum(''); setReason(''); setPlayerId(null); setCoachId(null); setTeamId(null);
       onAdded();
     } catch (e) { onError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
@@ -196,20 +196,41 @@ function AddPunishment({ token, compId, teams, coaches, players, onAdded, onErro
 
       <Field label={tt(kindLabel[kind][0], kindLabel[kind][1])}>
         {kind === 'player' ? (
-          <select value={playerId} onChange={e => setPlayerId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {players.map(p => <option key={p.player_id} value={p.player_id}>{p.player_name}{p.team_name ? ` — ${p.team_name}` : ''}</option>)}
-          </select>
+          <SearchableSelect
+            value={playerId}
+            onChange={setPlayerId}
+            withPhoto
+            options={players.map<SelectOption>(p => ({
+              value: p.player_id,
+              label: p.player_name ?? String(p.player_id),
+              sublabel: p.team_name,
+              photo: p.photo_path ?? null,
+              keywords: p.player_name_en ?? null,
+            }))}
+          />
         ) : kind === 'coach' ? (
-          <select value={coachId} onChange={e => setCoachId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {coaches.map(c => <option key={c.id} value={c.id}>{nm(c.name, c.name_en)}{c.team_name ? ` — ${c.team_name}` : ''}</option>)}
-          </select>
+          <SearchableSelect
+            value={coachId}
+            onChange={setCoachId}
+            withPhoto
+            options={coaches.map<SelectOption>(c => ({
+              value: c.id,
+              label: nm(c.name, c.name_en) ?? String(c.id),
+              sublabel: c.team_name ?? null,
+              photo: c.photo_path ?? null,
+              keywords: c.name_en ?? null,
+            }))}
+          />
         ) : (
-          <select value={teamId} onChange={e => setTeamId(Number(e.target.value))} className={inputCls}>
-            <option value="">{tt('اختر…', 'Select…')}</option>
-            {teams.map(t => <option key={t.team_id} value={t.team_id}>{nm(t.team_name, t.team_name_en)}</option>)}
-          </select>
+          <SearchableSelect
+            value={teamId}
+            onChange={setTeamId}
+            options={teams.map<SelectOption>(t => ({
+              value: t.team_id,
+              label: nm(t.team_name, t.team_name_en) ?? String(t.team_id),
+              keywords: t.team_name_en ?? null,
+            }))}
+          />
         )}
       </Field>
 
