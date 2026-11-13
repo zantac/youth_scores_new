@@ -2034,9 +2034,12 @@ function MatchContent() {
           </a>
         )}
         {(m.player_of_match ?? []).length > 0 && (
-          <p className="relative text-gold text-[11px] font-bold mt-1">
-            🎖️ {tt('رجل المباراة', 'Player of the match')}: {m.player_of_match!.map(p => nm(p.player_name, p.player_name_en)).join('، ')}
-          </p>
+          <div className="relative text-gold text-[11px] font-bold mt-1">
+            <span>🎖️ {tt('رجل المباراة', 'Player of the match')}</span>
+            {m.player_of_match!.map(p => (
+              <p key={p.player_id}>{nm(p.player_name, p.player_name_en)}</p>
+            ))}
+          </div>
         )}
         {m.note && (
           <p className="relative text-gold text-[11px] mt-2 mx-auto max-w-md leading-relaxed bg-gold/10 border border-gold/30 rounded-lg px-3 py-2">
