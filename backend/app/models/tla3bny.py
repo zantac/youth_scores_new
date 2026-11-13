@@ -1521,15 +1521,15 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
     lineups: Mapped[list["Tla3bnyLineup"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
     )
-    # The player-of-the-match honour for this match, if the organizer set one.
-    player_of_match_award: Mapped["Tla3bnyAward | None"] = relationship(
+    # The player-of-the-match honours for this match (one row per player awarded).
+    player_of_match_award: Mapped[list["Tla3bnyAward"]] = relationship(
         "Tla3bnyAward",
         primaryjoin=(
             "and_(Tla3bnyMatch.id == Tla3bnyAward.match_id, "
             "Tla3bnyAward.award_type == 'player_of_match')"
         ),
         viewonly=True,
-        uselist=False,
+        uselist=True,
     )
 
     __table_args__ = (
@@ -1620,16 +1620,16 @@ class Tla3bnyMatch(TimestampMixin, db.Model):
             "away_score_pen": self.away_score_pen,
             "note": self.note,
         }
-        pom = self.player_of_match_award
-        data["player_of_match"] = (
+        data["player_of_match"] = [
             {
                 "player_id": pom.player_id,
                 "player_name": pom.player.name if pom.player else None,
                 "player_name_en": pom.player.name_en if pom.player else None,
                 "photo_path": pom.player.photo_path if pom.player else None,
             }
-            if pom is not None and pom.player_id else None
-        )
+            for pom in self.player_of_match_award
+            if pom.player_id
+        ]
         if include_events:
             data["events"] = [
                 e.to_dict()

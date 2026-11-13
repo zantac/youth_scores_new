@@ -612,9 +612,9 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   // The manage panel is long, so split it into sub-tabs — one part at a time.
   const [subTab, setSubTab] = useState<'info' | 'potm' | 'goals' | 'cards' | 'subs' | 'lineup'>('info');
 
-  // Player of the match — picked here and saved alongside the result.
-  const [potm, setPotm] = useState<number | ''>(m.player_of_match?.player_id ?? '');
-  useEffect(() => { setPotm(m.player_of_match?.player_id ?? ''); }, [m.player_of_match?.player_id]);
+  // Players of the match — one or more.
+  const [potms, setPotms] = useState<number[]>(() => (m.player_of_match ?? []).map(p => p.player_id));
+  useEffect(() => { setPotms((m.player_of_match ?? []).map(p => p.player_id)); }, [m.player_of_match]);
 
   // ── draft auto-save ────────────────────────────────────────────────────────
   // Keep draftRef in sync with the latest render values.
@@ -825,7 +825,7 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const savePotm = async () => {
     setErr(null); setPotmBusy(true);
     try {
-      const updated = await tSetPlayerOfMatch(token, m.id, potm ? Number(potm) : null);
+      const updated = await tSetPlayerOfMatch(token, m.id, potms);
       onUpdate(updated); setPotmOk(true); setTimeout(() => setPotmOk(false), 1500);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     finally { setPotmBusy(false); }
@@ -1026,31 +1026,43 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           approved roster if no lineup was posted, like the goal/card pickers. */}
       {subTab === 'potm' && (
       <Section title={tt('🎖️ رجل المباراة', '🎖️ Player of the match')}>
-        <Field label={tt('اختر اللاعب', 'Pick the player')}>
-          <select value={potm}
-            onChange={e => setPotm(e.target.value ? Number(e.target.value) : '')}
-            className={inputCls}>
-            <option value="">{tt('— بدون —', '— none —')}</option>
-            {[m.home_team_id, m.away_team_id].map(tid => {
-              const slots = lineups.find(l => l.team_id === tid)?.slots.filter(s => s.player_id != null) ?? [];
-              const list = slots.length > 0
-                ? slots.map(s => ({ player_id: s.player_id!, player_name: s.player_name, player_name_en: s.player_name_en }))
-                : (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name, player_name_en: p.player_name_en }));
-              if (list.length === 0) return null;
-              const label = nm(
-                tid === m.home_team_id ? m.home_team_name : m.away_team_name,
-                tid === m.home_team_id ? m.home_team_name_en : m.away_team_name_en,
-              );
-              return (
-                <optgroup key={tid} label={label}>
-                  {list.map(p => (
-                    <option key={p.player_id} value={p.player_id}>{nm(p.player_name, p.player_name_en)}</option>
-                  ))}
-                </optgroup>
-              );
-            })}
-          </select>
-        </Field>
+        <p className="text-hint text-[11px]">{tt('اختر لاعبًا واحدًا أو أكثر', 'Pick one or more players')}</p>
+        {(() => {
+          type PotmRow = { player_id: number; player_name: string | null; player_name_en: string | null; photo_path: string | null; team_name: string };
+          const allRows: PotmRow[] = [m.home_team_id, m.away_team_id].flatMap(tid => {
+            const teamName = nm(tid === m.home_team_id ? m.home_team_name : m.away_team_name, tid === m.home_team_id ? m.home_team_name_en : m.away_team_name_en);
+            const slots = lineups.find(l => l.team_id === tid)?.slots.filter(s => s.player_id != null) ?? [];
+            if (slots.length > 0)
+              return slots.map(s => ({ player_id: s.player_id!, player_name: s.player_name, player_name_en: s.player_name_en ?? null, photo_path: s.photo_path, team_name: teamName }));
+            return (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name, player_name_en: p.player_name_en ?? null, photo_path: p.photo_path, team_name: teamName }));
+          });
+          if (allRows.length === 0) return <p className="text-hint text-xs">{tt('لا لاعبين', 'No players')}</p>;
+          return (
+            <div className="rounded-xl border border-bdr/50 overflow-hidden">
+              {allRows.map(p => {
+                const checked = potms.includes(p.player_id);
+                return (
+                  <label key={p.player_id}
+                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${checked ? 'bg-gold/10' : 'hover:bg-cardBg2/60'}`}>
+                    <LogoAvatar src={p.photo_path} name={p.player_name} size={30} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-text truncate">{nm(p.player_name, p.player_name_en)}</p>
+                      <p className="text-[11px] text-hint truncate">{p.team_name}</p>
+                    </div>
+                    <input type="checkbox" checked={checked}
+                      onChange={() => setPotms(prev => checked ? prev.filter(id => id !== p.player_id) : [...prev, p.player_id])}
+                      className="w-4 h-4 shrink-0 accent-[#c89b3c]" />
+                  </label>
+                );
+              })}
+            </div>
+          );
+        })()}
+        {potms.length > 0 && (
+          <button onClick={() => setPotms([])} className="text-hint text-xs hover:text-text">
+            {tt('مسح الكل', 'Clear all')}
+          </button>
+        )}
         <div className="flex items-center gap-2">
           <PrimaryButton onClick={savePotm} disabled={potmBusy} className="text-sm">
             {potmBusy ? tt('…', '…') : tt('حفظ', 'Save')}
@@ -1980,9 +1992,9 @@ function MatchContent() {
             📅 {tt('أضِف إلى التقويم', 'Add to calendar')}
           </a>
         )}
-        {m.player_of_match && (
+        {(m.player_of_match ?? []).length > 0 && (
           <p className="relative text-gold text-[11px] font-bold mt-1">
-            🎖️ {tt('رجل المباراة', 'Player of the match')}: {nm(m.player_of_match.player_name, m.player_of_match.player_name_en)}
+            🎖️ {tt('رجل المباراة', 'Player of the match')}: {m.player_of_match!.map(p => nm(p.player_name, p.player_name_en)).join('، ')}
           </p>
         )}
         {m.note && (

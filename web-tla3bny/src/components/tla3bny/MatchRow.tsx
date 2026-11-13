@@ -131,9 +131,9 @@ export default function MatchRow({ m, showComp = false, hideRound = false }: { m
       </div>
 
       {m.venue && <p className="text-center text-[10px] text-hint mt-1 truncate">📍 {m.venue}</p>}
-      {m.player_of_match && (
+      {(m.player_of_match ?? []).length > 0 && (
         <p className="text-center text-[10px] text-gold font-bold mt-0.5 truncate">
-          🎖️ {tt('رجل المباراة', 'Player of the match')}: {nm(m.player_of_match.player_name, m.player_of_match.player_name_en)}
+          🎖️ {tt('رجل المباراة', 'Player of the match')}: {m.player_of_match!.map(p => nm(p.player_name, p.player_name_en)).join('، ')}
         </p>
       )}
     </Link>
