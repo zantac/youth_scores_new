@@ -185,7 +185,13 @@ def update_match(match_id: int):
     if "status" in data and data.get("status") not in codes.TLA3BNY_MATCH_STATUS:
         return _err("Invalid match status", 400)
     if "status" in data:
-        match.status = data.get("status")
+        new_status = data.get("status")
+        # First kick-off: auto-seed the score to 0-0 so the live scoreboard
+        # starts at 0 instead of null without the organizer having to type it.
+        if new_status == "live" and match.home_score is None and match.away_score is None:
+            match.home_score = 0
+            match.away_score = 0
+        match.status = new_status
         _stamp_finished(match)
     # Clip the free-text fields to their column lengths — an over-long value
     # would otherwise raise a DataError (500) and poison the session. Column

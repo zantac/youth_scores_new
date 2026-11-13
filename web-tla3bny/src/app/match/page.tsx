@@ -581,6 +581,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
   const [status, setStatus] = useState(m.status);
   // Keep status in sync when the parent updates the match (e.g. after saving score).
   useEffect(() => { setStatus(m.status); }, [m.status]);
+  // Keep score fields in sync when the match is updated externally (e.g. backend
+  // auto-seeds 0-0 on live, or goal auto-score updates m via onUpdate). Guard on
+  // dirty so a mid-edit manual value isn't overwritten before the user clicks Save.
+  useEffect(() => {
+    if (!draftRef.current.dirty) setHomeScore(m.home_score != null ? String(m.home_score) : '');
+  }, [m.home_score]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!draftRef.current.dirty) setAwayScore(m.away_score != null ? String(m.away_score) : '');
+  }, [m.away_score]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Info state
   const [date, setDate] = useState(m.date ?? '');
@@ -726,14 +735,29 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
     is_winning_kick: e.is_winning_kick,
   }));
 
+  // Count regular-time goals for `tid`, crediting own goals to the opposing team.
+  const computeGoalScore = (list: TMatchEvent[], tid: number) =>
+    list.filter(e =>
+      e.event_type === 'goal' && !e.is_extra_time &&
+      (e.is_own_goal ? e.team_id !== tid : e.team_id === tid)
+    ).length;
+
   // Persist an explicit events list (so a just-added event is saved in the same
   // click, without waiting for a state update to flush).
   const persistEvents = async (list: TMatchEvent[]) => {
     setErr(null); setEventsBusy(true);
     try {
       setEvents(list);
+      // Auto-derive the score from goals only when the match is live.
+      // For completed matches the organiser may have entered the final
+      // result manually before logging the events, so the recorded score
+      // must win over the event count in that case.
+      const isLive = m.status === 'live';
+      const scoreHome = isLive ? computeGoalScore(list, m.home_team_id) : (m.home_score ?? null);
+      const scoreAway = isLive ? computeGoalScore(list, m.away_team_id) : (m.away_score ?? null);
+      if (isLive) { setHomeScore(String(scoreHome)); setAwayScore(String(scoreAway)); }
       const updated = await tEnterResult(token, m.id, {
-        home_score: m.home_score, away_score: m.away_score,
+        home_score: scoreHome, away_score: scoreAway,
         events: eventsPayload(list),
       });
       // Clear the local draft too, so reopening the tab doesn't offer to recover
@@ -1004,7 +1028,15 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate }: {
           )}
         </div>
         <Field label={tt('الحالة', 'Status')}>
-          <select value={status} onChange={e => setStatus(e.target.value as TMatch['status'])} className={inputCls}>
+          <select value={status} onChange={e => {
+            const s = e.target.value as TMatch['status'];
+            setStatus(s);
+            // Seed score to 0-0 on the first transition to live so the organiser
+            // never sees an empty scoreboard when a match kicks off.
+            if (s === 'live' && homeScore === '' && awayScore === '') {
+              setHomeScore('0'); setAwayScore('0');
+            }
+          }} className={inputCls}>
             <option value="scheduled">{tt('مجدولة', 'Scheduled')}</option>
             <option value="live">{tt('مباشرة', 'Live')}</option>
             <option value="completed">{tt('انتهت', 'Completed')}</option>
