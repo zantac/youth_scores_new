@@ -749,11 +749,12 @@ function AdminPanel({ token, m, lineups, onUpdate, onLineupsUpdate, onTimerSync 
     is_winning_kick: e.is_winning_kick,
   }));
 
-  // Count regular-time goals for `tid`, crediting own goals to the opposing team.
+  // Count regular-time goals for `tid`. team_id is always the benefiting team —
+  // GoalSection already flips it to the opposing team for own goals — so a plain
+  // equality check covers both regular goals and own goals correctly.
   const computeGoalScore = (list: TMatchEvent[], tid: number) =>
     list.filter(e =>
-      e.event_type === 'goal' && !e.is_extra_time &&
-      (e.is_own_goal ? e.team_id !== tid : e.team_id === tid)
+      e.event_type === 'goal' && !e.is_extra_time && e.team_id === tid
     ).length;
 
   // Persist an explicit events list (so a just-added event is saved in the same
