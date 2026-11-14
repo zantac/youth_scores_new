@@ -62,11 +62,12 @@ export function PapersProgress({ required, files }: { required: string[]; files:
  * or coach can see at a glance what is still missing and attach it.
  */
 export function PapersUploader({
-  token, playerId, required, sources = [], files, onChange,
+  token, playerId, required, sources = [], files, onChange, canDelete = true,
 }: {
   token: string; playerId: number; required: string[];
   sources?: TDocSource[]; files: TPlayerFile[];
   onChange: () => void | Promise<void>;
+  canDelete?: boolean;
 }) {
   const tt = useTT();
   const [busy, setBusy] = useState<string | null>(null);
@@ -111,10 +112,10 @@ export function PapersUploader({
                 {f ? <span className="text-win">✓ </span> : <span className="text-gold">• </span>}{doc}
               </span>
               {f && <PaperView file={f} className={linkCls}>{tt('عرض', 'View')}</PaperView>}
-              {f && <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>}
-              <input type="file" accept="image/*,.pdf" disabled={busy === doc}
+              {f && canDelete && <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>}
+              {canDelete && <input type="file" accept="image/*,.pdf" disabled={busy === doc}
                 onChange={e => { const file = e.target.files?.[0]; if (file) upload(doc, file); e.target.value = ''; }}
-                className={fileInputCls} />
+                className={fileInputCls} />}
             </div>
             {asks.length > 0 && (
               <p className="text-[10px] text-hint mt-0.5 truncate">{tt('مطلوبة في', 'Required by')}: {asks.join('، ')}</p>
@@ -127,7 +128,7 @@ export function PapersUploader({
         <div key={f.id} className="flex items-center gap-2 bg-darkBg border border-bdr rounded-xl px-3 py-2">
           <span className="text-xs text-hint flex-1 min-w-0 truncate">{f.label || f.original_name || tt('ملف', 'File')}</span>
           <PaperView file={f} className={linkCls}>{tt('عرض', 'View')}</PaperView>
-          <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>
+          {canDelete && <button onClick={() => remove(f)} className="text-hint hover:text-loss text-xs shrink-0">🗑</button>}
         </div>
       ))}
       {err && <p className="text-loss text-[11px]">{err}</p>}

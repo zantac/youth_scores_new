@@ -196,6 +196,10 @@ export interface TPlayer {
   // True when the current viewer (any organizer of a competition the player is
   // in) may replace/rotate the identity photo. Set by the backend.
   can_set_photo?: boolean;
+  // True when the academy admin is locked from editing this player's profile/papers
+  // (approved or was-ever-approved in an active competition, deadline passed, or
+  // registration closed). Organizers and super-admins are never locked.
+  edit_locked?: boolean;
 }
 
 /** One competition a player was entered into, and how that request went. */

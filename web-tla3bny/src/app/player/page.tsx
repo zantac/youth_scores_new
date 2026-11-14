@@ -379,7 +379,8 @@ function PlayerContent() {
           </div>
           {canUpload ? (
             <PapersUploader token={token as string} playerId={p.id} required={docs.documents}
-              sources={docs.sources} files={p.files ?? []} onChange={refreshPapers} />
+              sources={docs.sources} files={p.files ?? []} onChange={refreshPapers}
+              canDelete={!p.edit_locked} />
           ) : (
             <PapersReview files={p.files} required={docs.documents}
               missing={docs.documents.filter(d => !docSupplied(d, (p.files ?? []).map(f => f.label)))} />

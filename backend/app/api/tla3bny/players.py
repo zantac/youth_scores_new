@@ -89,11 +89,13 @@ def get_player(player_id: int):
     if player.is_orphan():
         return _err("اللاعب غير موجود", 404)
     data = player.to_dict(with_files=_can_view_player_files(player))
-    # Whether THIS viewer may replace/rotate the identity photo. Computed on the
-    # same rule as the photo endpoints (any organizer of a competition the player
-    # is in), so the control shows for data-entry organizers too — they don't
-    # receive the registration list the client would otherwise infer this from.
-    data["can_set_photo"] = _organizer_may_set_photo(auth.current_user(), player)
+    user = auth.current_user()
+    # Whether THIS viewer may replace/rotate the identity photo.
+    data["can_set_photo"] = _organizer_may_set_photo(user, player)
+    # Whether the current user (academy admin) is locked from editing this
+    # player's profile data and papers. Used by the frontend to hide edit/delete
+    # controls so a blocked action is never offered to begin with.
+    data["edit_locked"] = _player_edit_locked(player, user, include_reg_closed=True) is not None
     return jsonify(data)
 
 
@@ -607,17 +609,24 @@ def _national_id_clash_in_competition(
     )
 
 
-def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
+def _player_edit_locked(player: Tla3bnyPlayer, user,
+                        include_reg_closed: bool = False) -> str | None:
     """Changing a player's global data (name, photo, DOB, papers…) is frozen for
-    the academy in two cases; only the relevant competition's admin (or the super
-    admin, who counts as admin everywhere) may still edit. Returns a message if
-    the caller is locked out.
+    the academy; only the relevant competition's admin (or the super admin, who
+    counts as admin everywhere) may still edit. Returns a message if the caller
+    is locked out.
 
-      1. The player has been APPROVED in a competition — the identity is frozen so
-         the academy can't swap the photo and slip a different player onto the
-         approved player's papers. This holds regardless of any deadline.
+      1. The player has been APPROVED in a competition (cp.status == "approved"),
+         or was ever approved (approved_by_user_id is not None) — re-uploading
+         papers resets cp.status to "pending" but must not re-open the identity
+         freeze, otherwise an academy could swap a player's data without going
+         through the replacement flow.
       2. A competition's player-registration deadline has passed — frozen for the
          academy even while the registration is still only pending.
+      3. (include_reg_closed=True only) The competition's registration is manually
+         closed (registration_open=False). Used for paper *deletion* but not for
+         profile edits: an academy admin may still fix a typo on a pending player
+         even when registration is closed, they just can't delete papers.
     """
     regs = Tla3bnyCompetitionPlayer.query.filter(
         Tla3bnyCompetitionPlayer.player_id == player.id,
@@ -627,9 +636,14 @@ def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
         entry = cp.entry
         if entry is None:
             continue
+        comp = entry.competition
+        # Once a competition is finished the freeze lifts: the academy may edit
+        # the player's profile to prepare them for a new registration.
+        if comp and comp.status == "finished":
+            continue
         if auth.is_competition_admin(user, entry.competition_id):
             continue  # that competition's admin (and the super admin) may edit
-        if cp.status == "approved":
+        if cp.status == "approved" or cp.approved_by_user_id is not None:
             return "لا يمكن تعديل بيانات لاعب تم اعتماده في بطولة — تواصل مع إدارة البطولة"
         cage = entry.competition_age or Tla3bnyCompetitionAge.query.filter_by(
             competition_id=entry.competition_id,
@@ -637,6 +651,9 @@ def _player_edit_locked(player: Tla3bnyPlayer, user) -> str | None:
         ).first()
         if cage and cage.registration_deadline_passed:
             return "انتهى موعد تعديل بيانات اللاعبين في هذه البطولة"
+        if include_reg_closed:
+            if comp and not comp.registration_open:
+                return "تسجيل اللاعبين مغلق في هذه البطولة"
     return None
 
 
@@ -1015,6 +1032,9 @@ def delete_player_file(player_id: int, file_id: int):
     team_id = _player_team_id(player)
     if team_id is None or not auth.can_manage_team(auth.current_user(), team_id):
         return _forbid()
+    locked = _player_edit_locked(player, auth.current_user(), include_reg_closed=True)
+    if locked:
+        return _err(locked, 403)
     pf = Tla3bnyPlayerFile.query.filter_by(id=file_id, player_id=player_id).first_or_404()
     db.session.delete(pf)
     db.session.commit()
