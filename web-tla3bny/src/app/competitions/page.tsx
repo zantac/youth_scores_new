@@ -15,6 +15,7 @@ import { formatMatchDate, sortAges, todayStr } from '@/lib/utils';
 import MatchRow from '@/components/tla3bny/MatchRow';
 import StandingsTable from '@/components/tla3bny/StandingsTable';
 import CompetitionHero from '@/components/tla3bny/CompetitionHero';
+import FollowButton from '@/components/tla3bny/FollowButton';
 import SubCompetitionAbout from '@/components/tla3bny/SubCompetitionAbout';
 import { AdStrip } from '@/components/tla3bny/AdCard';
 import { tCompetitionAds, type TAd } from '@/lib/tla3bnyApi';
@@ -121,7 +122,8 @@ function CompetitionsContent() {
         <CompetitionHero comp={comp}
           title={selectedAge?.name || undefined}
           ageLabel={selectedAge?.age_category ?? undefined}
-          description={null} />
+          description={null}
+          action={<FollowButton competitionId={String(comp.id)} />} />
 
         <div className="flex items-center gap-1 border-b border-bdr overflow-x-auto no-scrollbar">
           {tabs.map(t => (
