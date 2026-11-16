@@ -12,8 +12,15 @@ export default function NotifyBell() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setState(notifState());
-    initNotifications().catch(() => {});
+    const s = notifState();
+    setState(s);
+    if (s === 'default') {
+      // Auto-prompt on first visit so notifications are on by default.
+      setBusy(true);
+      enableNotifications().then(setState).catch(() => {}).finally(() => setBusy(false));
+    } else {
+      initNotifications().catch(() => {});
+    }
   }, []);
 
   if (state === 'unsupported') return null;
@@ -33,9 +40,10 @@ export default function NotifyBell() {
 
   return (
     <button onClick={onClick} disabled={on || denied || busy} title={label} aria-label={label}
-      className={`text-sm leading-none rounded-lg px-2 py-1 border transition-colors
+      className={`flex items-center gap-1 text-sm leading-none rounded-lg px-2 py-1 border transition-colors
         ${on ? 'border-aqua/60 bg-aqua/10 text-aqua' : denied ? 'border-bdr bg-cardBg opacity-50' : 'border-bdr bg-cardBg hover:bg-aqua/10'}`}>
-      {busy ? '…' : denied ? '🔕' : '🔔'}
+      <span>{busy ? '…' : denied ? '🔕' : '🔔'}</span>
+      {on && <span className="text-[11px] font-bold">{tt('مفعّل', 'On')}</span>}
     </button>
   );
 }
