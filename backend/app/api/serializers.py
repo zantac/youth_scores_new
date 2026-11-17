@@ -238,6 +238,7 @@ def competition_data(competition_id: int) -> dict | None:
         # each collection's player links are joined onto that same query.
         .options(
             joinedload(Match.stage),
+            joinedload(Match.group),
             selectinload(Match.goals).joinedload(MatchGoal.scorer),
             selectinload(Match.goals).joinedload(MatchGoal.assist),
             selectinload(Match.cards).joinedload(MatchCard.player),
@@ -484,7 +485,7 @@ def _match(m: Match) -> dict:
 
     return {
         "match_id": str(m.id),
-        "group": m.round_label_ar or m.round_label_en or "",
+        "group": m.round_label_ar or m.round_label_en or (m.group.name_ar or m.group.name_en if m.group else "") or "",
         "week": m.week or "",
         "date": m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
         "time": m.match_date.strftime("%H:%M") if m.match_date else "",
@@ -602,7 +603,7 @@ def match_full(m: Match) -> dict:
         "time": m.match_date.strftime("%H:%M") if m.match_date else "",
         "week": m.week,
         # The group/round label (e.g. «المجموعة الأولى»); shown on the match page.
-        "group": m.round_label_ar or m.round_label_en or None,
+        "group": m.round_label_ar or m.round_label_en or (m.group.name_ar or m.group.name_en if m.group else None) or None,
         "venue": m.venue_ar or m.venue_en,
         "note": m.note_ar or m.note_en,
         "status": STATUS_OUT.get(m.status, "upcoming"),
@@ -1566,7 +1567,7 @@ def all_matches(
     # limit applies to the already-filtered set (see stage_comp above).
     q = Match.query.filter(
         Match.deleted_at.is_(None), Match.stage_id.in_(stage_comp.keys())
-    )
+    ).options(joinedload(Match.group))
     if date_from:
         q = q.filter(Match.match_date >= datetime.combine(date_from, day_time.min))
     if date_to:
@@ -1590,7 +1591,7 @@ def all_matches(
             "date": m.match_date.strftime("%Y-%m-%d") if m.match_date else "",
             "time": m.match_date.strftime("%H:%M") if m.match_date else "",
             "status": STATUS_OUT.get(m.status, "upcoming"),
-            "group": m.round_label_ar or m.round_label_en or "",
+            "group": m.round_label_ar or m.round_label_en or (m.group.name_ar or m.group.name_en if m.group else "") or "",
             "venue": m.venue_ar or m.venue_en or "",
             "note": m.note_ar or m.note_en or None,
             "home_score": m.home_score,
