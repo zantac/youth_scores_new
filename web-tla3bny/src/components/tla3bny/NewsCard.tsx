@@ -66,6 +66,9 @@ export default function NewsCard({ item, isNew = false, showCompetition = true }
             ].filter(Boolean).join(' · ');
             return scope ? <span className="flex items-center gap-1.5 truncate">🏆 {scope}</span> : null;
           })()}
+          {(item.like_count ?? 0) > 0 && (
+            <span className="flex items-center gap-1 text-red-400 tnum">❤️ {item.like_count}</span>
+          )}
         </div>
       </div>
     </div>
