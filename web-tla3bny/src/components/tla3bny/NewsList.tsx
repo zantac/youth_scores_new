@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { tNews, tNewsItem, mediaUrl, type TNews } from '@/lib/tla3bnyApi';
+import { tNews, tNewsItem, tLikeNews, mediaUrl, type TNews } from '@/lib/tla3bnyApi';
 import { useApp } from '@/context/AppContext';
 import Spinner from '@/components/ui/Spinner';
 import PhotoGalleryViewer from './PhotoGalleryViewer';
@@ -17,12 +17,39 @@ import { Card, EmptyState, useTT } from './kit';
  * With `compId` it shows one competition's news; without it, everything.
  */
 
-function NewsDetail({ item, onClose }: { item: TNews; onClose: () => void }) {
+const LS_LIKED = 'tla3bnyLikedNews';
+function getLiked(): Set<number> {
+  if (typeof window === 'undefined') return new Set();
+  try { return new Set(JSON.parse(localStorage.getItem(LS_LIKED) || '[]')); }
+  catch { return new Set(); }
+}
+function saveLiked(s: Set<number>) {
+  localStorage.setItem(LS_LIKED, JSON.stringify([...s]));
+}
+
+function NewsDetail({ item, onClose, onLike }: {
+  item: TNews; onClose: () => void; onLike: (id: number, newCount: number) => void;
+}) {
   const tt = useTT();
   const { locale } = useApp();
   const [photoIdx, setPhotoIdx] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [liked, setLiked] = useState(() => getLiked().has(item.id));
+  const [likeCount, setLikeCount] = useState(item.like_count ?? 0);
+  const [liking, setLiking] = useState(false);
   const photos = item.images.map(i => mediaUrl(i)).filter(Boolean) as string[];
+
+  const handleLike = async () => {
+    if (liked || liking) return;
+    setLiking(true);
+    try {
+      const res = await tLikeNews(item.id);
+      setLikeCount(res.like_count);
+      setLiked(true);
+      const s = getLiked(); s.add(item.id); saveLiked(s);
+      onLike(item.id, res.like_count);
+    } catch { /* best-effort */ } finally { setLiking(false); }
+  };
 
   // Share the current URL — it now carries ?news=<id>, and the server injects
   // this item's title + cover into the link's WhatsApp/social preview.
@@ -85,6 +112,20 @@ function NewsDetail({ item, onClose }: { item: TNews; onClose: () => void }) {
             </span>
           )}
         </div>
+
+        {/* Like button */}
+        <button
+          onClick={handleLike}
+          disabled={liked || liking}
+          className={`flex items-center gap-2 self-start rounded-xl px-4 py-2 border text-sm font-bold transition-colors
+            ${liked
+              ? 'border-red-500/40 bg-red-500/10 text-red-400 cursor-default'
+              : 'border-bdr bg-cardBg text-hint hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400'}`}>
+          <span>{liked ? '❤️' : '🤍'}</span>
+          <span>{liking ? '…' : liked ? tt('أعجبك', 'Liked') : tt('أعجبني', 'Like')}</span>
+          {likeCount > 0 && <span className="tnum text-xs opacity-70">{likeCount}</span>}
+        </button>
+
         <hr className="border-bdr" />
         {/* Team of the round: draw the best XI on a pitch, as on the honours page. */}
         {item.team_of_round && (
@@ -170,6 +211,15 @@ export default function NewsList({ compId, search = false }: { compId?: number; 
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  // After liking from the detail view, update the count on the list card too.
+  const handleLike = (id: number, newCount: number) => {
+    setItems(prev => prev
+      ? prev.map(n => n.id === id ? { ...n, like_count: newCount } : n)
+      : prev
+    );
+    setSelected(prev => prev && prev.id === id ? { ...prev, like_count: newCount } : prev);
+  };
+
   if (!items) return <Spinner />;
 
   const shown = items.filter(n =>
@@ -195,7 +245,7 @@ export default function NewsList({ compId, search = false }: { compId?: number; 
         </div>
       )}
 
-      {selected && <NewsDetail item={selected} onClose={closeNews} />}
+      {selected && <NewsDetail item={selected} onClose={closeNews} onLike={handleLike} />}
     </>
   );
 }

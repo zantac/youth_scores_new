@@ -626,6 +626,7 @@ export interface TNews {
   date: string | null;
   is_published: boolean;
   published_at: string;
+  like_count: number;
 }
 
 export interface THome {
@@ -1561,6 +1562,8 @@ export const tUpdateNews = (token: string, id: number, fd: TNewsInput) =>
   sendForm<TNews>('PUT', `/news/${id}`, newsBody(fd), token);
 export const tDeleteNews = (token: string, id: number) =>
   send<{ message: string }>('DELETE', `/news/${id}`, undefined, token);
+export const tLikeNews = (id: number) =>
+  send<{ like_count: number }>('POST', `/news/${id}/like`);
 export const tHome = () => get<THome>('/home');
 
 // ── sponsor ads ──────────────────────────────────────────────────────────────

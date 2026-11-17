@@ -2,7 +2,7 @@ from datetime import datetime
 
 from flask import jsonify, request
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import Tla3bnyCompetition, Tla3bnyMatch, Tla3bnyNews
 from app.services import cache
 from app.services import notifications
@@ -174,6 +174,20 @@ def update_news(news_id: int):
         return _err(str(e))
     db.session.commit()
     return jsonify(n.to_dict())
+
+
+@tla3bny_bp.post("/news/<int:news_id>/like")
+@limiter.limit("5 per minute; 20 per hour", key_func=lambda: request.remote_addr)
+def like_news(news_id: int):
+    """Public: increment like_count by 1. Rate-limited per IP as a spam guard.
+    The client deduplicates with localStorage so a user can't like twice from
+    the same device without the server needing to track individual users."""
+    n = Tla3bnyNews.query.get_or_404(news_id)
+    if not n.is_published:
+        return _err("Not found", 404)
+    n.like_count = (n.like_count or 0) + 1
+    db.session.commit()
+    return jsonify({"like_count": n.like_count})
 
 
 @tla3bny_bp.delete("/news/<int:news_id>")

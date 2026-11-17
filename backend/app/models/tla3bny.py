@@ -1832,6 +1832,7 @@ class Tla3bnyNews(TimestampMixin, db.Model):
     author_user_id: Mapped[int | None] = mapped_column(
         sa.ForeignKey("tla3bny_users.id", ondelete="SET NULL")
     )
+    like_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0, server_default="0")
 
     competition: Mapped["Tla3bnyCompetition | None"] = relationship(
         back_populates="news"
@@ -1869,6 +1870,7 @@ class Tla3bnyNews(TimestampMixin, db.Model):
             "published_at": (
                 self.published_at.isoformat() if self.published_at else None
             ),
+            "like_count": self.like_count or 0,
         }
 
     def __repr__(self) -> str:
