@@ -1,13 +1,13 @@
 """tla3bny_news: add like_count column
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: b3c4d5e6f7a8
 Revises: z2a3b4c5d6e7
 Create Date: 2026-11-17
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = 'a1b2c3d4e5f6'
+revision = 'b3c4d5e6f7a8'
 down_revision = 'z2a3b4c5d6e7'
 branch_labels = None
 depends_on = None
