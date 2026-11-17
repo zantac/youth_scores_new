@@ -30,7 +30,12 @@ const SW_SCOPE = '/firebase-cloud-messaging-push-scope';
 // a token rotation and drives the follow button's on/off state.
 const LS_FOLLOWS = 'tla3bnyFollowedCompetitions';
 
-export type NotifState = 'unsupported' | 'default' | 'granted' | 'denied';
+export type NotifState = 'unsupported' | 'default' | 'granted' | 'denied' | 'opted_out';
+
+// User can turn notifications off in-app without revoking browser permission.
+// We delete the FCM token so messages stop arriving, and store this flag so
+// initNotifications skips re-subscription on the next page load.
+const LS_OPT_OUT = 'tla3bnyNotifOptOut';
 
 let messaging: Messaging | null = null;
 
@@ -84,6 +89,7 @@ function setFollowedPlayers(ids: string[]): void {
 
 export function notifState(): NotifState {
   if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted' && localStorage.getItem(LS_OPT_OUT) === 'true') return 'opted_out';
   return Notification.permission as NotifState;
 }
 
@@ -162,7 +168,7 @@ async function syncResultsBroadcast(token: string): Promise<void> {
 
 /** On load, if already granted: refresh token, rejoin news, re-assert follows. */
 export async function initNotifications(): Promise<void> {
-  if (notifState() !== 'granted') return;
+  if (notifState() !== 'granted') return; // 'opted_out' also skips — user chose off
   const m = await ready();
   if (!m) return;
   const token = await currentToken(m);
@@ -176,8 +182,9 @@ export async function initNotifications(): Promise<void> {
   await syncResultsBroadcast(token);
 }
 
-/** From a user click: prompt, then join the always-on news topic. */
+/** From a user click: prompt (or re-enable after opt-out), join the news topic. */
 export async function enableNotifications(): Promise<NotifState> {
+  localStorage.removeItem(LS_OPT_OUT);
   const m = await ready();
   if (!m) return 'unsupported';
   const perm = await Notification.requestPermission();
@@ -185,9 +192,21 @@ export async function enableNotifications(): Promise<NotifState> {
   const token = await currentToken(m);
   if (token) {
     await postJson('/push/subscribe', { token });
-    await syncResultsBroadcast(token); // no favourites yet → join the results broadcast
+    await syncResultsBroadcast(token);
   }
   return 'granted';
+}
+
+/** From a user click: stop push without revoking browser permission.
+ *  Deletes the FCM token so messages stop arriving; sets the opt-out flag so
+ *  initNotifications skips re-subscription on the next load. */
+export async function disableNotifications(): Promise<NotifState> {
+  localStorage.setItem(LS_OPT_OUT, 'true');
+  if (messaging) {
+    const { deleteToken } = await import('firebase/messaging');
+    await deleteToken(messaging).catch(() => {});
+  }
+  return 'opted_out';
 }
 
 /** Follow a competition: prompt if needed, subscribe, remember locally. */
