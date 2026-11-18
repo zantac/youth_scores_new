@@ -47,11 +47,15 @@ export function countdownLabel(date: string, time: string, locale: string): stri
     if (matchDt <= now) return null;
     const diff = matchDt.getTime() - now.getTime();
     const isAr = locale === 'ar';
-    const days = Math.floor(diff / 86400000);
+    // Calendar-day distance (not raw 24h periods) so a Friday match viewed on
+    // Wednesday evening doesn't show "Tomorrow" just because <48h remain.
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const matchMidnight = new Date(y, mo - 1, d);
+    const calDays = Math.round((matchMidnight.getTime() - todayMidnight.getTime()) / 86400000);
     const hours = Math.floor(diff / 3600000);
     const mins = Math.floor(diff / 60000);
-    if (days >= 2) return isAr ? `بعد ${days} أيام` : `in ${days}d`;
-    if (days === 1) return isAr ? 'غداً' : 'Tomorrow';
+    if (calDays >= 2) return isAr ? `بعد ${calDays} أيام` : `in ${calDays}d`;
+    if (calDays === 1) return isAr ? 'غداً' : 'Tomorrow';
     if (hours >= 1) return isAr ? `بعد ${hours}س` : `in ${hours}h`;
     if (mins >= 1) return isAr ? `بعد ${mins}د` : `in ${mins}m`;
     return isAr ? 'قريباً' : 'Soon';
