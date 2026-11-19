@@ -829,6 +829,8 @@ def add_competition_age(comp_id: int):
         cage.replacements_open = bool(data.get("replacements_open"))
     if "formation_required" in data:
         cage.formation_required = bool(data.get("formation_required"))
+    if "hide_standings" in data:
+        cage.hide_standings = bool(data.get("hide_standings"))
     db.session.add(cage)
     db.session.commit()
     return jsonify(cage.to_dict(include_fee=True)), 201
@@ -870,6 +872,8 @@ def update_competition_age(cage_id: int):
         cage.replacements_open = bool(data.get("replacements_open"))
     if "formation_required" in data:
         cage.formation_required = bool(data.get("formation_required"))
+    if "hide_standings" in data:
+        cage.hide_standings = bool(data.get("hide_standings"))
     db.session.commit()
     return jsonify(cage.to_dict(include_fee=True))
 

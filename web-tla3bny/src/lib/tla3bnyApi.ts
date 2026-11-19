@@ -276,6 +276,8 @@ export interface TCompAge {
   replacements_open: boolean;
   max_replacements: number;
   formation_required: boolean;
+  /** When true the standings tab is hidden from the public view for this sub-competition. */
+  hide_standings: boolean;
   stages?: TStage[];
 }
 

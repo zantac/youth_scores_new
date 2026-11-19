@@ -86,6 +86,17 @@ function CompetitionsContent() {
     });
   }, [router, token]);
 
+  // If the user somehow lands on the standings tab while it's hidden (e.g. via a
+  // shared URL), bounce them to matches.
+  useEffect(() => {
+    if (!comp || tab !== 'standings') return;
+    const cage = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
+    if (cage?.hide_standings) {
+      setTab('matches');
+      router.replace(compUrl(comp.id, cageId, 'matches'), { scroll: false });
+    }
+  }, [comp, cageId, tab, router]);
+
   // Keep the view in sync with the URL: open the competition the address names
   // (on first load or a shared link), and close when it goes away. Guarded by
   // the currently-open id so our own URL writes don't re-trigger a reload.
@@ -112,7 +123,8 @@ function CompetitionsContent() {
     // The open sub-competition — its own rules, description and (for academies)
     // fee drive the hero and the About tab.
     const selectedAge = cageId ? sortAges(comp.ages ?? []).find(a => a.id === cageId) : null;
-    const tabs = ['about', 'matches', 'standings', 'stats', 'honours'] as Tab[];
+    const tabs = (['about', 'matches', 'standings', 'stats', 'honours'] as Tab[])
+      .filter(t => t !== 'standings' || !selectedAge?.hide_standings);
     return (
       <div className="space-y-4">
         <button onClick={closeComp} className="text-sm text-hint hover:text-aqua">→ {nm(comp.name, comp.name_en)}</button>
