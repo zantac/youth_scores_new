@@ -419,6 +419,7 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
   const [docs, setDocs] = useState((age?.required_documents ?? []).join('\n'));
   const [replacementsOpen, setReplacementsOpen] = useState(age?.replacements_open ?? false);
   const [formationRequired, setFormationRequired] = useState(age?.formation_required ?? false);
+  const [hideStandings, setHideStandings] = useState(age?.hide_standings ?? false);
   const [etPeriods, setEtPeriods] = useState(age?.et_num_periods != null ? String(age.et_num_periods) : '');
   const [etMinutes, setEtMinutes] = useState(age?.et_period_minutes != null ? String(age.et_period_minutes) : '');
   const [ok, setOk] = useState(false);
@@ -445,6 +446,7 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
       required_documents: docList,
       replacements_open: replacementsOpen,
       formation_required: formationRequired,
+      hide_standings: hideStandings,
     };
     if (creating) {
       if (!createAgeId) return;
@@ -464,7 +466,7 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
       setOrganizerPhoto(null); setOrganizerPhotoPath(null);
       setFee(''); setDeadline(''); setDocs('');
       setF({ ...DEFAULT_RULES }); setEtPeriods(''); setEtMinutes('');
-      setReplacementsOpen(false); setFormationRequired(false); setCreateAgeId('');
+      setReplacementsOpen(false); setFormationRequired(false); setHideStandings(false); setCreateAgeId('');
       setIsDirty(false); setOpen(false);
       reload();
       return;
@@ -610,11 +612,16 @@ function AgeRuleCard({ token, age, reload, finished, canDelete, createCtx }: {
       </div>
 
       {/* Formation requirement */}
-      <div className="border-t border-bdr/50 pt-3">
+      <div className="border-t border-bdr/50 pt-3 space-y-2">
         <label className="flex items-center gap-2 text-sm text-text">
           <input type="checkbox" checked={formationRequired}
             onChange={e => { setFormationRequired(e.target.checked); setIsDirty(true); }} />
           {tt('إلزام المدرب بإرسال التشكيلة (الخطة والمراكز)', 'Require coach to submit formation (positions)')}
+        </label>
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input type="checkbox" checked={hideStandings}
+            onChange={e => { setHideStandings(e.target.checked); setIsDirty(true); }} />
+          {tt('إخفاء جدول الترتيب عن الجمهور', 'Hide standings table from public view')}
         </label>
       </div>
 

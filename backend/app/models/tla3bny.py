@@ -1044,6 +1044,12 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
     formation_required: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=False, server_default="0"
     )
+    # Organizer-controlled: hide the standings tab from the public view for
+    # this sub-competition (useful during early rounds or for knockout-only
+    # brackets where a table is misleading).
+    hide_standings: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default="0"
+    )
 
     competition: Mapped["Tla3bnyCompetition"] = relationship(back_populates="ages")
     age_category: Mapped["Tla3bnyAgeCategory"] = relationship()
@@ -1111,6 +1117,7 @@ class Tla3bnyCompetitionAge(TimestampMixin, db.Model):
             "replacements_open": self.replacements_open,
             "max_replacements": self.max_replacements,
             "formation_required": self.formation_required,
+            "hide_standings": self.hide_standings,
             "oldest_birth_year": (
                 self.age_category.oldest_birth_year if self.age_category else None
             ),
