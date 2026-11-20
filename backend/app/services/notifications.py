@@ -560,6 +560,11 @@ def notify_tla3bny_match_result(match) -> dict:
         if tid:
             results[f"team_{tid}"] = send_to_topic(
                 tla3bny_team_follow_topic(tid), title, body, data=data)
+    # Devices that haven't followed any competition/team/player ride the broadcast
+    # so every match result still reaches them — mirrors notify_tla3bny_round_results.
+    # The android tag (type + match id) collapses any overlap with the competition
+    # send into a single notification, so a follower is never double-notified.
+    results["broadcast"] = send_to_topic(TLA3BNY_TOPIC_RESULTS, title, body, data=data)
     return results
 
 
