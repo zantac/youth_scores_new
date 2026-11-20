@@ -498,12 +498,15 @@ def enter_result(match_id: int):
         notifications.notify_tla3bny_match_result(match)
         # Ping each scorer's own followers (a parent following their child). One per
         # distinct scorer, own goals excluded.
-        scorers: dict[int, str] = {}
+        scorer_ids: set[int] = set()
         for ev in events:
             pid = _int(ev.get("player_id"))
             if ev.get("event_type") == "goal" and not ev.get("is_own_goal") and pid:
-                scorers[pid] = (ev.get("player_name") or "").strip()
-        if scorers:
+                scorer_ids.add(pid)
+        if scorer_ids:
+            players = {p.id: p.name or "" for p in
+                       Tla3bnyPlayer.query.filter(Tla3bnyPlayer.id.in_(scorer_ids)).all()}
+            scorers = {pid: players.get(pid, "") for pid in scorer_ids}
             notifications.notify_tla3bny_player_goals(match, scorers)
     return jsonify(match.to_dict(include_events=True))
 
