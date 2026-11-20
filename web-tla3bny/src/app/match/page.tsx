@@ -1287,11 +1287,23 @@ function GoalSection({ events, m, rosters, lineups, onRemove, onReplace, onSave,
 
   // The lineup (or, if none, the approved roster) for a given team — used by both
   // the add form and the inline edit picker.
+  // When the match is live and a lineup exists, narrow to players currently on
+  // the pitch (starters + subbed-in, minus subbed-out) so the organizer doesn't
+  // accidentally attribute a goal to a player sitting on the bench. For finished
+  // matches show the full lineup so a corrected result can credit a subbed-off player.
   const rosterFor = (tid: number) => {
     const slots = lineups.find(l => l.team_id === tid)?.slots.filter(s => s.player_id != null) ?? [];
-    return slots.length > 0
+    const full = slots.length > 0
       ? slots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
       : (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
+    if (m.status === 'live' && slots.length > 0) {
+      const subbedIn  = new Set(events.filter(e => e.event_type === 'substitution_in'  && e.team_id === tid && e.player_id != null).map(e => e.player_id!));
+      const subbedOut = new Set(events.filter(e => e.event_type === 'substitution_out' && e.team_id === tid && e.player_id != null).map(e => e.player_id!));
+      const starters  = new Set(slots.filter(s => !s.is_substitute).map(s => s.player_id!));
+      const onField   = new Set([...starters, ...subbedIn].filter(id => !subbedOut.has(id)));
+      return full.filter(p => onField.has(p.player_id));
+    }
+    return full;
   };
 
   const [evTeam,   setEvTeam]   = useState(String(m.home_team_id));
