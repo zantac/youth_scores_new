@@ -8,6 +8,7 @@ import FollowButton from '@/components/ui/FollowButton';
 import Spinner from '@/components/ui/Spinner';
 import JerseyNumber from '@/components/ui/JerseyNumber';
 import { fetchTeam } from '@/lib/api';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { localize, teamNameLines, groupRosterByPosition, cloudinaryUrl } from '@/lib/utils';
 import type { TeamPublic } from '@/lib/types';
 
@@ -41,6 +42,7 @@ export default function TeamView({ id }: { id: string }) {
   // exactly as the standings and match cards show it.
   const lines = t ? teamNameLines({ name: t.name, clubName: t.club?.name }, locale) : null;
   const title = lines ? lines.primary : (isAr ? 'الفريق' : 'Team');
+  useDocumentMeta(lines ? lines.primary : '', lines?.alias);
 
   // Default the list fields so a partial payload renders as empty sections rather
   // than throwing on .length/.map (the error boundary is the backstop for the rest).

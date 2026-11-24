@@ -107,3 +107,84 @@ def test_inject_skips_jsonld_when_no_schema_type():
         html, {"title": "Team A"}, "https://x/", "https://x/i.png",
     )
     assert "application/ld+json" not in out
+
+
+# ── Search-engine hints: canonical, max-image-preview, real-image-only JSON-LD ──
+
+from types import SimpleNamespace
+
+from flask import Flask
+
+from app import _canonical_entity_url, _player_club_name, _render_share_page
+
+_SHELL = "<html><head><title>x</title><meta name=\"description\" content=\"\"/></head><body></body></html>"
+
+
+def test_canonical_entity_url_normalises_path_routes():
+    b = "https://www.youthscores.org"
+    assert _canonical_entity_url(b, "/player/12") == f"{b}/player/12/"
+    assert _canonical_entity_url(b, "/player/12/") == f"{b}/player/12/"
+    assert _canonical_entity_url(b, "/competition/3/") == f"{b}/competition/3/"
+    # Legacy query-form and non-entity pages get no canonical.
+    assert _canonical_entity_url(b, "/news/") is None
+    assert _canonical_entity_url(b, "/player/") is None
+    assert _canonical_entity_url(b, "/player/_/") is None
+
+
+def test_inject_adds_robots_hint_and_canonical():
+    out = _inject_share_meta(
+        _SHELL, {"title": "P"}, "https://x/player/1/?tab=stats", "https://x/p.jpg",
+        schema_type="Person", canonical="https://x/player/1/",
+    )
+    assert '<meta name="robots" content="max-image-preview:large"/>' in out
+    assert '<link rel="canonical" href="https://x/player/1/"/>' in out
+
+
+def test_inject_without_canonical_emits_none():
+    out = _inject_share_meta(_SHELL, {"title": "N"}, "https://x/news/?id=1", "https://x/i.png")
+    assert 'rel="canonical"' not in out
+    assert "max-image-preview:large" in out
+
+
+def test_jsonld_extra_is_merged():
+    meta = {"title": "P", "jsonld_extra": {"memberOf": {"@type": "SportsTeam", "name": "الأهلي"}}}
+    obj = _parse(_jsonld_script("Person", meta, "https://x/player/1/", ""))
+    assert obj["memberOf"]["name"] == "الأهلي"
+
+
+def _render(tmp_path, path, meta):
+    shell = tmp_path / "index.html"
+    shell.write_text(_SHELL, encoding="utf-8")
+    with Flask(__name__).test_request_context(path, base_url="https://www.youthscores.org"):
+        return _render_share_page(str(shell), meta, og_type="profile", schema_type="Person")
+
+
+def test_player_without_photo_has_no_jsonld_image_but_keeps_og_fallback(tmp_path):
+    out = _render(tmp_path, "/player/7", {"title": "لاعب", "image": ""})
+    assert "image" not in _extract_jsonld(out)
+    assert "icons/icon-512.png" in out  # og:image still has the app-icon fallback
+    assert '<link rel="canonical" href="https://www.youthscores.org/player/7/"/>' in out
+
+
+def test_player_with_photo_has_it_in_jsonld(tmp_path):
+    photo = "https://res.cloudinary.com/demo/image/upload/p.jpg"
+    out = _render(tmp_path, "/player/7/?tab=career", {"title": "لاعب", "image": photo})
+    assert _extract_jsonld(out)["image"] == photo
+    assert '<link rel="canonical" href="https://www.youthscores.org/player/7/"/>' in out
+
+
+def _reg(club_ar, start, end=None):
+    club = SimpleNamespace(name_ar=club_ar, name_en=None)
+    return SimpleNamespace(team=SimpleNamespace(club=club), start_date=start, end_date=end)
+
+
+def test_player_club_prefers_current_registration():
+    from datetime import date
+
+    p = SimpleNamespace(registrations=[
+        _reg("قديم", date(2020, 1, 1), date(2021, 1, 1)),
+        _reg("الحالي", date(2019, 1, 1)),  # open-ended → current, wins despite older start
+        _reg("سابق", date(2023, 1, 1), date(2024, 1, 1)),
+    ])
+    assert _player_club_name(p) == "الحالي"
+    assert _player_club_name(SimpleNamespace(registrations=[])) == ""

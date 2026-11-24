@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchCoach } from '@/lib/api';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { localize, cloudinaryUrl } from '@/lib/utils';
 import type { CoachFull } from '@/lib/types';
 
@@ -20,6 +21,8 @@ export default function CoachView({ id }: { id: string }) {
     setLoading(true);
     fetchCoach(id).then(setC).finally(() => setLoading(false));
   }, [id]);
+
+  useDocumentMeta(c ? localize(c.name, locale) : '');
 
   if (loading) return <div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>;
   if (!c) return <div className="p-8 text-center text-hint">{isAr ? 'غير موجود' : 'Not found'}</div>;

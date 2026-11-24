@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchMatchFull } from '@/lib/api';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { hrefFor } from '@/lib/links';
 import { localize, formatMatchDate, cloudinaryUrl, groupLabel, teamNameLines } from '@/lib/utils';
 import type { MatchFull } from '@/lib/types';
@@ -50,6 +51,13 @@ export default function MatchView({ id }: { id: string }) {
     }, 20_000);
     return () => clearInterval(iv);
   }, [id, isLive]);
+
+  useDocumentMeta(
+    m?.home && m?.away
+      ? `${teamNameLines(m.home, locale).primary} × ${teamNameLines(m.away, locale).primary}`
+      : '',
+    m?.competition ? localize(m.competition.name, locale) : '',
+  );
 
   if (loading) return <div className="min-h-[70vh] grid place-items-center"><div className="w-7 h-7 border-2 border-bdr border-t-aqua rounded-full animate-spin" /></div>;
   // A match without both sides is unrenderable — treat it as missing rather than

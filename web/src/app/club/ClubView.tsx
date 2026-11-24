@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import AppBar from '@/components/ui/AppBar';
 import { fetchClub } from '@/lib/api';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { hrefFor } from '@/lib/links';
 import { localize, safeUrl, cloudinaryUrl } from '@/lib/utils';
 import type { ClubPublic } from '@/lib/types';
@@ -24,6 +25,7 @@ export default function ClubView({ id }: { id: string }) {
   }, [id]);
 
   const name = c ? localize(c.name, locale) : '';
+  useDocumentMeta(name);
 
   const socials = c ? ([
     ['website', c.website, '🌐'], ['facebook', c.facebook, 'f'],

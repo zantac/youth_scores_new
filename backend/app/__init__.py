@@ -381,6 +381,8 @@ def _jsonld_script(schema_type: str, meta: dict, url: str, image: str) -> str:
     if meta.get("description"):
         obj["description"] = meta["description"]
     obj.update(event)
+    # Extra type-specific properties (e.g. a player's memberOf club).
+    obj.update(meta.get("jsonld_extra") or {})
     raw = json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
     return f'<script type="application/ld+json">{raw}</script>'
 
@@ -389,11 +391,17 @@ def _inject_share_meta(
     html_text: str, meta: dict, url: str, image: str,
     og_type: str = "website", schema_type: str | None = None,
     image_dims: tuple[int, int] | None = None, large_image: bool = False,
+    canonical: str | None = None, jsonld_image: str | None = None,
 ) -> str:
     """Point the served card at this item: rewrite the generic <title>/description
     (for the browser tab + plain scrapers), add the OG + Twitter tags the social
     crawlers read, and — when schema_type is given — a JSON-LD structured-data
-    block so search engines get real content from the client-rendered shell."""
+    block so search engines get real content from the client-rendered shell.
+
+    ``canonical`` adds <link rel="canonical"> (path-route entity pages, so ?tab=
+    variants and the no-trailing-slash form fold into one URL). ``jsonld_image``
+    overrides the image in the JSON-LD only: pass "" when ``image`` is just the
+    app-icon fallback, so a Person isn't described with the site logo."""
     import html as _h
     import re
 
@@ -437,8 +445,14 @@ def _inject_share_meta(
     if d:
         tags.append(f'<meta property="og:description" content="{d}"/>')
         tags.append(f'<meta name="twitter:description" content="{d}"/>')
+    # Let Google show a large thumbnail (e.g. a player's photo) beside the result;
+    # without this it may fall back to a small one or none.
+    tags.append('<meta name="robots" content="max-image-preview:large"/>')
+    if canonical:
+        tags.append(f'<link rel="canonical" href="{_h.escape(canonical)}"/>')
     if schema_type:
-        tags.append(_jsonld_script(schema_type, meta, url, image))
+        ld_image = image if jsonld_image is None else jsonld_image
+        tags.append(_jsonld_script(schema_type, meta, url, ld_image))
     html_text = re.sub(r"<title>.*?</title>", f"<title>{t}</title>", html_text, count=1, flags=re.S)
     html_text = re.sub(
         r'<meta\s+name="description"[^>]*/?>',
@@ -478,6 +492,21 @@ def _upload_image_dims(image_url: str) -> tuple[int, int] | None:
         return None
 
 
+_CANONICAL_ENTITY_RE = re.compile(
+    r"/(match|club|competition|team|player|coach)/(\d+)/?"
+)
+
+
+def _canonical_entity_url(base: str, path: str) -> str | None:
+    """The canonical URL for a /<entity>/<id> path-route page: always the
+    trailing-slash form the sitemap lists, with no query string (so ?tab=/?stat=
+    variants fold into one indexed page). None for any other path."""
+    m = _CANONICAL_ENTITY_RE.fullmatch(path or "")
+    if not m:
+        return None
+    return f"{base}/{m.group(1)}/{m.group(2)}/"
+
+
 def _render_share_page(
     index_abs: str, meta: dict | None, og_type: str = "website",
     schema_type: str | None = None,
@@ -511,12 +540,16 @@ def _render_share_page(
             if image:
                 large_image = True
                 image_dims = _upload_image_dims(image)
+        jsonld_image = None  # same as og:image
         if not image:
             image = base + "/icons/icon-512.png"
             image_dims, large_image = (512, 512), False
+            jsonld_image = ""  # the app icon isn't the item's image
         return _inject_share_meta(
             html_text, meta, url, image, og_type=og_type, schema_type=schema_type,
             image_dims=image_dims, large_image=large_image,
+            canonical=_canonical_entity_url(base, request.path),
+            jsonld_image=jsonld_image,
         )
     except Exception:  # noqa: BLE001
         return None
@@ -867,8 +900,26 @@ def _player_share_meta(player_id: int) -> dict | None:
         bits.append(pos)
     if p.birth_year:
         bits.append(f"مواليد {p.birth_year}")
-    return {"title": name, "description": " · ".join(bits) or "ملف لاعب",
+    meta = {"title": name, "description": " · ".join(bits) or "ملف لاعب",
             "image": p.profile_pic_url or ""}
+    club = _player_club_name(p)
+    if club:
+        # Ties the person to their club for search engines (name + club queries).
+        meta["jsonld_extra"] = {"memberOf": {"@type": "SportsTeam", "name": club}}
+    return meta
+
+
+def _player_club_name(p) -> str:
+    """The club of the player's current registration (else the most recent one),
+    or "" when unknown. Used only for the JSON-LD memberOf."""
+    from datetime import date
+
+    regs = [r for r in (p.registrations or []) if r.team and r.team.club]
+    if not regs:
+        return ""
+    regs.sort(key=lambda r: (r.end_date is None, r.start_date or date.min), reverse=True)
+    club = regs[0].team.club
+    return (club.name_ar or club.name_en or "").strip()
 
 
 def _player_share_page(index_abs: str, item_id: int | None = None):

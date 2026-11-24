@@ -16,6 +16,7 @@ import {
   formatMatchDate, todayStr, localize, groupKey, groupLabel, matchesByGroup, sortGroups, teamNameLines, teamNameInline, groupRosterByPosition, safeUrl, cloudinaryUrl,
 } from '@/lib/utils';
 import { competitionDataUrl } from '@/lib/api';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { hrefFor } from '@/lib/links';
 
 // View-state (tab/team/stat/week) lives in query params; write it onto the CURRENT
@@ -1388,6 +1389,7 @@ export default function CompetitionView({ id: idProp }: { id?: string }) {
   const title = (titleAr || titleEn)
     ? (localize({ ar: titleAr, en: titleEn }, locale) || rawTitle)
     : (rawTitle || metaTitle);
+  useDocumentMeta(title);
 
   useEffect(() => {
     if (url) loadCompetition(url, rawTitle);
