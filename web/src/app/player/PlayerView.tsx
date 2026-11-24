@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { fetchPlayer } from '@/lib/api';
 import { hrefFor } from '@/lib/links';
+import { useDocumentMeta } from '@/lib/useDocumentMeta';
 import { localize, cloudinaryUrl } from '@/lib/utils';
 import TabStrip from '@/components/ui/TabStrip';
 import type { PlayerFull, PlayerMatch, PlayerSeasonStats } from '@/lib/types';
@@ -88,6 +89,11 @@ export default function PlayerView({ id }: { id: string }) {
     setLoading(true);
     fetchPlayer(id).then(setP).finally(() => setLoading(false));
   }, [id]);
+
+  // Real per-player title/description for search engines (see useDocumentMeta).
+  const metaPos = p ? (localize(p.sub_position, locale) || localize(p.position, locale)) : '';
+  const metaBorn = p?.birth_year ? `${isAr ? 'مواليد' : 'Born'} ${p.birth_year}` : '';
+  useDocumentMeta(p ? localize(p.name, locale) : '', [metaPos, metaBorn].filter(Boolean).join(' · '));
 
   if (loading) return <Spinner />;
   if (!p) return <div className="p-8 text-center text-hint">{isAr ? 'اللاعب غير موجود' : 'Player not found'}</div>;
