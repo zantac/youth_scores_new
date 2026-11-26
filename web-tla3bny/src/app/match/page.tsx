@@ -1511,18 +1511,33 @@ function EventSection({ title, icon, events, types, m, rosters, lineups, coaches
   const isCardSection = types.some(t => CARD_EV.has(t as EvType));
   const [subject, setSubject] = useState<'player' | 'coach'>('player');
 
-  // The lineup (or approved roster) for a team — used by the add form and edit.
-  const rosterFor = (tid: number) => {
-    const slots = lineups.find(l => l.team_id === tid)?.slots.filter(s => s.player_id != null) ?? [];
-    return slots.length > 0
-      ? slots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
-      : (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
-  };
-
   // Edit an existing event by loading it into the form below (youthscores-style),
   // with the full field set — type, team, player, minute, flags. Save then
   // replaces it in place instead of appending.
   const [editId, setEditId] = useState<number | null>(null);
+
+  // The lineup (or approved roster) for a team — used by the add form and edit.
+  // Cards during a live match (same rule as the goal/assist picker): narrow to
+  // players currently on the pitch — starters + subbed-in, minus subbed-out and
+  // minus anyone already sent off. The player of the event being edited stays
+  // selectable so an existing card can still be corrected.
+  const rosterFor = (tid: number) => {
+    const slots = lineups.find(l => l.team_id === tid)?.slots.filter(s => s.player_id != null) ?? [];
+    const full = slots.length > 0
+      ? slots.map(s => ({ player_id: s.player_id!, player_name: s.player_name }))
+      : (rosters[tid] ?? []).map(p => ({ player_id: p.player_id, player_name: p.player_name }));
+    if (isCardSection && m.status === 'live' && slots.length > 0) {
+      const teamEv    = events.filter(e => e.team_id === tid && e.player_id != null && e.id !== editId);
+      const subbedIn  = new Set(teamEv.filter(e => e.event_type === 'substitution_in').map(e => e.player_id!));
+      const subbedOut = new Set(teamEv.filter(e => e.event_type === 'substitution_out').map(e => e.player_id!));
+      const sentOff   = new Set(teamEv.filter(e => e.event_type === 'red' || e.event_type === 'second_yellow').map(e => e.player_id!));
+      const starters  = new Set(slots.filter(s => !s.is_substitute).map(s => s.player_id!));
+      const onField   = new Set([...starters, ...subbedIn].filter(id => !subbedOut.has(id) && !sentOff.has(id)));
+      const editing   = editId != null ? events.find(e => e.id === editId)?.player_id : null;
+      return full.filter(p => onField.has(p.player_id) || p.player_id === editing);
+    }
+    return full;
+  };
   const resetForm = () => {
     setEvPlayer(''); setEvCoach(''); setEvMinute(''); setIsEvET(false);
     if (isPenSection) { setKickOrder(''); setIsWinningKick(false); }
