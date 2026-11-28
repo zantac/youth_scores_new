@@ -526,12 +526,11 @@ def _t3_comp_name(comp) -> str:
     return (comp.name or comp.name_en or "البطولة") if comp else "البطولة"
 
 
-def _t3_results_url(match) -> str:
-    """Deep-link to where a match's result/lineup shows: the sub-competition view
-    when known, else the competition page."""
-    if match.competition_age_id:
-        return f"/competitions?comp={match.competition_id}&cage={match.competition_age_id}"
-    return f"/competition?id={match.competition_id}"
+def _t3_match_url(match, tab: str | None = None) -> str:
+    """Deep-link to the match page itself (score, events, lineups). ``tab`` picks
+    the match page's opening tab ('events' for results/goals; default 'lineup')."""
+    url = f"/match?id={match.id}"
+    return f"{url}&tab={tab}" if tab else url
 
 
 def notify_tla3bny_match_result(match) -> dict:
@@ -550,7 +549,7 @@ def notify_tla3bny_match_result(match) -> dict:
         "type": "t3_result",
         "id": match.id,
         "competition_id": match.competition_id,
-        "url": _t3_results_url(match),
+        "url": _t3_match_url(match, "events"),
     }
     results = {
         "competition": send_to_topic(
@@ -588,7 +587,7 @@ def notify_tla3bny_player_goals(match, scorers: dict) -> dict:
                 "type": "t3_player_goal",
                 "id": f"{match.id}-{pid}",
                 "competition_id": match.competition_id,
-                "url": _t3_results_url(match),
+                "url": _t3_match_url(match, "events"),
             },
         )
     return results
@@ -605,7 +604,7 @@ def notify_tla3bny_lineup(match, team) -> dict:
             "type": "t3_lineup",
             "id": match.id,
             "competition_id": match.competition_id,
-            "url": _t3_results_url(match),
+            "url": _t3_match_url(match),
         },
     )
 
