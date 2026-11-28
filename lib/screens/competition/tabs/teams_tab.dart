@@ -59,10 +59,18 @@ class _TeamsTabState extends State<TeamsTab>
     final l10n     = L10n(provider.locale);
 
     // Filter by search query, keep original order within each group
-    final locale = provider.locale;
-    final filtered = comp.teams
-        .where((t) => t.getName(locale).toLowerCase().contains(_query.toLowerCase()))
-        .toList();
+    // Match the club's original name as well as the team's alternative name —
+    // the card shows both (club on top, alias beneath), so either must find it.
+    final needle = _query.trim().toLowerCase();
+    final filtered = needle.isEmpty
+        ? comp.teams
+        : comp.teams.where((t) {
+            final names = [
+              ...t.name.values,
+              ...?t.clubName?.values,
+            ];
+            return names.any((n) => n.toLowerCase().contains(needle));
+          }).toList();
 
     final grouped = _group(filtered, comp.groupOrder);
 
